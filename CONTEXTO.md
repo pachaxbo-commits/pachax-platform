@@ -60,6 +60,7 @@ Abrir C:/PACHAX como proyecto y pedir: «Lee AGENTS.md y CONTEXTO.md, revisa el 
 - Instalación reproducible con npm ci en frontend y functions, sin vulnerabilidades reportadas por npm en esa ejecución.
 - Compilación TypeScript/Vite y sincronización Capacitor correctas.
 - Android assembleDebug correcto con com.pachax.app. Firma debug únicamente.
+- Compilación del APK de prueba instrumental de la app (`:app:assembleDebugAndroidTest`) correcta; no ejecutado en un dispositivo físico. El comando global assembleDebugAndroidTest también intenta compilar pruebas propias de dependencias y encontró versiones Kotlin duplicadas en capacitor-cordova-android-plugins. Usar el objetivo :app para las pruebas de esta aplicación; revisar esa dependencia antes de ampliar pruebas de plugins.
 - 55 pruebas del motor de distribución y prueba de traducciones de reportes aprobadas.
 - 50 comprobaciones de reglas y operaciones del servidor aprobadas en demo-pachax-platform, incluidas transacciones, concurrencia, créditos cruzados y permisos de soporte.
 - Acceso desde Chrome a las cinco cuentas ficticias aprobado, sin error de permisos en sus pantallas iniciales. Esta prueba no reemplaza un simulacro exhaustivo de cada botón en el nuevo Firebase.
