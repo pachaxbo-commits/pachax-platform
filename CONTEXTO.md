@@ -70,3 +70,12 @@ Abrir C:/PACHAX como proyecto y pedir: «Lee AGENTS.md y CONTEXTO.md, revisa el 
 - No hubo despliegue, push a GitHub, migración de datos ni creación de usuarios reales.
 
 Pendientes reales: configuración y permisos del nuevo Firebase, repositorio remoto, administrador real, firma de publicación, validación Bluetooth con dispositivo físico, rediseño de PACHAX y arquitectura multiempresa. No presentar esta preparación como una plataforma multiempresa ya lista para vender.
+
+## Gestión administrativa de usuarios (11/09/2026)
+
+- Administración puede editar el nombre y el correo de acceso de cada usuario. El cambio se coordina en Firebase Authentication, el perfil de miembro y el mapa interno del usuario; el correo nuevo se usa en el siguiente inicio de sesión.
+- Administración puede desactivar, reactivar, cambiar la contraseña o eliminar el acceso. La eliminación conserva ventas, despachos y movimientos históricos porque esos registros guardan sus propios datos de auditoría.
+- No se permite eliminar la propia cuenta ni desactivar, eliminar o cambiar de rol a la última cuenta administrativa activa.
+- Las modificaciones y bajas pasan por `changePachaxMemberPassword`; las reglas bloquean cambios directos para que no se pueda evitar la protección del servidor.
+- Validación local aprobada: TypeScript, ESLint, build web, 55 pruebas del motor, etiquetas de reportes en español, 56 comprobaciones de reglas/operaciones y prueba visual de gestión de usuarios a 360 x 800.
+- `scripts/validate-user-management.cjs` es destructivo y se debe ejecutar únicamente contra `demo-pachax-platform` después de `npm run seed:demo`, con los emuladores y Vite activos. Puede necesitar `PLAYWRIGHT_MODULE` si Playwright no está instalado en el proyecto.
