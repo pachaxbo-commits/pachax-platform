@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PACHAX</string>
+    <string name="title_activity_main">PACHAX</string>
+    <string name="package_name">com.pachax.app</string>
+    <string name="custom_url_scheme">com.pachax.app</string>
+</resources>

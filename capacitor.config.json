@@ -1,0 +1,8 @@
+{
+  "appId": "com.pachax.app",
+  "appName": "PACHAX",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
