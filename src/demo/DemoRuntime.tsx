@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { RestaurantDemo } from './restaurant/RestaurantDemo'
 import { DistributionDemo } from './distribution/DistributionDemo'
 import { QuickRetailDemo } from './quick-retail/QuickRetailDemo'
 import type { DemoTemplateId, DemoMode } from './demoTypes'
+import type { StudioBranding } from '../studio/branding/brandingTypes'
+import { applyStudioThemeTokens } from '../studio/branding/brandingAdapter'
 import { Sparkles, ArrowLeft, Check, X } from 'lucide-react'
 
 export function DemoRuntime({
@@ -10,12 +12,16 @@ export function DemoRuntime({
   mode = 'team',
   simulatedRole,
   isPublicDemo = false,
+  isStudioEmbed = false,
+  initialRole,
   onSelectRole,
 }: {
   templateId: DemoTemplateId
   mode?: DemoMode
   simulatedRole?: string
   isPublicDemo?: boolean
+  isStudioEmbed?: boolean
+  initialRole?: string
   onSelectRole?: (roleId: string) => void
 }) {
   const [isContactModalOpen, setIsContactModalOpen] = useState(false)
@@ -23,20 +29,63 @@ export function DemoRuntime({
   const [leadBusinessName, setLeadBusinessName] = useState('')
   const [leadPhone, setLeadPhone] = useState('')
 
+  const [activeRole, setActiveRole] = useState<string>(
+    simulatedRole || initialRole || 'admin'
+  )
+  const [branding, setBranding] = useState<StudioBranding | null>(null)
+
+  // Escuchar sincronización en vivo desde PACHAX Studio cuando estamos en iframe
+  useEffect(() => {
+    if (!isStudioEmbed) return
+
+    const handleMessage = (event: MessageEvent) => {
+      // Validar origen exacto
+      if (event.origin !== window.location.origin) return
+
+      if (event.data?.type === 'PACHAX_STUDIO_SYNC') {
+        const payload = event.data.payload || {}
+        if (payload.role) {
+          setActiveRole(payload.role)
+        }
+        if (payload.branding) {
+          setBranding(payload.branding)
+          applyStudioThemeTokens(document, payload.branding)
+        }
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    // Notificar al shell padre que el preview está montado y listo para sincronizar
+    try {
+      window.parent?.postMessage({ type: 'PACHAX_PREVIEW_READY' }, window.location.origin)
+    } catch {
+      // En caso de entorno restringido
+    }
+
+    return () => window.removeEventListener('message', handleMessage)
+  }, [isStudioEmbed])
+
+  // Sincronizar activeRole si cambia la prop simulatedRole
+  useEffect(() => {
+    if (simulatedRole) {
+      setActiveRole(simulatedRole)
+    }
+  }, [simulatedRole])
+
   const templateInfo = {
     restaurant: {
       name: 'Restaurante',
-      company: 'Bistró Demo',
+      company: branding?.companyName || 'Bistró Demo',
       desc: 'Pedidos, mesas, cocina, caja e inventario.',
     },
     distribution: {
       name: 'Producción y distribución',
-      company: 'Distribuidora Demo',
+      company: branding?.companyName || 'Distribuidora Demo',
       desc: 'Inventario, almacenes, despachos, rutas, ventas, créditos y retornos.',
     },
     retail: {
       name: 'Comercio / Venta rápida',
-      company: 'Amapola Demo',
+      company: branding?.companyName || 'Amapola Demo',
       desc: 'Venta por unidad o peso, atención en mostrador, caja e inventario.',
     },
   }[templateId]
@@ -50,6 +99,32 @@ export function DemoRuntime({
       setLeadBusinessName('')
       setLeadPhone('')
     }, 2500)
+  }
+
+  // En modo Studio Embed, el iframe renderiza exclusivamente la plantilla ocupando el 100%
+  if (isStudioEmbed) {
+    return (
+      <div
+        className="w-full min-h-screen text-slate-900 font-sans"
+        style={{ backgroundColor: branding?.backgroundColor || 'var(--background)' }}
+      >
+        {templateId === 'restaurant' && (
+          <RestaurantDemo mode={mode} simulatedRole={activeRole} onSelectRole={onSelectRole} />
+        )}
+        {templateId === 'distribution' && (
+          <DistributionDemo
+            mode={mode}
+            simulatedRole={activeRole}
+            onSelectRole={onSelectRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
+          />
+        )}
+        {templateId === 'retail' && (
+          <QuickRetailDemo mode={mode} simulatedRole={activeRole} onSelectRole={onSelectRole} />
+        )}
+      </div>
+    )
   }
 
   return (
@@ -94,13 +169,19 @@ export function DemoRuntime({
       {/* Contenedor principal de la demo */}
       <main className={`flex-1 w-full max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}>
         {templateId === 'restaurant' && (
-          <RestaurantDemo mode={mode} simulatedRole={simulatedRole} onSelectRole={onSelectRole} />
+          <RestaurantDemo mode={mode} simulatedRole={activeRole} onSelectRole={onSelectRole} />
         )}
         {templateId === 'distribution' && (
-          <DistributionDemo mode={mode} simulatedRole={simulatedRole} onSelectRole={onSelectRole} />
+          <DistributionDemo
+            mode={mode}
+            simulatedRole={activeRole}
+            onSelectRole={onSelectRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
+          />
         )}
         {templateId === 'retail' && (
-          <QuickRetailDemo mode={mode} simulatedRole={simulatedRole} onSelectRole={onSelectRole} />
+          <QuickRetailDemo mode={mode} simulatedRole={activeRole} onSelectRole={onSelectRole} />
         )}
       </main>
 
@@ -168,7 +249,7 @@ export function DemoRuntime({
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs flex items-center justify-center gap-2"
+                    className="w-full py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <span>Enviar solicitud</span>
                   </button>

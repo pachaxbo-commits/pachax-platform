@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import type { DemoTemplateId } from '../demo/demoTypes'
 import { StudioHome } from './StudioHome'
 import { StudioShell } from './StudioShell'
-import { DemoRuntime } from '../demo/DemoRuntime'
 import { BrandingProvider } from './branding/BrandingContext'
 
 export function StudioApp() {
@@ -35,15 +34,7 @@ export function StudioApp() {
         onBackToHome={() => setSelectedTemplate(null)}
         currentRole={simulatedRole}
         onSelectRole={(r) => setSimulatedRole(r)}
-      >
-        <DemoRuntime
-          templateId={selectedTemplate}
-          mode="team"
-          simulatedRole={simulatedRole}
-          isPublicDemo={false}
-          onSelectRole={(r) => setSimulatedRole(r)}
-        />
-      </StudioShell>
+      />
     </BrandingProvider>
   )
 }
