@@ -1,5 +1,47 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint vigente: Arquitectura Can贸nica de Restaurante e Integraci贸n con PACHAX Studio (22/09/2026)
+
+Rama `fix/restaurant-canonical-preview`. Se aplic贸 el principio de **Single Canonical Template Experience** a Restaurante (`restaurant_pos`), igualando la arquitectura can贸nica previamente implementada en Producci贸n y distribuci贸n.
+
+### Realizado en esta fase
+
+1. **Capa Can贸nica de Restaurante (`RestaurantExperience`)**:
+   - Se cre贸 `src/modules/restaurant/views/RestaurantExperience.tsx` como la 煤nica capa visual compartida y can贸nica.
+   - Header responsive: logo de empresa personalizable (`logoUrl`), nombre de la empresa, indicador interactivo de turno (abierto/cerrado), usuario, rol activo y bot贸n de cerrar sesi贸n.
+   - Navegaci贸n responsive estandarizada:
+     - Desktop (`md:flex` a >=768px): barra lateral de 56 unidades (`w-56`) con acceso a los 14 m贸dulos can贸nicos permitidos seg煤n el rol del usuario, estilizada con tokens `--primary`, `--primary-soft` y `--primary-hover`.
+     - Mobile (`md:hidden` a <768px): barra inferior `BottomNav` fija con 3 o 4 accesos directos prioritarios por rol (ej. POS, Pedidos, Mesas o Cocina) m谩s bot贸n modal de "M谩s opciones" para los restantes m贸dulos.
+     - Di谩logo de confirmaci贸n accesible para cerrar sesi贸n.
+   - Contenedor can贸nico modular: renderiza los 14 m贸dulos operativos (`dashboard`, `pos`, `orders`, `tables`, `kitchen`, `history`, `cash`, `inventory`, `products`, `customers`, `users`, `reports`, `settings`, `printers`).
+
+2. **Entrada Productiva de Restaurante (`RestaurantApp`)**:
+   - Creado `src/modules/restaurant/views/RestaurantApp.tsx`.
+   - Aplica el tema de Restaurante (`applyTenantTheme`) y delega la presentaci贸n a `RestaurantExperience`.
+
+3. **Adaptador de Demo y Studio (`RestaurantDemo`)**:
+   - Refactorizado `src/demo/restaurant/RestaurantDemo.tsx` para actuar estrictamente como adaptador de estado y mock data local hacia `RestaurantExperience`.
+   - **Preservaci贸n total del trabajo previo**: conserva el 100% de la l贸gica de turnos (`Shift`), ciclo de vida de mesas (`RestaurantTable`), comandas por lotes con impresi贸n (`submittedBatches`), pagos, eventos de auditor铆a y persistencia `localStorage`.
+   - Eliminada por completo la barra de navegaci贸n horizontal paralela y duplicada.
+
+4. **Conexi贸n Productiva Estricta en `src/App.tsx`**:
+   - Se utiliza `getActiveTenant()?.businessType` (origen can贸nico `restaurant_pos`, `route_distribution`, `gelateria_weight_cafe`).
+   - Evita la colisi贸n provocada por el adapter legacy de `authStore.ts` (que mapea todo lo que no sea distribuci贸n a `restaurant`).
+   - Mapeo productivo:
+     - `restaurant_pos` -> `RestaurantApp`
+     - `route_distribution` -> `DistributionShell` / `DistributionApp`
+     - `gelateria_weight_cafe` u otras plantillas -> `UnauthorizedView` ("La plantilla de esta empresa todav铆a no tiene una interfaz operativa habilitada.") hasta implementar `QuickRetailExperience`.
+
+5. **Sincronizaci贸n en Tiempo Real de Branding en Studio y Demos**:
+   - `DemoRuntime.tsx` propaga `branding.logoUrl` y `branding.companyName` a `RestaurantDemo`.
+   - Los cambios de logo y nombre en `BrandingDrawer` se reflejan de inmediato en el iframe del simulador responsive.
+
+6. **Verificaci贸n y Pruebas**:
+   - `npm run typecheck`: 0 errores.
+   - `npm run test:platform`: 20/20 aprobadas.
+   - `npm run test:distribution`: 55/55 aprobadas.
+   - `npm run build`: bundle generado exitosamente (incluye chunk optimizado `RestaurantExperience-*.js`).
+
 ## Checkpoint vigente: PACHAX Studio Can贸nico e Integraci贸n Can贸nica de Distribuci贸n (22/09/2026)
 
 Rama `fix/studio-canonical-preview`. Se refactoriz贸 la arquitectura de PACHAX Studio para convertirlo en un visor fiel de las interfaces can贸nicas reales, eliminando implementaciones visuales paralelas y garantizando paridad 1:1.
@@ -238,11 +280,11 @@ Pendientes reales: configuraci贸n y permisos del nuevo Firebase, repositorio rem
 
 ## Avance: flujo restaurante en PACHAX Studio (22/09/2026)
 
-Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurante de Studio (`src/demo/restaurant`), sin conectar Firebase ni alterar la aplicaci髇 de distribuci髇.
+Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurante de Studio (`src/demo/restaurant`), sin conectar Firebase ni alterar la aplicaci锟絥 de distribuci锟絥.
 
-- Turno local persistido en `localStorage`: apertura con usuario/fondo, ventas por m閠odo, resumen, efectivo esperado, bloqueo del POS y cierre impedido mientras haya mesas/cuentas abiertas. Historial de turnos y campos de conciliaci髇 preparados.
-- Mesas clicables con detalle, apertura y consumo, solicitud/reapertura de cuenta, selector r醦ido de productos, creaci髇 de producto asociado al cat醠ogo local y pago con c醠culo del vuelto; mesa se libera despu閟 del cobro.
-- Pedidos, l韓eas/timestamps, lotes de comanda, identificadores de turno/mesa, pago y eventos de auditor韆 guardados en datos demo locales. Impresi髇 del navegador se usa para la vista imprimible; batch y sus l韓eas quedan trazables y bloqueadas. Adaptaci髇 opcional compatible en `src/types.ts`.
-- POS/caja del template utiliza estado compartido y no acepta nuevas 髍denes ni cobros sin turno.
-- Verificaci髇: `npm run typecheck`, lint focalizado y `npm run build:emulator` aprobados. `npm run lint` global mantiene 232 errores/6 advertencias heredados; el build normal requiere Firebase deliberadamente sin configurar. Dev server local en puerto 5190 (`npm run dev:emulator -- --host 0.0.0.0`).
-- Pendiente: revisi髇 manual completa en viewport m髒il; completar soporte de m閠odo tarjeta/otro en el esquema com鷑 de `PaymentMethod`; entrega conectada requiere repositorios tenant/backend y cola/idempotencia del servidor. Los datos de Studio son demo, locales al navegador y no constituyen caja transaccional multiusuario.
+- Turno local persistido en `localStorage`: apertura con usuario/fondo, ventas por m锟絫odo, resumen, efectivo esperado, bloqueo del POS y cierre impedido mientras haya mesas/cuentas abiertas. Historial de turnos y campos de conciliaci锟絥 preparados.
+- Mesas clicables con detalle, apertura y consumo, solicitud/reapertura de cuenta, selector r锟絧ido de productos, creaci锟絥 de producto asociado al cat锟絣ogo local y pago con c锟絣culo del vuelto; mesa se libera despu锟絪 del cobro.
+- Pedidos, l锟絥eas/timestamps, lotes de comanda, identificadores de turno/mesa, pago y eventos de auditor锟絘 guardados en datos demo locales. Impresi锟絥 del navegador se usa para la vista imprimible; batch y sus l锟絥eas quedan trazables y bloqueadas. Adaptaci锟絥 opcional compatible en `src/types.ts`.
+- POS/caja del template utiliza estado compartido y no acepta nuevas 锟絩denes ni cobros sin turno.
+- Verificaci锟絥: `npm run typecheck`, lint focalizado y `npm run build:emulator` aprobados. `npm run lint` global mantiene 232 errores/6 advertencias heredados; el build normal requiere Firebase deliberadamente sin configurar. Dev server local en puerto 5190 (`npm run dev:emulator -- --host 0.0.0.0`).
+- Pendiente: revisi锟絥 manual completa en viewport m锟絭il; completar soporte de m锟絫odo tarjeta/otro en el esquema com锟絥 de `PaymentMethod`; entrega conectada requiere repositorios tenant/backend y cola/idempotencia del servidor. Los datos de Studio son demo, locales al navegador y no constituyen caja transaccional multiusuario.

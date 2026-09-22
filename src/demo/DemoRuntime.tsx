@@ -109,7 +109,13 @@ export function DemoRuntime({
         style={{ backgroundColor: branding?.backgroundColor || 'var(--background)' }}
       >
         {templateId === 'restaurant' && (
-          <RestaurantDemo mode={mode} simulatedRole={activeRole} onSelectRole={onSelectRole} />
+          <RestaurantDemo
+            mode={mode}
+            simulatedRole={activeRole}
+            onSelectRole={onSelectRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
+          />
         )}
         {templateId === 'distribution' && (
           <DistributionDemo
@@ -169,7 +175,13 @@ export function DemoRuntime({
       {/* Contenedor principal de la demo */}
       <main className={`flex-1 w-full max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}>
         {templateId === 'restaurant' && (
-          <RestaurantDemo mode={mode} simulatedRole={activeRole} onSelectRole={onSelectRole} />
+          <RestaurantDemo
+            mode={mode}
+            simulatedRole={activeRole}
+            onSelectRole={onSelectRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
+          />
         )}
         {templateId === 'distribution' && (
           <DistributionDemo
