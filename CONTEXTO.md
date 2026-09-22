@@ -1,6 +1,56 @@
 # Continuidad del proyecto PACHAX
 
-## Checkpoint vigente: PACHAX Premium Public Experience (22/09/2026)
+## Checkpoint vigente: TemplateShowcaseSection y Arquitectura Dual de Datasets (22/09/2026)
+
+Rama `feat/public-template-showcase`. Se implementó la vitrina protagonista de plantillas (`<TemplateShowcaseSection />`) reemplazando funcionalmente a `SolutionsExplorer` en la experiencia pública (`/`). Incorpora dirección de arte premium (Deep Slate `#0B1F2A`, Petroleum `#1F3B4D`, Ivory `#FAF9F6`, Controlled Azure `#2F7DD7`, Amber `#E0A24A`, tipografía editorial y microinteracciones) junto con la arquitectura de exploración dual por plantilla: **Empezar desde cero (`?data=empty`)** vs **Ver negocio completo (`?data=full`)**.
+
+### Realizado en esta fase
+
+1. **Arquitectura de Datasets Inmutables (`src/demo/datasets/`)**:
+   - `types.ts`: Definición de `DemoDatasetMode = 'empty' | 'full'` y los tipos canónicos de dataset para Restaurante (`RestaurantDataset`), Distribución (`DistributionDataset`) y Comercio (`RetailDataset`).
+   - `restaurant/restaurantDatasets.ts`:
+     - `createEmptyRestaurantDataset()`: Empresa vacía recién configurada con 4 mesas en estado disponible (`available`), 0 productos en catálogo, 0 pedidos y turno no abierto (`null`).
+     - `createFullRestaurantDataset()`: Catálogo gastronómico completo con imágenes reales de comida y categorías (Bebidas, Platos Fuertes, Postres, etc.), mesas distribuidas en los 4 estados canónicos reales (`available`, `occupied`, `reserved`, `bill_requested`), pedidos activos con comanda KDS en lote #2 ("En preparación") y turno de caja abierto (T-04).
+   - `distribution/distributionDatasets.ts`:
+     - `createEmptyDistributionDataset()`: Almacén Central + Ruta Principal, 0 productos, 0 despachos, 0 entregas y 0 cobranzas.
+     - `createFullDistributionDataset()`: Respeta con total fidelidad las cifras y tests del motor operativo `distributionEngine.ts`: Viena 25 kg cargados (20 kg inicial + 5 kg aumento), 6 kg vendidos, 18.5 kg retorno físico (variance de -0.5 kg `FALTANTE`), ventas efectivo Bs 288, cobranzas Bs 100, gastos Bs 20 $\rightarrow$ efectivo esperado a rendir Bs 368 (`paymentKind: 'mixed'`).
+   - `retail/retailDatasets.ts`:
+     - `createEmptyRetailDataset()`: 0 productos, 0 ventas.
+     - `createFullRetailDataset()`: Productos a peso (Helado artesanal 325 g @ Bs 60/kg = Bs 19.50) y productos por unidad (Café Latte, Croissant), tickets emitidos y efectivo con vuelto.
+   - **Factories inmutables**: Se utilizan funciones factory que devuelven clones nuevos en cada invocación, garantizando que el reinicio de demo o mutaciones de prueba no contaminen singletons.
+
+2. **Adaptación de Demos Canónicas y Runtime**:
+   - `RestaurantDemo.tsx`: Acepta `datasetMode` y `resetKey`. Se eliminaron referencias obsoletas a `savedOrders` delegando directamente al estado sincronizado de `orders`.
+   - `DistributionDemo.tsx`: Acepta `datasetMode` y `resetKey`, suministrando el dataset correspondiente a la capa canónica `DistributionExperience`.
+   - `QuickRetailDemo.tsx`: Acepta `datasetMode` y `resetKey`, inicializando catálogo y ventas limpiamente.
+   - `DemoRuntime.tsx`:
+     - Control central de `datasetMode`: lee `?data=empty` o `?data=full` desde URL y escucha eventos `PACHAX_STUDIO_SYNC.payload.datasetMode`.
+     - Barra de control superior discreta en demos públicas: permite alternar entre `Empezar desde cero` y `Ver negocio completo`, además de incluir botón accesible de **Restablecer demo** (`resetKey`).
+   - `StudioShell.tsx`:
+     - Incorpora selector de dataset `[Vacío | Completo]` en la barra superior de Studio, propagándolo por iframe query param y por `postMessage`.
+
+3. **Mini Previews Ligeras de Landing (`src/public/landing/previews/`)**:
+   - `TemplatePreviewRestaurant.tsx`: Vista visual de salón con mesas en estados reales (`Libre`, `Ocupada`, `Reserva`, `Por cerrarse`), ticket de comanda activa, KDS en preparación (12m) y arqueo de turno T-04.
+   - `TemplatePreviewDistribution.tsx`: Visualización de carga física (25 kg cargados, 6 kg entregados, 18.5 kg retorno, 0.5 kg faltante) y cuadratura de caja (Bs 368 a rendir).
+   - `TemplatePreviewRetail.tsx`: Balanza digital conectada (325 g @ Bs 60/kg = Bs 19.50) con desglose de ticket (Bs 51.50) y pago con vuelto (Bs 8.50).
+   - **Principio canónico**: Son componentes puramente visuales y ligeros, sin lógica duplicada ni cuartas implementaciones, alimentados por los mismos datos conceptuales de los datasets canónicos.
+
+4. **Vitrina Protagonista de Selección (`src/public/landing/`)**:
+   - `TemplateShowcaseSection.tsx`: Reemplaza a `SolutionsExplorer` en `PublicLanding.tsx`. Encabezado con badge editorial, grilla responsive de 3 columnas para las tarjetas canónicas y panel complementario para proyectos especiales a medida.
+   - `TemplateShowcaseCard.tsx`: Tarjeta interactiva con acento cromático contextual, preview integrada, features clave y CTA de exploración.
+   - `TemplateModeSelectorModal.tsx`: Diálogo modal accesible que presenta con total claridad las dos alternativas al hacer clic en cualquier plantilla: *Empezar desde cero* (`/demo/{slug}?data=empty`) y *Ver negocio completo* (`/demo/{slug}?data=full`).
+   - Preserva la funcionalidad del formulario de requerimientos a medida con contacto honesto vía WhatsApp y portapapeles.
+
+5. **Verificaciones y Pruebas**:
+   - `npm run typecheck`: 0 errores.
+   - `npm run test:platform`: 20/20 aprobadas.
+   - `npm run test:distribution`: 55/55 aprobadas.
+   - `npm run build`: Build de Vite completado exitosamente sin warnings bloqueantes.
+   - Working tree limpio en la rama `feat/public-template-showcase`. No se hizo merge a `main`.
+
+---
+
+## Checkpoint anterior: PACHAX Premium Public Experience (22/09/2026)
 
 Rama `feat/premium-public-experience`. Se transformó la entrada comercial y pública de PACHAX en una experiencia SaaS premium, adaptable, visualmente coherente y de alta conversión, manteniendo intactas las capas canónicas operativas y la lógica Firebase.
 

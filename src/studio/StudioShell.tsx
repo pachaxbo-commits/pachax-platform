@@ -10,6 +10,7 @@ import {
   Shield,
 } from 'lucide-react'
 import type { DemoTemplateId } from '../demo/demoTypes'
+import type { DemoDatasetMode } from '../demo/datasets/types'
 import { useStudioBranding } from './branding/BrandingContext'
 import { BrandingDrawer } from './branding/BrandingDrawer'
 
@@ -40,6 +41,7 @@ export function StudioShell({
   const { branding, setIsDrawerOpen } = useStudioBranding()
   const [viewport, setViewport] = useState<ViewportMode>('responsive')
   const [isTeamMode, setIsTeamMode] = useState(true)
+  const [datasetMode, setDatasetMode] = useState<DemoDatasetMode>('full')
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const templateMeta = {
@@ -88,6 +90,7 @@ export function StudioShell({
             templateId,
             role: currentRole,
             branding,
+            datasetMode,
           },
         },
         window.location.origin
@@ -95,9 +98,9 @@ export function StudioShell({
     } catch {
       // Ignorar en contextos donde el iframe aún no esté listo
     }
-  }, [templateId, currentRole, branding])
+  }, [templateId, currentRole, branding, datasetMode])
 
-  // Despachar sincronización cuando cambien rol o branding
+  // Despachar sincronización cuando cambien rol, branding o datasetMode
   useEffect(() => {
     sendSync()
   }, [sendSync])
@@ -114,7 +117,7 @@ export function StudioShell({
     return () => window.removeEventListener('message', handleMessage)
   }, [sendSync])
 
-  const iframeSrc = `/demo/${templateId}?embed=studio&role=${encodeURIComponent(currentRole)}`
+  const iframeSrc = `/demo/${templateId}?embed=studio&role=${encodeURIComponent(currentRole)}&data=${datasetMode}`
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
@@ -141,8 +144,8 @@ export function StudioShell({
             </div>
           </div>
 
-          {/* Centro: Selector de Modo (Equipo vs Simular Rol) */}
-          <div className="flex items-center gap-2">
+          {/* Centro: Selector de Modo (Equipo vs Simular Rol) y Selector de Dataset (Vacío vs Completo) */}
+          <div className="flex items-center gap-2.5 flex-wrap">
             <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
               <button
                 onClick={() => {
@@ -182,6 +185,31 @@ export function StudioShell({
                 ))}
               </select>
             )}
+
+            {/* Selector de Dataset: Vacío vs Completo */}
+            <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
+              <span className="text-[11px] font-bold text-slate-400 px-1.5 hidden md:inline">Dataset:</span>
+              <button
+                onClick={() => setDatasetMode('empty')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  datasetMode === 'empty'
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                Vacío
+              </button>
+              <button
+                onClick={() => setDatasetMode('full')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                  datasetMode === 'full'
+                    ? 'bg-teal-500 text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                Completo
+              </button>
+            </div>
           </div>
 
           {/* Lado Derecho: Viewports reales y Personalización */}

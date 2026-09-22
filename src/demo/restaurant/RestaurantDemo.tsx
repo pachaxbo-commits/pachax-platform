@@ -1,9 +1,7 @@
 import { useState, useRef } from 'react'
 import {
   RESTAURANT_CATEGORIES,
-  RESTAURANT_PRODUCTS,
   RESTAURANT_EXTRAS,
-  INITIAL_TABLES,
   INITIAL_RESTAURANT_ORDERS,
   type RestaurantTable,
 } from '../mocks/restaurantMock'
@@ -13,6 +11,8 @@ import {
   type RestaurantSession,
   type RestaurantShift,
 } from '../../modules/restaurant/views/RestaurantExperience'
+import { createRestaurantDataset } from '../datasets'
+import type { DemoDatasetMode } from '../datasets/types'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -62,28 +62,58 @@ export function RestaurantDemo({
   onSelectRole,
   logoUrl,
   companyName,
+  datasetMode = 'full',
+  resetKey = 0,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
   onSelectRole?: (roleId: string) => void
   logoUrl?: string
   companyName?: string
+  datasetMode?: DemoDatasetMode
+  resetKey?: number
 }) {
-  const [savedOrders, setSavedOrders] = useState<Order[]>(() =>
-    readSaved(`${STORAGE_KEY}:orders`, INITIAL_RESTAURANT_ORDERS)
-  )
-  const [orders, setOrders] = useState<Order[]>(() =>
-    savedOrders.length ? savedOrders : INITIAL_RESTAURANT_ORDERS
-  )
-  const [tables, setTables] = useState<RestaurantTable[]>(() =>
-    readSaved(`${STORAGE_KEY}:tables`, INITIAL_TABLES)
-  )
-  const [products, setProducts] = useState<Product[]>(() =>
-    readSaved(`${STORAGE_KEY}:products`, RESTAURANT_PRODUCTS)
-  )
-  const [shift, setShift] = useState<Shift | null>(() =>
-    readSaved<Shift | null>(`${STORAGE_KEY}:shift`, null)
-  )
+  const initialData = useRef(createRestaurantDataset(datasetMode))
+
+  const [orders, setOrders] = useState<Order[]>(() => {
+    if (datasetMode === 'empty') return initialData.current.orders
+    const saved = readSaved(`${STORAGE_KEY}:orders`, initialData.current.orders)
+    return saved.length ? saved : initialData.current.orders
+  })
+  const [tables, setTables] = useState<RestaurantTable[]>(() => {
+    if (datasetMode === 'empty') return initialData.current.tables
+    return readSaved(`${STORAGE_KEY}:tables`, initialData.current.tables)
+  })
+  const [products, setProducts] = useState<Product[]>(() => {
+    if (datasetMode === 'empty') return initialData.current.products
+    return readSaved(`${STORAGE_KEY}:products`, initialData.current.products)
+  })
+  const [shift, setShift] = useState<Shift | null>(() => {
+    if (datasetMode === 'empty') return null
+    return readSaved<Shift | null>(`${STORAGE_KEY}:shift`, initialData.current.shift)
+  })
+
+  // Re-inicializar cuando cambie el datasetMode o se active resetKey
+  const prevResetRef = useRef(`${datasetMode}:${resetKey}`)
+  if (prevResetRef.current !== `${datasetMode}:${resetKey}`) {
+    prevResetRef.current = `${datasetMode}:${resetKey}`
+    const fresh = createRestaurantDataset(datasetMode)
+    setOrders(fresh.orders)
+    setTables(fresh.tables)
+    setProducts(fresh.products)
+    setShift(fresh.shift)
+    if (datasetMode === 'empty') {
+      try {
+        localStorage.removeItem(`${STORAGE_KEY}:orders`)
+        localStorage.removeItem(`${STORAGE_KEY}:tables`)
+        localStorage.removeItem(`${STORAGE_KEY}:products`)
+        localStorage.removeItem(`${STORAGE_KEY}:shift`)
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   const [audit, setAudit] = useState<AuditEvent[]>(() => readSaved(`${STORAGE_KEY}:audit`, []))
   const [cashierName, setCashierName] = useState(
     `Cajero ${simulatedRole === 'waiter' ? 'Ana' : 'Bistró Demo'}`
@@ -613,9 +643,8 @@ export function RestaurantDemo({
     persist('shift', next)
     setCashierName(openedBy)
     record({ type: 'shift_opened', details: { openingFloat } })
-    if (savedOrders === INITIAL_RESTAURANT_ORDERS) {
+    if (orders === INITIAL_RESTAURANT_ORDERS) {
       updateOrders(() => [])
-      setSavedOrders([])
     }
   }
 
@@ -637,7 +666,7 @@ export function RestaurantDemo({
       },
     }
     setShift(null)
-    setSavedOrders(orders)
+    persist('orders', orders)
     persist('shift-history', [...readSaved<Shift[]>(`${STORAGE_KEY}:shift-history`, []), closed])
     persist('shift', null)
     record({
