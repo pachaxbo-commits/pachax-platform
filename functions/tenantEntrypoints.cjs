@@ -7,10 +7,12 @@ const tenants = require('./tenants.cjs');
 const { prepareCleanDelivery, executeCleanDelivery } = require('./maintenance.cjs');
 const { PACHAX_FUNCTIONS_REGION } = require('./regions.cjs');
 const platform = require('./platform.cjs');
+const onboarding = require('./onboarding.cjs');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
 exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
+    case 'completeOnboarding': return onboarding.completeOnboarding(db, auth, request);
     case 'createTenant': return tenants.createTenant(db, auth, request);
     case 'listMemberships': return tenants.listMemberships(db, request);
     case 'selectTenant': return tenants.selectTenant(db, request);

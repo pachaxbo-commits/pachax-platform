@@ -21,6 +21,7 @@
     "test:tenant-isolation": "node firebase/tests/multiTenantIsolation.test.mjs",
     "test:tenant-core": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/multiTenantIsolation.test.mjs\"",
     "test:platform-security": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/platformSecurity.test.mjs\"",
+    "test:onboarding": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/tenantOnboarding.test.mjs\"",
     "test:distribution": "node --experimental-strip-types src/modules/distribution/domain/__tests__/distributionEngine.test.ts",
     "test:reports": "node --experimental-strip-types src/modules/distribution/domain/__tests__/reportLabels.test.ts",
     "test:platform": "node --experimental-strip-types --test tests/*.test.ts",
