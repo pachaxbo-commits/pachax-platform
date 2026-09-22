@@ -82,7 +82,7 @@ export class PrintOrchestratorService {
       const payload: PrintJobPayload = {
         payloadSchemaVersion: 1,
         templateVersion: 'v1.0-kitchen',
-        restaurantName: 'PACHAX Flow',
+        restaurantName: 'PACHAX',
         branchName: 'Sucursal Central',
         orderId: order.id,
         sequenceNumber: order.sequenceNumber || 1,
@@ -138,7 +138,7 @@ export class PrintOrchestratorService {
     const payload: PrintJobPayload = {
       payloadSchemaVersion: 1,
       templateVersion: 'v1.0-receipt',
-      restaurantName: 'PACHAX Flow Restaurant',
+      restaurantName: 'PACHAX',
       branchName: 'Sucursal Central',
       orderId: order.id,
       sequenceNumber: order.sequenceNumber,
@@ -191,7 +191,7 @@ export class PrintOrchestratorService {
     const payload: PrintJobPayload = {
       payloadSchemaVersion: 1,
       templateVersion: 'v1.0-cancel',
-      restaurantName: 'PACHAX Flow',
+      restaurantName: 'PACHAX',
       branchName: 'Sucursal Central',
       orderId: order.id,
       displayNumber: order.displayNumber,

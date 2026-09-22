@@ -81,7 +81,7 @@ export class AndroidBluetoothPermissionsService {
     return await this.checkDiagnosticState()
   }
 
-  /** Open system App Settings screen for PACHAX Flow */
+  /** Open system App Settings screen for PACHAX */
   static async openAppSettings(): Promise<void> {
     if (Capacitor.getPlatform() === 'android') {
       try {

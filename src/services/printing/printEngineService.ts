@@ -129,7 +129,7 @@ export class PrintEngineService {
     const payload: PrintJobPayload = {
       payloadSchemaVersion: 1,
       templateVersion: 'v1.0',
-      restaurantName: 'PACHAX Flow',
+      restaurantName: 'PACHAX',
       branchName: 'Sucursal Central',
       items: [],
       subtotal: 0,

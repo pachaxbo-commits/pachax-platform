@@ -122,7 +122,7 @@ export function MobileBottomNavigation({
           <div className="relative z-10 bg-white rounded-t-3xl border-t border-slate-200 p-5 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
-                <MoreHorizontal size={18} className="text-blue-600" /> Opciones de PACHAX Flow
+                <MoreHorizontal size={18} className="text-blue-600" /> Opciones de PACHAX
               </h3>
               <button
                 onClick={() => setIsMoreOpen(false)}

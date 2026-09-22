@@ -141,7 +141,7 @@ export function PrinterDiagnosticView() {
   }
 
   const handleOpenAppSettings = async () => {
-    setStatusMessage('Abriendo configuración de permisos de PACHAX Flow...')
+    setStatusMessage('Abriendo configuración de permisos de PACHAX...')
     await AndroidBluetoothPermissionsService.openAppSettings()
   }
 
@@ -283,7 +283,7 @@ export function PrinterDiagnosticView() {
   const samplePayload: PrintJobPayload = {
     payloadSchemaVersion: 1,
     templateVersion: 'v1.0-80mm',
-    restaurantName: 'PACHAX Flow Restaurant',
+    restaurantName: 'PACHAX',
     branchName: 'Sucursal Central - Bolivia',
     branchAddress: 'Av. Principal #450, Santa Cruz',
     branchPhone: '77123456',

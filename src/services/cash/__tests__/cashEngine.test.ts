@@ -403,7 +403,7 @@ export async function runCashEngineTestSuite(): Promise<{ passed: number; failed
 
   // --- Test 30: Build compatibility ---
   try {
-    assert(cashService !== null, 'CASH-30: Compatibilidad total con la arquitectura y build de PACHAX Flow')
+    assert(cashService !== null, 'CASH-30: Compatibilidad total con la arquitectura y build de PACHAX')
   } catch (e: any) {
     assert(false, `CASH-30 Fallo: ${e.message}`)
   }

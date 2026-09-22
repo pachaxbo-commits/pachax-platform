@@ -1,4 +1,5 @@
 import type { BusinessType, Permission, UserRole } from '../types'
+import { platformFlags } from '../core/platform'
 
 /**
  * Registro central de tipos de empresa.
@@ -186,6 +187,7 @@ export function getVisibleModules(
   role?: UserRole | null,
 ): ModuleDefinition[] {
   return getBusinessTypeDefinition(businessType).modules.filter((module) => {
+    if (module.id === 'bot' && !platformFlags.aiAssistant) return false
     if (module.requiredPermission && !can(module.requiredPermission)) return false
     if (module.anyOfPermissions && !module.anyOfPermissions.some((permission) => can(permission))) return false
     if (module.navigableBy && role && !module.navigableBy.includes(role)) return false

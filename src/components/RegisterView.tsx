@@ -155,7 +155,7 @@ export function RegisterView({ onSuccess, onSwitchToLogin }: RegisterViewProps) 
         </div>
 
         <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-          <ShieldCheck size={14} className="text-blue-600" /> PACHAX Flow Multi-Tenant System
+          <ShieldCheck size={14} className="text-blue-600" /> PACHAX Multi-Tenant System
         </div>
       </div>
     </div>

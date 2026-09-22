@@ -50,7 +50,7 @@ export function TopBar({
             <LayoutGrid size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-extrabold uppercase tracking-widest text-blue-600">PACHAX Flow</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-widest text-blue-600">PACHAX</p>
             <h1 className="font-bold text-base text-slate-800">Sistema POS</h1>
             <p className="text-[10px] font-semibold text-slate-500 flex items-center gap-1">
               <MapPin size={10} className="text-blue-500" /> {tenant.activeBranchName}
@@ -76,7 +76,7 @@ export function TopBar({
               <LayoutGrid size={18} />
             </div>
             <div className={collapsed ? 'hidden' : ''}>
-              <p className="text-[10px] font-extrabold uppercase tracking-widest text-blue-600">PACHAX Flow</p>
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-blue-600">PACHAX</p>
               <h1 className="mt-0.5 font-bold text-base text-slate-800">Sistema POS</h1>
               <p className="text-[10px] font-semibold text-slate-500 flex items-center gap-1 mt-0.5">
                 <MapPin size={10} className="text-blue-500 shrink-0" /> {tenant.activeBranchName}

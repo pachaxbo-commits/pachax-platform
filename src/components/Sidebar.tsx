@@ -81,7 +81,7 @@ export function Sidebar({
               {!isCollapsed && (
                 <div className="min-w-0">
                   <div className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600">
-                    PACHAX Flow
+                    PACHAX
                   </div>
                   <div className="text-xs font-bold text-slate-800 truncate">{restaurantName}</div>
                   <div className="text-[10px] font-semibold text-slate-500 flex items-center gap-1 mt-0.5">
