@@ -1,6 +1,34 @@
 # Continuidad del proyecto PACHAX
 
-## Solicitud vigente y avance del 21/09/2026
+## Checkpoint vigente: núcleo multiempresa (22/09/2026)
+
+Rama `codex/pachax-platform`. El checkpoint solicitado quedó limitado a contexto activo, paths tenant, Functions, Rules y aislamiento A/B/C. **No continuar todavía con onboarding, `/platform`, Support View, conexión operativa de templates ni UI hasta nueva indicación.** No hubo merge, push, despliegue, Firebase real ni acceso a `G:/pachax-comandero`.
+
+### Núcleo terminado
+
+- Auth resuelve todas las memberships activas mediante `tenantGateway`; una cuenta puede pertenecer a varias empresas. La selección persistida y el perfil cacheado usan claves separadas por `uid + tenantId`.
+- `ActiveTenantContext` es la fuente única de tenant, membership, rol, permisos, businessType, template, branding, branch y route. Cambiar empresa limpia contexto y repositorios antes de exponer el siguiente tenant.
+- Distribución usa `tenants/{tenantId}/dist*`; la cola incluye `tenantId` y `branchId`. Los documentos producidos por Functions conservan el scope tenant. El adapter legacy `restaurants/pachax` permanece únicamente para las pruebas y consumidores históricos, con TODO explícito.
+- `users/{uid}` contiene perfil global y `users/{uid}/tenantLinks/{tenantId}` permite descubrir memberships; los permisos efectivos viven en `tenants/{tenantId}/members/{uid}` y roles tenant.
+- `tenantGateway` crea tenants de forma idempotente, lista/selecciona memberships, actualiza configuración y administra usuarios internos. Todas las mutaciones vuelven a verificar membership, estado, permiso, capability y tenant en servidor.
+- Los triggers tenant de operaciones, créditos, clientes y mantenimiento apuntan a `tenants/{tenantId}`. Una operación valida actor, empresa, branch, tipo de negocio, permiso y estado antes de mutar inventario o finanzas.
+- Firestore Rules bloquea escrituras directas de perfiles, memberships, roles y tenant; autoriza por membership activa, rol/permisos, branch y route. Las rutas Platform permanecen cerradas; su autorización real está pendiente.
+
+### Evidencia del checkpoint
+
+- `npm run test:tenant-core`: 21 comprobaciones aprobadas desde emuladores limpios `demo-pachax-platform` con Auth, Firestore y Functions. Crea Restaurante A, Distribuidora B y Heladería C; cada owner lee solo su tenant; actor A no muta B; miembro desactivado no lee; distribuidor lee su ruta y no otra; caja no lista/crea memberships; owner crea un usuario mediante callable; una operación tenant se confirma y conserva `tenantId`.
+- La misma prueba se repitió con Functions ejecutándose en Node `22.23.2`: 21/21 aprobadas.
+- Pruebas unitarias con Node 22: 20/20 de core/entorno/dominio y 55/55 de distribución. Suite legacy de reglas/operaciones: 56/56 con Node 22. Typecheck y build de emulador aprobados.
+- ESLint global continúa con deuda heredada; el barrido focalizado también encuentra reglas React/lint anteriores en archivos de distribución no originadas por esta fase. No se declara lint global limpio.
+
+### Pendiente después del checkpoint
+
+- Autorización Platform server-side, bootstrap del primer Platform owner, Support View/read-only/elevación/auditoría Platform.
+- Onboarding y selector visual de empresa; `/platform`; conexión operativa de `restaurant_pos` y `gelateria_weight_cafe`.
+- Migrar los repositorios históricos de restaurante que todavía conservan `restaurantId`/`restaurants/*`; retirar el adapter y entrypoints `restaurants/pachax` solo después de migrar y repetir su suite.
+- Storage de branding, índices finales, pruebas Android de este cambio y QA visual. Storage sigue fail-closed.
+
+## Estado anterior y requisitos de referencia (21/09/2026)
 
 Los documentos completos del propietario están conservados en docs/requirements/2026-09-21-producto.md y docs/requirements/2026-09-21-platform.md. **Reemplazan el orden anterior de esperar Firebase antes de desarrollar:** se autoriza avanzar localmente con la plataforma SaaS y consola interna, sin desplegar ni conectar recursos remotos. No pedir nuevamente autorización para continuar esas tareas. No están terminadas.
 
@@ -37,7 +65,7 @@ Rama: codex/pachax-platform, creada desde main limpio. Sin remoto ni proyecto Fi
 5. Generalizar distribución conservando P0; integrar/rediseñar restaurante; conectar POS peso/unidad, inventario comercial y caja de heladería. Reutilizar un motor de impresión y uno offline. El registry no prueba que los módulos estén implementados; offlineOperations se deja vacío hasta validar adaptadores nuevos.
 6. Completar QA de reglas y operaciones multiempresa/Platform, responsive de todas las plantillas, índices/paginación, contraste de branding y Android físico. Billing/finanzas solo preparados, sin datos reales ni pasarela.
 
-El App vigente continúa operando distribución para pachax. No vender ni describir esta entrega como SaaS multiempresa terminado.
+Este párrafo describía el estado anterior fijo en `pachax`; el estado vigente está en el checkpoint superior. No vender ni describir esta entrega como SaaS multiempresa terminado.
 
 ## Solicitud y límites
 
@@ -60,7 +88,7 @@ Pensada para fabricantes y distribuidores con productos, lotes, fechas de vencim
 - Persistencia sin conexión y cola de operaciones con confirmación del servidor. Inicio de sesión requiere internet si se cerró la sesión.
 - Merma por redondeo: NO inventar reglas. Quedó pendiente de definición comercial.
 
-## Adaptación realizada
+## Adaptación histórica realizada el 11/09/2026 (Android vigente: net.pachax.app)
 
 - Identidad visible PACHAX; recursos nuevos y provisionales. Retirado logo térmico específico del cliente; el ticket conserva el nombre textual.
 - Android com.pachax.app, versión 0.1.0, código 1. No reutilizar el identificador de la app original.

@@ -16,6 +16,6 @@ Estado: conexión de producción pendiente. `npm run build` compila una app que 
 
 Usuarios de demostración: `admin@example.test`, `almacen@example.test`, `distribuidor.a@example.test`, `distribuidor.b@example.test`, `soporte@example.test`. Clave local: `demo1234`. Nunca utilizar estas cuentas ni esta clave en producción.
 
-Pruebas: `npm run test:distribution`, `npm run test:reports`, `npm run test:rules` (requiere los emuladores activos), `npm run build`.
+Pruebas: `npm run test:tenant-core` (inicia emuladores limpios), `npm run test:distribution`, `npm run test:reports`, `npm run test:rules` (requiere los emuladores activos) y `npm run build:emulator`.
 
-Android: `npx cap sync android`, luego desde `android`, `gradlew.bat assembleDebug`. Identificador: `com.pachax.app`; firma de producción pendiente.
+Android: `npx cap sync android`, luego desde `android`, `gradlew.bat assembleDebug`. Identificador: `net.pachax.app`; firma de producción pendiente.

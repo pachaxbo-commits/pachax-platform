@@ -8,7 +8,7 @@
 - Objeto de configuración de la aplicación Web de Firebase: apiKey, authDomain, projectId, storageBucket, messagingSenderId y appId.
 - URL del repositorio GitHub nuevo, preferiblemente vacío y privado, y acceso desde la cuenta local autorizada.
 - Correo y nombre del primer administrador, región de datos elegida y moneda inicial (por defecto Bs/BOB).
-- Para Android, confirmar com.pachax.app y definir quién custodia la firma de publicación. No compartir contraseñas ni claves privadas por el chat.
+- Para Android, utilizar net.pachax.app (identificador vigente) y definir quién custodia la firma de publicación. No compartir contraseñas ni claves privadas por el chat.
 
 ## Firebase, en orden
 
