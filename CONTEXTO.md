@@ -1,8 +1,57 @@
 # Continuidad del proyecto PACHAX
 
-## Checkpoint vigente: PACHAX Studio & Demos Desacopladas (22/09/2026)
+## Checkpoint vigente: PACHAX Studio Canónico e Integración Canónica de Distribución (22/09/2026)
 
-Rama `feat/pachax-studio`. Se implementó un entorno interno de desarrollo y previsualización (**PACHAX Studio**) desacoplado de Firebase, Cloud Functions y autenticación real, junto con rutas públicas de demostración (`/demo`, `/demo/restaurant`, `/demo/distribution`, `/demo/retail`).
+Rama `fix/studio-canonical-preview`. Se refactorizó la arquitectura de PACHAX Studio para convertirlo en un visor fiel de las interfaces canónicas reales, eliminando implementaciones visuales paralelas y garantizando paridad 1:1.
+
+### Realizado en esta fase
+
+1. **Capa Canónica de Distribución (`DistributionExperience`)**:
+   - Se extrajo `src/modules/distribution/views/DistributionExperience.tsx` como el único componente presentacional compartido.
+   - `DistributionApp.tsx` (producción) conserva sus hooks reales (`useDistributionData`, `useSyncStatus`, `useBackButtonBridge`) y delega el renderizado a `DistributionExperience`.
+   - `DistributionDemo.tsx` (Studio / Demos) inyecta `previewData`, estado de sincronización mockeado y sesión simulada directamente a `DistributionExperience`, sin llamar hooks ni repositorios productivos.
+   - **Paridad absoluta**: Mismo header, misma barra lateral en desktop (`md:flex`), mismo `BottomNav` en móvil, mismo modal de "Más opciones", y mismos componentes operativos.
+
+2. **Simulador Responsive con Iframe Aislado**:
+   - Se reemplazó el contenedor `div` por un `<iframe>` aislado cuyas dimensiones físicas activan de manera auténtica las media queries CSS y breakpoints de Tailwind (`sm:`, `md:`):
+     - `360×800` (Mobile compacto): activa BottomNav móvil, oculta sidebar de escritorio.
+     - `390×844` (Mobile estándar): vista móvil estándar.
+     - `768×1024` (Tablet): activa el breakpoint `md:` de forma natural (muestra sidebar lateral, oculta BottomNav).
+     - `1366×768` (Laptop / Desktop compacto).
+     - `Responsive`: 100% del espacio disponible.
+   - Sin hacks de `transform: scale()` ni zoom que alteren el cálculo responsive.
+
+3. **Comunicación Segura Studio ↔ Preview**:
+   - Puente `postMessage` bidireccional con validación de origen (`window.location.origin`).
+   - El iframe emite `PACHAX_PREVIEW_READY` al montarse, y StudioShell sincroniza en tiempo real rol (`PACHAX_STUDIO_SYNC`) y branding sin recargas forzadas del iframe.
+
+4. **Branding Unificado y Carga de Logo Local**:
+   - Se unificó el sistema de diseño sobre las variables canónicas de la aplicación: `--primary`, `--primary-hover`, `--primary-soft`, `--accent`, `--accent-soft`, `--background`, `--surface`, `--sidebar`.
+   - `BrandingDrawer` incorpora la carga de **Logo de empresa** exclusivamente para formatos PNG, JPEG y WebP (máx. 300 KB), almacenado localmente en `localStorage` sin subir nada a Firebase.
+   - La cabecera canónica muestra el logo y nombre de la empresa del cliente, con un discreto "Powered by PACHAX" secundario. Fallback seguro a `/brand/pachax-logo.png` si no se especifica logo.
+
+5. **Patrón Arquitectónico para Próximas Plantillas**:
+   ```
+   interfaz real Restaurante / Comercio
+          ↑
+   datos reales / mock adapter
+          ↑
+   producción / Studio / demo pública
+   ```
+   - **Restaurante**: No fue modificado en esta fase (desarrollo paralelo en otra rama). Cuando se integre, adoptará este mismo patrón de extracción presentacional.
+   - **Comercio / Venta rápida**: Se migrará a este patrón en su turno.
+
+### Verificaciones y pruebas
+- `npm run typecheck`: Aprobado (0 errores).
+- `npm run test:platform`: 20/20 comprobaciones aprobadas.
+- `npm run test:distribution`: 55/55 pruebas del motor de distribución aprobadas.
+- `npm run build`: Compilación limpia de producción en 5.14s.
+- Motores de negocio, repositorios, Firebase, Auth, Firestore Rules y Functions 100% intactos.
+- Rama: `fix/studio-canonical-preview` (sin merge a `main`).
+
+---
+
+## Checkpoint anterior: PACHAX Studio & Demos Desacopladas (22/09/2026)
 
 ### Realizado en esta fase
 

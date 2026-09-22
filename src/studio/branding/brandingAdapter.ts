@@ -1,5 +1,6 @@
 import type { StudioBranding } from './brandingTypes'
 import type { Tenant } from '../../core/platform'
+import { buildThemeTokens, applyCanonicalThemeTokens, type CanonicalThemeTokens } from '../../lib/tenantTheme'
 
 /**
  * Adaptador para transformar el branding de un Tenant a la estructura visual de Studio,
@@ -30,12 +31,24 @@ export function studioToTenantBranding(branding: StudioBranding): Tenant['brandi
 }
 
 /**
- * Aplica los tokens visuales como variables CSS en el contenedor de previsualización.
+ * Transforma StudioBranding en el conjunto de tokens CSS canónicos de PACHAX.
  */
-export function applyStudioThemeTokens(element: HTMLElement, branding: StudioBranding): void {
-  element.style.setProperty('--studio-primary', branding.primaryColor)
-  element.style.setProperty('--studio-sidebar', branding.sidebarColor)
-  element.style.setProperty('--studio-accent', branding.accentColor)
-  element.style.setProperty('--studio-bg', branding.backgroundColor)
-  element.style.setProperty('--studio-surface', branding.surfaceColor)
+export function studioBrandingToTokens(branding: StudioBranding): CanonicalThemeTokens {
+  return buildThemeTokens({
+    primary: branding.primaryColor,
+    accent: branding.accentColor,
+    background: branding.backgroundColor,
+    surface: branding.surfaceColor,
+    sidebar: branding.sidebarColor,
+  })
+}
+
+/**
+ * Aplica los tokens canónicos reales como variables CSS (--primary, --primary-hover, etc.)
+ * en el documento o elemento de previsualización.
+ */
+export function applyStudioThemeTokens(target: HTMLElement | Document, branding: StudioBranding): void {
+  const doc = 'documentElement' in target ? target : target.ownerDocument || document
+  const tokens = studioBrandingToTokens(branding)
+  applyCanonicalThemeTokens(doc, tokens)
 }
