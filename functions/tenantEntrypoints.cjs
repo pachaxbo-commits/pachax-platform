@@ -5,7 +5,9 @@ const { getAuth } = require('firebase-admin/auth');
 const { processCommand, refreshCreditStatus } = require('./operations.cjs');
 const tenants = require('./tenants.cjs');
 const { prepareCleanDelivery, executeCleanDelivery } = require('./maintenance.cjs');
-const options = { region: 'us-central1', invoker: 'public', maxInstances: 3 };
+const { PACHAX_FUNCTIONS_REGION } = require('./regions.cjs');
+const platform = require('./platform.cjs');
+const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
 exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
@@ -20,14 +22,15 @@ exports.tenantGateway = onCall(options, async request => {
     default: throw new HttpsError('invalid-argument', 'Acción no reconocida.');
   }
 });
-exports.processTenantOperation = onDocumentCreated({ document: 'tenants/{tenantId}/distOperations/{operationId}', region: 'us-central1', retry: true }, event => event.data && processCommand(getFirestore(), event.data.ref));
-exports.refreshTenantCredit = onDocumentWritten({ document: 'tenants/{tenantId}/distReceivables/{id}', region: 'us-central1', retry: true }, async event => {
+exports.platformGateway = onCall(options, request => platform.platformGateway(getFirestore(), request));
+exports.processTenantOperation = onDocumentCreated({ document: 'tenants/{tenantId}/distOperations/{operationId}', region: PACHAX_FUNCTIONS_REGION, retry: true }, event => event.data && processCommand(getFirestore(), event.data.ref));
+exports.refreshTenantCredit = onDocumentWritten({ document: 'tenants/{tenantId}/distReceivables/{id}', region: PACHAX_FUNCTIONS_REGION, retry: true }, async event => {
   const root = getFirestore().doc(`tenants/${event.params.tenantId}`);
   if ((await root.collection('maintenanceState').doc('reset').get()).data()?.active) return;
   const value = event.data?.after.exists ? event.data.after.data() : event.data?.before.data();
   if (value?.customerId) await refreshCreditStatus(getFirestore(), root, value.customerId);
 });
-exports.initializeTenantCredit = onDocumentCreated({ document: 'tenants/{tenantId}/distCustomers/{id}', region: 'us-central1', retry: true }, async event => {
+exports.initializeTenantCredit = onDocumentCreated({ document: 'tenants/{tenantId}/distCustomers/{id}', region: PACHAX_FUNCTIONS_REGION, retry: true }, async event => {
   const root = getFirestore().doc(`tenants/${event.params.tenantId}`);
   if ((await root.collection('maintenanceState').doc('reset').get()).data()?.active) return;
   if (event.data) await refreshCreditStatus(getFirestore(), root, event.params.id);

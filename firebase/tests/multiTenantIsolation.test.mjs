@@ -46,7 +46,7 @@ async function signIn(uid) {
   return (await response.json()).idToken
 }
 async function tenantGateway(idToken, data) {
-  const response = await fetch(`http://127.0.0.1:5101/${projectId}/us-central1/tenantGateway`, {
+  const response = await fetch(`http://127.0.0.1:5101/${projectId}/southamerica-west1/tenantGateway`, {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${idToken}` }, body: JSON.stringify({ data }),
   })
   return { response, body: await response.json() }
