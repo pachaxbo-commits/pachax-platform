@@ -1,191 +1,51 @@
-import { Utensils, DollarSign, Users, ChefHat, TrendingUp } from 'lucide-react'
+import { useState } from 'react'
+import { DollarSign, Users, ChefHat, X, Clock, Wallet } from 'lucide-react'
 import type { Order } from '../../types'
 import type { RestaurantTable } from '../mocks/restaurantMock'
 
-export function RestaurantDashboard({
-  orders,
-  tables,
-  onNavigate,
-}: {
-  orders: Order[]
-  tables: RestaurantTable[]
-  onNavigate: (module: string) => void
-}) {
-  const activeOrders = orders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled')
-  const occupiedTables = tables.filter((t) => t.status === 'occupied' || t.status === 'bill_requested')
-  const totalSalesToday = orders.reduce((sum, o) => sum + (o.total || 0), 0)
+type Shift = { id: string; openedAt: string; openedBy: string; openingFloat: number; closedAt?: string; expectedCashAtClose?: number }
+const fmt = (amount: number) => `Bs ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const date = (value: string) => new Date(value).toLocaleString('es-BO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-  return (
-    <div className="space-y-6">
-      {/* Welcome & Shift banner */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-teal-400 bg-teal-950/60 px-2.5 py-1 rounded-full mb-2">
-            Turno de Salón Activo
-          </span>
-          <h1 className="text-2xl font-bold">Resumen de Operaciones</h1>
-          <p className="text-slate-300 text-sm mt-1">
-            Supervisión en tiempo real de mesas, pedidos en cocina y caja.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2.5">
-          <button
-            onClick={() => onNavigate('pos')}
-            className="px-4 py-2 text-sm font-semibold bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-xl transition shadow-sm"
-          >
-            + Nueva Orden / Mesa
-          </button>
-          <button
-            onClick={() => onNavigate('tables')}
-            className="px-4 py-2 text-sm font-semibold bg-white/10 hover:bg-white/15 text-white rounded-xl transition"
-          >
-            Ver Mesas ({occupiedTables.length}/{tables.length})
-          </button>
-        </div>
-      </div>
+export function RestaurantDashboard({ orders, tables, shift, userName, onStartShift, onCloseShift, onNavigate, onOpenTable }: { orders: Order[]; tables: RestaurantTable[]; shift: Shift | null; userName: string; onStartShift: (amount: number, openedAt: string, openedBy: string) => void; onCloseShift: () => boolean; onNavigate: (module: string) => void; onOpenTable: (table: RestaurantTable) => void }) {
+  const [opening, setOpening] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [floatInput, setFloatInput] = useState('')
+  const [cashier, setCashier] = useState(userName)
+  const [error, setError] = useState('')
+  const activeOrders = orders.filter((order) => order.paymentStatus !== 'paid' && order.status !== 'cancelled')
+  const occupiedTables = tables.filter((table) => table.status === 'occupied' || table.status === 'bill_requested')
+  const sales = orders.filter((order) => order.shiftId === shift?.id && order.paymentStatus === 'paid')
+  const totalSales = sales.reduce((sum, order) => sum + (order.total || 0), 0)
+  const cashSales = sales.reduce((sum, order) => sum + (order.payment?.cashAmount || 0), 0)
+  const otherSales = totalSales - cashSales
+  const openedAccounts = tables.filter((table) => table.activeOrderId && table.status !== 'available')
+  const metricsOrders = shift ? orders.filter((order) => order.shiftId === shift.id) : []
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Ventas del Turno</span>
-            <DollarSign className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">Bs {totalSalesToday.toFixed(2)}</div>
-          <div className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-1">
-            <TrendingUp className="w-3.5 h-3.5" />
-            {orders.length} pedidos registrados
-          </div>
-        </div>
+  const start = () => {
+    const amount = Number(floatInput)
+    if (!Number.isFinite(amount) || amount < 0 || !cashier.trim()) return
+    onStartShift(amount, new Date().toISOString(), cashier.trim())
+    setOpening(false)
+  }
+  const close = () => {
+    if (openedAccounts.length) { setError('No puedes cerrar el turno mientras existan cuentas abiertas.'); return }
+    onCloseShift(); setClosing(false); setError('')
+  }
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Pedidos en Cocina</span>
-            <ChefHat className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">{activeOrders.length}</div>
-          <div className="text-xs text-slate-500 mt-1">
-            {orders.filter((o) => o.status === 'preparing').length} en preparación
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Ocupación Salón</span>
-            <Users className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">
-            {Math.round((occupiedTables.length / tables.length) * 100)}%
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {occupiedTables.length} de {tables.length} mesas ocupadas
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Ticket Promedio</span>
-            <Utensils className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">
-            Bs {orders.length ? (totalSalesToday / orders.length).toFixed(2) : '0.00'}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Comedor & Para llevar</div>
-        </div>
-      </div>
-
-      {/* Mesas y Pedidos Activos Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Mesas rápidas */}
-        <div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-bold text-slate-900">Estado de Mesas</h2>
-            <button
-              onClick={() => onNavigate('tables')}
-              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
-            >
-              Ver plano →
-            </button>
-          </div>
-          <div className="grid grid-cols-3 gap-2.5">
-            {tables.slice(0, 9).map((t) => {
-              const isOccupied = t.status === 'occupied'
-              const isBill = t.status === 'bill_requested'
-              const isReserved = t.status === 'reserved'
-              return (
-                <div
-                  key={t.id}
-                  onClick={() => onNavigate('tables')}
-                  className={`p-3 rounded-xl border text-center cursor-pointer transition ${
-                    isBill
-                      ? 'bg-amber-50 border-amber-300 text-amber-900'
-                      : isOccupied
-                      ? 'bg-blue-50 border-blue-200 text-blue-900'
-                      : isReserved
-                      ? 'bg-slate-100 border-slate-300 text-slate-600'
-                      : 'bg-emerald-50/50 border-emerald-200 text-emerald-800 hover:bg-emerald-100/50'
-                  }`}
-                >
-                  <div className="text-xs font-bold">{t.name}</div>
-                  <div className="text-[10px] mt-1 font-medium">
-                    {isBill ? 'Cuenta' : isOccupied ? `${t.diners || 2}p` : isReserved ? 'Reserva' : 'Libre'}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Pedidos recientes en curso */}
-        <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-bold text-slate-900">Pedidos Activos en Cocina & Salón</h2>
-            <button
-              onClick={() => onNavigate('orders')}
-              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
-            >
-              Ver todos →
-            </button>
-          </div>
-          <div className="space-y-3">
-            {activeOrders.map((ord) => (
-              <div
-                key={ord.id}
-                className="p-3.5 rounded-xl border border-slate-200 flex items-center justify-between hover:bg-slate-50/70 transition"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-9 h-9 rounded-lg bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center">
-                    #{ord.displayNumber}
-                  </span>
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">
-                      {ord.tableInfo || 'Para llevar'} •{' '}
-                      <span className="text-slate-500 font-normal">{ord.customerName || 'Cliente'}</span>
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {ord.items.map((it) => `${it.quantity}x ${it.name}`).join(', ')}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-bold text-slate-900">Bs {ord.total.toFixed(2)}</div>
-                  <span
-                    className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full capitalize ${
-                      ord.status === 'preparing'
-                        ? 'bg-amber-100 text-amber-800'
-                        : ord.status === 'ready'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-blue-100 text-blue-800'
-                    }`}
-                  >
-                    {ord.status === 'preparing' ? 'En cocina' : ord.status === 'ready' ? 'Listo' : 'Pendiente'}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+  return <div className="space-y-6">
+    <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div><span className={`inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full mb-2 ${shift ? 'text-teal-300 bg-teal-950/60' : 'text-amber-200 bg-amber-950/50'}`}>{shift ? 'Turno activo' : 'Turno cerrado'}</span><h1 className="text-2xl font-bold">Resumen de Operaciones</h1><p className="text-slate-300 text-sm mt-1">Supervisión de mesas, pedidos en cocina y caja.</p>{shift && <p className="text-slate-300 text-xs mt-2">Abierto {date(shift.openedAt)} · {shift.openedBy} · Fondo {fmt(shift.openingFloat)}</p>}</div>
+      <div className="flex flex-wrap gap-2.5">{shift ? <><button onClick={() => onNavigate('tables')} className="px-4 py-2 text-sm font-semibold bg-teal-500 hover:bg-teal-400 text-slate-950 rounded-xl transition shadow-sm">+ Nueva Orden / Mesa</button><button onClick={() => { setError(''); setClosing(true) }} className="px-4 py-2 text-sm font-semibold bg-white/10 hover:bg-white/15 text-white rounded-xl transition">Cerrar turno</button></> : <button onClick={() => { setCashier(userName); setOpening(true) }} className="px-5 py-3 text-sm font-bold bg-teal-400 hover:bg-teal-300 text-slate-950 rounded-xl transition">INICIAR TURNO</button>}<button onClick={() => onNavigate('tables')} className="px-4 py-2 text-sm font-semibold bg-white/10 hover:bg-white/15 text-white rounded-xl transition">Ver Mesas ({occupiedTables.length}/{tables.length})</button></div>
     </div>
-  )
+    {!shift && <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><Clock className="h-4 w-4 shrink-0" />Debes iniciar un turno antes de realizar operaciones.</div>}
+    {shift && <div className="grid grid-cols-2 lg:grid-cols-4 gap-4"><Metric icon={<DollarSign className="w-4 h-4 text-emerald-600" />} title="Ventas del turno" value={fmt(totalSales)} detail={`${sales.length} pedidos cobrados`} /><Metric icon={<Wallet className="w-4 h-4 text-teal-700" />} title="Efectivo · otros métodos" value={fmt(cashSales)} detail={`${fmt(otherSales)} otros métodos`} /><Metric icon={<ChefHat className="w-4 h-4 text-amber-600" />} title="Pedidos en cocina" value={String(activeOrders.length)} detail={`${metricsOrders.filter((order) => order.status === 'preparing').length} en preparación`} /><Metric icon={<Users className="w-4 h-4 text-blue-600" />} title="Mesas ocupadas" value={`${occupiedTables.length}/${tables.length}`} detail={`${tables.filter((table) => table.status === 'bill_requested').length} esperando pago`} /></div>}
+    {shift && <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"><div className="lg:col-span-1 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs"><div className="flex items-center justify-between mb-4"><h2 className="text-base font-bold text-slate-900">Estado de Mesas</h2><button onClick={() => onNavigate('tables')} className="text-xs font-semibold text-slate-600">Ver plano →</button></div><div className="grid grid-cols-3 gap-2.5">{tables.slice(0, 9).map((table) => { const bill = table.status === 'bill_requested'; const occupied = table.status === 'occupied'; const reserved = table.status === 'reserved'; return <button key={table.id} type="button" onClick={() => onOpenTable(table)} className={`p-3 rounded-xl border text-center cursor-pointer transition ${bill ? 'bg-amber-50 border-amber-300 text-amber-900' : occupied ? 'bg-blue-50 border-blue-200 text-blue-900' : reserved ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-emerald-50/50 border-emerald-200 text-emerald-800'}`}><div className="text-xs font-bold">{table.name}</div><div className="text-[10px] mt-1 font-medium">{bill ? 'Por cerrarse' : occupied ? `${table.diners || 2}p` : reserved ? 'Reserva' : 'Libre'}</div></button> })}</div></div><div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs"><div className="flex items-center justify-between mb-4"><h2 className="text-base font-bold text-slate-900">Pedidos activos en cocina & salón</h2><button onClick={() => onNavigate('orders')} className="text-xs font-semibold text-slate-600">Ver todos →</button></div><div className="space-y-3">{activeOrders.map((order) => <button key={order.id} type="button" onClick={() => onNavigate('orders')} className="w-full p-3.5 rounded-xl border border-slate-200 flex items-center justify-between text-left hover:bg-slate-50/70 transition"><span className="flex items-center gap-3"><span className="w-9 h-9 rounded-lg bg-slate-100 text-slate-800 font-bold text-xs flex items-center justify-center">#{order.displayNumber}</span><span><span className="block text-sm font-semibold text-slate-900">{order.tableInfo || 'Para llevar'} · {order.customerName || 'Cliente'}</span><span className="block text-xs text-slate-500">{order.items.map((item) => `${item.quantity}x ${item.name}`).join(', ')}</span></span></span><span className="text-right text-sm font-bold text-slate-900">{fmt(order.total)}<span className="block text-[11px] font-medium text-slate-500 capitalize">{order.status === 'preparing' ? 'En preparación' : order.status === 'ready' ? 'Listo' : 'Pendiente'}</span></span></button>)}</div></div></div>}
+    {opening && <Dialog title="Iniciar turno" onClose={() => setOpening(false)}><p className="text-sm text-slate-500">Abre la caja y comienza a registrar las operaciones.</p><label className="block text-xs font-semibold text-slate-700">Fecha y hora<input readOnly value={date(new Date().toISOString())} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm" /></label><label className="block text-xs font-semibold text-slate-700">Usuario / cajero<input value={cashier} onChange={(event) => setCashier(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label><label className="block text-xs font-semibold text-slate-700">Fondo inicial / cambio en caja<input autoFocus min="0" step="0.01" type="number" inputMode="decimal" value={floatInput} onChange={(event) => setFloatInput(event.target.value)} placeholder="Bs 300,00" className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label><button onClick={start} className="w-full rounded-xl bg-teal-500 py-3 text-sm font-bold text-slate-950">Confirmar e iniciar turno</button></Dialog>}
+    {closing && <Dialog title="Resumen del turno" onClose={() => setClosing(false)}><div className="grid grid-cols-2 gap-3 text-sm"><Summary label="Fondo inicial" value={fmt(shift?.openingFloat || 0)} /><Summary label="Ventas en efectivo" value={fmt(cashSales)} /><Summary label="Otros métodos" value={fmt(otherSales)} /><Summary label="Total vendido" value={fmt(totalSales)} /><Summary label="Pedidos pagados" value={String(sales.length)} /><Summary label="Mesas atendidas" value={String(new Set(sales.map((order) => order.tableInfo).filter(Boolean)).size)} /><Summary label="Efectivo esperado" value={fmt((shift?.openingFloat || 0) + cashSales)} /></div><p className="text-xs text-slate-500">Apertura: {shift ? date(shift.openedAt) : ''} · Cierre: {date(new Date().toISOString())} · Responsable: {shift?.openedBy}</p>{openedAccounts.length > 0 && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">No puedes cerrar el turno mientras existan cuentas abiertas.</p>}{error && <p role="alert" className="text-sm text-red-600">{error}</p>}<button disabled={openedAccounts.length > 0} onClick={close} className="w-full rounded-xl bg-slate-900 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">Confirmar y cerrar turno</button></Dialog>}
+  </div>
 }
+
+function Metric({ icon, title, value, detail }: { icon: React.ReactNode; title: string; value: string; detail: string }) { return <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs"><div className="flex items-center justify-between text-slate-500 mb-2"><span className="text-xs font-medium uppercase tracking-wider">{title}</span>{icon}</div><div className="text-2xl font-bold text-slate-900">{value}</div><div className="text-xs text-slate-500 mt-1">{detail}</div></div> }
+function Summary({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-slate-200 p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-bold text-slate-900">{value}</p></div> }
+function Dialog({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) { return <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/50 p-4" onClick={onClose}><section role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-5 shadow-xl"><header className="flex items-center justify-between"><h2 className="text-lg font-bold text-slate-900">{title}</h2><button type="button" aria-label="Cerrar" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100"><X className="h-4 w-4" /></button></header>{children}</section></div> }

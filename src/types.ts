@@ -229,6 +229,8 @@ export interface Product extends Partial<TenantScopedEntity> {
   isVisible: boolean
   extras?: ProductExtra[]
   options?: ProductOption[]
+  /** Preparación local / área de impresión de comandas de restaurante. */
+  preparationArea?: 'Cocina' | 'Barra' | 'Otro'
 }
 
 export interface CatalogState {
@@ -305,6 +307,13 @@ export interface OrderFinancialSnapshot {
 
 export interface OrderItem extends OrderItemSnapshot {
   id: string
+  /** Trazabilidad operativa opcional; los pedidos heredados siguen válidos. */
+  createdAt?: string
+  startedAt?: string
+  readyAt?: string
+  deliveredAt?: string
+  status?: 'pending' | 'preparing' | 'ready' | 'delivered'
+  productArea?: string
 }
 
 export interface Order extends Partial<TenantScopedEntity> {
@@ -313,6 +322,13 @@ export interface Order extends Partial<TenantScopedEntity> {
   sequence: number
   /** User-visible order/ticket number (customizable per tenant/branch) */
   displayNumber: string
+  /** Campos opcionales para operación de restaurante local y su futura persistencia. */
+  shiftId?: string
+  openedBy?: string
+  openedAt?: string
+  closedAt?: string
+  accountStatus?: 'open' | 'bill_requested' | 'closed'
+  submittedBatches?: Array<{ id: string; sequence: number; createdAt: string; printedAt?: string; itemIds: string[] }>
   createdAt: string
   readyAt?: string
   deliveredAt?: string

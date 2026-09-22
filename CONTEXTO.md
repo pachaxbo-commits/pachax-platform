@@ -186,3 +186,14 @@ Pendientes reales: configuraci贸n y permisos del nuevo Firebase, repositorio rem
 - Las modificaciones y bajas pasan por `changePachaxMemberPassword`; las reglas bloquean cambios directos para que no se pueda evitar la protecci贸n del servidor.
 - Validaci贸n local aprobada: TypeScript, ESLint, build web, 55 pruebas del motor, etiquetas de reportes en espa帽ol, 56 comprobaciones de reglas/operaciones y prueba visual de gesti贸n de usuarios a 360 x 800.
 - `scripts/validate-user-management.cjs` es destructivo y se debe ejecutar 煤nicamente contra `demo-pachax-platform` despu茅s de `npm run seed:demo`, con los emuladores y Vite activos. Puede necesitar `PLAYWRIGHT_MODULE` si Playwright no est谩 instalado en el proyecto.
+
+## Avance: flujo restaurante en PACHAX Studio (22/09/2026)
+
+Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurante de Studio (`src/demo/restaurant`), sin conectar Firebase ni alterar la aplicaci髇 de distribuci髇.
+
+- Turno local persistido en `localStorage`: apertura con usuario/fondo, ventas por m閠odo, resumen, efectivo esperado, bloqueo del POS y cierre impedido mientras haya mesas/cuentas abiertas. Historial de turnos y campos de conciliaci髇 preparados.
+- Mesas clicables con detalle, apertura y consumo, solicitud/reapertura de cuenta, selector r醦ido de productos, creaci髇 de producto asociado al cat醠ogo local y pago con c醠culo del vuelto; mesa se libera despu閟 del cobro.
+- Pedidos, l韓eas/timestamps, lotes de comanda, identificadores de turno/mesa, pago y eventos de auditor韆 guardados en datos demo locales. Impresi髇 del navegador se usa para la vista imprimible; batch y sus l韓eas quedan trazables y bloqueadas. Adaptaci髇 opcional compatible en `src/types.ts`.
+- POS/caja del template utiliza estado compartido y no acepta nuevas 髍denes ni cobros sin turno.
+- Verificaci髇: `npm run typecheck`, lint focalizado y `npm run build:emulator` aprobados. `npm run lint` global mantiene 232 errores/6 advertencias heredados; el build normal requiere Firebase deliberadamente sin configurar. Dev server local en puerto 5190 (`npm run dev:emulator -- --host 0.0.0.0`).
+- Pendiente: revisi髇 manual completa en viewport m髒il; completar soporte de m閠odo tarjeta/otro en el esquema com鷑 de `PaymentMethod`; entrega conectada requiere repositorios tenant/backend y cola/idempotencia del servidor. Los datos de Studio son demo, locales al navegador y no constituyen caja transaccional multiusuario.
