@@ -1,4 +1,5 @@
 import { Utensils, Truck, Store, ArrowRight, Sparkles } from 'lucide-react'
+import { BrandMark } from '../public/components/BrandMark'
 
 export function DemoGallery() {
   const demos = [
@@ -40,7 +41,7 @@ export function DemoGallery() {
       <header className="bg-white border-b border-slate-200/80 px-6 py-4 shadow-xs">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-lg font-black tracking-tight text-slate-900">PACHAX</span>
+            <BrandMark size="sm" href="/" />
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
               Galería de Soluciones
             </span>

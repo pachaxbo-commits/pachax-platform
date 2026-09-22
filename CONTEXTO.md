@@ -1,5 +1,48 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint vigente: PACHAX Premium Public Experience (22/09/2026)
+
+Rama `feat/premium-public-experience`. Se transformó la entrada comercial y pública de PACHAX en una experiencia SaaS premium, adaptable, visualmente coherente y de alta conversión, manteniendo intactas las capas canónicas operativas y la lógica Firebase.
+
+### Definición de Identidad y Branding
+- **Branding institucional PACHAX = pendiente de definición**: no se inventó un isotipo, símbolo ni monograma definitivo.
+- Se encapsuló la representación de marca exclusivamente en el componente `src/public/components/BrandMark.tsx` (wordmark tipográfico con composición editorial, tracking y variantes light/dark).
+- Todas las vistas públicas (`LandingHeader`, `PublicLoginView`, `PublicRegisterView`, `DemoGallery`, `LandingFooter`) consumen centralmente `<BrandMark />`, permitiendo que en el futuro sea reemplazado por `<PachaxLogo />` en un único punto sin rediseñar las páginas.
+
+### Realizado en esta fase
+
+1. **Landing Comercial Premium (`/`)**:
+   - `LandingHeader`: Navegación fija con backdrop blur, enlaces a Producto, Soluciones, Personalización y Demos, y botones dinámicos para login o acceso al sistema si el usuario ya está autenticado.
+   - `LandingHero`: Copy riguroso y honesto (*"Tu negocio. Tu forma de trabajar. Un solo sistema."*) sin métricas no demostrables ni claims falsos.
+   - `HeroProductShowcase`: Vitrina de producto viva con tres paneles interactivos que alternan entre Restaurante (mesas, comanda KDS, turno), Distribución (carga física, variance, cobranza de cartera) y Comercio (balanza digital en gramos, carrito mixto, cobro QR/efectivo).
+   - `SolutionsExplorer` (*Encuentra tu PACHAX*): Selector interactivo para las 3 plantillas canónicas (`restaurant_pos`, `route_distribution`, `gelateria_weight_cafe`) con CTAs directos para probar demo o iniciar registro, más la 4ta opción *Necesito algo diferente* con formulario de requerimientos a medida y enlace de coordinación directa sin falsa persistencia.
+   - `BrandingPreviewSection`: Demostración interactiva de cómo PACHAX adapta nombre y colores corporativos para el cliente.
+   - `OperationsFeatures`: Pilares técnicos de resiliencia (offline, impresión térmica 58/80mm, auditoría ciega, balanza, multiempresa).
+   - `LandingFooter`: Pie de página institucional completo.
+
+2. **Inicio de Sesión Rediseñado (`/login`)**:
+   - Implementado `src/public/auth/PublicLoginView.tsx`.
+   - Conserva al 100% la lógica Firebase existente (`auth.signIn`, estados `isLoading` y `error`).
+   - En móvil: formulario ultrarrápido y táctil sin distracciones visuales.
+   - En desktop: split editorial elegante con vitrina de confianza y seguridad a la izquierda y tarjeta de acceso a la derecha.
+
+3. **Onboarding Visual Guiado (`/register`)**:
+   - Implementado `src/public/register/PublicRegisterView.tsx` con flujo en 5 pasos: Cuenta $\rightarrow$ Empresa $\rightarrow$ Plantilla $\rightarrow$ Marca $\rightarrow$ Confirmación.
+   - Preselecciona automáticamente la plantilla si se accede con `/register?template=restaurant_pos`, etc.
+   - Live preview de identidad y tarjeta resumen.
+   - Cero llamadas a Firestore o creación de tenants, respetando el backend de onboarding en desarrollo paralelo.
+
+4. **Enrutamiento Público y Conexión en `App.tsx`**:
+   - `usePublicRouter`: Hook liviano de enrutamiento del lado del cliente sincronizado con History API y scroll a anclas.
+   - `App.tsx`: Coordina `/` (landing pública), `/login` (autenticación), `/register` (onboarding) y `/demo` (selector de demos).
+   - En aplicación nativa instalada (`Capacitor.isNativePlatform()`), los usuarios operativos van directamente al login/sistema sin pasar por la landing de marketing.
+
+5. **Verificación y Pruebas**:
+   - `npm run typecheck`: 0 errores.
+   - `npm run test:platform`: 20/20 pasadas.
+   - `npm run test:distribution`: 55/55 pasadas.
+   - `npm run build`: Éxito en 3.76s con optimización limpia de assets.
+
 ## Checkpoint vigente: Arquitectura Canónica de Restaurante e Integración con PACHAX Studio (22/09/2026)
 
 Rama `fix/restaurant-canonical-preview`. Se aplicó el principio de **Single Canonical Template Experience** a Restaurante (`restaurant_pos`), igualando la arquitectura canónica previamente implementada en Producción y distribución.

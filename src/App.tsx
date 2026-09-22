@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { LoginView } from './components/LoginView'
 import { UnauthorizedView } from './components/UnauthorizedView'
 import { DistributionApp } from './modules/distribution/views/DistributionApp'
 import { DistributionPrinterModal } from './modules/distribution/views/DistributionPrinterModal'
 import { RestaurantApp } from './modules/restaurant/views/RestaurantApp'
+import { PublicLanding } from './public/landing/PublicLanding'
+import { PublicLoginView } from './public/auth/PublicLoginView'
+import { PublicRegisterView } from './public/register/PublicRegisterView'
+import { usePublicRouter } from './public/routing/usePublicRouter'
 import { useAuthStore } from './store/authStore'
 import { getActiveTenant } from './store/activeTenant'
 import { PACHAX_NAME } from './config/pachax'
@@ -31,20 +34,73 @@ function DistributionShell(props: {
 
 function App() {
   const auth = useAuthStore()
+  const { path } = usePublicRouter()
+
   if (auth.mode === 'local') {
-    return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2] p-6 text-center"><div><h1 className="text-2xl font-bold text-[#B91C1C]">{PACHAX_NAME}</h1><p className="mt-3">Falta configurar la conexión del sistema. Contacta con administración.</p></div></div>
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2] p-6 text-center">
+        <div>
+          <h1 className="text-2xl font-bold text-[#B91C1C]">{PACHAX_NAME}</h1>
+          <p className="mt-3">Falta configurar la conexión del sistema. Contacta con administración.</p>
+        </div>
+      </div>
+    )
   }
+
+  const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.())
+
+  // Ruta de registro / onboarding visual
+  if (path === '/register') {
+    return <PublicRegisterView />
+  }
+
+  // Si el usuario no está autenticado
   if (auth.status === 'signed_out' || auth.status === 'authenticating' || auth.status === 'loading') {
-    return <LoginView error={auth.error} isLoading={auth.status !== 'signed_out'} onSubmit={auth.signIn} />
+    if (path === '/login' || isNative) {
+      return (
+        <PublicLoginView
+          error={auth.error}
+          isLoading={auth.status !== 'signed_out'}
+          onSubmit={auth.signIn}
+        />
+      )
+    }
+    return <PublicLanding />
   }
+
   if (auth.status === 'needs_tenant') {
-    return <UnauthorizedView email={auth.userEmail} message="Tu cuenta todavía no pertenece a una empresa. Completa el alta para continuar." onSignOut={auth.signOut} />
+    return (
+      <UnauthorizedView
+        email={auth.userEmail}
+        message="Tu cuenta todavía no pertenece a una empresa. Completa el alta para continuar."
+        onSignOut={auth.signOut}
+      />
+    )
   }
+
   if (auth.status !== 'authorized') {
-    return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'No se pudo validar el acceso.'} onSignOut={auth.signOut} />
+    return (
+      <UnauthorizedView
+        email={auth.userEmail}
+        message={auth.error ?? 'No se pudo validar el acceso.'}
+        onSignOut={auth.signOut}
+      />
+    )
   }
+
+  // Usuario autenticado que navega en la landing pública web
+  if (!isNative && path === '/') {
+    return <PublicLanding />
+  }
+
   if (!auth.tenantId || !auth.member?.active || !auth.account) {
-    return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'Este usuario no tiene una membresía activa.'} onSignOut={auth.signOut} />
+    return (
+      <UnauthorizedView
+        email={auth.userEmail}
+        message={auth.error ?? 'Este usuario no tiene una membresía activa.'}
+        onSignOut={auth.signOut}
+      />
+    )
   }
 
   const activeTenant = getActiveTenant()
