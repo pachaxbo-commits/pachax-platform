@@ -50,7 +50,9 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     offlineOperations: [], reports: ['sales', 'receivables', 'routeClosures'],
   },
   gelateria_weight_cafe: {
-    businessType: 'gelateria_weight_cafe', name: 'Heladería / Cafetería', description: 'Venta por peso y unidad, caja e inventario.', icon: 'ice-cream', version: 1,
+    businessType: 'gelateria_weight_cafe', name: 'Comercio / Venta rápida',
+    description: 'Venta por peso y unidad, caja e inventario. Útil para heladerías, cafeterías de mostrador, panaderías, reposterías, tiendas a granel, dulcerías y negocios que vendan por peso y/o unidad.',
+    icon: 'ice-cream', version: 1,
     capabilities: gelateriaCapabilities, defaults: defaults(gelateriaCapabilities), modules: [...common, cash],
     roles: [owner, admin, cashier, { id: 'sales', name: 'Atención y ventas', permissions: ['sales.read', 'sales.create', 'customers.read'] }, inventory],
     units: ['kg', 'g', 'unit'], pos: 'mixed-weight', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'weight', 'cash'],

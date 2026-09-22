@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "studio": "vite --open /studio",
     "dev:emulator": "vite --mode emulator",
     "build:functions-core": "node scripts/build-functions-core.mjs",
     "build:rules": "node scripts/build-rules.mjs",

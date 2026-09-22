@@ -1,0 +1,183 @@
+import { useState } from 'react'
+import { RestaurantDemo } from './restaurant/RestaurantDemo'
+import { DistributionDemo } from './distribution/DistributionDemo'
+import { QuickRetailDemo } from './quick-retail/QuickRetailDemo'
+import type { DemoTemplateId, DemoMode } from './demoTypes'
+import { Sparkles, ArrowLeft, Check, X } from 'lucide-react'
+
+export function DemoRuntime({
+  templateId,
+  mode = 'team',
+  simulatedRole,
+  isPublicDemo = false,
+  onSelectRole,
+}: {
+  templateId: DemoTemplateId
+  mode?: DemoMode
+  simulatedRole?: string
+  isPublicDemo?: boolean
+  onSelectRole?: (roleId: string) => void
+}) {
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false)
+  const [contactSubmitted, setContactSubmitted] = useState(false)
+  const [leadBusinessName, setLeadBusinessName] = useState('')
+  const [leadPhone, setLeadPhone] = useState('')
+
+  const templateInfo = {
+    restaurant: {
+      name: 'Restaurante',
+      company: 'Bistró Demo',
+      desc: 'Pedidos, mesas, cocina, caja e inventario.',
+    },
+    distribution: {
+      name: 'Producción y distribución',
+      company: 'Distribuidora Demo',
+      desc: 'Inventario, almacenes, despachos, rutas, ventas, créditos y retornos.',
+    },
+    retail: {
+      name: 'Comercio / Venta rápida',
+      company: 'Amapola Demo',
+      desc: 'Venta por unidad o peso, atención en mostrador, caja e inventario.',
+    },
+  }[templateId]
+
+  const handleContactSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setContactSubmitted(true)
+    setTimeout(() => {
+      setContactSubmitted(false)
+      setIsContactModalOpen(false)
+      setLeadBusinessName('')
+      setLeadPhone('')
+    }, 2500)
+  }
+
+  return (
+    <div className="w-full flex flex-col min-h-screen bg-slate-50 text-slate-900 font-sans">
+      {/* Barra superior exclusiva para demos públicas (/demo/...) */}
+      {isPublicDemo && (
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3 flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-3">
+            <a
+              href="/demo"
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition bg-slate-100 px-2.5 py-1.5 rounded-lg"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Demos PACHAX</span>
+            </a>
+            <div className="h-4 w-px bg-slate-200" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm font-bold text-slate-900">{templateInfo.company}</h1>
+                <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200/60">
+                  {templateInfo.name}
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400 hidden sm:inline">
+                Demostración interactiva con datos ficticios
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsContactModalOpen(true)}
+              className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Quiero una solución para mi negocio</span>
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* Contenedor principal de la demo */}
+      <main className={`flex-1 w-full max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}>
+        {templateId === 'restaurant' && (
+          <RestaurantDemo mode={mode} simulatedRole={simulatedRole} onSelectRole={onSelectRole} />
+        )}
+        {templateId === 'distribution' && (
+          <DistributionDemo mode={mode} simulatedRole={simulatedRole} onSelectRole={onSelectRole} />
+        )}
+        {templateId === 'retail' && (
+          <QuickRetailDemo mode={mode} simulatedRole={simulatedRole} onSelectRole={onSelectRole} />
+        )}
+      </main>
+
+      {/* Footer discreto */}
+      <footer className="py-4 text-center text-xs text-slate-400 border-t border-slate-200/60 bg-white">
+        PACHAX Platform • Software de Gestión para Empresas •{' '}
+        <span className="font-semibold text-slate-500">Demostración con datos ficticios</span>
+      </footer>
+
+      {/* Modal de Solicitud de Solución (CTA) */}
+      {isContactModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Quiero una solución para mi negocio</h3>
+                <p className="text-xs text-slate-500">Cuéntanos sobre tu empresa para preparar una propuesta</p>
+              </div>
+              <button
+                onClick={() => setIsContactModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {contactSubmitted ? (
+              <div className="py-8 text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                  <Check className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900">¡Gracias por tu interés!</h4>
+                <p className="text-xs text-slate-500">Nos pondremos en contacto contigo a la brevedad.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleContactSubmit} className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Nombre de tu negocio o marca
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Café Del Sol / Distribuidora Santa Cruz"
+                    value={leadBusinessName}
+                    onChange={(e) => setLeadBusinessName(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Teléfono / WhatsApp de contacto
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Ej. +591 70000000"
+                    value={leadPhone}
+                    onChange={(e) => setLeadPhone(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs flex items-center justify-center gap-2"
+                  >
+                    <span>Enviar solicitud</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

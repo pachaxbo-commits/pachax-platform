@@ -1,6 +1,46 @@
 # Continuidad del proyecto PACHAX
 
-## Checkpoint vigente: núcleo multiempresa (22/09/2026)
+## Checkpoint vigente: PACHAX Studio & Demos Desacopladas (22/09/2026)
+
+Rama `feat/pachax-studio`. Se implementó un entorno interno de desarrollo y previsualización (**PACHAX Studio**) desacoplado de Firebase, Cloud Functions y autenticación real, junto con rutas públicas de demostración (`/demo`, `/demo/restaurant`, `/demo/distribution`, `/demo/retail`).
+
+### Realizado en esta fase
+
+1. **Entorno PACHAX Studio (`src/studio/`)**:
+   - Acceso independiente mediante `npm run studio` o ruta `/studio` (`studio.html`).
+   - Funciona localmente sin `.env.local` ni configuración remota.
+   - Portada profesional con tres tarjetas: *Restaurante*, *Producción y distribución*, y *Comercio / Venta rápida*.
+   - **Modo Equipo**: seleccionado por defecto con acceso completo a todos los módulos sin requerir autenticación ni cambio de usuario.
+   - **Simular rol**: selector opcional por plantilla (Restaurante: Dueño, Admin, Caja, Mesero, Cocina, Inventario; Distribución: Admin, Almacén, Distribuidor; Comercio: Dueño, Admin, Caja, Ventas, Inventario).
+   - **Simulador de viewports**: selector interactivo para pantallas móviles (360×800, 390×844), tablet (768×1024), laptop (1366×768) y escritorio.
+   - **Personalización de Empresa (Branding)**: panel flotante en tiempo real con tokens visuales CSS (`--studio-primary`, `--studio-sidebar`, `--studio-accent`, `--studio-bg`, etc.), adaptable al formato canónico `Tenant.branding` y persistido localmente sin tocar Firebase.
+
+2. **Demos Desacopladas (`src/demo/`)**:
+   - Arquitectura separada: las plantillas y demos no dependen de `StudioShell`.
+   - **Rutas públicas disponibles**: `/demo` (galería de las 3 soluciones), `/demo/restaurant` (Bistró Demo), `/demo/distribution` (Distribuidora Demo), `/demo/retail` (Amapola Demo).
+   - Demos públicas limpias sin controles de desarrollo ni selector de viewport, con aviso discreto de *Demostración con datos ficticios* y botón CTA *Quiero una solución para mi negocio*.
+
+3. **Plantillas integradas**:
+   - **Restaurante (Bistró Demo)**: 14 módulos operativos con mock data (Inicio, POS/Caja, Pedidos, Mesas con plano de salón, Cocina KDS, Historial, Caja/Turnos, Inventario, Productos, Clientes, Usuarios, Reportes, Configuración, Impresoras térmicas). Desacoplado de Firebase mediante wrappers locales.
+   - **Producción y distribución (Distribuidora Demo)**: Los 17 accesos completos navegables desde Modo Equipo reutilizando `previewData` y vistas de distribución sin alterar lógica financiera ni de inventario.
+   - **Comercio / Venta rápida (Amapola Demo)**: Venta combinada en un mismo carrito de productos por peso (gramos) y por unidad. Reutilización estricta de `src/core/sales.ts` (`createSaleLine`, `saleTotal`, `validatePayments`, `cashClosure`). Módulos de inicio, POS, ventas, caja, inventario en gramos/unidades, productos, clientes, usuarios, reportes y configuración.
+   - Contratos intactos: nombre visible *Comercio / Venta rápida*, manteniendo el ID técnico interno `gelateria_weight_cafe`.
+
+4. **Compatibilidad y Protección Vercel**:
+   - Flag `VITE_ENABLE_TEAM_STUDIO`: activo en local/dev y en Vercel Preview (`VITE_ENABLE_TEAM_STUDIO=true`), bloqueado en Production. Las rutas `/demo/...` permanecen públicas con mocks.
+   - Rewrites en `vercel.json` y middleware dev en `vite.config.ts` para `/studio` y `/demo`.
+   - `docs/TEAM-SETUP.md` actualizado para clonar desde `main` y utilizar `npm run studio`.
+
+### Verificaciones y pruebas
+- `npm run typecheck`: Aprobado (0 errores).
+- `npm run test:platform`: 20/20 comprobaciones aprobadas.
+- `npm run test:distribution`: 55/55 pruebas del motor de distribución aprobadas.
+- `npm run build`: Generación correcta de artefactos `dist/index.html`, `dist/studio.html`, `dist/demo.html`, `dist/preview.html`.
+- Reglas, Auth, Cloud Functions y Firestore Rules sin modificaciones.
+
+---
+
+## Checkpoint anterior: núcleo multiempresa (22/09/2026)
 
 Rama `codex/pachax-platform`. El checkpoint solicitado quedó limitado a contexto activo, paths tenant, Functions, Rules y aislamiento A/B/C. **No continuar todavía con onboarding, `/platform`, Support View, conexión operativa de templates ni UI hasta nueva indicación.** No hubo merge, push, despliegue, Firebase real ni acceso a `G:/pachax-comandero`.
 
