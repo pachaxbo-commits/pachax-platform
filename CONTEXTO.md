@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+## Avance de rediseño público editorial (22/09/2026)
+
+Rama aislada `feat/codex-premium-public-redesign`, creada desde `origin/feat/public-template-showcase` (`6d7d953`). Se reemplazó el hero centrado por una composición oscura asimétrica con tres ventanas seleccionables de Restaurante, Distribución y Comercio. La sección de plantillas usa filas editoriales con vistas amplias; cada selección conserva el modal y los parámetros `?data=empty|full`. El login ahora ocupa la pantalla en un split oscuro/marfil con las tres vistas de producto y formulario compacto; en móvil se prioriza el formulario. El registro recibió ajustes visuales sin conectar onboarding. Se eliminó el badge decorativo del header.
+
+Se preservaron `src/demo/datasets/**`, DemoRuntime, Studio, motores de dominio, Auth y backend seguro. El modal conserva Escape y añade ciclo de foco y restauración. Verificados `npm run typecheck`, `npm run test:platform` (20/20), `npm run test:distribution` (55/55) y `npm run build:emulator`. `npm run build` requiere la configuración Firebase del nuevo proyecto y falla explícitamente sin ella. Revisión visual en navegador local: `/`, `/login`, `/register`; rutas `/demo` y las tres demos con `?data=full` cargan con sus controles de dataset. Pendiente: revisar paridad de previews cuando llegue Restaurant Next; no mezclar la rama paralela. No se desplegó ni modificó main.
+
+
 ## Checkpoint vigente: TemplateShowcaseSection y Arquitectura Dual de Datasets (22/09/2026)
 
 Rama `feat/public-template-showcase`. Se implementó la vitrina protagonista de plantillas (`<TemplateShowcaseSection />`) reemplazando funcionalmente a `SolutionsExplorer` en la experiencia pública (`/`). Incorpora dirección de arte premium (Deep Slate `#0B1F2A`, Petroleum `#1F3B4D`, Ivory `#FAF9F6`, Controlled Azure `#2F7DD7`, Amber `#E0A24A`, tipografía editorial y microinteracciones) junto con la arquitectura de exploración dual por plantilla: **Empezar desde cero (`?data=empty`)** vs **Ver negocio completo (`?data=full`)**.

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Sparkles, MessageSquare, Copy, Check, ArrowRight } from 'lucide-react'
+import { MessageSquare, Copy, Check, ArrowRight } from 'lucide-react'
 import { TEMPLATE_SHOWCASE_DATA, type TemplateShowcaseItem } from './templateShowcaseData'
 import { TemplateShowcaseCard } from './TemplateShowcaseCard'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
@@ -28,31 +28,18 @@ export function TemplateShowcaseSection() {
   }
 
   return (
-    <section id="soluciones" className="py-16 sm:py-24 bg-[#FAF9F6] border-y border-slate-200/80 scroll-mt-12">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="soluciones" className="showcase-section">
+      <div className="showcase-inner">
         {/* Encabezado Editorial Protagonista */}
-        <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16 space-y-3.5">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 text-white text-xs font-bold shadow-2xs">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Plantillas Canónicas</span>
-          </div>
-
-          <h2 className="text-3xl sm:text-5xl font-black text-slate-950 tracking-tight leading-tight">
-            Una plataforma. <br className="hidden sm:inline" />
-            <span className="text-slate-700">Tres formas reales de operar.</span>
-          </h2>
-
-          <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Cada sector tiene una dinámica única. Selecciona una plantilla para explorarla desde cero o ver cómo se comporta cuando una empresa ya está operando a diario.
-          </p>
-        </div>
+        <div className="showcase-heading"><span className="public-kicker">SOLUCIONES / EXPERIENCIAS</span><h2>El trabajo real,<br /><em>en primer plano.</em></h2><p>Explora cada forma de operar desde cero o con una empresa en actividad.</p></div>
 
         {/* Las 3 Grandes Muestras / Cards Protagonistas */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-          {TEMPLATE_SHOWCASE_DATA.map((item) => (
+        <div className="showcase-list">
+          {TEMPLATE_SHOWCASE_DATA.map((item, index) => (
             <TemplateShowcaseCard
               key={item.id}
               item={item}
+              index={index}
               onSelect={(it) => setSelectedItem(it)}
             />
           ))}

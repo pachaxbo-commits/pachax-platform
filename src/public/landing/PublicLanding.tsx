@@ -4,6 +4,7 @@ import { TemplateShowcaseSection } from './TemplateShowcaseSection'
 import { BrandingPreviewSection } from './BrandingPreviewSection'
 import { OperationsFeatures } from './OperationsFeatures'
 import { LandingFooter } from './LandingFooter'
+import '../publicExperience.css'
 
 export function PublicLanding() {
   return (

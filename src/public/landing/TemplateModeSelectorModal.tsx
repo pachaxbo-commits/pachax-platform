@@ -11,11 +11,27 @@ interface TemplateModeSelectorModalProps {
 export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelectorModalProps) {
   const { navigate } = usePublicRouter()
   const modalRef = useRef<HTMLDivElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!item) return
+    previousFocusRef.current = document.activeElement as HTMLElement
+    const firstButton = modalRef.current?.querySelector<HTMLElement>('button')
+    firstButton?.focus()
+    return () => previousFocusRef.current?.focus()
+  }, [item])
 
   // Cerrar con Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
+      if (e.key === 'Tab' && modalRef.current) {
+        const controls = Array.from(modalRef.current.querySelectorAll<HTMLElement>('button'))
+        const first = controls[0]
+        const last = controls[controls.length - 1]
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus() }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus() }
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -34,12 +50,12 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-in fade-in duration-200"
       onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
     >
       <div
         ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
         className="bg-white rounded-3xl max-w-xl w-full shadow-2xl border border-slate-200/90 overflow-hidden ring-1 ring-slate-900/10 text-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
