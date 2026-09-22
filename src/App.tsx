@@ -4,11 +4,11 @@ import { UnauthorizedView } from './components/UnauthorizedView'
 import { DistributionApp } from './modules/distribution/views/DistributionApp'
 import { DistributionPrinterModal } from './modules/distribution/views/DistributionPrinterModal'
 import { useAuthStore } from './store/authStore'
-import { PACHAX_ID, PACHAX_NAME } from './config/pachax'
+import { PACHAX_NAME } from './config/pachax'
 import type { UserRole } from './types'
 
 function DistributionShell(props: {
-  restaurantId: string
+  tenantId: string
   restaurantName: string
   uid: string
   userName: string
@@ -22,7 +22,7 @@ function DistributionShell(props: {
   return (
     <>
       <DistributionApp {...props} onOpenPrinterSettings={() => setIsPrinterSettingsOpen(true)} />
-      {isPrinterSettingsOpen && <DistributionPrinterModal restaurantId={props.restaurantId} onClose={() => setIsPrinterSettingsOpen(false)} />}
+      {isPrinterSettingsOpen && <DistributionPrinterModal tenantId={props.tenantId} onClose={() => setIsPrinterSettingsOpen(false)} />}
     </>
   )
 }
@@ -35,11 +35,20 @@ function App() {
   if (auth.status === 'signed_out' || auth.status === 'authenticating' || auth.status === 'loading') {
     return <LoginView error={auth.error} isLoading={auth.status !== 'signed_out'} onSubmit={auth.signIn} />
   }
-  if (auth.status !== 'authorized' || auth.restaurantId !== PACHAX_ID || !auth.member?.active) {
-    return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'Este usuario no tiene acceso a PACHAX.'} onSignOut={auth.signOut} />
+  if (auth.status === 'needs_tenant') {
+    return <UnauthorizedView email={auth.userEmail} message="Tu cuenta todavía no pertenece a una empresa. Completa el alta para continuar." onSignOut={auth.signOut} />
   }
-  return <DistributionShell restaurantId={PACHAX_ID} restaurantName={PACHAX_NAME}
-    key={`${PACHAX_ID}:${auth.member.uid}`} warehouseId={auth.member.warehouseId}
+  if (auth.status !== 'authorized') {
+    return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'No se pudo validar el acceso.'} onSignOut={auth.signOut} />
+  }
+  if (!auth.tenantId || !auth.member?.active || !auth.account) {
+    return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'Este usuario no tiene una membresía activa.'} onSignOut={auth.signOut} />
+  }
+  if (auth.account.businessType !== 'mobile_distribution') {
+    return <UnauthorizedView email={auth.userEmail} message="La plantilla de esta empresa todavía no tiene una interfaz operativa habilitada." onSignOut={auth.signOut} />
+  }
+  return <DistributionShell tenantId={auth.tenantId} restaurantName={auth.account.name}
+    key={`${auth.tenantId}:${auth.member.uid}`} warehouseId={auth.member.warehouseId}
     uid={auth.member.uid} userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
     role={auth.member.role} routeId={auth.member.routeId ?? null} onSignOut={auth.signOut} />
 }

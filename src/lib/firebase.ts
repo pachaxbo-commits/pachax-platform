@@ -1,10 +1,10 @@
-import { PACHAX_ID } from '../config/pachax'
+import { getActiveTenant } from '../store/activeTenant'
+import { gateway } from '../services/gateway'
 import { validateFirebaseEnvironment } from '../config/firebaseEnvironment'
-import { deleteApp, getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
+import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   browserLocalPersistence,
   connectAuthEmulator,
-  createUserWithEmailAndPassword,
   getAuth,
   inMemoryPersistence,
   onAuthStateChanged,
@@ -30,13 +30,9 @@ import {
   memoryLocalCache,
   persistentLocalCache,
   persistentMultipleTabManager,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
   type Firestore,
 } from 'firebase/firestore'
 import type { BusinessType, RestaurantAccount, RestaurantBranding, RestaurantMember, UserRole } from '../types'
-import { TenantContextService } from '../services/tenantService'
 
 interface FirebaseWebConfig {
   apiKey: string
@@ -52,7 +48,8 @@ export interface FirebaseContext {
   app: FirebaseApp
   auth: Auth
   db: Firestore
-  /** Tenant activo al momento de pedir el contexto */
+  tenantId: string
+  /** @deprecated Compatibility for unconverted restaurant UI only. */
   restaurantId: string
 }
 
@@ -86,21 +83,11 @@ function readFirebaseConfig(): FirebaseWebConfig | null {
   return requiredValues.every(Boolean) ? config : null
 }
 
-let currentActiveRestaurantId: string = PACHAX_ID
-
-export function getFirebaseRestaurantId(): string {
-  return currentActiveRestaurantId
-}
-
+/** @deprecated Use ActiveTenantContext. */
+export function getFirebaseRestaurantId(): string { return getActiveTenant()?.tenantId || '' }
+/** @deprecated Selection is owned by authStore and verified memberships. */
 export function setFirebaseRestaurantId(id: string) {
-  if (id !== PACHAX_ID) throw new Error('ACCESS_DENIED: La cuenta no pertenece a PACHAX.')
-  currentActiveRestaurantId = id
-  localStorage.setItem('pachax_active_restaurant_id', id)
-  // Ojo: NO se invalida la inicializacion de Firebase. La app, la sesion y la
-  // instancia de Firestore no dependen del tenant activo, y volver a
-  // inicializarlas lanzaba "Firestore has already been started": el fallo
-  // dejaba al usuario en el tenant equivocado justo despues de resolver su
-  // empresa por defecto.
+  if (id !== getActiveTenant()?.tenantId) throw new Error('Selecciona una empresa mediante tu membresía.')
 }
 
 export function isFirebaseConfigured() {
@@ -108,7 +95,6 @@ export function isFirebaseConfigured() {
 }
 
 let firebaseRuntimePromise: Promise<FirebaseRuntime | null> | null = null
-let functionsEmulatorConnected = false
 let storageEmulatorConnected = false
 
 /** Inicializa app, Firestore y Auth una sola vez por sesion. */
@@ -185,15 +171,10 @@ async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
 }
 
 export async function getFirebaseContext(): Promise<FirebaseContext | null> {
+  const tenantId = getActiveTenant()?.tenantId || ''
   const runtime = await getFirebaseRuntime()
   if (!runtime) return null
-
-  // El tenant activo se resuelve en cada llamada: puede cambiar al iniciar
-  // sesion, sin necesidad de reinicializar Firebase.
-  const restaurantId = getFirebaseRestaurantId()
-  TenantContextService.setContext(restaurantId, 'main', runtime.auth.currentUser?.uid)
-
-  return { ...runtime, restaurantId }
+  return { ...runtime, tenantId, restaurantId: tenantId }
 }
 
 
@@ -203,21 +184,6 @@ export async function getFirebaseContext(): Promise<FirebaseContext | null> {
  * Tiene que respetar el modo emulador: sin esto, probar en el emulador creaba
  * usuarios reales en el proyecto de produccion.
  */
-function createSecondaryAuth(label: string): { app: FirebaseApp; auth: Auth } | null {
-  const firebaseConfig = readFirebaseConfig()
-  if (!firebaseConfig) return null
-
-  const app = initializeApp(firebaseConfig, `${label}-${Date.now()}`)
-  const auth = getAuth(app)
-
-  if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true') {
-    const host = window.location.hostname || 'localhost'
-    connectAuthEmulator(auth, `http://${host}:9195`, { disableWarnings: true })
-  }
-
-  return { app, auth }
-}
-
 export async function signInWithEmail(email: string, password: string) {
   const context = await getFirebaseContext()
 
@@ -257,7 +223,7 @@ export async function fetchRestaurantAccount(restaurantId: string): Promise<Rest
   const context = await getFirebaseContext()
   if (!context) return null
 
-  const ref = doc(context.db, 'restaurants', restaurantId)
+  const ref = doc(context.db, 'tenants', restaurantId)
   const snap = await getDoc(ref)
   if (!snap.exists()) return null
 
@@ -269,11 +235,10 @@ export async function fetchRestaurantAccount(restaurantId: string): Promise<Rest
     ownerUid: data.ownerUid || '',
     createdAt: data.createdAt || new Date().toISOString(),
     plan: data.plan || 'pro',
-    // Un tenant sin businessType es un restaurante: nada cambia para los existentes.
-    businessType: (data.businessType as BusinessType) || 'restaurant',
-    currencyCode: data.currencyCode || 'BOB',
-    currencySymbol: data.currencySymbol || 'Bs',
-    branding: data.branding || {
+    businessType: data.businessType === 'route_distribution' ? 'mobile_distribution' : 'restaurant',
+    currencyCode: data.configuration?.currency || 'BOB',
+    currencySymbol: data.configuration?.currencySymbol || 'Bs',
+    branding: data.branding ? { name: data.name, logoUrl: data.branding.logoUrl, primaryColor: data.branding.primary, accentColor: data.branding.accent } : {
       name: data.name || 'Mi Restaurante',
       primaryColor: '#0B132B',
       accentColor: '#00F0FF',
@@ -296,99 +261,41 @@ export async function updateRestaurantProfile(
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no esta configurado.')
 
-  const payload: Record<string, unknown> = { updatedAt: serverTimestamp() }
+  if (restaurantId !== context.tenantId) throw new Error('Empresa activa inválida.')
+  if (updates.businessType) throw new Error('El tipo de empresa requiere una migración explícita.')
+  const payload: Record<string, unknown> = { action: 'updateSettings', tenantId: context.tenantId }
   if (updates.name) payload.name = updates.name
-  if (updates.businessType) payload.businessType = updates.businessType
-  if (updates.currencyCode) payload.currencyCode = updates.currencyCode
+  if (updates.currencyCode) payload.currency = updates.currencyCode
   if (updates.currencySymbol) payload.currencySymbol = updates.currencySymbol
-  if (updates.branding) payload.branding = updates.branding
-
-  await setDoc(doc(context.db, 'restaurants', restaurantId), payload, { merge: true })
+  if (updates.branding) payload.branding = Object.fromEntries(Object.entries({ primary: updates.branding.primaryColor, accent: updates.branding.accentColor }).filter(([, value]) => value !== undefined))
+  await gateway('tenantGateway', payload)
 }
 
 export async function updateRestaurantBranding(restaurantId: string, branding: Partial<RestaurantBranding>) {
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no está configurado.')
 
-  const ref = doc(context.db, 'restaurants', restaurantId)
-  await updateDoc(ref, {
-    branding,
-    updatedAt: serverTimestamp(),
-  })
+  if (restaurantId !== context.tenantId) throw new Error('Empresa activa inválida.')
+  const safeBranding = Object.fromEntries(Object.entries({ primary: branding.primaryColor, accent: branding.accentColor }).filter(([, value]) => value !== undefined))
+  await gateway('tenantGateway', { action: 'updateSettings', tenantId: context.tenantId, branding: safeBranding })
 }
 
-export async function createNewRestaurantAccount(input: {
-  restaurantName: string
-  ownerName: string
-  email: string
-  password: string
-}): Promise<string> {
-  const firebaseConfig = readFirebaseConfig()
-  if (!firebaseConfig) throw new Error('Firebase no esta configurado.')
-
-  const secondary = createSecondaryAuth('tenant-create')
-  if (!secondary) throw new Error('Firebase no esta configurado.')
-  const { app: secondaryApp, auth: secondaryAuth } = secondary
-
-  try {
-    const cred = await createUserWithEmailAndPassword(secondaryAuth, input.email.trim(), input.password)
-    const ownerUid = cred.user.uid
-    const restaurantId = `rest_${input.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now().toString(36)}`
-
-    const context = await getFirebaseContext()
-    if (!context) throw new Error('Error al conectar con la base de datos.')
-
-    // 1. Create Restaurant Doc
-    await setDoc(doc(context.db, 'restaurants', restaurantId), {
-      id: restaurantId,
-      name: input.restaurantName.trim(),
-      slug: restaurantId,
-      ownerUid,
-      createdAt: serverTimestamp(),
-      plan: 'pro',
-      branding: {
-        name: input.restaurantName.trim(),
-        primaryColor: '#0B132B',
-        accentColor: '#00F0FF',
-        receiptHeader: `*** ${input.restaurantName.toUpperCase()} ***`,
-        receiptFooter: '¡Gracias por su preferencia!',
-        tablesCount: 12,
-      },
-    })
-
-    // 2. Add Owner as Admin Member inside the restaurant
-    await setDoc(doc(context.db, 'restaurants', restaurantId, 'members', ownerUid), {
-      uid: ownerUid,
-      email: input.email.trim(),
-      displayName: input.ownerName.trim(),
-      role: 'admin',
-      active: true,
-      createdAt: serverTimestamp(),
-    })
-
-    // 3. User mapping record
-    await setDoc(doc(context.db, 'users', ownerUid), {
-      uid: ownerUid,
-      email: input.email.trim(),
-      displayName: input.ownerName.trim(),
-      defaultRestaurantId: restaurantId,
-      restaurants: [restaurantId],
-    })
-
-    setFirebaseRestaurantId(restaurantId)
-    return restaurantId
-  } finally {
-    await firebaseSignOut(secondaryAuth).catch(() => undefined)
-    await deleteApp(secondaryApp).catch(() => undefined)
-  }
+/** @deprecated The new owner registers in the onboarding flow. */
+export async function createNewRestaurantAccount(_input: { restaurantName: string; ownerName: string; email: string; password: string }): Promise<string> {
+  void _input
+  throw new Error('Utiliza el nuevo onboarding de empresas.')
 }
 
 export async function listRestaurantMembers() {
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no esta configurado.')
 
-  const snap = await getDocs(collection(context.db, 'restaurants', context.restaurantId, 'members'))
-  return snap.docs.map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }) as RestaurantMember)
+  const snap = await getDocs(collection(context.db, 'tenants', context.restaurantId, 'members'))
+  return snap.docs.map(memberDoc => {
+    const data = memberDoc.data()
+    return { ...data, uid: memberDoc.id, role: data.roleId === 'owner' ? 'admin' : data.roleId,
+      active: data.status === 'active', routeId: data.routeIds?.[0] || '' } as RestaurantMember
+  })
 }
 
 export async function createRestaurantMember(input: {
@@ -403,51 +310,13 @@ export async function createRestaurantMember(input: {
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no esta configurado.')
 
-  const secondary = createSecondaryAuth('member-create')
-  if (!secondary) throw new Error('Firebase no esta configurado.')
-  const { app: secondaryApp, auth: secondaryAuth } = secondary
-
-  try {
-    const credential = await createUserWithEmailAndPassword(secondaryAuth, input.email.trim(), input.password)
-    await setDoc(doc(context.db, 'restaurants', context.restaurantId, 'members', credential.user.uid), {
-      uid: credential.user.uid,
-      email: input.email.trim(),
-      displayName: input.displayName.trim() || input.email.trim(),
-      role: input.role,
-      routeId: input.routeId || '',
-      warehouseId: input.warehouseId || 'central',
-      active: true,
-      createdAt: serverTimestamp(),
-    })
-
-    // Mapa usuario -> tenant, para que al iniciar sesion caiga en su empresa.
-    await setDoc(
-      doc(context.db, 'users', credential.user.uid),
-      {
-        uid: credential.user.uid,
-        email: input.email.trim(),
-        displayName: input.displayName.trim() || input.email.trim(),
-        defaultRestaurantId: context.restaurantId,
-      },
-      { merge: true },
-    )
-  } finally {
-    await firebaseSignOut(secondaryAuth).catch(() => undefined)
-    await deleteApp(secondaryApp).catch(() => undefined)
-  }
+  await gateway('tenantGateway', { action: 'createMember', tenantId: context.tenantId, operationId: crypto.randomUUID(), ...input, roleId: input.role })
 }
 
 async function callMemberAdministration<TResult>(payload: Record<string, unknown>): Promise<TResult> {
-  const context = await getFirebaseContext()
-  if (!context) throw new Error('Firebase no esta configurado.')
-  const { connectFunctionsEmulator, getFunctions, httpsCallable } = await import('firebase/functions')
-  const functions = getFunctions(context.app, 'us-central1')
-  if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && !functionsEmulatorConnected) {
-    connectFunctionsEmulator(functions, window.location.hostname || 'localhost', 5101)
-    functionsEmulatorConnected = true
-  }
-  const call = httpsCallable<Record<string, unknown>, TResult>(functions, 'changePachaxMemberPassword')
-  return (await call(payload)).data
+  const tenantId = getActiveTenant()?.tenantId
+  if (!tenantId) throw new Error('Selecciona una empresa.')
+  return gateway<TResult>('tenantGateway', { ...payload, tenantId })
 }
 
 export async function updateRestaurantMember(uid: string, updates: Partial<Pick<RestaurantMember, 'role' | 'active' | 'displayName' | 'email' | 'routeId' | 'warehouseId'>>) {
@@ -469,7 +338,7 @@ export async function deleteRestaurantMemberAccess(uid: string) {
   await callMemberAdministration<{ deleted: boolean }>({ action: 'deleteMember', uid })
 }
 
-export async function uploadProductImageToFirebase(file: File, restaurantId: string): Promise<string> {
+export async function uploadProductImageToFirebase(file: File, tenantId: string): Promise<string> {
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no esta configurado.')
 
@@ -479,7 +348,7 @@ export async function uploadProductImageToFirebase(file: File, restaurantId: str
     storageEmulatorConnected = true
   }
   const fileExt = file.name.split('.').pop() || 'jpg'
-  const path = `restaurants/${restaurantId}/products/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`
+  const path = `tenants/${tenantId}/products/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`
   const fileRef = storageRef(storage, path)
 
   await uploadBytes(fileRef, file)

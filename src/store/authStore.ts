@@ -1,365 +1,121 @@
-import { PACHAX_ID, PACHAX_ROLES } from '../config/pachax'
 import { useSyncExternalStore } from 'react'
-import { doc, getDoc, getDocFromCache, onSnapshot, type DocumentData, type DocumentReference } from 'firebase/firestore'
-import { fetchRestaurantAccount, getFirebaseContext, getFirebaseRestaurantId, setFirebaseRestaurantId, isFirebaseConfigured, signInWithEmail, signOutUser, subscribeToAuthChanges } from '../lib/firebase'
+import { doc, onSnapshot } from 'firebase/firestore'
+import { isFirebaseConfigured, signInWithEmail, signOutUser, subscribeToAuthChanges, getFirebaseContext } from '../lib/firebase'
+import { gateway } from '../services/gateway'
+import { activateTenant, clearActiveTenant, getActiveTenant, profileCacheKey, selectedTenantKey } from './activeTenant'
 import { resetCatalogRepository } from './catalogRepositoryFactory'
 import { resetOrdersRepository } from './repositoryFactory'
-import type { BusinessType, RestaurantAccount, RestaurantMember, UserRole } from '../types'
+import type { Membership, Tenant } from '../core/platform'
+import type { BusinessType as LegacyBusinessType, RestaurantAccount, RestaurantMember, UserRole } from '../types'
 
-type AuthStatus = 'loading' | 'signed_out' | 'authorized' | 'unauthorized' | 'demo' | 'authenticating'
-
+type AuthStatus = 'loading' | 'signed_out' | 'authorized' | 'unauthorized' | 'needs_tenant' | 'authenticating'
+interface TenantMembership extends Membership { displayName?: string; email?: string; warehouseId?: string }
+interface TenantAccess { tenant: Tenant; membership: TenantMembership }
 interface AuthState {
-  mode: 'firebase' | 'local'
-  status: AuthStatus
-  userEmail: string | null
-  userDisplayName: string | null
-  role: UserRole | null
-  member: RestaurantMember | null
-  error: string | null
-  restaurantId: string | null
-  /** Tipo de empresa del tenant activo. Determina la experiencia completa. */
-  businessType: BusinessType
-  account: RestaurantAccount | null
+  mode: 'firebase' | 'local'; status: AuthStatus; userEmail: string | null; userDisplayName: string | null
+  role: UserRole | null; member: RestaurantMember | null; error: string | null
+  tenantId: string | null; restaurantId: string | null; businessType: LegacyBusinessType
+  account: RestaurantAccount | null; availableTenants: TenantAccess[]
 }
-
 const listeners = new Set<() => void>()
 let initialized = false
-let stopMemberWatch: (() => void) | null = null
-
-/**
- * Perfil resuelto de la ultima sesion correcta, por usuario.
- *
- * Sirve para arrancar sin conexion: Firebase Auth restaura la sesion desde el
- * dispositivo, pero el rol y la empresa viven en Firestore. Si esa lectura no
- * se puede hacer, se usa el perfil guardado del MISMO usuario en vez de
- * suponer nada.
- */
-const PROFILE_CACHE_KEY = 'pachax_profile_cache'
-
-interface CachedProfile {
-  uid: string
-  email: string
-  displayName: string
-  role: UserRole
-  routeId?: string
-  warehouseId?: string
-  restaurantId: string
-  businessType: BusinessType
+let stopWatches: (() => void)[] = []
+const configured = isFirebaseConfigured()
+let state: AuthState = { mode: configured ? 'firebase' : 'local', status: configured ? 'loading' : 'unauthorized',
+  userEmail: null, userDisplayName: null, role: null, member: null, error: configured ? null : 'Firebase no está configurado.',
+  tenantId: null, restaurantId: null, businessType: 'mobile_distribution', account: null, availableTenants: [] }
+function emit() { listeners.forEach(listener => listener()) }
+function setState(patch: Partial<AuthState>) { state = { ...state, ...patch }; emit() }
+function resetData() { clearActiveTenant(); resetOrdersRepository(); resetCatalogRepository() }
+function legacyRole(roleId: string): UserRole {
+  return ({ cashier: 'caja', kitchen: 'cocina', waiter: 'pedidos', sales: 'caja', inventory: 'warehouse' }[roleId] || roleId) as UserRole
 }
-
-function readCachedProfile(uid: string): CachedProfile | null {
-  try {
-    const raw = localStorage.getItem(PROFILE_CACHE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as CachedProfile
-    return parsed && parsed.uid === uid && parsed.restaurantId === PACHAX_ID && PACHAX_ROLES.some(role => role === parsed.role) ? parsed : null
-  } catch {
-    return null
-  }
+function toView(access: TenantAccess) {
+  const { tenant, membership } = access, role = legacyRole(membership.roleId)
+  const member: RestaurantMember = { uid: membership.uid, email: membership.email || '', displayName: membership.displayName || 'Usuario',
+    role, active: membership.status === 'active', routeId: membership.routeIds[0], warehouseId: membership.warehouseId || 'central' }
+  const account: RestaurantAccount = { id: tenant.tenantId, name: tenant.name, slug: tenant.tenantId, ownerUid: tenant.ownerUid,
+    createdAt: tenant.createdAt, plan: tenant.planKey === 'enterprise' ? 'enterprise' : tenant.planKey === 'basic' ? 'basic' : 'pro', businessType: tenant.businessType === 'route_distribution' ? 'mobile_distribution' : 'restaurant',
+    currencyCode: tenant.configuration.currency, currencySymbol: tenant.configuration.currencySymbol,
+    branding: { name: tenant.name, primaryColor: tenant.branding.primary, accentColor: tenant.branding.accent, logoUrl: tenant.branding.logoUrl, tablesCount: 0 } }
+  return { role, member, account, businessType: account.businessType }
 }
-
-function writeCachedProfile(profile: CachedProfile) {
-  try {
-    localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile))
-  } catch {
-    // Sin almacenamiento local simplemente se exigira conexion al abrir.
-  }
+function cacheAccess(uid: string, access: TenantAccess) {
+  localStorage.setItem(profileCacheKey(uid, access.tenant.tenantId), JSON.stringify(access))
+  localStorage.setItem(selectedTenantKey(uid), access.tenant.tenantId)
 }
-
-/** Lee un documento aceptando la copia local cuando no hay red. */
-async function getDocAllowingCache(reference: DocumentReference<DocumentData>) {
+function cachedAccess(uid: string): TenantAccess | null {
   try {
-    return await getDoc(reference)
+    const tenantId = localStorage.getItem(selectedTenantKey(uid)); if (!tenantId) return null
+    const parsed = JSON.parse(localStorage.getItem(profileCacheKey(uid, tenantId)) || 'null') as TenantAccess | null
+    return parsed?.tenant.tenantId === tenantId && parsed.membership.uid === uid && parsed.membership.status === 'active' ? parsed : null
+  } catch { return null }
+}
+function invalidate(message: string) {
+  stopWatches.forEach(stop => stop()); stopWatches = []; resetData()
+  setState({ status: 'unauthorized', tenantId: null, restaurantId: null, role: null, member: null, account: null, error: message })
+}
+async function activate(access: TenantAccess, uid: string, persistSelection: boolean) {
+  stopWatches.forEach(stop => stop()); stopWatches = []; resetData(); activateTenant(access.tenant, access.membership); cacheAccess(uid, access)
+  if (persistSelection) await gateway('tenantGateway', { action: 'selectTenant', tenantId: access.tenant.tenantId })
+  const view = toView(access)
+  setState({ status: 'authorized', tenantId: access.tenant.tenantId, restaurantId: access.tenant.tenantId, ...view, error: null })
+  const context = await getFirebaseContext(); if (!context) return
+  const tenantRef = doc(context.db, 'tenants', access.tenant.tenantId), memberRef = doc(context.db, 'tenants', access.tenant.tenantId, 'members', uid)
+  stopWatches = [
+    onSnapshot(tenantRef, snap => {
+      if (!snap.exists()) return invalidate('La empresa ya no está disponible.')
+      const current = getActiveTenant(); if (!current) return
+      const updated = { tenant: { ...current.tenant, ...snap.data() } as Tenant, membership: current.membership }
+      activateTenant(updated.tenant, updated.membership); cacheAccess(uid, updated); setState({ ...toView(updated) })
+    }, () => undefined),
+    onSnapshot(memberRef, snap => {
+      if (!snap.exists() || snap.data().status !== 'active') return invalidate('Tu acceso a esta empresa fue desactivado.')
+      const current = getActiveTenant(); if (!current) return
+      const updated = { tenant: current.tenant, membership: snap.data() as TenantMembership }
+      activateTenant(updated.tenant, updated.membership); cacheAccess(uid, updated); setState({ ...toView(updated) })
+    }, () => undefined),
+  ]
+}
+async function resolveUser(uid: string) {
+  try {
+    const availableTenants = await gateway<TenantAccess[]>('tenantGateway', { action: 'listMemberships' })
+    setState({ availableTenants })
+    if (!availableTenants.length) {
+      return setState({ status: 'needs_tenant', error: null })
+    }
+    const preferred = localStorage.getItem(selectedTenantKey(uid))
+    const selected = availableTenants.find(item => item.tenant.tenantId === preferred) || availableTenants[0]
+    await activate(selected, uid, preferred !== selected.tenant.tenantId)
   } catch (error) {
-    try {
-      return await getDocFromCache(reference)
-    } catch {
-      throw error
-    }
+    const cached = cachedAccess(uid)
+    if (cached) return activate(cached, uid, false)
+    throw error
   }
 }
-
-let state: AuthState = !isFirebaseConfigured()
-  ? {
-      mode: 'local',
-      status: 'demo',
-      userEmail: 'demo@local',
-      userDisplayName: 'Modo demo',
-      role: 'admin',
-      member: {
-        uid: 'local-demo',
-        email: 'demo@local',
-        displayName: 'Modo demo',
-        role: 'admin',
-        active: true,
-      },
-      error: null,
-      restaurantId: getFirebaseRestaurantId(),
-      businessType: 'restaurant',
-      account: null,
-    }
-  : {
-      mode: 'firebase',
-      status: 'loading',
-      userEmail: null,
-      userDisplayName: null,
-      role: null,
-      member: null,
-      error: null,
-      restaurantId: getFirebaseRestaurantId(),
-      businessType: 'restaurant',
-      account: null,
-    }
-
-function emit() {
-  listeners.forEach((listener) => listener())
-}
-
-function resetDataRepositories() {
-  resetOrdersRepository()
-  resetCatalogRepository()
-}
-
-function setState(nextState: Partial<AuthState>) {
-  state = {
-    ...state,
-    ...nextState,
-  }
-  emit()
-}
-
-async function fetchMember(userUid: string) {
-  const context = await getFirebaseContext()
-
-  if (!context) {
-    throw new Error('Firebase no esta configurado correctamente.')
-  }
-
-  setFirebaseRestaurantId(PACHAX_ID)
-
-  const updatedContext = await getFirebaseContext()
-  if (!updatedContext) throw new Error('ACCESS_DENIED: Falta contexto de empresa.')
-
-  const memberRef = doc(updatedContext.db, 'restaurants', updatedContext.restaurantId, 'members', userUid)
-  const memberSnapshot = await getDocAllowingCache(memberRef)
-
-  if (!memberSnapshot.exists()) {
-    throw new Error('ACCESS_DENIED: No tienes membresia en esta empresa.')
-  }
-
-  const data = memberSnapshot.data()
-  if (data.active !== true || !PACHAX_ROLES.some(role => role === data.role)) throw new Error('ACCESS_DENIED: Tu acceso fue desactivado.')
-
-  let createdAt: string | undefined
-  if (data.createdAt) {
-    if (typeof data.createdAt === 'string') {
-      createdAt = data.createdAt
-    } else if (typeof data.createdAt === 'object' && 'toDate' in data.createdAt && typeof (data.createdAt as { toDate: () => Date }).toDate === 'function') {
-      createdAt = (data.createdAt as { toDate: () => Date }).toDate().toISOString()
-    } else {
-      createdAt = String(data.createdAt)
-    }
-  }
-
-  const member: RestaurantMember = {
-    uid: userUid,
-    email: data.email ?? updatedContext.auth.currentUser?.email ?? '',
-    displayName: data.displayName ?? updatedContext.auth.currentUser?.displayName ?? updatedContext.auth.currentUser?.email ?? 'Usuario',
-    role: (data.role as UserRole) ?? 'admin',
-    active: data.active === true,
-    createdAt,
-    routeId: typeof data.routeId === 'string' ? data.routeId : undefined,
-    warehouseId: typeof data.warehouseId === 'string' ? data.warehouseId : 'central',
-  }
-
-  return member
-}
-
 async function initialize() {
-  if (initialized || !isFirebaseConfigured()) {
-    return
-  }
-
+  if (initialized || !configured) return
   initialized = true
-
-  await subscribeToAuthChanges((user) => {
-    stopMemberWatch?.()
-    stopMemberWatch = null
-    resetDataRepositories()
-
-    if (!user) {
-      setState({
-        status: 'signed_out',
-        userEmail: null,
-        userDisplayName: null,
-        role: null,
-        member: null,
-        error: null,
-      })
-      return
-    }
-
-    setState({
-      status: 'loading',
-      userEmail: user.email ?? null,
-      userDisplayName: user.displayName ?? user.email ?? 'Usuario',
-      error: null,
-    })
-
-    void (async () => {
-      try {
-        const member = await fetchMember(user.uid)
-
-        const activeMember = member
-        const account = await fetchRestaurantAccount(getFirebaseRestaurantId()).catch(() => null)
-        // Sin conexion el perfil del tenant puede no resolverse; se conserva el
-        // ultimo conocido de este mismo usuario antes que degradar su rol.
-        const businessType: BusinessType = 'mobile_distribution'
-
-        writeCachedProfile({
-          uid: user.uid,
-          email: activeMember.email,
-          displayName: activeMember.displayName,
-          role: activeMember.role,
-          routeId: activeMember.routeId,
-          warehouseId: activeMember.warehouseId,
-          restaurantId: getFirebaseRestaurantId(),
-          businessType,
-        })
-
-        setState({
-          status: 'authorized',
-          userEmail: activeMember.email,
-          userDisplayName: activeMember.displayName,
-          role: activeMember.role,
-          member: activeMember,
-          error: null,
-          restaurantId: getFirebaseRestaurantId(),
-          businessType,
-          account,
-        })
-        const ctx = await getFirebaseContext()
-        if (ctx && ctx.auth.currentUser?.uid === user.uid) stopMemberWatch = onSnapshot(doc(ctx.db, 'restaurants', ctx.restaurantId, 'members', user.uid), snapshot => {
-          if (!snapshot.exists() || snapshot.data().active !== true || !PACHAX_ROLES.some(role => role === snapshot.data().role)) {
-            localStorage.removeItem(PROFILE_CACHE_KEY)
-            setState({ status: 'unauthorized', member: null, role: null, account: null, error: 'Tu acceso fue desactivado. Consulta con administracion.' })
-          } else {
-            const current = snapshot.data()
-            const updated = { ...activeMember, role: current.role as UserRole, routeId: current.routeId || '', warehouseId: current.warehouseId || 'central' }
-            setState({ member: updated, role: updated.role })
-            writeCachedProfile({ uid: user.uid, email: updated.email, displayName: updated.displayName, role: updated.role, routeId: updated.routeId, warehouseId: updated.warehouseId, restaurantId: ctx.restaurantId, businessType })
-          }
-        }, error => {
-          if (error.code === 'permission-denied') setState({ status: 'unauthorized', member: null, role: null, error: 'No tienes acceso a esta empresa.' })
-        })
-
-      } catch (error) {
-        const code = (error as { code?: string }).code
-        if ((error as Error).message?.startsWith('ACCESS_DENIED') || code === 'permission-denied') {
-          localStorage.removeItem(PROFILE_CACHE_KEY)
-          setState({ status: 'unauthorized', role: null, member: null, account: null, error: 'Tu acceso no esta autorizado. Consulta con administracion.' })
-          return
-        }
-        // No se pudo leer el perfil (tipicamente por falta de conexion).
-        // Se reutiliza el perfil de la ultima sesion de ESTE usuario en este
-        // telefono. Nunca se concede un rol supuesto: si no hay nada guardado,
-        // hace falta entrar una primera vez con conexion.
-        const cached = readCachedProfile(user.uid)
-
-        if (!cached) {
-          setState({
-            status: 'unauthorized',
-            userEmail: user.email ?? '',
-            userDisplayName: user.displayName ?? user.email ?? 'Usuario',
-            role: null,
-            member: null,
-            error:
-              'No se pudo cargar tu perfil. La primera vez que entras en este telefono necesitas conexion a internet; despues ya podras trabajar sin senal.',
-            restaurantId: getFirebaseRestaurantId(),
-          })
-          return
-        }
-
-        setFirebaseRestaurantId(cached.restaurantId)
-
-        setState({
-          status: 'authorized',
-          userEmail: cached.email,
-          userDisplayName: cached.displayName,
-          role: cached.role,
-          member: {
-            uid: cached.uid,
-            email: cached.email,
-            displayName: cached.displayName,
-            role: cached.role,
-            routeId: cached.routeId,
-            warehouseId: cached.warehouseId,
-            active: true,
-          },
-          error: null,
-          restaurantId: cached.restaurantId,
-          businessType: cached.businessType,
-          account: null,
-        })
-      }
-    })()
+  await subscribeToAuthChanges(user => {
+    stopWatches.forEach(stop => stop()); stopWatches = []; resetData()
+    if (!user) return setState({ status: 'signed_out', userEmail: null, userDisplayName: null, role: null, member: null, account: null, tenantId: null, restaurantId: null, availableTenants: [], error: null })
+    setState({ status: 'loading', userEmail: user.email, userDisplayName: user.displayName || user.email, error: null })
+    void resolveUser(user.uid).catch(error => setState({ status: 'unauthorized', error: error instanceof Error ? error.message : 'No se pudo resolver tu acceso.' }))
   })
 }
-
 void initialize()
-
-function subscribe(listener: () => void) {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-function getSnapshot() {
-  return state
-}
-
-export function getAuthMode() {
-  return state.mode
-}
-
+function subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener) }
+function getSnapshot() { return state }
+export function getAuthMode() { return state.mode }
 export function useAuthStore() {
   const authState = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-
-  return {
-    ...authState,
-    async signIn(email: string, password: string) {
-      setState({ error: null, status: 'authenticating' })
-
-      try {
-        await signInWithEmail(email, password)
-      } catch (error) {
-        setState({
-          status: 'signed_out',
-          error: error instanceof Error ? error.message : 'No se pudo iniciar sesion.',
-        })
-      }
-    },
-    async signOut() {
-      if (authState.mode === 'local' && !authState.userEmail?.endsWith('@dev.local')) {
-        return
-      }
-
-      await signOutUser()
-      window.location.reload()
-    },
-    setRoleForDemo(role: UserRole) {
-      if (state.mode === 'local') {
-        setState({
-          role,
-          userDisplayName: `Test ${role.toUpperCase()}`,
-          member: state.member ? { ...state.member, role } : {
-            uid: `mock-${role}`,
-            email: `${role}@dev.local`,
-            displayName: `Test ${role.toUpperCase()}`,
-            role,
-            active: true,
-          }
-        })
-      }
+  return { ...authState,
+    async signIn(email: string, password: string) { setState({ status: 'authenticating', error: null }); try { await signInWithEmail(email, password) } catch (error) { setState({ status: 'signed_out', error: error instanceof Error ? error.message : 'No se pudo iniciar sesión.' }) } },
+    async signOut() { await signOutUser() },
+    async switchTenant(tenantId: string) {
+      const context = await getFirebaseContext(), access = state.availableTenants.find(item => item.tenant.tenantId === tenantId)
+      if (!context?.auth.currentUser || !access) throw new Error('Empresa no autorizada.')
+      setState({ status: 'loading' }); await activate(access, context.auth.currentUser.uid, true)
     },
   }
 }
