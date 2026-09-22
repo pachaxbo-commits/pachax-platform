@@ -3,7 +3,9 @@ import { LoginView } from './components/LoginView'
 import { UnauthorizedView } from './components/UnauthorizedView'
 import { DistributionApp } from './modules/distribution/views/DistributionApp'
 import { DistributionPrinterModal } from './modules/distribution/views/DistributionPrinterModal'
+import { RestaurantApp } from './modules/restaurant/views/RestaurantApp'
 import { useAuthStore } from './store/authStore'
+import { getActiveTenant } from './store/activeTenant'
 import { PACHAX_NAME } from './config/pachax'
 import type { UserRole } from './types'
 
@@ -44,13 +46,49 @@ function App() {
   if (!auth.tenantId || !auth.member?.active || !auth.account) {
     return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'Este usuario no tiene una membresía activa.'} onSignOut={auth.signOut} />
   }
-  if (auth.account.businessType !== 'mobile_distribution') {
-    return <UnauthorizedView email={auth.userEmail} message="La plantilla de esta empresa todavía no tiene una interfaz operativa habilitada." onSignOut={auth.signOut} />
+
+  const activeTenant = getActiveTenant()
+  const canonicalBusinessType = activeTenant?.businessType ?? (auth.account.businessType === 'mobile_distribution' ? 'route_distribution' : null)
+
+  if (canonicalBusinessType === 'route_distribution') {
+    return (
+      <DistributionShell
+        tenantId={auth.tenantId}
+        restaurantName={auth.account.name}
+        key={`${auth.tenantId}:${auth.member.uid}`}
+        warehouseId={auth.member.warehouseId}
+        uid={auth.member.uid}
+        userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
+        role={auth.member.role}
+        routeId={auth.member.routeId ?? null}
+        onSignOut={auth.signOut}
+      />
+    )
   }
-  return <DistributionShell tenantId={auth.tenantId} restaurantName={auth.account.name}
-    key={`${auth.tenantId}:${auth.member.uid}`} warehouseId={auth.member.warehouseId}
-    uid={auth.member.uid} userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
-    role={auth.member.role} routeId={auth.member.routeId ?? null} onSignOut={auth.signOut} />
+
+  if (canonicalBusinessType === 'restaurant_pos') {
+    return (
+      <RestaurantApp
+        key={`${auth.tenantId}:${auth.member.uid}`}
+        tenantId={auth.tenantId}
+        restaurantName={auth.account.name}
+        companyName={activeTenant?.tenant.name || auth.account.name}
+        logoUrl={activeTenant?.branding?.logoUrl || auth.account.branding?.logoUrl}
+        uid={auth.member.uid}
+        userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
+        role={activeTenant?.role || auth.member.role}
+        onSignOut={auth.signOut}
+      />
+    )
+  }
+
+  return (
+    <UnauthorizedView
+      email={auth.userEmail}
+      message="La plantilla de esta empresa todavía no tiene una interfaz operativa habilitada."
+      onSignOut={auth.signOut}
+    />
+  )
 }
 
 export default App
