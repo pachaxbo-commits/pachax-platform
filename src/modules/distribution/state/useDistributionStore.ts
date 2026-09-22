@@ -46,7 +46,7 @@ import { DEFAULT_SUPPORT_SETTINGS, type SupportSettings } from '../data/supportM
  */
 
 export interface DistributionScope {
-  restaurantId?: string
+  tenantId?: string
   warehouseId?: string
   /** UID del distribuidor autenticado; evita cargar registros de otra persona. */
   distributorUid?: string
@@ -162,7 +162,7 @@ export function useDistributionData(scope: DistributionScope): DistributionData 
       }, onError),
     ]
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
-  }, [enabled, scope.restaurantId, canReadFinance, routeId, onError, onLoaded])
+  }, [enabled, scope.tenantId, canReadFinance, routeId, onError, onLoaded])
 
   // Los despachos son privados por distribuidor. La cartera es global para que
   // cualquier vendedor detecte una deuda pendiente antes de vender.

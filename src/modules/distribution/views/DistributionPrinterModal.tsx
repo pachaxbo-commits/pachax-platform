@@ -12,7 +12,7 @@ import type { PrinterProfile } from '../../../types/printing'
 
 type PrinterStatus = 'idle' | 'searching' | 'selected' | 'testing' | 'success' | 'error'
 
-export function DistributionPrinterModal({ restaurantId, onClose }: { restaurantId: string; onClose: () => void }) {
+export function DistributionPrinterModal({ tenantId, onClose }: { tenantId: string; onClose: () => void }) {
   const previous = getActiveReceiptPrinter()
   const [connection, setConnection] = useState<'bluetooth_spp' | 'network_tcp'>(previous?.connectionType === 'network_tcp' ? 'network_tcp' : 'bluetooth_spp')
   const [address, setAddress] = useState(previous?.macAddress || '')
@@ -30,8 +30,10 @@ export function DistributionPrinterModal({ restaurantId, onClose }: { restaurant
     if (connection === 'bluetooth_spp' && !/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(address.trim())) throw new Error('Selecciona una impresora Bluetooth vinculada.')
     if (connection === 'network_tcp' && !isValidIpOrHost(ip)) throw new Error('Ingresa la dirección IP de la impresora.')
     return {
-      id: previous?.id || `receipt-${restaurantId}`,
-      restaurantId,
+      id: previous?.id || `receipt-${tenantId}`,
+      // PrinterProfile still exposes the legacy field name, but its value is
+      // the verified active tenant and the profile id is tenant-specific.
+      restaurantId: tenantId,
       branchId: 'main',
       name: selectedDevice?.name || previous?.name || 'Impresora de recibos',
       role: 'receipt',

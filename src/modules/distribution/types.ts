@@ -1,8 +1,8 @@
 /**
  * Modelo de datos de distribucion movil (businessType: 'mobile_distribution').
  *
- * Todo documento vive bajo restaurants/{restaurantId}/dist*  y lleva
- * restaurantId + branchId para respetar el multitenancy existente.
+ * Todo documento vive bajo restaurants/{tenantId}/dist*  y lleva
+ * tenantId + branchId para respetar el multitenancy existente.
  */
 
 /** kg = granel por peso, unit = pieza suelta, package = paquete/sachet cerrado */
@@ -27,7 +27,7 @@ export type StockMovementType =
 export interface DistBaseDoc {
   pendingConfirmation?: boolean
   id: string
-  restaurantId: string
+  tenantId: string
   branchId: string
   createdAt: string
   createdBy: string
@@ -55,7 +55,7 @@ export interface DistProduct {
   approximateWeightKg?: number
   active: boolean
   sortOrder: number
-  restaurantId: string
+  tenantId: string
   createdAt: string
   updatedAt?: string
 }
@@ -66,7 +66,7 @@ export interface DistRoute {
   /** 'route' = ruta de distribuidor, 'direct' = venta directa / impulsacion */
   kind: 'route' | 'direct'
   active: boolean
-  restaurantId: string
+  tenantId: string
   createdAt: string
 }
 
@@ -82,7 +82,7 @@ export interface DistCustomer {
   routeId?: string
   notes?: string
   active: boolean
-  restaurantId: string
+  tenantId: string
   createdAt: string
   createdBy: string
   updatedAt?: string
@@ -100,7 +100,7 @@ export interface DistBalance {
   productName: string
   unitType: UnitType
   quantity: number
-  restaurantId: string
+  tenantId: string
   updatedAt: string
 }
 
@@ -296,12 +296,12 @@ export interface DistWarehouse {
   id: string
   name: string
   active: boolean
-  restaurantId: string
+  tenantId: string
 }
 
 export interface DistQrVerification {
   id: string
-  restaurantId: string
+  tenantId: string
   routeId: string
   sourceType: 'sale' | 'collection' | 'claim'
   sourceId: string
@@ -312,7 +312,7 @@ export interface DistQrVerification {
 }
 
 export interface DistLot {
- id: string; restaurantId: string; productId: string; productName: string; unitType: UnitType;
+ id: string; tenantId: string; productId: string; productName: string; unitType: UnitType;
  lotCode: string; manufacturedOn: string; expiresOn: string; productionCost: number | null;
  quantities: Record<string, number>; quarantined?: boolean; legacy?: boolean; createdAt: string; createdBy: string;
 }

@@ -60,16 +60,16 @@ async function callable<TInput, TOutput>(name: string) {
 export async function loadSupportSettings(): Promise<SupportSettings> {
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no está configurado.')
-  const snapshot = await getDoc(doc(context.db, 'restaurants', context.restaurantId, 'supportConfig', 'main'))
+  const snapshot = await getDoc(doc(context.db, 'tenants', context.tenantId, 'supportConfig', 'main'))
   return { ...DEFAULT_SUPPORT_SETTINGS, ...(snapshot.exists() ? snapshot.data() : {}) } as SupportSettings
 }
 
 export async function saveSupportSettings(settings: SupportSettings): Promise<void> {
   const context = await getFirebaseContext()
   if (!context?.auth.currentUser) throw new Error('Inicia sesión para guardar la configuración.')
-  await setDoc(doc(context.db, 'restaurants', context.restaurantId, 'supportConfig', 'main'), {
+  await setDoc(doc(context.db, 'tenants', context.tenantId, 'supportConfig', 'main'), {
     ...settings,
-    restaurantId: context.restaurantId,
+    tenantId: context.tenantId,
     updatedAt: serverTimestamp(),
     updatedBy: context.auth.currentUser.uid,
   })

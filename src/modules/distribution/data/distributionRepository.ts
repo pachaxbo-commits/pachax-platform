@@ -92,7 +92,7 @@ export async function createWarehouse(name: string) {
   const ctx = await getContext()
   const id = newOperationId('wh')
   const batch = writeBatch(ctx.db)
-  batch.set(docRef(ctx, DIST_COLLECTIONS.warehouses, id), { id, name: name.trim(), active: true, restaurantId: ctx.restaurantId })
+  batch.set(docRef(ctx, DIST_COLLECTIONS.warehouses, id), { id, name: name.trim(), active: true, tenantId: ctx.tenantId })
   await batch.commit()
 }
 
@@ -111,7 +111,7 @@ export async function verifyQr(sourceType: 'sale' | 'collection' | 'claim', sour
     const data = source.data()
     const amount = sourceType === 'sale' ? data?.qrAmount : sourceType === 'claim' ? data?.qrIn : data?.method === 'qr' ? data.amount : 0
     if (!data || !(amount > 0)) throw new Error('No existe un pago QR pendiente para este movimiento.')
-    tx.set(verificationRef, { id: `${sourceType}_${sourceId}`, restaurantId: ctx.restaurantId, routeId: data.routeId,
+    tx.set(verificationRef, { id: `${sourceType}_${sourceId}`, tenantId: ctx.tenantId, routeId: data.routeId,
       sourceType, sourceId, amount, reference: reference.trim(), verifiedBy: ctx.uid, verifiedAt: new Date().toISOString() })
   })
 }
@@ -123,7 +123,7 @@ export async function declareRouteReturn(dispatch: DistDispatch, quantities: Rec
   const id = `closure_${dispatch.id}`
   const batch = writeBatch(ctx.db)
   batch.set(docRef(ctx, DIST_COLLECTIONS.closures, id), {
-    id, restaurantId: ctx.restaurantId, dispatchId: dispatch.id, routeId: dispatch.routeId,
+    id, tenantId: ctx.tenantId, dispatchId: dispatch.id, routeId: dispatch.routeId,
     distributorUid: dispatch.distributorUid, distributorName: dispatch.distributorName,
     declaredReturns: quantities, returnDeclaredBy: ctx.uid, returnDeclaredAt: new Date().toISOString(),
     dayKey: dispatch.dayKey,
@@ -168,7 +168,7 @@ export function isOperationApplied(operationId: string): boolean {
 
 interface RepoContext {
   db: Firestore
-  restaurantId: string
+  tenantId: string
   uid: string
 }
 
@@ -178,17 +178,17 @@ async function getContext(): Promise<RepoContext> {
   if (!context.auth.currentUser) throw new Error('Inicia sesion para registrar operaciones.')
   return {
     db: context.db,
-    restaurantId: context.restaurantId,
+    tenantId: context.tenantId,
     uid: context.auth.currentUser?.uid ?? '',
   }
 }
 
 function collectionRef(context: RepoContext, name: string) {
-  return collection(context.db, 'restaurants', context.restaurantId, name)
+  return collection(context.db, 'tenants', context.tenantId, name)
 }
 
 function docRef(context: RepoContext, name: string, id: string) {
-  return doc(context.db, 'restaurants', context.restaurantId, name, id)
+  return doc(context.db, 'tenants', context.tenantId, name, id)
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +294,7 @@ function commitInBackground(batch: WriteBatch, operationId: string, label: strin
  */
 function baseDocFields(context: RepoContext, createdAt: string) {
   return {
-    restaurantId: context.restaurantId,
+    tenantId: context.tenantId,
     branchId: 'main',
     createdAt,
     createdBy: context.uid,
@@ -479,7 +479,7 @@ export function subscribeClosures(
 // Catalogo, rutas y clientes
 // ---------------------------------------------------------------------------
 
-export async function saveProduct(product: Omit<DistProduct, 'restaurantId' | 'createdAt'> & { createdAt?: string }) {
+export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }) {
   const context = await getContext()
   const batch = writeBatch(context.db)
   const now = new Date().toISOString()
@@ -488,7 +488,7 @@ export async function saveProduct(product: Omit<DistProduct, 'restaurantId' | 'c
     {
       ...product,
       referencePrice: round2(product.referencePrice),
-      restaurantId: context.restaurantId,
+      tenantId: context.tenantId,
       createdAt: product.createdAt ?? now,
       updatedAt: now,
     },
@@ -497,12 +497,12 @@ export async function saveProduct(product: Omit<DistProduct, 'restaurantId' | 'c
   commitInBackground(batch, `product_${product.id}_${now}`, 'producto')
 }
 
-export async function saveRoute(route: Omit<DistRoute, 'restaurantId' | 'createdAt'> & { createdAt?: string }) {
+export async function saveRoute(route: Omit<DistRoute, 'tenantId' | 'createdAt'> & { createdAt?: string }) {
   const context = await getContext()
   const batch = writeBatch(context.db)
   batch.set(
     docRef(context, DIST_COLLECTIONS.routes, route.id),
-    { ...route, restaurantId: context.restaurantId, createdAt: route.createdAt ?? new Date().toISOString() },
+    { ...route, tenantId: context.tenantId, createdAt: route.createdAt ?? new Date().toISOString() },
     { merge: true },
   )
   commitInBackground(batch, `route_${route.id}`, 'ruta')
@@ -545,7 +545,7 @@ export async function saveCustomer(input: CustomerInput): Promise<DistCustomer> 
     routeId: input.routeId || '',
     notes: input.notes?.trim() || '',
     active: input.active ?? true,
-    restaurantId: context.restaurantId,
+    tenantId: context.tenantId,
     createdAt: now,
     createdBy: context.uid,
     updatedAt: now,
@@ -561,7 +561,7 @@ export async function saveCustomer(input: CustomerInput): Promise<DistCustomer> 
       customer.createdAt = previous.data().createdAt
       customer.createdBy = previous.data().createdBy
     }
-    tx.set(identityRef, { restaurantId: context.restaurantId, customerId: id, identityNumber })
+    tx.set(identityRef, { tenantId: context.tenantId, customerId: id, identityNumber })
     tx.set(ref, customer, { merge: true })
     const oldCI = previous.data()?.identityNumber
     if (oldCI && oldCI !== identityNumber) tx.delete(docRef(context, 'distCustomerIdentities', oldCI))

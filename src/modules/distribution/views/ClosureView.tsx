@@ -107,7 +107,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
     const now = new Date().toISOString()
     return {
       id: `closure_${dispatch.id}`,
-      restaurantId: session.restaurantId,
+      tenantId: session.tenantId,
       branchId: 'main',
       createdAt: existingClosure?.createdAt ?? now,
       createdBy: existingClosure?.createdBy ?? session.uid,

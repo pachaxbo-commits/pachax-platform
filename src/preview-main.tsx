@@ -23,7 +23,7 @@ type PreviewScreen = 'app' | 'products' | 'sales' | 'dispatches' | 'warehouses' 
 export function Harness() {
   const [role, setRole] = useState<UserRole>('admin')
   const [screen, setScreen] = useState<PreviewScreen>(() => new URLSearchParams(window.location.search).get('screen') as PreviewScreen || 'app')
-  const session: DistributionSession = { restaurantId: 'preview', restaurantName: 'PACHAX', uid: 'preview-uid', userName: 'Distribuidor A', role, warehouseId: 'central', routeId: role === 'distributor' ? 'route-norte' : null, can: () => true, dayKeys: ['2026-09-08'], setDayKeys: () => undefined }
+  const session: DistributionSession = { tenantId: 'preview', restaurantName: 'PACHAX', uid: 'preview-uid', userName: 'Distribuidor A', role, warehouseId: 'central', routeId: role === 'distributor' ? 'route-norte' : null, can: () => true, dayKeys: ['2026-09-08'], setDayKeys: () => undefined }
   const viewProps = { session, data: previewData }
 
   return (
@@ -38,7 +38,7 @@ export function Harness() {
       </div>
       {screen === 'app' && <DistributionApp
         key={role}
-        restaurantId="preview"
+        tenantId="preview"
         restaurantName="PACHAX"
         uid="preview-uid"
         userName="Distribuidor A"
@@ -60,7 +60,7 @@ export function Harness() {
         {screen === 'customers' && <CustomersView {...viewProps} />}
         {screen === 'users' && <UsersView {...viewProps} membersOverride={[{ uid: 'admin-1', email: 'admin@example.test', displayName: 'Administración PACHAX', role: 'admin', active: true }, { uid: 'warehouse-1', email: 'almacen@example.test', displayName: 'Almacén Central', role: 'warehouse', warehouseId: 'central', active: true }, { uid: 'seller-1', email: 'hugo@example.test', displayName: 'Distribuidor A', role: 'distributor', routeId: 'route-norte', active: true }]} />}
       </main>}
-      {screen === 'printer' && <DistributionPrinterModal restaurantId="preview" onClose={() => setScreen('app')} />}
+      {screen === 'printer' && <DistributionPrinterModal tenantId="preview" onClose={() => setScreen('app')} />}
     </>
   )
 }

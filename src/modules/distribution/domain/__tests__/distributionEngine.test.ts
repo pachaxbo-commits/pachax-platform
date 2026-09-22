@@ -26,7 +26,7 @@ import type { DistCollection, DistDispatch, DistExpense, DistSale } from '../../
  */
 
 const BASE = {
-  restaurantId: 'pachax',
+  tenantId: 'pachax',
   branchId: 'main',
   createdBy: 'hugo',
   dayKey: '2026-08-14',

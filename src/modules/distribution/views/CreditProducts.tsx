@@ -11,7 +11,7 @@ export function CreditProducts({ lines, saleId }: { lines?: DistSaleLine[]; sale
     if (!lines?.length && saleId) void (async () => {
       const ctx = await getFirebaseContext()
       if (!ctx) return
-      const sale = await getDoc(doc(ctx.db, 'restaurants', ctx.restaurantId, 'distSales', saleId))
+      const sale = await getDoc(doc(ctx.db, 'tenants', ctx.tenantId, 'distSales', saleId))
       if (!cancelled) setHistorical(sale.data()?.lines || [])
     })().catch(() => { if (!cancelled) setHistorical([]) })
     return () => { cancelled = true }

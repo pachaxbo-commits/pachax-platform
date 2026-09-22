@@ -48,7 +48,7 @@ import type { Permission, UserRole } from '../../../types'
 import type { DistributionData } from '../state/useDistributionStore'
 
 export interface DistributionSession {
-  restaurantId: string
+  tenantId: string
   restaurantName: string
   uid: string
   userName: string
@@ -88,7 +88,7 @@ const MODULE_ICONS: Partial<Record<ModuleId, BottomNavItem<ModuleId>['icon']>> =
 }
 
 export function DistributionApp({
-  restaurantId,
+  tenantId,
   restaurantName,
   uid,
   userName,
@@ -98,7 +98,7 @@ export function DistributionApp({
   onSignOut,
   onOpenPrinterSettings,
 }: {
-  restaurantId: string
+  tenantId: string
   restaurantName: string
   uid: string
   userName: string
@@ -134,7 +134,7 @@ export function DistributionApp({
     distributorUid: role === 'distributor' ? uid : undefined,
     dayKeys: role === 'distributor' ? [toDayKey(new Date())] : dayKeys,
     enabled: role !== 'support',
-    restaurantId,
+    tenantId,
     warehouseId: role === 'warehouse' ? warehouseId : undefined,
     canReadFinance,
   })
@@ -148,7 +148,7 @@ export function DistributionApp({
   })
 
   const session: DistributionSession = {
-    restaurantId,
+    tenantId,
     restaurantName,
     uid,
     userName,

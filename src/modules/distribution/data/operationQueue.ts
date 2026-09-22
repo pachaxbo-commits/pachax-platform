@@ -6,6 +6,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { getFirebaseContext } from "../../../lib/firebase";
+import { getActiveTenant } from "../../../store/activeTenant";
 
 export class RejectedOperationError extends Error {
   rejected = true;
@@ -40,8 +41,8 @@ export async function submitOperation<T>(
     throw new Error("Esta operación requiere conexión.");
   const ref = doc(
     ctx.db,
-    "restaurants",
-    ctx.restaurantId,
+    "tenants",
+    ctx.tenantId,
     "distOperations",
     id,
   );
@@ -59,7 +60,8 @@ export async function submitOperation<T>(
   } else {
     void setDoc(ref, {
       id,
-      restaurantId: ctx.restaurantId,
+      tenantId: ctx.tenantId,
+      branchId: getActiveTenant()?.branchId || "main",
       createdBy: ctx.auth.currentUser.uid,
       createdAt: new Date().toISOString(),
       type,
@@ -118,7 +120,7 @@ export async function acknowledgeOperation(id: string) {
   const ctx = await getFirebaseContext();
   if (!ctx) throw new Error("Inicia sesión.");
   await updateDoc(
-    doc(ctx.db, "restaurants", ctx.restaurantId, "distOperations", id),
+    doc(ctx.db, "tenants", ctx.tenantId, "distOperations", id),
     { acknowledged: true },
   );
 }
