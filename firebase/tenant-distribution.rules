@@ -1,0 +1,252 @@
+// Transitional distribution rule adapter. Remove legacy names when domain adapter is retired.
+    function tDistAdmin(tenantId) {
+      return tHasRole(tenantId, ['admin', 'owner', 'superadmin', 'accountant']);
+    }
+
+    function tDistWarehouse(tenantId) {
+      return tHasRole(tenantId, ['warehouse']);
+    }
+
+    function tDistDistributor(tenantId) {
+      return tHasRole(tenantId, ['distributor']);
+    }
+
+    function tDistWorker(tenantId) {
+      return tHasRole(tenantId, ['admin', 'owner', 'superadmin', 'accountant', 'warehouse', 'distributor']);
+    }
+
+    function tDistSupport(tenantId) {
+      return tHasRole(tenantId, ['support']);
+    }
+
+    function tDistMyRoute(tenantId) {
+      return tMemberData(tenantId).routeIds.size() > 0 ? tMemberData(tenantId).routeIds[0] : '';
+    }
+
+    /** El documento pertenece a la ruta del distribuidor autenticado */
+    function tDistOwnsRoute(tenantId, routeId) {
+      return tDistDistributor(tenantId) && routeId != '' && routeId == tDistMyRoute(tenantId);
+    }
+
+    function tDistTenantMatches(tenantId) {
+      return request.resource.data.tenantId == tenantId;
+    }
+
+    // Catalogo y rutas: lectura para cualquier miembro activo, escritura solo
+    // administracion (los precios son configuracion, no operacion diaria).
+    match /tenants/{tenantId}/distProducts/{productId} {
+      allow read: if tDistWorker(tenantId);
+      allow create, update: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
+        && request.resource.data.unitType in ['kg','g','unit','package','box','liter']
+        && request.resource.data.referencePrice is number && request.resource.data.referencePrice >= 0
+        && request.resource.data.get('productionCost',0) >= 0 && request.resource.data.get('minimumStock',0) >= 0
+        && request.resource.data.get('photoDataUrl', '').size() <= 150000
+        && (request.resource.data.get('photoDataUrl', '') == ''
+          || request.resource.data.get('photoDataUrl', '').matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$'))
+        && (resource == null || request.resource.data.unitType == resource.data.unitType);
+      allow delete: if false;
+    }
+
+    match /tenants/{tenantId}/distRoutes/{routeId} {
+      allow read: if tDistWorker(tenantId);
+      allow create, update: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId);
+      allow delete: if tDistAdmin(tenantId);
+    }
+
+    function tDistWarehouseOwns(tenantId, warehouseId) {
+      return tDistAdmin(tenantId) || (tDistWarehouse(tenantId) && tMemberData(tenantId).get('warehouseId', 'central') == warehouseId);
+    }
+
+    match /tenants/{tenantId}/distWarehouses/{warehouseId} {
+      allow read: if tDistWorker(tenantId);
+      allow create, update: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
+        && request.resource.data.name is string && request.resource.data.active is bool;
+      allow delete: if false;
+    }
+
+    match /tenants/{tenantId}/distTransfers/{transferId} {
+      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId);
+      allow create, update, delete: if false;
+    }
+
+    function tIncomingTransfer(tenantId) {
+      let id = request.resource.data.get('transferId', '');
+      let transfer = getAfter(/databases/$(database)/documents/tenants/$(tenantId)/distTransfers/$(id)).data;
+      return id != '' && !exists(/databases/$(database)/documents/tenants/$(tenantId)/distTransfers/$(id))
+        && transfer.createdBy == request.auth.uid
+        && transfer.toWarehouseId == request.resource.data.get('warehouseId', 'central')
+        && transfer.line.productId == request.resource.data.productId
+        && request.resource.data.quantity == (resource == null ? 0 : resource.data.quantity) + transfer.line.quantity;
+    }
+
+    match /tenants/{tenantId}/distBalances/{balanceId} {
+      allow read: if tDistWorker(tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /tenants/{tenantId}/distQrVerifications/{verificationId} {
+      allow read: if tDistAdmin(tenantId) || tDistOwnsRoute(tenantId, resource.data.routeId);
+      allow create: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
+        && request.resource.data.verifiedBy == request.auth.uid
+        && request.resource.data.amount > 0 && request.resource.data.reference is string
+        && request.resource.data.reference.size() > 0
+        && ((request.resource.data.sourceType == 'sale'
+          && verificationId == 'sale_' + request.resource.data.sourceId
+          && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distSales/$(request.resource.data.sourceId)).data.qrAmount)
+        || (request.resource.data.sourceType == 'collection'
+          && verificationId == 'collection_' + request.resource.data.sourceId
+          && get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(request.resource.data.sourceId)).data.method == 'qr'
+          && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(request.resource.data.sourceId)).data.amount)
+        || (request.resource.data.sourceType == 'claim'
+          && verificationId == 'claim_' + request.resource.data.sourceId
+          && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distClaims/$(request.resource.data.sourceId)).data.qrIn));
+      allow update, delete: if false;
+    }
+
+    match /tenants/{tenantId}/distCustomerIdentities/{ci} {
+      allow read: if tDistWorker(tenantId);
+      allow create: if tDistWorker(tenantId) && request.resource.data.tenantId == tenantId
+        && request.resource.data.identityNumber == ci
+        && getAfter(/databases/$(database)/documents/tenants/$(tenantId)/distCustomers/$(request.resource.data.customerId)).data.identityNumber == ci;
+      allow update: if tDistWorker(tenantId) && request.resource.data == resource.data;
+      allow delete: if tDistWorker(tenantId)
+        && getAfter(/databases/$(database)/documents/tenants/$(tenantId)/distCustomers/$(resource.data.customerId)).data.identityNumber != ci;
+    }
+    match /tenants/{tenantId}/distCustomers/{customerId} {
+      allow read: if tDistWorker(tenantId);
+      allow create, update: if tDistWorker(tenantId) && tDistTenantMatches(tenantId)
+        && request.resource.data.id == customerId
+        && request.resource.data.identityNumber is string && request.resource.data.identityNumber.matches('^[0-9]{4,12}(-[0-9A-Z]{1,5})?$')
+        && request.resource.data.customerCode == request.resource.data.identityNumber
+        && getAfter(/databases/$(database)/documents/tenants/$(tenantId)/distCustomerIdentities/$(request.resource.data.identityNumber)).data.customerId == customerId
+        && request.resource.data.get('photoDataUrl', '').size() <= 130000
+        && (resource == null ? request.resource.data.createdBy == request.auth.uid : request.resource.data.createdAt == resource.data.createdAt && request.resource.data.createdBy == resource.data.createdBy);
+      allow delete: if false;
+    }
+    match /tenants/{tenantId}/distOperations/{operationId} {
+      allow get: if tIsActiveMember(tenantId) && (resource == null || tDistAdmin(tenantId) || resource.data.createdBy == request.auth.uid);
+      allow list: if tDistAdmin(tenantId) || (tIsActiveMember(tenantId) && resource.data.createdBy == request.auth.uid);
+      allow create: if tIsActiveMember(tenantId)
+        && request.resource.data.keys().hasOnly(['id','tenantId','branchId','createdBy','createdAt','type','payload','status'])
+        && request.resource.data.id == operationId && tDistTenantMatches(tenantId)
+        && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'queued'
+        && request.resource.data.payload is map
+        && ((request.resource.data.type in ['sale','collection','expense','creditStatus'] && (tDistAdmin(tenantId) || tDistDistributor(tenantId)))
+          || (request.resource.data.type in ['intake','transfer','dispatch','addition','closure'] && (tDistAdmin(tenantId)||tDistWarehouse(tenantId)))
+          || (request.resource.data.type == 'closure' && tDistDistributor(tenantId))
+          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct'] && tDistAdmin(tenantId)));
+      allow update: if tIsActiveMember(tenantId) && resource.data.createdBy == request.auth.uid && resource.data.status == 'rejected'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']) && request.resource.data.acknowledged == true;
+      allow delete: if false;
+    }
+    match /tenants/{tenantId}/distLots/{lotId} {
+      allow read: if tDistWorker(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/distLotHistory/{entryId} {
+      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/distClaims/{claimId} {
+      allow read: if tDistAdmin(tenantId) || tDistOwnsRoute(tenantId, resource.data.routeId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/distCreditStatus/{customerId} {
+      allow read: if tDistWorker(tenantId);
+      allow write: if false;
+    }
+
+    // Ledger inmutable: se crea, nunca se edita ni se borra.
+    match /tenants/{tenantId}/distStockMovements/{movementId} {
+      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /tenants/{tenantId}/distDispatches/{dispatchId} {
+      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
+        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    // Las ventas no se editan ni se borran: son historia contable.
+    match /tenants/{tenantId}/distSales/{saleId} {
+      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
+        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('sellerUid', '') == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /tenants/{tenantId}/distReceivables/{receivableId} {
+      allow read: if tDistAdmin(tenantId) || tDistDistributor(tenantId);
+      allow create, update, delete: if false;
+    }
+
+    match /tenants/{tenantId}/distCollections/{collectionId} {
+      allow read: if tDistAdmin(tenantId)
+        || (tDistDistributor(tenantId) && resource.data.get('collectedByUid', '') == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /tenants/{tenantId}/distExpenses/{expenseId} {
+      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
+        || (tDistDistributor(tenantId) && resource.data.get('registeredByUid', '') == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    function tClosureWarehouse(tenantId, data) {
+      let dispatch = get(/databases/$(database)/documents/tenants/$(tenantId)/distDispatches/$(data.dispatchId)).data;
+      return tDistWarehouseOwns(tenantId, dispatch.get('warehouseId', 'central'));
+    }
+    match /tenants/{tenantId}/distClosures/{closureId} {
+      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
+        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid)
+        || (tDistDistributor(tenantId) && resource.data.get('returnDeclaredBy', '') == request.auth.uid);
+      allow create: if tDistTenantMatches(tenantId)
+        && tDistOwnsRoute(tenantId, request.resource.data.get('routeId', ''))
+        && request.resource.data.keys().hasOnly(['id', 'tenantId', 'dispatchId', 'routeId', 'distributorUid', 'distributorName', 'declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey'])
+        && request.resource.data.distributorUid == request.auth.uid
+        && request.resource.data.returnDeclaredBy == request.auth.uid;
+      allow update: if tDistTenantMatches(tenantId)
+        && tDistOwnsRoute(tenantId, resource.data.get('routeId', ''))
+        && resource.data.get('warehouseClosedBy', '') == ''
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey', 'distributorUid', 'distributorName'])
+        && request.resource.data.distributorUid == request.auth.uid
+        && request.resource.data.returnDeclaredBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Configuración técnica separada de toda la información comercial. El rol
+    // soporte solo puede leer y modificar este único documento.
+    match /tenants/{tenantId}/supportConfig/{configId} {
+      // La aplicación mantiene una suscripción a la colección para compartir
+      // las políticas operativas. Firestore evalúa una consulta como `list` y
+      // no puede demostrar que devolverá únicamente el documento `main`.
+      allow get: if configId == 'main' && tIsActiveMember(tenantId);
+      allow list: if tIsActiveMember(tenantId);
+      allow create, update: if configId == 'main' && (tDistAdmin(tenantId) || tDistSupport(tenantId))
+        && request.resource.data.keys().hasOnly(['tenantId','companyName','taxId','address','phone','receiptHeader','receiptFooter','expiryAlertDays','creditBlockDays','requireQrVerification','defaultPaperWidth','updatedAt','updatedBy','lastResetAt','lastResetBy'])
+        && request.resource.data.tenantId == tenantId
+        && request.resource.data.companyName is string
+        && request.resource.data.taxId is string
+        && request.resource.data.address is string
+        && request.resource.data.phone is string
+        && request.resource.data.receiptHeader is string
+        && request.resource.data.receiptFooter is string
+        && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
+        && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
+        && request.resource.data.requireQrVerification is bool
+        && request.resource.data.defaultPaperWidth in ['58mm','80mm']
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Los respaldos y registros de limpieza contienen datos sensibles y solo
+    // son accesibles por las funciones del servidor (Admin SDK).
+    match /tenants/{tenantId}/maintenanceBackups/{document=**} {
+      allow read, write: if false;
+    }
+    match /tenants/{tenantId}/maintenanceResetRequests/{document=**} {
+      allow read, write: if false;
+    }
+    match /tenants/{tenantId}/maintenanceAudit/{document=**} {
+      allow read, write: if false;
+    }

@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "dev:emulator": "vite --mode emulator",
+    "build:functions-core": "node scripts/build-functions-core.mjs",
+    "build:rules": "node scripts/build-rules.mjs",
+    "preemulators": "npm run build:functions-core && npm run build:rules",
     "emulators": "firebase emulators:start --only \"firestore,auth,functions\" --project demo-pachax-platform",
     "build": "tsc -b && vite build",
     "build:emulator": "tsc -b && vite build --mode emulator",
@@ -14,6 +17,8 @@
     "preview": "vite preview",
     "android:open": "cap open android",
     "test:rules": "node firebase/tests/serverOperations.test.mjs",
+    "test:tenant-isolation": "node firebase/tests/multiTenantIsolation.test.mjs",
+    "test:tenant-core": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/multiTenantIsolation.test.mjs\"",
     "test:distribution": "node --experimental-strip-types src/modules/distribution/domain/__tests__/distributionEngine.test.ts",
     "test:reports": "node --experimental-strip-types src/modules/distribution/domain/__tests__/reportLabels.test.ts",
     "test:platform": "node --experimental-strip-types --test tests/*.test.ts",

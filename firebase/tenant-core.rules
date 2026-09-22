@@ -1,0 +1,51 @@
+    function tPlatform() {
+      return request.auth != null && exists(/databases/$(database)/documents/platformOperators/$(request.auth.uid))
+        && get(/databases/$(database)/documents/platformOperators/$(request.auth.uid)).data.active == true;
+    }
+    function tMemberData(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)/members/$(request.auth.uid)).data;
+    }
+    function tIsActiveMember(tenantId) {
+      return request.auth != null && !tPlatform()
+        && exists(/databases/$(database)/documents/tenants/$(tenantId)/members/$(request.auth.uid))
+        && tMemberData(tenantId).status == 'active';
+    }
+    function tHasRole(tenantId, roles) {
+      return tIsActiveMember(tenantId) && (tMemberData(tenantId).roleId in roles || (tMemberData(tenantId).roleId == 'owner' && 'admin' in roles));
+    }
+    function tPermission(tenantId, permission, capability) {
+      return tIsActiveMember(tenantId)
+        && get(/databases/$(database)/documents/tenants/$(tenantId)/roles/$(tMemberData(tenantId).roleId)).data.permissions.hasAny([permission])
+        && get(/databases/$(database)/documents/tenants/$(tenantId)).data.configuration.features.get(capability, false) == true;
+    }
+    function tBranch(tenantId, branchId) {
+      return tIsActiveMember(tenantId) && branchId in tMemberData(tenantId).branchIds;
+    }
+    match /tenants/{tenantId} {
+      allow get: if tIsActiveMember(tenantId);
+      allow list, write: if false;
+    }
+    match /tenants/{tenantId}/members/{uid} {
+      allow get: if tIsActiveMember(tenantId) && (request.auth.uid == uid || tPermission(tenantId,'users.manage','users') || tHasRole(tenantId,['warehouse']));
+      allow list: if tPermission(tenantId,'users.manage','users') || tHasRole(tenantId,['warehouse']);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/roles/{roleId} { allow read: if tIsActiveMember(tenantId); allow write: if false; }
+    match /tenants/{tenantId}/branches/{branchId} { allow read: if tBranch(tenantId,branchId); allow write: if false; }
+    match /tenants/{tenantId}/auditLogs/{eventId} { allow read: if tPermission(tenantId,'settings.manage','settings'); allow write: if false; }
+    match /users/{uid}/tenantLinks/{tenantId} { allow read: if request.auth != null && request.auth.uid == uid; allow write: if false; }
+    match /platformOperators/{uid} { allow read, write: if false; }
+    match /supportSessions/{uid} { allow read, write: if false; }
+    match /platformAuditLogs/{eventId} { allow read, write: if false; }
+    match /tenants/{tenantId}/products/{productId} {
+      allow read: if tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'products.manage','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/sales/{saleId} {
+      allow read: if tPermission(tenantId,'sales.read','sales') && tBranch(tenantId,resource.data.branchId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/cashSessions/{cashId} {
+      allow read: if tPermission(tenantId,'cash.close','cash') && tBranch(tenantId,resource.data.branchId);
+      allow write: if false;
+    }
