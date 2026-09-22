@@ -6,6 +6,8 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { processCommand } = require("./operations.cjs");
 const { prepareCleanDelivery, executeCleanDelivery } = require("./maintenance.cjs");
 initializeApp();
+// TODO remove legacy restaurants/pachax entrypoints after all historical suites are migrated.
+Object.assign(exports, require('./tenantEntrypoints.cjs'));
 exports.processPachaxOperation = onDocumentCreated(
   {
     document: "restaurants/pachax/distOperations/{operationId}",

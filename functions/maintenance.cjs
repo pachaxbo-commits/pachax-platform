@@ -1,5 +1,6 @@
 const crypto = require('node:crypto')
 const { HttpsError } = require('firebase-functions/v2/https')
+const { tenantActor, legacyMember } = require('./authorization.cjs')
 
 const RESTAURANT_ID = 'pachax'
 const RESET_PHRASE = 'LIMPIAR PACHAX'
@@ -21,6 +22,11 @@ const PRESERVED = [
 ]
 
 async function getActor(db, request) {
+  if (request.data?.tenantId) {
+    const actor = await tenantActor(db, request, 'settings.manage')
+    if (actor.tenant.businessType !== 'route_distribution') throw new HttpsError('failed-precondition', 'Mantenimiento solo para distribución.')
+    return { ...actor, member: legacyMember(actor.membership) }
+  }
   if (!request.auth) throw new HttpsError('unauthenticated', 'Inicia sesión para continuar.')
   const root = db.collection('restaurants').doc(RESTAURANT_ID)
   const member = await root.collection('members').doc(request.auth.uid).get()
@@ -120,7 +126,7 @@ async function executeCleanDelivery(db, request) {
   await stateRef.set({ active: true, resetId: requestId, startedAt: new Date().toISOString() })
   try {
     await backupRef.set({
-      id: backupId, restaurantId: RESTAURANT_ID, createdAt: new Date().toISOString(),
+      id: backupId, [actor.root.parent.id === 'tenants' ? 'tenantId' : 'restaurantId']: actor.root.id, createdAt: new Date().toISOString(),
       createdBy: actor.uid, createdByRole: actor.member.role, status: 'creating',
       counts: resetRequest.counts, preserved: PRESERVED,
     })

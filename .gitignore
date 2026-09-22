@@ -17,6 +17,7 @@ firebase-debug-*.log
 PACHAX-Pachax-Demo.apk
 
 functions/node_modules/
+functions/generated/
 
 !.env.emulator
 android/.gradle/

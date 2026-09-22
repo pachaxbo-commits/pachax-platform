@@ -1,3 +1,5 @@
+const { hasPermission, legacyMember, audit } = require('./authorization.cjs');
+const scopeMetadata = root => ({ [root.parent.id === 'tenants' ? 'tenantId' : 'restaurantId']: root.id });
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const round = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 class BusinessError extends Error {}
@@ -69,7 +71,7 @@ class Operation {
   }
   base() {
     return {
-      restaurantId: "pachax",
+      ...scopeMetadata(this.root),
       branchId: "main",
       createdAt: this.now,
       createdBy: this.actor,
@@ -123,7 +125,7 @@ class Operation {
           ? { ...bal }
           : {
               id: balanceId(loc, pid),
-              restaurantId: "pachax",
+              ...scopeMetadata(this.root),
               locationKind: loc.startsWith("route__") ? "route" : "central",
               ...(loc.startsWith("route__")
                 ? { routeId: loc.slice(7) }
@@ -154,7 +156,7 @@ class Operation {
         );
         entry.lots.push({
           id,
-          restaurantId: "pachax",
+          ...scopeMetadata(this.root),
           productId: pid,
           productName: p.name,
           unitType: p.unitType,
@@ -291,7 +293,7 @@ async function intake(o, p) {
     const id = `${o.id}__${o.sequence++}`;
     e.lots.push({
       id,
-      restaurantId: "pachax",
+      ...scopeMetadata(o.root),
       productId: e.p.id,
       productName: e.p.name,
       unitType: e.p.unitType,
@@ -608,16 +610,25 @@ async function processCommand(db, ref) {
       root.collection("members").doc(command.createdBy),
     );
     try {
-      check(
-        root.id === "pachax" &&
-          membership.exists &&
-          membership.data().active === true,
-        "Acceso no autorizado.",
-      );
+      const tenantScoped = root.parent.id === 'tenants';
+      check(membership.exists && (tenantScoped
+        ? membership.data().status === 'active' && membership.data().tenantId === root.id
+        : root.id === 'pachax' && membership.data().active === true), 'Acceso no autorizado.');
       check(handlers[command.type], "Operación no reconocida.");
-      const o = new Operation(tx, root, command, membership.data(), ref.id);
+      let member = membership.data();
+      if (tenantScoped) {
+        const [tenant, platform, maintenance] = await Promise.all([tx.get(root), tx.get(db.doc('platformOperators/' + command.createdBy)), tx.get(root.collection('maintenanceState').doc('reset'))]);
+        const permission = ({ sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage' })[command.type];
+        check(tenant.data()?.businessType === 'route_distribution' && permission && hasPermission(tenant.data(), member, permission), 'Sin permiso para esta operación.');
+        check(command.tenantId === root.id, 'Empresa de la operación inválida.');
+        check(platform.data()?.active !== true && maintenance.data()?.active !== true, 'Operación no permitida durante soporte o mantenimiento.');
+        check(member.branchIds?.includes(command.branchId || 'main'), 'Sucursal no autorizada.');
+        member = legacyMember(member);
+      }
+      const o = new Operation(tx, root, command, member, ref.id);
       const result = await handlers[command.type](o, command.payload);
       o.flush();
+      if (tenantScoped) audit(db, tx, { uid: command.createdBy, tenantId: root.id, actorType: 'tenant' }, 'distribution.' + command.type, ref.id, null, { operationId: ref.id });
       tx.update(ref, {
         status: "confirmed",
         result,
@@ -804,7 +815,7 @@ async function closure(o, p) {
         const lotId = `${o.id}__surplus_${pid}`;
         e.lots.push({
           id: lotId,
-          restaurantId: "pachax",
+          ...scopeMetadata(o.root),
           productId: pid,
           productName: e.p.name,
           unitType: e.p.unitType,
@@ -1005,7 +1016,7 @@ async function claim(o, p) {
   const lotId = `${o.id}__damaged`;
   e.lots.push({
     id: lotId,
-    restaurantId: "pachax",
+    ...scopeMetadata(o.root),
     productId: product.id,
     productName: product.name,
     unitType: product.unitType,
@@ -1116,7 +1127,7 @@ async function refreshCreditStatus(db, root, customerId) {
       .sort();
     tx.set(root.collection("distCreditStatus").doc(customerId), {
       id: customerId,
-      restaurantId: root.id,
+      ...scopeMetadata(root),
       oldestPendingAt: dates[0] || null,
       checkedAt: new Date().toISOString(),
     });
@@ -1161,7 +1172,7 @@ handlers.creditStatus = async (o, p) => {
     .sort();
   const status = {
     id: c.id,
-    restaurantId: "pachax",
+    ...scopeMetadata(o.root),
     oldestPendingAt: dates[0] || null,
     checkedAt: o.now,
   };
