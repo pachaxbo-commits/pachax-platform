@@ -1,9 +1,9 @@
-package com.pachax.app;
+package net.pachax.app;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
-import com.pachax.app.plugins.PachaxBluetoothPermissionsPlugin;
-import com.pachax.app.plugins.PachaxTcpSocketPlugin;
+import net.pachax.app.plugins.PachaxBluetoothPermissionsPlugin;
+import net.pachax.app.plugins.PachaxTcpSocketPlugin;
 
 public class MainActivity extends BridgeActivity {
     @Override

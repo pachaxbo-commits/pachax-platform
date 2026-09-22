@@ -1,4 +1,4 @@
-package com.pachax.app.plugins;
+package net.pachax.app.plugins;
 
 import android.util.Base64;
 import com.getcapacitor.JSObject;

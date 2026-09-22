@@ -9,6 +9,7 @@ dist
 !.vscode/extensions.json
 *.local
 .firebase/
+.vercel/
 *.log
 firebase-debug.log
 firebase-debug-*.log

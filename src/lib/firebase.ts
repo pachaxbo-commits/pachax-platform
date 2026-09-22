@@ -1,4 +1,5 @@
 import { PACHAX_ID } from '../config/pachax'
+import { validateFirebaseEnvironment } from '../config/firebaseEnvironment'
 import { deleteApp, getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   browserLocalPersistence,
@@ -15,7 +16,7 @@ import {
   type User,
   type Unsubscribe,
 } from 'firebase/auth'
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { connectStorageEmulator, getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import {
   collection,
   connectFirestoreEmulator,
@@ -62,6 +63,7 @@ interface FirebaseRuntime {
 }
 
 function readFirebaseConfig(): FirebaseWebConfig | null {
+  validateFirebaseEnvironment(import.meta.env, import.meta.env.PROD)
   const config = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -107,6 +109,7 @@ export function isFirebaseConfigured() {
 
 let firebaseRuntimePromise: Promise<FirebaseRuntime | null> | null = null
 let functionsEmulatorConnected = false
+let storageEmulatorConnected = false
 
 /** Inicializa app, Firestore y Auth una sola vez por sesion. */
 async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
@@ -471,6 +474,10 @@ export async function uploadProductImageToFirebase(file: File, restaurantId: str
   if (!context) throw new Error('Firebase no esta configurado.')
 
   const storage = getStorage(context.app)
+  if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && !storageEmulatorConnected) {
+    connectStorageEmulator(storage, window.location.hostname || 'localhost', 9295)
+    storageEmulatorConnected = true
+  }
   const fileExt = file.name.split('.').pop() || 'jpg'
   const path = `restaurants/${restaurantId}/products/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`
   const fileRef = storageRef(storage, path)

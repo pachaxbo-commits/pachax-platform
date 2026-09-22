@@ -1,5 +1,5 @@
 {
-  "appId": "com.pachax.app",
+  "appId": "net.pachax.app",
   "appName": "PACHAX",
   "webDir": "dist",
   "server": {

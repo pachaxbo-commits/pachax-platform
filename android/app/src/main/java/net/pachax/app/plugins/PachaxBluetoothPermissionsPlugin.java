@@ -1,4 +1,4 @@
-package com.pachax.app.plugins;
+package net.pachax.app.plugins;
 
 import android.Manifest;
 import android.content.Intent;
