@@ -1,5 +1,7 @@
 # Configuración pendiente de PACHAX
 
+> Actualización 21/09/2026: la solicitud SaaS + Platform reemplaza el orden anterior. Trabajar y validar primero en emuladores, sin conectar ni desplegar servicios. Consultar SETUP-PACHAX.md y AUDITORIA-PLATAFORMA.md. El identificador Android objetivo ahora es net.pachax.app. El bootstrap descrito abajo corresponde al contrato legado de una empresa y no debe ejecutarse como alta multiempresa ni Platform.
+
 ## Información a proporcionar
 
 - ID real del proyecto Firebase nuevo (no solo su nombre visible).

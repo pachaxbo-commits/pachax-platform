@@ -1,5 +1,44 @@
 # Continuidad del proyecto PACHAX
 
+## Solicitud vigente y avance del 21/09/2026
+
+Los documentos completos del propietario están conservados en docs/requirements/2026-09-21-producto.md y docs/requirements/2026-09-21-platform.md. **Reemplazan el orden anterior de esperar Firebase antes de desarrollar:** se autoriza avanzar localmente con la plataforma SaaS y consola interna, sin desplegar ni conectar recursos remotos. No pedir nuevamente autorización para continuar esas tareas. No están terminadas.
+
+Rama: codex/pachax-platform, creada desde main limpio. Sin remoto ni proyecto Firebase seleccionado. No se accedió ni modificó G:/pachax-comandero; no hubo push, despliegue ni escrituras remotas. Toda escritura de pruebas fue a demo-pachax-platform.
+
+### Realizado
+
+- Auditoría inicial de conexiones, stack, Auth, módulos y mapa semántico restaurantId en docs/AUDITORIA-PLATAFORMA.md.
+- Validación pura de Firebase compartida por Vite y runtime: producción sin configuración completa falla explícitamente; configuración parcial también falla en desarrollo; emuladores solo aceptan demo-pachax-platform; proyecto demo sin emuladores rechazado. `npm run build:emulator` permite compilar el artefacto aislado. `npm run build` sin variables debe fallar intencionalmente.
+- Storage helper apunta al puerto 9295 en modo emulador. firebase/storage.rules niega todo mientras no se implemente branding con membresías. No afirmar que logos/uploads están habilitados. El comando emulators actual arranca Auth, Firestore y Functions; Storage requiere añadirlo explícitamente.
+- Android/Capacitor, paquetes Java de plugins y prueba instrumental migrados coordinadamente a net.pachax.app. Nombre visible PACHAX.
+- src/core/platform.ts, templates.ts, sales.ts y finance.ts definen contratos canónicos tenantId, tres businessTypes, módulos/capacidades/presets, autorización de UI Platform separada y sesiones de soporte conceptuales. **No constituyen autorización de servidor ni reemplazan todavía el esquema legacy.** El registry devuelve copias independientes; billingEnforcement=false, aiAssistant=false. El menú legado filtra Bot con el flag; sus archivos siguen disponibles.
+- Dominio monetario en centavos y peso en gramos, BigInt para productos/intermedios y redondeo half-up por línea. Pruebas 250g/325g a Bs60 y carrito mixto Bs54; caja excluye QR. Aún no hay POS heladería conectado ni escrituras de estas ventas.
+- Login rediseñado, claro crema/petróleo, composición desktop y login directo móvil; animación CSS de nodos con prefers-reduced-motion. Reemplazadas referencias PACHAX Flow en src, incluidos tickets de diagnóstico y componentes heredados.
+- docs/SETUP-PACHAX.md y docs/research/amapola.md. La página oficial Facebook fue bloqueada por el proveedor (`Online fetch throttled`); no se usaron homónimos, no hay catálogo/precios/branding confirmados públicamente.
+
+### Verificaciones de esta entrega parcial
+
+- Typecheck aprobado; build de emulador aprobado, con advertencia heredada de bundles grandes.
+- 16 pruebas nuevas de entorno/dominio/política UI: `npm run test:platform`. Son pruebas unitarias, **no pruebas de seguridad Platform en Firestore**.
+- 55 pruebas de distribución y etiquetas de reportes aprobadas.
+- 56 comprobaciones de reglas/operaciones existentes aprobadas mediante `npm run test:rules` con triggers del emulador. No certifican todavía aislamiento multiempresa del nuevo esquema.
+- `npx cap sync android`, `:app:assembleDebug` y `:app:assembleDebugAndroidTest` aprobados. No ejecutados en hardware. Artefacto debug generado con configuración demo; no distribuir como producción.
+- Login inspeccionado visualmente desktop/móvil; dimensiones sin overflow horizontal comprobadas en 360×640, 375×812, 390×844, 412×915, 768×1024, 1366×768 y 1920×1080. No se ha realizado QA responsive de las tres plantillas.
+- ESLint focalizado en archivos nuevos/core/login/config/tests aprobado. ESLint global falla: 211 errores y 30 advertencias en código heredado y artefactos generados. No ocultar ni afirmar lint global aprobado. En la base actual eslint.config.js solo ignora dist; falta excluir correctamente productos de build Android y resolver deuda TS.
+- Functions agotó el descubrimiento inicial (10s); iniciar con FUNCTIONS_DISCOVERY_TIMEOUT=60 resolvió. El CLI local usó Node24 aunque Functions declara Node22; falta repetir con el runtime objetivo. En PowerShell usar firebase.cmd y el argumento `--only "firestore,auth,functions"` entre comillas.
+
+### Trabajo pendiente autorizado (no presentar como terminado)
+
+1. Migrar Auth/membership, contexto, repositorios, triggers, mantenimiento, cachés, reglas e índices de restaurants/pachax a tenants/{tenantId}; comprobar aislamiento real y no hacer reemplazo textual global.
+2. Implementar autorización Platform en servidor/colección protegida o claims, bootstrap seguro y tests negativos; los helpers src/core son solo contratos de UI.
+3. Onboarding transaccional seguro, alta de owner/empresa, branding Storage y usuarios internos en servidor; selector de empresa.
+4. /platform completo: directorio paginado, ficha, quick settings, auditoría, Support View con rol visual/identidad persistente, solo lectura efectiva, elevación con confirmación/motivo/expiración; Template Preview con datos ficticios. Nada de esto está conectado hoy.
+5. Generalizar distribución conservando P0; integrar/rediseñar restaurante; conectar POS peso/unidad, inventario comercial y caja de heladería. Reutilizar un motor de impresión y uno offline. El registry no prueba que los módulos estén implementados; offlineOperations se deja vacío hasta validar adaptadores nuevos.
+6. Completar QA de reglas y operaciones multiempresa/Platform, responsive de todas las plantillas, índices/paginación, contraste de branding y Android físico. Billing/finanzas solo preparados, sin datos reales ni pasarela.
+
+El App vigente continúa operando distribución para pachax. No vender ni describir esta entrega como SaaS multiempresa terminado.
+
 ## Solicitud y límites
 
 El propietario quiere convertir el flujo de producción, almacenes, distribución, ventas y cobros en la primera categoría de PACHAX, y añadir posteriormente tiendas, restaurantes y otros negocios. El nombre de la aplicación es PACHAX. La marca visual actual es provisional; el rediseño se hará después de conectar el nuevo entorno.
