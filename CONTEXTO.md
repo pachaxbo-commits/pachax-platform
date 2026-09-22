@@ -8,6 +8,7 @@
 - El catálogo compartido admite metadatos opcionales de restaurante: tipo, unidad base, stock, mínimo, costo, proveedor y receta.
 - `restaurantEngine.ts` calcula pagos, costo teórico y consumo de inventario. Cada tanda usa `command:{orderId}:{batchId}` como clave idempotente para descontar stock una sola vez.
 - El adaptador demo persiste los movimientos localmente y deja los contratos listos para un repositorio Firebase posterior.
+- Usuarios de Restaurante usa ahora tarjetas y jerarquía visual coherentes con Distribución, roles canónicos (`owner`, `admin`, `cashier`, `waiter`, `kitchen`), creación local y registro automático de entrada/salida. La asistencia se guarda en el adaptador local y queda preparada para sustituirse por repositorio.
 
 ## Checkpoint vigente: Arquitectura Canónica de Restaurante e Integración con PACHAX Studio (22/09/2026)
 
