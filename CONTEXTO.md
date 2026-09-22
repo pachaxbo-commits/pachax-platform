@@ -1,6 +1,51 @@
 # Continuidad del proyecto PACHAX
 
-## Checkpoint vigente: Arquitectura Canónica de Restaurante e Integración con PACHAX Studio (22/09/2026)
+## Checkpoint vigente: PACHAX Premium Public Experience (22/09/2026)
+
+Rama `feat/premium-public-experience`. Se transformó la entrada comercial y pública de PACHAX en una experiencia SaaS premium, adaptable, visualmente coherente y de alta conversión, manteniendo intactas las capas canónicas operativas y la lógica Firebase.
+
+### Definición de Identidad y Branding
+- **Branding institucional PACHAX = pendiente de definición**: no se inventó un isotipo, símbolo ni monograma definitivo.
+- Se encapsuló la representación de marca exclusivamente en el componente `src/public/components/BrandMark.tsx` (wordmark tipográfico con composición editorial, tracking y variantes light/dark).
+- Todas las vistas públicas (`LandingHeader`, `PublicLoginView`, `PublicRegisterView`, `DemoGallery`, `LandingFooter`) consumen centralmente `<BrandMark />`, permitiendo que en el futuro sea reemplazado por `<PachaxLogo />` en un único punto sin rediseñar las páginas.
+
+### Realizado y Ajustado en esta fase
+
+1. **Landing Comercial Premium (`/`)**:
+   - `LandingHeader`: Navegación fija con backdrop blur, enlaces a Producto, Soluciones, Personalización y Demos, y botones dinámicos para login o acceso al sistema si el usuario ya está autenticado. Sin referencias a `/studio`.
+   - `LandingHero`: Copy riguroso y honesto (*"Tu negocio. Tu forma de trabajar. Un solo sistema."*) sin métricas no demostrables ni claims falsos.
+   - `HeroProductShowcase`: Vitrina de producto viva con tres paneles interactivos que alternan entre Restaurante (mesas, comanda KDS, turno), Distribución (carga física, variance, cobranza de cartera) y Comercio (balanza digital en gramos, carrito mixto, cobro QR/efectivo).
+   - `SolutionsExplorer` (*Encuentra tu PACHAX*): Selector interactivo para las 3 plantillas canónicas (`restaurant_pos`, `route_distribution`, `gelateria_weight_cafe`) con CTAs directos para probar demo o iniciar registro, más la 4ta opción *Necesito algo diferente* con formulario de requerimientos a medida y adaptador honesto de contacto (`src/public/config/publicContact.ts` con WhatsApp y copia de solicitud al portapapeles, sin falsa persistencia en base de datos).
+   - `BrandingPreviewSection`: Demostración interactiva de cómo PACHAX adapta nombre y colores corporativos para el cliente.
+   - `OperationsFeatures`: Pilares técnicos de resiliencia contextualizados por caso de uso (offline en ruta, impresión térmica 58/80mm en cocina y móvil, auditoría ciega de caja, balanza digital en mostrador, multiempresa estricto).
+   - `LandingFooter`: Pie de página institucional completo y limpio, sin enlaces a `/studio` ni páginas legales fantasma no existentes.
+
+2. **Inicio de Sesión Rediseñado (`/login`)**:
+   - Implementado `src/public/auth/PublicLoginView.tsx`.
+   - Conserva al 100% la lógica Firebase existente (`auth.signIn`, estados `isLoading` y `error`).
+   - En móvil: formulario ultrarrápido y táctil sin distracciones visuales.
+   - En desktop: split editorial elegante con vitrina de confianza y seguridad a la izquierda y tarjeta de acceso a la derecha.
+
+3. **Onboarding Visual Guiado y Alineado al Backend (`/register`)**:
+   - Implementado `src/public/register/PublicRegisterView.tsx` con flujo en 5 pasos: Cuenta $\rightarrow$ Empresa $\rightarrow$ Plantilla $\rightarrow$ Marca $\rightarrow$ Revisión.
+   - Eliminado campo manual de sucursal (`branchName`), alineándose al contrato backend de onboarding que autogenera la sucursal principal (`branches/main`).
+   - Paso 5 honesto: muestra la revisión previa con botón "Crear mi empresa" provisionalmente inactivo y aclaración explícita de que la conexión directa al backend de registro se integrará en la siguiente fase.
+   - Preselecciona automáticamente la plantilla si se accede con `/register?template=restaurant_pos`, etc.
+   - Cero escrituras directas a Firestore o creación simulada de tenants.
+
+4. **Enrutamiento Público y Desacople de Firebase en Web (`App.tsx`)**:
+   - `usePublicRouter`: Hook liviano de enrutamiento del lado del cliente sincronizado con History API y scroll a anclas.
+   - `App.tsx`: Las rutas públicas `/` y `/register` se muestran en web sin requerir configuración previa de Firebase. La vista `/login` y los entornos operativos mantienen intacta su validación estricta de Firebase.
+   - En aplicación nativa instalada (`Capacitor.isNativePlatform()`), los usuarios operativos van directamente al login/sistema.
+   - `DemoGallery`: Desvinculada de `/studio`, enlazando limpiamente de regreso a `/`.
+
+5. **Verificación y Pruebas**:
+   - `npm run typecheck`: 0 errores de TypeScript.
+   - `npm run test:platform`: 20/20 pasadas.
+   - `npm run test:distribution`: 55/55 pasadas.
+   - `npm run build`: Éxito en 3.37s con chunks optimizados por Vite.
+
+## Checkpoint previo: Arquitectura Canónica de Restaurante e Integración con PACHAX Studio (22/09/2026)
 
 Rama `fix/restaurant-canonical-preview`. Se aplicó el principio de **Single Canonical Template Experience** a Restaurante (`restaurant_pos`), igualando la arquitectura canónica previamente implementada en Producción y distribución.
 
