@@ -1,5 +1,14 @@
 # Continuidad del proyecto PACHAX
 
+## Restaurante: pagos combinados y base de recetas/inventario (22/09/2026)
+
+- `RestaurantExperience` sigue siendo la única experiencia visual para producción, Studio y demo; los adaptadores mantienen separados los datos y efectos.
+- Mesas conserva el selector múltiple con cantidad y observación y añade el acceso directo `+ Abrir mesa`.
+- El cobro acepta efectivo, QR, tarjeta y pago dividido. La suma dividida debe coincidir con el total y el cambio se calcula solo sobre la parte en efectivo.
+- El catálogo compartido admite metadatos opcionales de restaurante: tipo, unidad base, stock, mínimo, costo, proveedor y receta.
+- `restaurantEngine.ts` calcula pagos, costo teórico y consumo de inventario. Cada tanda usa `command:{orderId}:{batchId}` como clave idempotente para descontar stock una sola vez.
+- El adaptador demo persiste los movimientos localmente y deja los contratos listos para un repositorio Firebase posterior.
+
 ## Checkpoint vigente: Arquitectura Canónica de Restaurante e Integración con PACHAX Studio (22/09/2026)
 
 Rama `fix/restaurant-canonical-preview`. Se aplicó el principio de **Single Canonical Template Experience** a Restaurante (`restaurant_pos`), igualando la arquitectura canónica previamente implementada en Producción y distribución.

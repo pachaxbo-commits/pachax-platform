@@ -8,6 +8,7 @@ import {
   type RestaurantTable,
 } from '../mocks/restaurantMock'
 import type { Order, OrderStatus, Product } from '../../types'
+import { consumePrintedBatch, type RestaurantStockMovement } from '../../modules/restaurant/domain/restaurantEngine'
 import {
   RestaurantExperience,
   type RestaurantSession,
@@ -80,6 +81,9 @@ export function RestaurantDemo({
   )
   const [products, setProducts] = useState<Product[]>(() =>
     readSaved(`${STORAGE_KEY}:products`, RESTAURANT_PRODUCTS)
+  )
+  const [stockMovements, setStockMovements] = useState<RestaurantStockMovement[]>(() =>
+    readSaved(`${STORAGE_KEY}:stock-movements`, [])
   )
   const [shift, setShift] = useState<Shift | null>(() =>
     readSaved<Shift | null>(`${STORAGE_KEY}:shift`, null)
@@ -269,6 +273,16 @@ export function RestaurantDemo({
       printedAt: at,
       itemIds: lines.map((item) => item.id),
     }
+    const consumption = consumePrintedBatch(
+      { ...current, submittedBatches: [...existing, batch] },
+      batch.id,
+      products,
+      stockMovements,
+      at
+    )
+    updateProducts(() => consumption.products)
+    setStockMovements(consumption.movements)
+    persist('stock-movements', consumption.movements)
     updateOrders((previous) =>
       previous.map((order) =>
         order.id === orderId ? { ...order, submittedBatches: [...existing, batch] } : order
@@ -538,7 +552,7 @@ export function RestaurantDemo({
 
   const handlePayment = (
     orderId: string,
-    input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }
+    input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }
   ) => {
     const order = orders.find((item) => item.id === orderId)
     const table = tables.find((item) => item.activeOrderId === orderId)
@@ -547,7 +561,7 @@ export function RestaurantDemo({
       !order ||
       orderLocks.current.has(orderId) ||
       order.paymentStatus === 'paid' ||
-      (input.method === 'cash' && input.received < order.total)
+      ((input.method === 'cash' || input.method === 'mixed') && input.received < (input.cashAmount ?? order.total))
     )
       return
     orderLocks.current.add(orderId)
@@ -556,14 +570,29 @@ export function RestaurantDemo({
       ...order,
       status: 'delivered',
       paymentStatus: 'paid',
-      paymentMethod: input.method === 'qr' ? 'qr' : 'cash',
+      paymentMethod: input.method === 'mixed' ? 'mixed' : input.method === 'qr' ? 'qr' : 'cash',
       payment: {
-        method: input.method === 'qr' ? 'qr' : 'cash',
-        cashAmount: input.method === 'cash' ? order.total : 0,
-        qrAmount: input.method === 'qr' ? order.total : 0,
+        method: input.method === 'mixed' ? 'mixed' : input.method === 'qr' ? 'qr' : 'cash',
+        cashAmount: input.method === 'mixed' ? input.cashAmount || 0 : input.method === 'cash' ? order.total : 0,
+        qrAmount: input.method === 'mixed' ? input.qrAmount || 0 : input.method === 'qr' ? order.total : 0,
+        cardAmount: input.method === 'mixed' ? input.cardAmount || 0 : input.method === 'card' ? order.total : 0,
         cashReceived: input.received,
-        change: input.method === 'cash' ? input.received - order.total : 0,
+        change: input.method === 'cash' ? input.received - order.total : input.method === 'mixed' ? input.received - (input.cashAmount || 0) : 0,
       },
+      payments: (input.method === 'mixed'
+        ? [
+            { method: 'cash' as const, amount: input.cashAmount || 0, received: input.received },
+            { method: 'qr' as const, amount: input.qrAmount || 0 },
+            { method: 'card' as const, amount: input.cardAmount || 0 },
+          ].filter((entry) => entry.amount > 0)
+        : [{ method: input.method, amount: order.total, received: input.method === 'cash' ? input.received : undefined }]
+      ).map((entry) => ({
+        ...entry,
+        id: crypto.randomUUID(),
+        change: entry.method === 'cash' ? Math.max(0, (entry.received || entry.amount) - entry.amount) : 0,
+        createdAt: timestamp,
+        createdBy: cashierName,
+      })),
       paidAt: timestamp,
       paidBy: cashierName,
       closedAt: timestamp,

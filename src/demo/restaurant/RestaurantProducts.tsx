@@ -13,8 +13,13 @@ export function RestaurantProducts({
 }) {
   const [selectedCat, setSelectedCat] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
+  const [kind, setKind] = useState<'all' | 'sale' | 'ingredient' | 'beverage' | 'low'>('all')
 
   const filtered = products.filter((p) => {
+    if (kind === 'sale' && p.restaurantType === 'ingredient') return false
+    if (kind === 'ingredient' && p.restaurantType !== 'ingredient') return false
+    if (kind === 'beverage' && p.restaurantType !== 'beverage') return false
+    if (kind === 'low' && !(p.stockBase !== undefined && p.minimumStockBase !== undefined && p.stockBase <= p.minimumStockBase)) return false
     if (selectedCat !== 'all' && p.categoryId !== selectedCat) return false
     if (!searchTerm.trim()) return true
     return (
@@ -46,6 +51,11 @@ export function RestaurantProducts({
       </div>
 
       {/* Category Pills */}
+      <div className="flex gap-2 overflow-x-auto">
+        {([['all', 'Todos'], ['sale', 'Venta'], ['ingredient', 'Ingredientes'], ['beverage', 'Bebidas'], ['low', 'Stock bajo']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setKind(id)} className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold ${kind === id ? 'bg-teal-500 text-slate-950' : 'bg-white text-slate-600 border border-slate-200'}`}>{label}</button>
+        ))}
+      </div>
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setSelectedCat('all')}
@@ -103,6 +113,7 @@ export function RestaurantProducts({
                     Bs {p.price.toFixed(2)}
                   </td>
                   <td className="py-3 px-4 text-center">
+                    {p.stockBase !== undefined && <span className="mr-2 text-[10px] font-bold text-slate-500">Stock {p.stockBase} {p.baseUnit || 'unit'}</span>}
                     <span
                       className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${
                         p.isActive !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'

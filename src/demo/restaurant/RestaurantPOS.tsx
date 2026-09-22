@@ -20,7 +20,7 @@ export function RestaurantPOS({
   orders: Order[]
   onAddOrder: (newOrder: Order) => void
   onSetOrderStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
-  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }) => void
+  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
   enabled?: boolean
   tables?: string[]
   userRole?: string

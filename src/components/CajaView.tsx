@@ -170,7 +170,7 @@ export function CajaView({
   onSetOrderStatus: (orderId: string, status: OrderStatus, estimatedDelay?: number, options?: { suppressWhatsappDispatchNotice?: boolean; forceWhatsappDispatchNotice?: boolean }) => Promise<boolean | void>
   operationsDisabled?: boolean
   restaurantTables?: string[]
-  onConfirmDemoPayment?: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }) => void
+  onConfirmDemoPayment?: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
 }) {
   // Main view mode: either POS catalog or orders list
   const [viewMode, setViewMode] = useState<'new_order' | 'orders_list'>('new_order')

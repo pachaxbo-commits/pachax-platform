@@ -96,7 +96,7 @@ export interface RestaurantExperienceProps {
   onAddOrder: (order: Order) => void
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
-  onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }) => void
+  onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
   onOpenTableOrder: (table: RestaurantTable & { customerName?: string }) => void
   onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void
   onRequestBill: (tableId: string) => void

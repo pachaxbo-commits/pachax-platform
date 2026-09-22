@@ -231,6 +231,14 @@ export interface Product extends Partial<TenantScopedEntity> {
   options?: ProductOption[]
   /** Preparación local / área de impresión de comandas de restaurante. */
   preparationArea?: 'Cocina' | 'Barra' | 'Otro'
+  /** Datos operativos del catálogo de restaurante. Las cantidades se guardan en unidad base. */
+  restaurantType?: 'prepared' | 'beverage' | 'direct' | 'ingredient'
+  baseUnit?: 'g' | 'ml' | 'unit'
+  stockBase?: number
+  minimumStockBase?: number
+  unitCost?: number
+  supplierId?: string
+  recipe?: Array<{ ingredientId: string; quantityBase: number }>
 }
 
 export interface CatalogState {
@@ -276,6 +284,24 @@ export interface PaymentSummary {
   qrAmount: number
   cashReceived: number
   change: number
+  cardAmount?: number
+}
+
+export interface RestaurantPaymentEntry {
+  id: string
+  method: 'cash' | 'qr' | 'card'
+  amount: number
+  received?: number
+  change?: number
+  createdAt: string
+  createdBy: string
+}
+
+export interface RestaurantBillingDetails {
+  taxId: string
+  businessName: string
+  phone?: string
+  email?: string
 }
 
 /** Immutable snapshot of a sold item capturing exact prices, names, and modifier costs at purchase time */
@@ -345,6 +371,9 @@ export interface Order extends Partial<TenantScopedEntity> {
   deliveryQuoteStatus?: 'not_needed' | 'quoted' | 'missing_location' | 'manual_review'
   deliveryQuoteNote?: string
   payment: PaymentSummary
+  payments?: RestaurantPaymentEntry[]
+  billingDetails?: RestaurantBillingDetails
+  invoiceStatus?: 'not_requested' | 'pending' | 'invoiced' | 'voided'
   paymentStatus: 'paid' | 'pending' | 'gift'
   paymentMethod: PaymentMethod | null
   expectedPaymentMethod: PaymentMethod | null
