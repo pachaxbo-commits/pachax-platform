@@ -1,5 +1,34 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: backend de seguridad PACHAX Platform (22/09/2026)
+
+Rama `feat/platform-security-backend`, creada desde `origin/main` en `57a5d9e`. Esta fase solo prepara backend; no añade `/platform`, onboarding ni cambios visuales. No se desplegaron Functions, no se ejecutó el bootstrap real y no se hizo merge a `main`.
+
+### Implementado
+
+- Autorización Platform de doble fuente: custom claim `platform: true` más documento protegido `platformOperators/{uid}`, validado en cada acción. Roles server-side: `platform_owner`, `platform_admin`, `platform_support` y `platform_finance`.
+- `platformGateway` con validación de operador, directorio paginado, detalle tenant acotado, lectura de contratos de templates, sesiones Support View, elevación temporal, actualización allowlisted y consulta de auditoría.
+- Support View conserva el UID del operador. Inicia read-only; la edición requiere `support.elevate`, confirmación, motivo y sesión vigente de 15 minutos. Firestore Rules nunca da bypass directo al operador.
+- Auditoría Platform con `operatorUid`, acción, tenant, motivo y timestamp de servidor. Colecciones de operadores, bootstrap, sesiones y auditoría están cerradas al cliente.
+- Bootstrap administrativo de uso único en `scripts/bootstrap-platform-owner.cjs`; no contiene identidades ni secretos, preserva claims existentes, reserva un único UID y se puede reanudar solo para ese UID si queda pendiente. Procedimiento en `docs/PLATFORM-BOOTSTRAP.md`. No fue ejecutado contra producción.
+- Firestore real confirmado en Santiago. Tenant/Platform Functions v2 y su cliente explícito se prepararon para `southamerica-west1`. Los entrypoints legacy `restaurants/pachax` continúan separados en `us-central1`.
+
+### Evidencia
+
+- Node `22.23.2`: Functions Emulator confirmó `Using node@22 from host`.
+- `test:platform-security`: 19/19, incluidos callable real, bootstrap único, tenant sin enumeración/autopromoción, soporte sin elevación, expiración, operador desactivado, identidad y región.
+- `test:tenant-core`: 21/21, aislamiento A/B/C y callable tenant en Santiago.
+- `test:platform`: 20/20. `test:distribution`: 55/55. Suite legacy de Rules/operaciones: 56/56.
+- Typecheck y build aprobados. Vite conserva advertencias existentes de chunks grandes y un import dinámico/estático de Firebase Functions.
+
+### Pendiente
+
+- Revisar y aprobar esta rama; desplegar Functions solo cuando billing y el destino remoto estén expresamente aprobados.
+- Ejecutar el bootstrap real únicamente después de revisar el UID y el procedimiento final.
+- Construir `/platform` y conectar su UI al gateway en una tarea posterior.
+- Implementar gestión autenticada de operadores posteriores al primer owner. El bootstrap no sirve para añadir propietarios arbitrarios.
+- Retirar los entrypoints legacy `restaurants/pachax` y su región `us-central1` cuando termine la migración de sus consumidores.
+
 ## Checkpoint vigente: PACHAX Studio & Demos Desacopladas (22/09/2026)
 
 Rama `feat/pachax-studio`. Se implementó un entorno interno de desarrollo y previsualización (**PACHAX Studio**) desacoplado de Firebase, Cloud Functions y autenticación real, junto con rutas públicas de demostración (`/demo`, `/demo/restaurant`, `/demo/distribution`, `/demo/retail`).
