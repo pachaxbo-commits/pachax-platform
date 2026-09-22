@@ -1,189 +1,62 @@
-import { useState } from 'react'
-import { Users, Clock, Plus, CheckCircle } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Clock, Plus, Search, X } from 'lucide-react'
+import type { Order, Product } from '../../types'
 import type { RestaurantTable } from '../mocks/restaurantMock'
-import type { Order } from '../../types'
 
-export function RestaurantTables({
-  tables,
-  orders,
-  onOpenTableOrder,
-  onUpdateTableStatus,
-}: {
-  tables: RestaurantTable[]
-  orders: Order[]
-  onOpenTableOrder: (table: RestaurantTable) => void
-  onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void
-}) {
-  const [selectedZone, setSelectedZone] = useState<'all' | 'salon' | 'terraza' | 'barra'>('all')
+type ProductInput = { productId: string; quantity: number; note: string }
+type SelectedProduct = { productId: string; quantity: number; note: string }
+type Payment = { method: 'cash' | 'qr' | 'card' | 'other'; received: number }
+const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const readableTime = (iso?: string) => iso ? new Date(iso).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) : '—'
+const STATUS_LABEL: Record<string, string> = { pending: 'Pendiente', preparing: 'En preparación', ready: 'Listo', ready_for_pickup: 'Listo', delivered: 'Entregado' }
+const initials = [{ label: 'Salón Principal', id: 'salon' }, { label: 'Terraza', id: 'terraza' }, { label: 'Barra', id: 'barra' }, { label: 'Todas', id: 'all' }]
 
-  const filteredTables = tables.filter((t) => {
-    if (selectedZone === 'terraza') return t.name.includes('Terraza')
-    if (selectedZone === 'barra') return t.name.includes('Barra')
-    if (selectedZone === 'salon') return !t.name.includes('Terraza') && !t.name.includes('Barra')
-    return true
-  })
+export function RestaurantTables({ tables, orders, products, enabled, initialTableId, onOpenTableOrder, onUpdateTableStatus, onRequestBill, onReopenBill, onPayment, onAddProduct, onPrintBatch, onCreateProduct }: { tables: RestaurantTable[]; orders: Order[]; products: Product[]; enabled: boolean; initialTableId?: string | null; onOpenTableOrder: (table: RestaurantTable & { customerName?: string }) => void; onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void; onRequestBill: (tableId: string) => void; onReopenBill: (tableId: string) => void; onPayment: (orderId: string, input: Payment) => void; onAddProduct: (orderId: string, input: ProductInput) => void; onPrintBatch: (orderId: string) => void; onCreateProduct: (tableId: string, input: { name: string; categoryName: string; price: number; preparationArea: string }, orderId?: string) => void }) {
+  const [selectedZone, setSelectedZone] = useState('all')
+  const [selected, setSelected] = useState<RestaurantTable | null>(() => tables.find((table) => table.id === initialTableId) || null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [showNew, setShowNew] = useState(false)
+  const [paying, setPaying] = useState(false)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState('all')
+  const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([])
+  const [method, setMethod] = useState<Payment['method']>('cash')
+  const [received, setReceived] = useState('')
+  const [people, setPeople] = useState('2')
+  const [customer, setCustomer] = useState('')
+  const [productForm, setProductForm] = useState({ name: '', categoryName: '', price: '', preparationArea: 'Cocina' })
+  const filteredTables = tables.filter((table) => selectedZone === 'all' || (selectedZone === 'terraza' ? table.name.includes('Terraza') : selectedZone === 'barra' ? table.name.includes('Barra') : !table.name.includes('Terraza') && !table.name.includes('Barra')))
+  const order = orders.find((item) => item.id === selected?.activeOrderId) || orders.find((item) => item.tableInfo === selected?.name && item.paymentStatus !== 'paid' && item.status !== 'cancelled')
+  const availableProducts = products.filter((product) => product.isActive && (!query || product.name.toLowerCase().includes(query.toLowerCase())) && (category === 'all' || product.categoryId === category))
+  const categories = useMemo(() => [...new Map(products.map((product) => [product.categoryId, { id: product.categoryId, name: product.categoryId.replace('cat-', '').replace(/-/g, ' ') }])).values()], [products])
+  const tableTime = order?.openedAt || order?.createdAt || (selected?.openedAt ? (/T/.test(selected.openedAt) ? selected.openedAt : new Date(`${new Date().toISOString().slice(0, 10)}T${selected.openedAt}:00`).toISOString()) : undefined)
+  const elapsed = tableTime ? Math.max(0, Math.floor((new Date().getTime() - new Date(tableTime).getTime()) / 60000)) : 0
+  const lockedIds = new Set((order?.submittedBatches as Array<{ itemIds: string[] }> | undefined)?.flatMap((batch) => batch.itemIds) || [])
 
-  return (
-    <div className="space-y-6">
-      {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Salón & Mesas</h1>
-          <p className="text-sm text-slate-500">Distribución de mesas y comandas en salón</p>
-        </div>
+  const createTableOrder = () => { if (!selected || !enabled) return; const next = { ...selected, status: 'occupied' as const, openedAt: new Date().toISOString(), openedBy: selected.openedBy, diners: Math.max(1, Number(people) || 2) }; onOpenTableOrder({ ...next, customerName: customer.trim() }); onUpdateTableStatus(selected.id, 'occupied'); setSelected(next); setShowAdd(true) }
+  const addProduct = () => { if (!order || !selectedProducts.length) return; selectedProducts.forEach((item) => onAddProduct(order.id, item)); setSelectedProducts([]); setShowAdd(false) }
+  const toggleProduct = (id: string) => setSelectedProducts((previous) => previous.some((item) => item.productId === id) ? previous.filter((item) => item.productId !== id) : [...previous, { productId: id, quantity: 1, note: '' }])
+  const updateSelected = (id: string, patch: Partial<SelectedProduct>) => setSelectedProducts((previous) => previous.map((item) => item.productId === id ? { ...item, ...patch } : item))
+  const addNewProduct = () => { if (!productForm.name.trim() || !Number(productForm.price) || !selected) return; onCreateProduct(selected.id, { ...productForm, price: Number(productForm.price) }, order?.id); setShowNew(false); setProductForm({ name: '', categoryName: '', price: '', preparationArea: 'Cocina' }) }
+  const doPay = () => { if (!order || (method === 'cash' && Number(received) < order.total)) return; onPayment(order.id, { method, received: method === 'cash' ? Number(received) : order.total }); setPaying(false); setSelected(null) }
 
-        {/* Zone tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-          {(
-            [
-              { id: 'all', label: 'Todas' },
-              { id: 'salon', label: 'Salón Principal' },
-              { id: 'terraza', label: 'Terraza' },
-              { id: 'barra', label: 'Barra' },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setSelectedZone(tab.id)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
-                selectedZone === tab.id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+  return <div className="space-y-6">
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-slate-900">Salón & Mesas</h1><p className="text-sm text-slate-500">Selecciona una mesa para ver su pedido y cuenta.</p></div><div className="flex flex-wrap gap-1.5 rounded-xl bg-slate-100 p-1">{initials.map((zone) => <button key={zone.id} type="button" onClick={() => setSelectedZone(zone.id)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${selectedZone === zone.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}>{zone.label}</button>)}</div></header>
+    {!enabled && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Debes iniciar un turno antes de realizar operaciones.</p>}
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">{filteredTables.map((table) => { const occupied = table.status === 'occupied'; const requested = table.status === 'bill_requested'; const reserved = table.status === 'reserved'; const activeOrder = orders.find((item) => item.id === table.activeOrderId) || orders.find((item) => item.tableInfo === table.name && item.paymentStatus !== 'paid' && item.status !== 'cancelled'); return <button key={table.id} type="button" onClick={() => { setSelected(table); setShowAdd(false); setPaying(false) }} className={`rounded-2xl border p-5 text-left transition hover:shadow-md ${requested ? 'border-amber-300 bg-amber-50/70' : occupied ? 'border-blue-200 bg-blue-50/50' : reserved ? 'border-slate-300 bg-slate-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}><span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold uppercase ${requested ? 'bg-amber-100 text-amber-900' : occupied ? 'bg-blue-100 text-blue-900' : reserved ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>{requested ? 'Por cerrarse' : occupied ? 'Ocupada' : reserved ? 'Reserva' : 'Libre'}</span><h2 className="mt-2 text-lg font-bold text-slate-900">{table.name}</h2><p className="mt-2 min-h-8 text-xs text-slate-600">{occupied || requested ? `${table.diners || 2} personas · Desde ${readableTime(table.openedAt)}` : reserved ? 'Reserva para las 19:30' : 'Lista para nuevos comensales'}</p>{activeOrder && <p className="mt-2 font-bold text-slate-900">{money(activeOrder.total)}</p>}</button> })}</div>
+    {selected && <div className="fixed inset-0 z-[100] flex justify-end bg-slate-950/45" onClick={() => setSelected(null)}><aside role="dialog" aria-modal="true" aria-label={`Detalle de ${selected.name}`} onClick={(event) => event.stopPropagation()} className="flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white shadow-2xl"><header className="sticky top-0 flex items-start justify-between border-b border-slate-200 bg-white p-5"><div><div className="flex items-center gap-2"><h2 className="text-xl font-bold text-slate-900">{selected.name}</h2><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${selected.status === 'bill_requested' ? 'bg-amber-100 text-amber-900' : selected.status === 'occupied' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'}`}>{selected.status === 'bill_requested' ? 'Por cerrarse' : selected.status === 'occupied' ? 'Ocupada' : 'Libre'}</span></div>{order && <p className="mt-1 text-xs text-slate-500">Pedido #{order.displayNumber}</p>}</div><button type="button" aria-label="Cerrar" onClick={() => setSelected(null)} className="rounded-lg p-2 hover:bg-slate-100"><X className="h-4 w-4" /></button></header>
+      <div className="flex-1 space-y-5 p-5">
+        {selected.status === 'available' && !order ? <div className="space-y-4"><p className="text-sm text-slate-600">Abre la mesa para empezar a atender y tomar el pedido.</p><label className="block text-xs font-semibold text-slate-700">Personas<input min="1" type="number" value={people} onChange={(event) => setPeople(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label><label className="block text-xs font-semibold text-slate-700">Cliente (opcional)<input value={customer} onChange={(event) => setCustomer(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="Nombre" /></label><button disabled={!enabled} onClick={createTableOrder} className="w-full rounded-xl bg-teal-500 py-3 text-sm font-bold text-slate-950 disabled:opacity-40">Abrir mesa y añadir producto</button></div> : selected.status === 'reserved' ? <button onClick={() => { onUpdateTableStatus(selected.id, 'available'); setSelected(null) }} className="w-full rounded-xl border border-slate-200 py-3 text-sm font-bold">Cancelar reserva</button> : order ? <>
+          <div className="grid grid-cols-3 gap-2 text-xs"><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-500">Cliente</span><p className="mt-1 font-semibold text-slate-900">{order.customerName || '—'}</p></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-500">Personas</span><p className="mt-1 font-semibold text-slate-900">{selected.diners || 2}</p></div><div className="rounded-xl bg-slate-50 p-3"><span className="text-slate-500">Tiempo</span><p className="mt-1 flex items-center gap-1 font-semibold text-slate-900"><Clock className="h-3 w-3" />{elapsed} min</p></div></div>
+          <section><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-bold uppercase tracking-wide text-slate-900">Pedido actual</h3><span className="text-xs text-slate-500">{order.submittedBatches?.length || 0} comandas</span></div><div className="divide-y divide-slate-100 rounded-xl border border-slate-200">{order.items.map((item) => <div key={item.id} className="p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-slate-900">{item.quantity}× {item.name}</p><p className="mt-1 text-[11px] text-slate-500">{money(item.basePrice)} c/u · {money(item.lineTotal)}</p>{item.modifiers?.note && <p className="mt-1 text-xs text-slate-600">Nota: {item.modifiers.note}</p>}</div><div className="text-right"><span className="block text-[11px] text-slate-500">{readableTime(item.createdAt || order.createdAt)}</span><span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{STATUS_LABEL[item.status || order.status] || 'Pendiente'}</span></div></div>{item.startedAt && <p className="mt-1 text-[11px] text-slate-500">Preparación {readableTime(item.startedAt)}{item.readyAt ? ` · Listo ${readableTime(item.readyAt)}` : ''}{item.deliveredAt ? ` · Entregado ${readableTime(item.deliveredAt)}` : ''}</p>}{lockedIds.has(item.id) && <p className="mt-1 text-[10px] font-semibold text-teal-700">Comanda impresa · línea bloqueada</p>}</div>)}</div></section>
+          <section className="space-y-2 rounded-xl bg-slate-50 p-4 text-sm"><div className="flex justify-between text-slate-600"><span>Subtotal</span><span>{money(order.productSubtotal ?? order.total)}</span></div><div className="flex justify-between text-base font-bold text-slate-900"><span>TOTAL</span><span>{money(order.total)}</span></div></section>
+          {selected.status === 'bill_requested' ? <div className="grid grid-cols-2 gap-2"><button onClick={() => { onReopenBill(selected.id); setSelected({ ...selected, status: 'occupied' }) }} className="rounded-xl border border-slate-200 py-3 text-xs font-bold">ABRIR CUENTA</button><button onClick={() => { setReceived(''); setMethod('cash'); setPaying(true) }} className="rounded-xl bg-slate-900 py-3 text-xs font-bold text-white">PAGAR CUENTA</button></div> : <div className="grid grid-cols-2 gap-2"><button disabled={!enabled} onClick={() => setShowAdd(true)} className="rounded-xl bg-teal-500 py-3 text-xs font-bold text-slate-950 disabled:opacity-40"><Plus className="mr-1 inline h-4 w-4" />Añadir producto</button><button onClick={() => { onPrintBatch(order.id); window.print() }} className="rounded-xl border border-slate-200 py-3 text-xs font-bold">IMPRIMIR COMANDA</button><button onClick={() => { onRequestBill(selected.id); setSelected({ ...selected, status: 'bill_requested' }) }} className="col-span-2 rounded-xl bg-amber-50 py-3 text-xs font-bold text-amber-900">Solicitar cierre / Cuenta</button></div>}
+        </> : <p className="text-sm text-slate-500">No hay una cuenta activa en esta mesa.</p>}
       </div>
-
-      {/* Tables Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {filteredTables.map((t) => {
-          const isOccupied = t.status === 'occupied'
-          const isBill = t.status === 'bill_requested'
-          const isReserved = t.status === 'reserved'
-          const isAvailable = t.status === 'available'
-
-          const activeOrder = orders.find((o) => o.id === t.activeOrderId)
-
-          return (
-            <div
-              key={t.id}
-              className={`p-5 rounded-2xl border transition relative flex flex-col justify-between ${
-                isBill
-                  ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-400/40 shadow-xs'
-                  : isOccupied
-                  ? 'bg-blue-50/50 border-blue-200 shadow-xs'
-                  : isReserved
-                  ? 'bg-slate-50 border-slate-300'
-                  : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs'
-              }`}
-            >
-              {/* Status pill */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <span
-                    className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                      isBill
-                        ? 'bg-amber-100 text-amber-900'
-                        : isOccupied
-                        ? 'bg-blue-100 text-blue-900'
-                        : isReserved
-                        ? 'bg-slate-200 text-slate-700'
-                        : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                  >
-                    {isBill ? 'Cuenta solicitada' : isOccupied ? 'Ocupada' : isReserved ? 'Reservada' : 'Disponible'}
-                  </span>
-                  <h3 className="text-lg font-bold text-slate-900 mt-2">{t.name}</h3>
-                </div>
-                <div className="flex items-center gap-1 text-slate-500 text-xs font-medium">
-                  <Users className="w-3.5 h-3.5" />
-                  {t.capacity}p
-                </div>
-              </div>
-
-              {/* Middle details */}
-              <div className="my-4 min-h-[50px]">
-                {isOccupied || isBill ? (
-                  <div className="space-y-1 text-xs">
-                    <div className="text-slate-700 font-medium">
-                      {activeOrder?.customerName || 'Mesa en servicio'} • {t.diners || 2} comensales
-                    </div>
-                    {t.openedAt && (
-                      <div className="text-slate-500 flex items-center gap-1 text-[11px]">
-                        <Clock className="w-3 h-3" />
-                        Abierta a las {t.openedAt}
-                      </div>
-                    )}
-                    {activeOrder && (
-                      <div className="text-slate-900 font-bold mt-2">
-                        Total actual: Bs {activeOrder.total.toFixed(2)}
-                      </div>
-                    )}
-                  </div>
-                ) : isReserved ? (
-                  <div className="text-xs text-slate-500 italic">Reserva para las 19:30</div>
-                ) : (
-                  <div className="text-xs text-emerald-700 font-medium">Mesa libre para nuevos comensales</div>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="pt-3 border-t border-slate-200/70 flex items-center justify-between gap-2">
-                {isAvailable && (
-                  <button
-                    onClick={() => {
-                      onUpdateTableStatus(t.id, 'occupied')
-                      onOpenTableOrder(t)
-                    }}
-                    className="w-full py-2 text-xs font-bold text-teal-900 bg-teal-100 hover:bg-teal-200 rounded-xl transition flex items-center justify-center gap-1.5"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Ocupar / Nueva Comanda
-                  </button>
-                )}
-
-                {isOccupied && (
-                  <>
-                    <button
-                      onClick={() => onOpenTableOrder(t)}
-                      className="flex-1 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition"
-                    >
-                      Ver Comanda
-                    </button>
-                    <button
-                      onClick={() => onUpdateTableStatus(t.id, 'bill_requested')}
-                      className="py-1.5 px-3 text-xs font-semibold text-amber-800 bg-amber-100 hover:bg-amber-200 rounded-lg transition"
-                      title="Pedir Cuenta"
-                    >
-                      Cuenta
-                    </button>
-                  </>
-                )}
-
-                {isBill && (
-                  <button
-                    onClick={() => onUpdateTableStatus(t.id, 'available')}
-                    className="w-full py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition flex items-center justify-center gap-1.5"
-                  >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Cobrar y Liberar Mesa
-                  </button>
-                )}
-
-                {isReserved && (
-                  <button
-                    onClick={() => onUpdateTableStatus(t.id, 'available')}
-                    className="w-full py-1.5 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition"
-                  >
-                    Cancelar Reserva
-                  </button>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+      {showAdd && <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/50 p-4" onClick={() => setShowAdd(false)}><section role="dialog" aria-modal="true" aria-label="Añadir producto" onClick={(event) => event.stopPropagation()} className="max-h-[90vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"><div className="flex justify-between"><h3 className="text-lg font-bold">Añadir producto</h3><button aria-label="Cerrar" onClick={() => setShowAdd(false)}><X className="h-4 w-4" /></button></div><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto" className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm" /></div><div className="flex gap-1.5 overflow-x-auto">{[{ id: 'all', name: 'Todos' }, ...categories].map((item) => <button key={item.id} onClick={() => setCategory(item.id)} className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${category === item.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>{item.name}</button>)}</div><div className="max-h-56 space-y-2 overflow-y-auto">{availableProducts.map((product) => { const selectedItem = selectedProducts.find((item) => item.productId === product.id); return <div key={product.id} className={`rounded-xl border p-3 ${selectedItem ? 'border-teal-500 bg-teal-50' : 'border-slate-200'}`}><button type="button" onClick={() => toggleProduct(product.id)} className="flex w-full items-center justify-between text-left"><span className="text-xs font-semibold text-slate-900">{product.name}<span className="ml-2 text-[10px] font-medium text-slate-500">{product.preparationArea || 'Cocina'}</span></span><span className="text-xs font-bold text-slate-700">{money(product.price)} {selectedItem ? '?' : '+'}</span></button>{selectedItem && <div className="mt-2 grid grid-cols-[86px_1fr] gap-2"><label className="text-[10px] font-semibold">Cantidad<input type="number" min="1" value={selectedItem.quantity} onChange={(event) => updateSelected(product.id, { quantity: Math.max(1, Number(event.target.value)) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" /></label><label className="text-[10px] font-semibold">Observaci?n<input value={selectedItem.note} onChange={(event) => updateSelected(product.id, { note: event.target.value })} placeholder="Sin cebolla" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" /></label></div>}</div> })}</div><p className="text-xs text-slate-500">{selectedProducts.length} productos seleccionados</p><button disabled={!order || !selectedProducts.length} onClick={addProduct} className="w-full rounded-xl bg-teal-500 py-3 text-sm font-bold text-slate-950 disabled:opacity-40">A?adir selecci?n al pedido</button><button onClick={() => setShowNew(true)} className="w-full rounded-xl border border-slate-200 py-2.5 text-sm font-semibold">+ Crear nuevo producto</button></section></div>}
+      {showNew && <div className="fixed inset-0 z-[120] grid place-items-center bg-slate-950/50 p-4" onClick={() => setShowNew(false)}><section role="dialog" aria-modal="true" aria-label="Crear nuevo producto" onClick={(event) => event.stopPropagation()} className="w-full max-w-sm space-y-3 rounded-2xl bg-white p-5"><h3 className="text-lg font-bold">Crear nuevo producto</h3><input value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} placeholder="Nombre" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /><input value={productForm.categoryName} onChange={(event) => setProductForm({ ...productForm, categoryName: event.target.value })} placeholder="Categoría" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /><input type="number" min="0.01" step="0.01" value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: event.target.value })} placeholder="Precio (Bs)" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /><select value={productForm.preparationArea} onChange={(event) => setProductForm({ ...productForm, preparationArea: event.target.value })} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option>Cocina</option><option>Barra</option><option>Otro</option></select><button onClick={addNewProduct} className="w-full rounded-xl bg-teal-500 py-3 text-sm font-bold">Crear y añadir</button></section></div>}
+      {paying && order && <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/50 p-4" onClick={() => setPaying(false)}><section role="dialog" aria-modal="true" aria-label="Pagar cuenta" onClick={(event) => event.stopPropagation()} className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-5 shadow-xl"><div className="flex justify-between"><h3 className="text-lg font-bold">Pagar cuenta</h3><button onClick={() => setPaying(false)}><X className="h-4 w-4" /></button></div><div className="rounded-xl bg-slate-50 p-4"><span className="text-xs text-slate-500">TOTAL A PAGAR</span><p className="text-2xl font-extrabold">{money(order.total)}</p></div><label className="block text-xs font-semibold">Método de pago<select value={method} onChange={(event) => setMethod(event.target.value as Payment['method'])} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option value="cash">Efectivo</option><option value="qr">QR</option><option value="card">Tarjeta</option><option value="other">Otro</option></select></label>{method === 'cash' && <><label className="block text-xs font-semibold">Recibido<input autoFocus inputMode="decimal" type="number" min="0" step="0.01" value={received} onChange={(event) => setReceived(event.target.value)} placeholder="Bs 0,00" className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label><div className="flex gap-2">{[Math.ceil(order.total / 10) * 10, Math.ceil(order.total / 50) * 50, Math.ceil(order.total / 100) * 100].filter((amount, index, array) => array.indexOf(amount) === index).map((amount) => <button key={amount} onClick={() => setReceived(String(amount))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold">{money(amount)}</button>)}</div><div className="flex justify-between text-sm"><span>Cambio</span><strong>{money(Math.max(0, Number(received || 0) - order.total))}</strong></div>{Number(received || 0) < order.total && received !== '' && <p role="alert" className="text-sm text-red-600">Monto insuficiente</p>}</>}<button disabled={method === 'cash' && Number(received) < order.total} onClick={doPay} className="w-full rounded-xl bg-slate-900 py-3 text-sm font-bold text-white disabled:opacity-40">CONFIRMAR PAGO</button></section></div>}
+      {enabled && selected.status === 'available' && !order && showAdd === false && <button className="hidden" aria-hidden onClick={() => onUpdateTableStatus(selected.id, 'occupied')} />}
+    </aside></div>}
+  </div>
 }

@@ -6,6 +6,7 @@ export interface RestaurantTable {
   name: string
   capacity: number
   status: 'available' | 'occupied' | 'bill_requested' | 'reserved'
+  openedBy?: string
   activeOrderId?: string
   diners?: number
   openedAt?: string

@@ -23,7 +23,7 @@ import {
   PlayCircle,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency } from '../lib/format'
 import type { CartItem, CatalogCategory, PaymentMethod, PaymentSummary, Product, Order, OrderStatus, FulfillmentType, ProductExtra } from '../types'
@@ -118,6 +118,9 @@ export function CajaView({
   onDeleteOrder,
   onUpdateOrder,
   onSetOrderStatus,
+  operationsDisabled = false,
+  restaurantTables = [],
+  onConfirmDemoPayment,
 }: {
   nextOrderNumber: string
   categories: CatalogCategory[]
@@ -165,6 +168,9 @@ export function CajaView({
     deliveryAddress?: string
   }) => Promise<void>
   onSetOrderStatus: (orderId: string, status: OrderStatus, estimatedDelay?: number, options?: { suppressWhatsappDispatchNotice?: boolean; forceWhatsappDispatchNotice?: boolean }) => Promise<boolean | void>
+  operationsDisabled?: boolean
+  restaurantTables?: string[]
+  onConfirmDemoPayment?: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }) => void
 }) {
   // Main view mode: either POS catalog or orders list
   const [viewMode, setViewMode] = useState<'new_order' | 'orders_list'>('new_order')
@@ -245,6 +251,10 @@ export function CajaView({
 
   // Fast Payment Modal State
   const [payingOrder, setPayingOrder] = useState<Order | null>(null)
+  const [operationMessage, setOperationMessage] = useState('')
+  const submitOrderRef = useRef(false)
+  const paidOrderIds = useRef(new Set<string>())
+  void restaurantTables
   const [fastPayMethod, setFastPayMethod] = useState<PaymentMethod>('cash')
   const [fastCashReceived, setFastCashReceived] = useState('')
   const [fastCashSplit, setFastCashSplit] = useState('')
@@ -643,6 +653,7 @@ export function CajaView({
   }
 
   const removeItem = (lineId: string) => {
+    if (operationsDisabled || (editingOrderId && orders.find((order) => order.id === editingOrderId)?.submittedBatches?.some((batch) => batch.itemIds.includes(lineId)))) return
     setCartItems((currentItems) => currentItems.filter((item) => item.lineId !== lineId))
     setExpandedLineId((currentLineId) => (currentLineId === lineId ? null : currentLineId))
   }
@@ -852,7 +863,7 @@ export function CajaView({
       </div>
 
       <div className="w-full space-y-5">
-        
+        {operationMessage && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{operationMessage}</p>}
         {/* Main Panel Section */}
         <section className="w-full space-y-5">
           {viewMode === 'new_order' ? (
@@ -896,6 +907,7 @@ export function CajaView({
                       
                       <Button
                         className="w-full px-2.5 py-1.5 h-8 text-[11px] font-black rounded-lg bg-accent hover:bg-accent/95 text-white flex items-center justify-between shadow-sm shrink-0"
+                        disabled={operationsDisabled}
                         onClick={() => {
                           const nextItem = buildCartItem(product)
                           setCartItems((currentItems) => [...currentItems, nextItem])
@@ -1569,7 +1581,8 @@ export function CajaView({
         <button
           type="button"
           className="fixed bottom-4 right-4 z-40 bg-accent hover:bg-accent/90 text-white font-black px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 transition transform hover:scale-105 active:scale-95 border border-white/20"
-          onClick={() => setShowCheckoutModal(true)}
+          disabled={operationsDisabled}
+          onClick={() => { if (operationsDisabled) { setOperationMessage('Debes iniciar un turno antes de realizar operaciones.'); return } setShowCheckoutModal(true) }}
         >
           <ShoppingBag size={18} />
           <span>VER CARRITO / COBRAR ({cartItems.reduce((sum, item) => sum + item.quantity, 0)})</span>
@@ -1653,11 +1666,12 @@ export function CajaView({
                           </div>
 
                           <div className="mt-1.5 flex items-center justify-between border-t border-line pt-1.5">
-                            <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1">
                               <button
                                 type="button"
                                 className="flex h-6 w-6 items-center justify-center rounded-lg border border-line bg-panel text-ink transition hover:bg-line active:scale-95"
-                                onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, quantity: Math.max(1, cur.quantity - 1) }))}
+                              disabled={operationsDisabled || Boolean(editingOrderId && orders.find((order) => order.id === editingOrderId)?.submittedBatches?.some((batch) => batch.itemIds.includes(item.lineId)))}
+                              onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, quantity: Math.max(1, cur.quantity - 1) }))}
                               >
                                 <Minus size={11} />
                               </button>
@@ -2101,8 +2115,10 @@ export function CajaView({
                 <Button
                   size="lg"
                   className="shadow-xl shadow-accent/20 shrink-0"
-                  disabled={cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid}
+                  disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || submitOrderRef.current}
                   onClick={async () => {
+                    if (operationsDisabled || submitOrderRef.current) { setOperationMessage('Debes iniciar un turno antes de realizar operaciones.'); return }
+                    submitOrderRef.current = true
                     setIsSubmitting(true)
                     // Las reglas de Firestore exigen nombre, telefono y direccion NO vacios en los
                     // pedidos de delivery, y nombre y telefono en los de WhatsApp. Si falta alguno
@@ -2233,6 +2249,7 @@ export function CajaView({
                     }
 
                     setIsSubmitting(false)
+                    submitOrderRef.current = false
                   }}
                 >
                   {isSubmitting ? <LoaderCircle size={16} className="animate-spin" /> : <CookingPot size={16} />}
@@ -2356,7 +2373,10 @@ export function CajaView({
                 tone="success"
                 disabled={!isFastPaymentValid}
                 onClick={async () => {
+                  if (operationsDisabled || paidOrderIds.current.has(payingOrder.id)) return
+                  paidOrderIds.current.add(payingOrder.id)
                   try {
+                    onConfirmDemoPayment?.(payingOrder.id, { method: fastPayMethod === 'qr' ? 'qr' : 'cash', received: effectiveFastCashReceived })
                     await onConfirmPayment(payingOrder.id, {
                       paymentStatus: 'paid',
                       paymentMethod: fastPayMethod,
@@ -2365,6 +2385,7 @@ export function CajaView({
                     })
                     setPayingOrder(null)
                   } catch (error) {
+                    paidOrderIds.current.delete(payingOrder.id)
                     console.error('Failed to confirm fast payment:', error)
                   }
                 }}

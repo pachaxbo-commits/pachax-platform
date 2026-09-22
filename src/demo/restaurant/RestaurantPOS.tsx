@@ -9,6 +9,9 @@ export function RestaurantPOS({
   orders,
   onAddOrder,
   onSetOrderStatus,
+  onConfirmPayment,
+  enabled = true,
+  tables = [],
   userRole = 'caja',
 }: {
   categories: CatalogCategory[]
@@ -17,6 +20,9 @@ export function RestaurantPOS({
   orders: Order[]
   onAddOrder: (newOrder: Order) => void
   onSetOrderStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
+  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }) => void
+  enabled?: boolean
+  tables?: string[]
   userRole?: string
 }) {
   const [localOrders, setLocalOrders] = useState<Order[]>(orders)
@@ -36,6 +42,7 @@ export function RestaurantPOS({
     deliveryAddress?: string
     createdBy?: string
   }): Promise<boolean> => {
+    if (!enabled) return false
     const nextSeq = localOrders.length + 45
     const orderNumber = String(nextSeq).padStart(3, '0')
 
@@ -88,6 +95,9 @@ export function RestaurantPOS({
     payment: PaymentSummary
     paidBy: string
   }): Promise<void> => {
+    const order = localOrders.find((item) => item.id === orderId)
+    if (!enabled || !order || order.paymentStatus === 'paid') return
+    onConfirmPayment(orderId, { method: input.paymentMethod === 'qr' ? 'qr' : 'cash', received: input.payment.cashReceived })
     setLocalOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, paymentStatus: 'paid', paymentMethod: input.paymentMethod, payment: input.payment } : o))
     )
@@ -108,6 +118,7 @@ export function RestaurantPOS({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
+      {!enabled && <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">Debes iniciar un turno antes de realizar operaciones.</div>}
       <CajaView
         nextOrderNumber={String(localOrders.length + 45).padStart(3, '0')}
         categories={categories}
@@ -123,6 +134,9 @@ export function RestaurantPOS({
         onDeleteOrder={handleDeleteOrder}
         onUpdateOrder={handleUpdateOrder}
         onSetOrderStatus={onSetOrderStatus}
+        onConfirmDemoPayment={onConfirmPayment}
+        operationsDisabled={!enabled}
+        restaurantTables={tables}
       />
     </div>
   )
