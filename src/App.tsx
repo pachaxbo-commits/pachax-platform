@@ -35,7 +35,20 @@ function DistributionShell(props: {
 function App() {
   const auth = useAuthStore()
   const { path } = usePublicRouter()
+  const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.())
 
+  // 1. En la web pública: /register no depende de Firebase
+  if (!isNative && path === '/register') {
+    return <PublicRegisterView />
+  }
+
+  // 2. En la web pública: la landing / no depende de Firebase
+  if (!isNative && (path === '/' || (!path.startsWith('/login') && auth.status !== 'authorized'))) {
+    return <PublicLanding />
+  }
+
+  // 3. Si se accede a /login o a la aplicación operativa / nativo:
+  // Requiere Firebase configurado. Si está en modo local sin Firebase, avisa.
   if (auth.mode === 'local') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2] p-6 text-center">
@@ -47,27 +60,18 @@ function App() {
     )
   }
 
-  const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.())
-
-  // Ruta de registro / onboarding visual
-  if (path === '/register') {
-    return <PublicRegisterView />
-  }
-
-  // Si el usuario no está autenticado
+  // 4. Si el usuario no está autenticado y se encuentra en /login o en la app nativa instalada
   if (auth.status === 'signed_out' || auth.status === 'authenticating' || auth.status === 'loading') {
-    if (path === '/login' || isNative) {
-      return (
-        <PublicLoginView
-          error={auth.error}
-          isLoading={auth.status !== 'signed_out'}
-          onSubmit={auth.signIn}
-        />
-      )
-    }
-    return <PublicLanding />
+    return (
+      <PublicLoginView
+        error={auth.error}
+        isLoading={auth.status !== 'signed_out'}
+        onSubmit={auth.signIn}
+      />
+    )
   }
 
+  // 5. Usuario autenticado pero necesita tenant o no está autorizado
   if (auth.status === 'needs_tenant') {
     return (
       <UnauthorizedView
@@ -88,11 +92,6 @@ function App() {
     )
   }
 
-  // Usuario autenticado que navega en la landing pública web
-  if (!isNative && path === '/') {
-    return <PublicLanding />
-  }
-
   if (!auth.tenantId || !auth.member?.active || !auth.account) {
     return (
       <UnauthorizedView
@@ -103,6 +102,7 @@ function App() {
     )
   }
 
+  // 6. Enrutamiento canónico a la aplicación correspondiente del tenant
   const activeTenant = getActiveTenant()
   const canonicalBusinessType = activeTenant?.businessType ?? (auth.account.businessType === 'mobile_distribution' ? 'route_distribution' : null)
 

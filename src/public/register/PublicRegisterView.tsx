@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import {
   ArrowRight,
   ArrowLeft,
-  CheckCircle2,
   Utensils,
   Truck,
   Store,
@@ -38,7 +37,6 @@ export function PublicRegisterView() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [companyName, setCompanyName] = useState('')
-  const [branchName, setBranchName] = useState('Sucursal Central')
 
   // Plantilla preseleccionada desde query param
   const [selectedTemplate, setSelectedTemplate] = useState<BusinessType>(() => {
@@ -140,7 +138,7 @@ export function PublicRegisterView() {
                   Crea tu cuenta de administrador
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Esta cuenta será la responsable legal y administrativa de la empresa.
+                  Esta será la cuenta propietaria y administradora inicial de la empresa en PACHAX.
                 </p>
               </div>
 
@@ -228,20 +226,9 @@ export function PublicRegisterView() {
                     onChange={(e) => setCompanyName(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 sm:py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-slate-900 focus:bg-white transition"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Nombre de la sucursal inicial
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. Central o Salón 1"
-                    value={branchName}
-                    onChange={(e) => setBranchName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 sm:py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-slate-900 focus:bg-white transition"
-                  />
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    El backend creará automáticamente tu sucursal principal.
+                  </p>
                 </div>
               </div>
 
@@ -371,7 +358,7 @@ export function PublicRegisterView() {
                   </span>
                 </div>
                 <div className="p-3 bg-slate-50 text-xs text-slate-500 flex justify-between">
-                  <span>Sucursal: {branchName || 'Central'}</span>
+                  <span>Sucursal principal</span>
                   <span>Plantilla: {selectedTemplate === 'restaurant_pos' ? 'Restaurante' : selectedTemplate === 'route_distribution' ? 'Distribución' : 'Comercio'}</span>
                 </div>
               </div>
@@ -424,25 +411,25 @@ export function PublicRegisterView() {
             </form>
           )}
 
-          {/* PASO 5: CONFIRMACIÓN / RESUMEN */}
+          {/* PASO 5: REVISIÓN / RESUMEN PREVIO */}
           {currentStep === 5 && (
             <div className="space-y-5 animate-in fade-in duration-200">
               <div className="text-center space-y-2">
-                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-                <h1 className="text-2xl font-extrabold text-slate-950 tracking-tight">
-                  ¡Todo listo para comenzar!
+                <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                  Paso 5 de 5
+                </span>
+                <h1 className="text-2xl font-extrabold text-slate-950 tracking-tight mt-2">
+                  Revisa tu configuración
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
-                  Has configurado el perfil inicial de tu empresa. La plataforma habilitará los módulos canónicos seleccionados.
+                  Estos serán los datos iniciales de tu empresa cuando completes el registro y se active tu entorno.
                 </p>
               </div>
 
               {/* Resumen en tarjeta */}
               <div className="bg-slate-50 rounded-2xl border border-slate-200/80 p-4 sm:p-5 space-y-3 text-xs">
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">Administrador:</span>
+                  <span className="text-slate-500">Cuenta administradora:</span>
                   <span className="font-bold text-slate-900">{fullName} ({email})</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
@@ -450,11 +437,7 @@ export function PublicRegisterView() {
                   <span className="font-bold text-slate-900">{companyName}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">Sucursal inicial:</span>
-                  <span className="font-bold text-slate-900">{branchName}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">Plantilla asignada:</span>
+                  <span className="text-slate-500">Plantilla seleccionada:</span>
                   <span className="font-bold text-slate-900">
                     {selectedTemplate === 'restaurant_pos'
                       ? 'Restaurante & Gastronomía'
@@ -462,6 +445,10 @@ export function PublicRegisterView() {
                       ? 'Producción y distribución'
                       : 'Comercio / Venta rápida'}
                   </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Sucursal inicial:</span>
+                  <span className="font-bold text-slate-900">Sucursal principal</span>
                 </div>
                 <div className="flex justify-between py-1 items-center">
                   <span className="text-slate-500">Paleta de marca:</span>
@@ -477,16 +464,26 @@ export function PublicRegisterView() {
 
               <div className="pt-2 space-y-3">
                 <button
-                  onClick={() => navigate('/login')}
-                  className="w-full py-3.5 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-2"
+                  type="button"
+                  disabled
+                  className="w-full py-3.5 text-sm font-bold text-white bg-slate-400 rounded-xl transition shadow-xs cursor-not-allowed flex items-center justify-center gap-2 opacity-90"
                 >
-                  <span>Ir a Iniciar Sesión</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <span>Crear mi empresa</span>
                 </button>
 
-                <p className="text-[11px] text-slate-400 text-center">
-                  El entorno de onboarding backend conectará automáticamente esta solicitud a la base de datos de tu empresa.
+                <p className="text-[11px] text-slate-400 text-center leading-relaxed">
+                  El registro directo y la creación automática de empresas se conectará en la siguiente fase de despliegue.
                 </p>
+
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(1)}
+                    className="text-xs text-slate-600 hover:text-slate-950 font-semibold underline cursor-pointer"
+                  >
+                    Editar datos configurados
+                  </button>
+                </div>
               </div>
             </div>
           )}

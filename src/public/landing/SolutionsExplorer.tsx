@@ -9,8 +9,11 @@ import {
   Sparkles,
   Layers,
   MessageSquare,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
+import { publicContact, getWhatsAppUrl } from '../config/publicContact'
 
 export type SolutionTabKey =
   | 'restaurant_pos'
@@ -31,6 +34,19 @@ export function SolutionsExplorer() {
     email: '',
   })
   const [customPrepared, setCustomPrepared] = useState(false)
+  const [isCopied, setIsCopied] = useState(false)
+
+  const preparedText = `Hola, soy ${customForm.name} de ${customForm.company || 'mi negocio'}. Requerimiento especial para PACHAX: ${customForm.details} (Contacto: ${customForm.phone || customForm.email || 'Por este medio'})`
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(preparedText)
+      setIsCopied(true)
+      setTimeout(() => setIsCopied(false), 2500)
+    } catch {
+      // Fallback
+    }
+  }
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -537,30 +553,53 @@ export function SolutionsExplorer() {
                 </form>
               ) : (
                 <div className="p-4 sm:p-6 text-center space-y-4 animate-in fade-in duration-200">
-                  <div className="w-12 h-12 rounded-full bg-amber-400/20 text-amber-400 flex items-center justify-center mx-auto">
-                    <CheckCircle2 className="w-6 h-6" />
+                  <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center mx-auto">
+                    <MessageSquare className="w-5 h-5 text-amber-400" />
                   </div>
                   <div>
                     <h4 className="text-base font-bold text-white">
-                      Solicitud lista para coordinación
+                      Requerimiento preparado
                     </h4>
                     <p className="text-xs text-slate-300 mt-1.5 leading-relaxed max-w-md mx-auto">
-                      Hemos preparado tu solicitud para <strong>{customForm.company || customForm.name}</strong>. Puedes enviarla directamente a nuestro equipo técnico para acordar la arquitectura operativa.
+                      Hemos estructurado el detalle de tu solicitud para <strong>{customForm.company || customForm.name}</strong>. Puedes copiar el texto o abrir WhatsApp para compartirlo con un asesor.
                     </p>
                   </div>
 
+                  <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-700 text-left text-xs font-mono text-slate-300 max-h-28 overflow-y-auto select-all">
+                    {preparedText}
+                  </div>
+
                   <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
+                    <button
+                      onClick={handleCopy}
+                      type="button"
+                      className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-slate-900 bg-white hover:bg-slate-100 rounded-xl transition inline-flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                    >
+                      {isCopied ? (
+                        <>
+                          <Check className="w-4 h-4 text-emerald-600" />
+                          <span>¡Copiado al portapapeles!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 text-slate-700" />
+                          <span>Copiar solicitud</span>
+                        </>
+                      )}
+                    </button>
+
                     <a
-                      href={`https://wa.me/?text=${encodeURIComponent(
-                        `Hola PACHAX, soy ${customForm.name} de ${customForm.company || 'mi negocio'}. Requerimiento: ${customForm.details} (Tel: ${customForm.phone})`
-                      )}`}
+                      href={getWhatsAppUrl(preparedText)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-full sm:w-auto px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition inline-flex items-center justify-center gap-2"
+                      className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition inline-flex items-center justify-center gap-2"
                     >
                       <MessageSquare className="w-4 h-4" />
-                      <span>Contactar por WhatsApp</span>
+                      <span>{publicContact.whatsappNumber ? 'Enviar a WhatsApp Oficial' : 'Abrir WhatsApp'}</span>
                     </a>
+                  </div>
+
+                  <div className="text-center pt-1">
                     <button
                       onClick={() => setCustomPrepared(false)}
                       className="text-xs text-slate-400 hover:text-white underline cursor-pointer"

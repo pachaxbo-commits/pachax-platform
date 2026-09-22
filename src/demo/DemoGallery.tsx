@@ -47,10 +47,10 @@ export function DemoGallery() {
             </span>
           </div>
           <a
-            href="/studio"
-            className="text-xs font-semibold text-slate-500 hover:text-slate-900 transition"
+            href="/"
+            className="text-xs font-semibold text-slate-500 hover:text-slate-950 transition"
           >
-            Acceso Desarrollador (Studio) →
+            Volver a inicio →
           </a>
         </div>
       </header>
