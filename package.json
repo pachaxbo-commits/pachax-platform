@@ -22,6 +22,7 @@
     "test:tenant-core": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/multiTenantIsolation.test.mjs\"",
     "test:distribution": "node --experimental-strip-types src/modules/distribution/domain/__tests__/distributionEngine.test.ts",
     "test:restaurant": "node --experimental-strip-types --test src/modules/restaurant/domain/__tests__/restaurantEngine.test.ts",
+    "test:cash": "node --experimental-strip-types --test src/modules/restaurant/domain/__tests__/cashEngine.test.ts",
     "test:reports": "node --experimental-strip-types src/modules/distribution/domain/__tests__/reportLabels.test.ts",
     "test:platform": "node --experimental-strip-types --test tests/*.test.ts",
     "test:user-management": "node scripts/validate-user-management.cjs",
