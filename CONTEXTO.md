@@ -9,6 +9,7 @@
 - `restaurantEngine.ts` calcula pagos, costo teórico y consumo de inventario. Cada tanda usa `command:{orderId}:{batchId}` como clave idempotente para descontar stock una sola vez.
 - El adaptador demo persiste los movimientos localmente y deja los contratos listos para un repositorio Firebase posterior.
 - Usuarios de Restaurante usa ahora tarjetas y jerarquía visual coherentes con Distribución, roles canónicos (`owner`, `admin`, `cashier`, `waiter`, `kitchen`), creación local y registro automático de entrada/salida. La asistencia se guarda en el adaptador local y queda preparada para sustituirse por repositorio.
+- CRUD local añadido a Restaurante sin cambiar su experiencia canónica: Usuarios permite crear, editar, activar y eliminar con confirmación; Productos permite ver, crear, editar y eliminar conservando relaciones de recetas/inventario; Inventario permite categorías, unidades, filtros, stock mínimo, estados calculados y eliminación protegida de insumos de recetas.
 
 ## Checkpoint vigente: PACHAX Premium Public Experience (22/09/2026)
 

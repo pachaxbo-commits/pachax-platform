@@ -1,94 +1,27 @@
 import { useState } from 'react'
-import { AlertTriangle, Search } from 'lucide-react'
+import { AlertTriangle, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { Modal } from '../../components/ui/Modal'
+import { Field, NumberInput, SelectInput, TextInput } from '../../components/ui/Form'
 import { RESTAURANT_INGREDIENTS, type RestaurantIngredient } from '../mocks/restaurantMock'
 
+type InventoryStatus = 'normal' | 'low' | 'out' | 'unavailable'
+type Item = RestaurantIngredient & { status?: InventoryStatus }
+const CATEGORIES = ['Carnes', 'Vinos', 'Cervezas', 'Tragos / Licores', 'Productos de cocina', 'Refrescos']
+const UNITS = ['kg', 'g', 'litro', 'ml', 'botella', 'lata', 'unidad', 'paquete', 'caja']
+const STORAGE = 'pachax:restaurant-demo:inventory-crud:v1'
+const read = (): Item[] => { try { return JSON.parse(localStorage.getItem(STORAGE) || '') as Item[] } catch { return RESTAURANT_INGREDIENTS } }
+const status = (item: Item): InventoryStatus => item.status === 'unavailable' ? 'unavailable' : item.currentStock === 0 ? 'out' : item.currentStock <= item.minStock ? 'low' : 'normal'
+const statusLabel: Record<InventoryStatus, string> = { normal: 'Normal', low: 'Stock bajo', out: 'Agotado', unavailable: 'No disponible' }
+
 export function RestaurantInventory() {
-  const [ingredients] = useState<RestaurantIngredient[]>(RESTAURANT_INGREDIENTS)
-  const [searchTerm, setSearchTerm] = useState('')
-
-  const filtered = ingredients.filter(
-    (i) =>
-      i.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      i.category.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-
-  const lowStock = ingredients.filter((i) => i.currentStock <= i.minStock)
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Inventario de Insumos & Cocina</h1>
-          <p className="text-sm text-slate-500">Control de existencias de materias primas e ingredientes</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Buscar insumo..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400 w-48"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Stock Alerts banner if any */}
-      {lowStock.length > 0 && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-amber-900">
-          <div className="flex items-center gap-2 text-xs font-semibold">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Hay {lowStock.length} insumo(s) por debajo del stock mínimo recomendado</span>
-          </div>
-          <span className="text-xs text-amber-700 underline cursor-pointer">Ver críticos</span>
-        </div>
-      )}
-
-      {/* Inventory Table */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-              <th className="py-3 px-4">Insumo</th>
-              <th className="py-3 px-4">Categoría</th>
-              <th className="py-3 px-4">Unidad</th>
-              <th className="py-3 px-4 text-right">Stock Actual</th>
-              <th className="py-3 px-4 text-right">Mínimo</th>
-              <th className="py-3 px-4 text-center">Estado</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 text-sm">
-            {filtered.map((ing) => {
-              const isLow = ing.currentStock <= ing.minStock
-              return (
-                <tr key={ing.id} className="hover:bg-slate-50/70 transition">
-                  <td className="py-3 px-4 font-semibold text-slate-900">{ing.name}</td>
-                  <td className="py-3 px-4 text-slate-600 text-xs">{ing.category}</td>
-                  <td className="py-3 px-4 text-slate-500 text-xs font-mono">{ing.unit}</td>
-                  <td className="py-3 px-4 text-right font-bold text-slate-900">
-                    {ing.currentStock} {ing.unit}
-                  </td>
-                  <td className="py-3 px-4 text-right text-slate-500 text-xs">
-                    {ing.minStock} {ing.unit}
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span
-                      className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                        isLow ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                      }`}
-                    >
-                      {isLow ? 'Reposición urgente' : 'Normal'}
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
+  const [items, setItems] = useState<Item[]>(read), [query, setQuery] = useState(''), [category, setCategory] = useState('Todos'), [menu, setMenu] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Item | null>(null), [removing, setRemoving] = useState<Item | null>(null), [notice, setNotice] = useState('')
+  const blank = (): Item => ({ id: '', name: '', category: 'Carnes', unit: 'kg', currentStock: 0, minStock: 0, unitCost: 0, status: 'normal' })
+  const [form, setForm] = useState<Item>(blank)
+  const save = (next: Item[]) => { setItems(next); localStorage.setItem(STORAGE, JSON.stringify(next)) }
+  const categories = ['Todos', ...new Set([...CATEGORIES, ...items.map(item => item.category)])]
+  const shown = items.filter(item => (category === 'Todos' || item.category === category) && (`${item.name} ${item.category}`.toLowerCase().includes(query.toLowerCase())))
+  const submit = () => { if (!form.name.trim() || form.currentStock < 0 || form.minStock < 0) { setNotice('Completa nombre y valores de stock válidos.'); return }; const item = { ...form, id: form.id || crypto.randomUUID(), name: form.name.trim() }; save(form.id ? items.map(current => current.id === item.id ? item : current) : [...items, item]); setEditing(null); setNotice(form.id ? 'Insumo actualizado correctamente.' : 'Insumo creado correctamente.') }
+  const usedByRecipe = (item: Item) => item.id.startsWith('ing-')
+  return <div className="space-y-6"><header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-slate-900">Inventario de Insumos & Cocina</h1><p className="text-sm text-slate-500">Existencias, unidades y mínimos de reposición.</p></div><button onClick={() => { setForm(blank()); setEditing(blank()) }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-bold text-white"><Plus size={16} /> Nuevo insumo</button></header>{notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{notice}</p>}<div className="flex flex-col gap-3"><div className="relative max-w-md"><Search className="absolute left-3 top-3 text-slate-400" size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar insumo..." className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm" /></div><div className="flex gap-2 overflow-x-auto">{categories.map(name => <button key={name} onClick={() => setCategory(name)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold ${category === name ? 'bg-teal-500 text-slate-950' : 'bg-slate-100 text-slate-600'}`}>{name}</button>)}</div></div>{items.some(item => status(item) === 'low' || status(item) === 'out') && <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900"><AlertTriangle size={17} /> Hay insumos en stock bajo o agotados.</div>}<div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><table className="w-full text-left"><thead><tr className="bg-slate-50 text-xs uppercase text-slate-500"><th className="p-3">Insumo</th><th className="p-3">Categoría</th><th className="p-3">Unidad</th><th className="p-3 text-right">Stock actual</th><th className="p-3 text-right">Mínimo</th><th className="p-3 text-center">Estado</th><th className="p-3" /></tr></thead><tbody className="divide-y">{shown.map(item => { const state = status(item); return <tr key={item.id}><td className="p-3 text-sm font-semibold">{item.name}</td><td className="p-3 text-xs text-slate-600">{item.category}</td><td className="p-3 text-xs">{item.unit}</td><td className="p-3 text-right text-sm font-bold">{item.currentStock} {item.unit}</td><td className="p-3 text-right text-xs text-slate-500">{item.minStock} {item.unit}</td><td className="p-3 text-center"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${state === 'normal' ? 'bg-emerald-100 text-emerald-800' : state === 'low' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>{statusLabel[state]}</span></td><td className="relative p-3"><button onClick={() => setMenu(menu === item.id ? null : item.id)} className="rounded-lg p-2 hover:bg-slate-100"><MoreHorizontal size={17} /></button>{menu === item.id && <div className="absolute right-3 top-10 z-10 grid w-32 rounded-xl border bg-white p-1 shadow-lg"><button onClick={() => { setForm(item); setEditing(item); setMenu(null) }} className="flex gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><Pencil size={14} /> Editar</button><button onClick={() => { setRemoving(item); setMenu(null) }} className="flex gap-2 rounded-lg p-2 text-xs text-rose-700 hover:bg-rose-50"><Trash2 size={14} /> Eliminar</button></div>}</td></tr> })}</tbody></table></div><Modal isOpen={!!editing} onClose={() => setEditing(null)} title={form.id ? 'Editar insumo' : 'Nuevo insumo'} footer={<button onClick={submit} className="w-full rounded-xl bg-slate-900 p-3 font-bold text-white">Guardar insumo</button>}><div className="grid gap-3"><Field label="Nombre" required><TextInput value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Categoría"><SelectInput value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>{[...new Set([...CATEGORIES, ...items.map(item => item.category)])].map(name => <option key={name}>{name}</option>)}</SelectInput></Field><Field label="Unidad"><SelectInput value={form.unit} onChange={event => setForm({ ...form, unit: event.target.value })}>{UNITS.map(unit => <option key={unit}>{unit}</option>)}</SelectInput></Field></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Stock actual" required><NumberInput min="0" step="0.01" value={form.currentStock} onChange={event => setForm({ ...form, currentStock: Number(event.target.value) })} /></Field><Field label="Stock mínimo" required><NumberInput min="0" step="0.01" value={form.minStock} onChange={event => setForm({ ...form, minStock: Number(event.target.value) })} /></Field></div><Field label="Estado"><SelectInput value={form.status || 'normal'} onChange={event => setForm({ ...form, status: event.target.value as InventoryStatus })}><option value="normal">Automático / Normal</option><option value="unavailable">No disponible</option></SelectInput></Field></div></Modal><Modal isOpen={!!removing} onClose={() => setRemoving(null)} title="Eliminar insumo" footer={<div className="grid grid-cols-2 gap-2"><button onClick={() => setRemoving(null)} className="rounded-xl border p-3 font-bold">Cancelar</button><button disabled={!!removing && usedByRecipe(removing)} onClick={() => { if (removing) { save(items.filter(item => item.id !== removing.id)); setRemoving(null); setNotice('Insumo eliminado.') } }} className="rounded-xl bg-rose-700 p-3 font-bold text-white disabled:opacity-40">Eliminar</button></div>}><p className="text-sm">¿Seguro que deseas eliminar <strong>{removing?.name}</strong>?</p>{removing && usedByRecipe(removing) && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Este insumo está siendo utilizado por uno o más productos. No se puede eliminar.</p>}</Modal></div>
 }
