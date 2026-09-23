@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { LoginView } from './components/LoginView'
 import { UnauthorizedView } from './components/UnauthorizedView'
 import { DistributionApp } from './modules/distribution/views/DistributionApp'
 import { DistributionPrinterModal } from './modules/distribution/views/DistributionPrinterModal'
 import { RestaurantApp } from './modules/restaurant/views/RestaurantApp'
+import { PublicLanding } from './public/landing/PublicLanding'
+import { PublicLoginView } from './public/auth/PublicLoginView'
+import { PublicRegisterView } from './public/register/PublicRegisterView'
+import { usePublicRouter } from './public/routing/usePublicRouter'
 import { useAuthStore } from './store/authStore'
 import { getActiveTenant } from './store/activeTenant'
 import { PACHAX_NAME } from './config/pachax'
@@ -31,22 +34,75 @@ function DistributionShell(props: {
 
 function App() {
   const auth = useAuthStore()
-  if (auth.mode === 'local') {
-    return <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2] p-6 text-center"><div><h1 className="text-2xl font-bold text-[#B91C1C]">{PACHAX_NAME}</h1><p className="mt-3">Falta configurar la conexión del sistema. Contacta con administración.</p></div></div>
-  }
-  if (auth.status === 'signed_out' || auth.status === 'authenticating' || auth.status === 'loading') {
-    return <LoginView error={auth.error} isLoading={auth.status !== 'signed_out'} onSubmit={auth.signIn} />
-  }
-  if (auth.status === 'needs_tenant') {
-    return <UnauthorizedView email={auth.userEmail} message="Tu cuenta todavía no pertenece a una empresa. Completa el alta para continuar." onSignOut={auth.signOut} />
-  }
-  if (auth.status !== 'authorized') {
-    return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'No se pudo validar el acceso.'} onSignOut={auth.signOut} />
-  }
-  if (!auth.tenantId || !auth.member?.active || !auth.account) {
-    return <UnauthorizedView email={auth.userEmail} message={auth.error ?? 'Este usuario no tiene una membresía activa.'} onSignOut={auth.signOut} />
+  const { path } = usePublicRouter()
+  const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.())
+
+  // 1. En la web pública: /register no depende de Firebase
+  if (!isNative && path === '/register') {
+    return <PublicRegisterView />
   }
 
+  // 2. En la web pública: la landing / no depende de Firebase
+  if (!isNative && (path === '/' || (!path.startsWith('/login') && auth.status !== 'authorized'))) {
+    return <PublicLanding />
+  }
+
+  // 3. Si se accede a /login o a la aplicación operativa / nativo:
+  // Requiere Firebase configurado. Si está en modo local sin Firebase, avisa.
+  if (auth.mode === 'local') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2] p-6 text-center">
+        <div>
+          <h1 className="text-2xl font-bold text-[#B91C1C]">{PACHAX_NAME}</h1>
+          <p className="mt-3">Falta configurar la conexión del sistema. Contacta con administración.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 4. Si el usuario no está autenticado y se encuentra en /login o en la app nativa instalada
+  if (auth.status === 'signed_out' || auth.status === 'authenticating' || auth.status === 'loading') {
+    return (
+      <PublicLoginView
+        error={auth.error}
+        isLoading={auth.status !== 'signed_out'}
+        onSubmit={auth.signIn}
+      />
+    )
+  }
+
+  // 5. Usuario autenticado pero necesita tenant o no está autorizado
+  if (auth.status === 'needs_tenant') {
+    return (
+      <UnauthorizedView
+        email={auth.userEmail}
+        message="Tu cuenta todavía no pertenece a una empresa. Completa el alta para continuar."
+        onSignOut={auth.signOut}
+      />
+    )
+  }
+
+  if (auth.status !== 'authorized') {
+    return (
+      <UnauthorizedView
+        email={auth.userEmail}
+        message={auth.error ?? 'No se pudo validar el acceso.'}
+        onSignOut={auth.signOut}
+      />
+    )
+  }
+
+  if (!auth.tenantId || !auth.member?.active || !auth.account) {
+    return (
+      <UnauthorizedView
+        email={auth.userEmail}
+        message={auth.error ?? 'Este usuario no tiene una membresía activa.'}
+        onSignOut={auth.signOut}
+      />
+    )
+  }
+
+  // 6. Enrutamiento canónico a la aplicación correspondiente del tenant
   const activeTenant = getActiveTenant()
   const canonicalBusinessType = activeTenant?.businessType ?? (auth.account.businessType === 'mobile_distribution' ? 'route_distribution' : null)
 
