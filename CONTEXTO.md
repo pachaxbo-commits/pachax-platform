@@ -345,3 +345,7 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - POS/caja del template utiliza estado compartido y no acepta nuevas �rdenes ni cobros sin turno.
 - Verificaci�n: `npm run typecheck`, lint focalizado y `npm run build:emulator` aprobados. `npm run lint` global mantiene 232 errores/6 advertencias heredados; el build normal requiere Firebase deliberadamente sin configurar. Dev server local en puerto 5190 (`npm run dev:emulator -- --host 0.0.0.0`).
 - Pendiente: revisi�n manual completa en viewport m�vil; completar soporte de m�todo tarjeta/otro en el esquema com�n de `PaymentMethod`; entrega conectada requiere repositorios tenant/backend y cola/idempotencia del servidor. Los datos de Studio son demo, locales al navegador y no constituyen caja transaccional multiusuario.
+## Avance: comprobante físico de arqueo (23/09/2026)
+
+- Caja / Turnos permite imprimir un resumen desde la vista activa y desde el modal de arqueo. El comprobante incluye fondo inicial, ventas en efectivo/QR/tarjeta, entradas y salidas de efectivo, esperado, contado, diferencia y movimientos manuales.
+- `cashPrint.ts` genera HTML para impresión térmica de 80 mm o papel normal. Por ahora abre el diálogo estándar del navegador y queda aislado para un proveedor de impresión o Bluetooth.
