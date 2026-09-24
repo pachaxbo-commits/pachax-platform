@@ -18,16 +18,18 @@ export function BottomNav<T extends string>({
   items,
   currentId,
   onSelect,
+  tabletVisible = false,
 }: {
   items: BottomNavItem<T>[]
   currentId: T
   onSelect: (id: T) => void
+  tabletVisible?: boolean
 }) {
   if (items.length === 0) return null
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 flex items-stretch justify-around border-t border-slate-200 bg-white px-1 md:hidden"
+      className={`fixed bottom-0 left-0 right-0 z-40 flex items-stretch justify-around border-t border-slate-200 bg-white px-1 ${tabletVisible ? 'lg:hidden' : 'md:hidden'}`}
       style={{ paddingBottom: 'var(--safe-bottom)' }}
     >
       {items.map((item) => {

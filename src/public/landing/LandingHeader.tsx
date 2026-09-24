@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Menu, X, ArrowRight, Sparkles } from 'lucide-react'
+import { Menu, X, ArrowRight } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useAuthStore } from '../../store/authStore'
@@ -46,10 +46,6 @@ export function LandingHeader() {
               navigate('/')
             }}
           />
-          <span className="hidden lg:inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 bg-slate-100/90 border border-slate-200/60 px-2.5 py-0.5 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-pulse" />
-            Software Adaptable
-          </span>
         </div>
 
         {/* Navegación Desktop */}
@@ -177,7 +173,6 @@ export function LandingHeader() {
                   onClick={() => handleNav('/register')}
                   className="w-full py-3 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer text-center flex items-center justify-center gap-2"
                 >
-                  <Sparkles className="w-4 h-4 text-amber-400" />
                   <span>Crear mi empresa</span>
                 </button>
               </>

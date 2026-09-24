@@ -51,6 +51,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 1,
     isVisible: true,
     isActive: true,
+    restaurantType: 'prepared', preparationArea: 'Cocina', recipe: [{ ingredientId: 'ing-1', quantityBase: 280 }, { ingredientId: 'ing-2', quantityBase: 200 }],
   },
   {
     id: 'prod-2',
@@ -63,6 +64,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 2,
     isVisible: true,
     isActive: true,
+    restaurantType: 'prepared', preparationArea: 'Cocina', recipe: [{ ingredientId: 'ing-6', quantityBase: 1 }, { ingredientId: 'ing-1', quantityBase: 200 }],
   },
   {
     id: 'prod-3',
@@ -87,6 +89,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 4,
     isVisible: true,
     isActive: true,
+    restaurantType: 'beverage', preparationArea: 'Barra',
   },
   {
     id: 'prod-5',
@@ -99,6 +102,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 5,
     isVisible: true,
     isActive: true,
+    restaurantType: 'beverage', preparationArea: 'Barra', recipe: [{ ingredientId: 'ing-4', quantityBase: 0.2 }],
   },
   {
     id: 'prod-6',
@@ -111,6 +115,12 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 6,
     isVisible: true,
     isActive: true,
+  },
+  {
+    id: 'prod-7', categoryId: 'cat-entradas', name: 'Papas rústicas extra',
+    price: 8, image: '', availability: 'available', sortOrder: 7,
+    isVisible: true, isActive: true, restaurantType: 'prepared', preparationArea: 'Cocina',
+    recipe: [{ ingredientId: 'ing-2', quantityBase: 180 }],
   },
 ]
 
@@ -157,6 +167,7 @@ export const INITIAL_RESTAURANT_ORDERS: Order[] = [
     status: 'preparing',
     orderSource: 'local',
     fulfillmentType: 'table',
+    tableId: 't1',
     tableInfo: 'Mesa 1',
     customerName: 'Carlos Mendizábal',
     total: 144,
@@ -179,6 +190,7 @@ export const INITIAL_RESTAURANT_ORDERS: Order[] = [
     status: 'ready',
     orderSource: 'local',
     fulfillmentType: 'table',
+    tableId: 't3',
     tableInfo: 'Mesa 3',
     customerName: 'Valeria Torrico',
     total: 108,
@@ -201,6 +213,7 @@ export const INITIAL_RESTAURANT_ORDERS: Order[] = [
     status: 'pending',
     orderSource: 'local',
     fulfillmentType: 'table',
+    tableId: 't4',
     tableInfo: 'Mesa 4',
     customerName: 'Mauricio Paz',
     total: 198,
@@ -223,6 +236,7 @@ export const INITIAL_RESTAURANT_ORDERS: Order[] = [
     status: 'preparing',
     orderSource: 'local',
     fulfillmentType: 'table',
+    tableId: 't10',
     tableInfo: 'Mesa 10 (Terraza)',
     customerName: 'Alejandra Ríos',
     total: 78,
@@ -234,7 +248,7 @@ export const INITIAL_RESTAURANT_ORDERS: Order[] = [
     items: [
       makeItem('l7', 'prod-2', 'Hamburguesa Artesanal', 42, 1),
       makeItem('l8', 'prod-5', 'Copa de Vino Tinto Reserva', 28, 1),
-      makeItem('l9', 'ext-1', 'Papas rústicas extra', 8, 1),
+      makeItem('l9', 'prod-7', 'Papas rústicas extra', 8, 1),
     ],
     createdAt: new Date(Date.now() - 15 * 60000).toISOString(),
     createdBy: 'Mesero Ana',
@@ -249,6 +263,12 @@ export const RESTAURANT_INGREDIENTS: RestaurantIngredient[] = [
   { id: 'ing-5', name: 'Café Grano Tostado Especial', category: 'Café', unit: 'kg', currentStock: 8, minStock: 5, unitCost: 55 },
   { id: 'ing-6', name: 'Pan Brioche Artesanal', category: 'Panadería', unit: 'unidad', currentStock: 32, minStock: 20, unitCost: 2.5 },
 ]
+
+export const RESTAURANT_INVENTORY_PRODUCTS: Product[] = RESTAURANT_INGREDIENTS.map((ingredient, index) => {
+  const unit = ingredient.unit === 'kg' ? 'g' : 'unit'
+  const factor = ingredient.unit === 'kg' ? 1000 : 1
+  return { id: ingredient.id, name: ingredient.name, categoryId: 'cat-insumos', description: ingredient.category, price: 0, image: '', availability: 'available', sortOrder: 100 + index, isActive: true, isVisible: false, restaurantType: 'ingredient', baseUnit: unit, stockBase: ingredient.currentStock * factor, minimumStockBase: ingredient.minStock * factor, unitCost: ingredient.unitCost / factor }
+})
 
 export const RESTAURANT_CUSTOMERS: RestaurantCustomer[] = [
   { id: 'c1', name: 'Carlos Mendizábal', phone: '70112233', email: 'carlos.m@example.test', visits: 12, totalSpent: 1420, notes: 'Prefiere mesa en terraza' },

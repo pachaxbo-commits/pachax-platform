@@ -1,12 +1,14 @@
 import { Store, Receipt } from 'lucide-react'
 
-export function RestaurantSettings() {
+export function RestaurantSettings({ onResetDemo }: { onResetDemo?: () => void }) {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Configuración del Restaurante</h1>
         <p className="text-sm text-slate-500">Parámetros comerciales, comensales y datos del establecimiento</p>
       </div>
+
+      {onResetDemo && <button type="button" onClick={onResetDemo} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">Restablecer datos de la demo Restaurante</button>}
 
       <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
         <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">

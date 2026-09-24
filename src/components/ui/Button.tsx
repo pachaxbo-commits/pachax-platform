@@ -9,7 +9,7 @@ type ButtonProps = PropsWithChildren<
 >
 
 const toneClasses = {
-  primary: 'bg-accent text-white shadow-lg shadow-accent/15 hover:bg-accentStrong active:translate-y-px',
+  primary: 'bg-[var(--accent)] text-[var(--accent-foreground)] shadow-lg hover:brightness-95 active:translate-y-px',
   secondary: 'bg-white text-ink ring-1 ring-line shadow-insetSoft hover:bg-accentWash active:translate-y-px',
   ghost: 'bg-transparent text-muted hover:bg-white/70 hover:text-ink active:translate-y-px',
   success: 'bg-success text-white shadow-lg shadow-success/15 hover:bg-[#315941] active:translate-y-px',

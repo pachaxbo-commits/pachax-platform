@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
+import '../publicExperience.css'
 
 type BusinessType = 'restaurant_pos' | 'route_distribution' | 'gelateria_weight_cafe'
 
@@ -79,7 +80,7 @@ export function PublicRegisterView() {
   }
 
   return (
-    <main className="min-h-screen w-full bg-slate-50 flex flex-col justify-between selection:bg-slate-900 selection:text-white font-sans">
+    <main className="register-public min-h-screen w-full bg-slate-50 flex flex-col justify-between selection:bg-slate-900 selection:text-white font-sans">
       {/* Barra superior */}
       <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
         <button

@@ -1,6 +1,88 @@
 # Continuidad del proyecto PACHAX
 
+## Integración Restaurante + experiencia pública (24/09/2026)
+
+- Rama de integración `integrate/restaurant-public-studio`, iniciada en `origin/main` (`a3603ec`). Se integró primero `feat/restaurant-next` y luego `feat/codex-premium-public-redesign`. Los conflictos de `RestaurantDemo.tsx` y este documento se resolvieron conservando el motor operativo nuevo y la historia de ambas ramas.
+- Restaurante mantiene `RestaurantExperience` como vista única: producción usa su adaptador; Studio usa `StudioShell` → iframe `/demo/restaurant?embed=studio` → `DemoRuntime` → `RestaurantDemo` → `RestaurantExperience`. Studio sincroniza rol, nombre, logo, colores y dataset por `PACHAX_STUDIO_SYNC`.
+- El dataset `empty` arranca con 12 mesas disponibles, turno cerrado, sin productos ni pedidos. `full` usa catálogo, recetas e insumos, 4 mesas ocupadas, lotes KDS, una venta histórica pagada y turno abierto. Las órdenes y mesas se enlazan por `tableId`/`activeOrderId`; el total de la venta pagada y el efectivo del turno derivan de la misma orden. La demo persiste sobre el esquema v2, reconcilia el legado y limpia todas las claves locales de Restaurante al cambiar dataset o restablecer.
+- Las tres previews públicas se rehacieron como ventanas claras y compactas del producto; toman nombres, cifras y estados de las factories `full`. Se conservan hero y login editoriales, selector `empty/full` y vitrina única. Se corrigieron afirmaciones públicas de multiempresa aún no validada.
+- QA de navegador local en `dev:emulator`: landing y login de escritorio; login/registro a 360 y 390 px sin desborde horizontal; seis rutas `/demo/{restaurant,distribution,retail}?data={empty,full}` sin errores de consola; Studio con iframe canónico; Restaurante vacío: abrir turno, crear producto, verlo en TODOS, enviarlo desde POS a Mesa 2 y ver la misma cuenta. Reinicio de full devolvió la cuenta de Bs 154 de prueba a Bs 146 original. La impresión física y el backend tenant no se probaron en esta integración.
+- `npm run typecheck`, `npm run test:restaurant` (10), `npm run test:cash` (1), `npm run test:platform` (21), `npm run test:distribution` (55) y `npm run build:emulator` aprobaron. `test:restaurant-cash` no existe; el equivalente es `test:cash`. El build de producción requiere variables Firebase del nuevo proyecto. Queda pendiente validación de hardware y servicios reales antes del despliegue. `feat/secure-tenant-onboarding` y `feat/platform-security-backend` permanecen aisladas.
+
+Las secciones históricas siguientes describen estados de sus respectivas fechas. En particular, las previews oscuras, las cuatro mesas del fixture viejo y las afirmaciones de multiempresa del checkpoint público del 22/09 fueron sustituidas por este estado integrado.
+
+## Restaurante: pagos combinados y base de recetas/inventario (22/09/2026)
+
+- `RestaurantExperience` sigue siendo la única experiencia visual para producción, Studio y demo; los adaptadores mantienen separados los datos y efectos.
+- Mesas conserva el selector múltiple con cantidad y observación y añade el acceso directo `+ Abrir mesa`.
+- El cobro acepta efectivo, QR, tarjeta y pago dividido. La suma dividida debe coincidir con el total y el cambio se calcula solo sobre la parte en efectivo.
+- El catálogo compartido admite metadatos opcionales de restaurante: tipo, unidad base, stock, mínimo, costo, proveedor y receta.
+- `restaurantEngine.ts` calcula pagos, costo teórico y consumo de inventario. Cada tanda usa `command:{orderId}:{batchId}` como clave idempotente para descontar stock una sola vez.
+- El adaptador demo persiste los movimientos localmente y deja los contratos listos para un repositorio Firebase posterior.
+- Usuarios de Restaurante usa ahora tarjetas y jerarquía visual coherentes con Distribución, roles canónicos (`owner`, `admin`, `cashier`, `waiter`, `kitchen`), creación local y registro automático de entrada/salida. La asistencia se guarda en el adaptador local y queda preparada para sustituirse por repositorio.
+- CRUD local añadido a Restaurante sin cambiar su experiencia canónica: Usuarios permite crear, editar, activar y eliminar con confirmación; Productos permite ver, crear, editar y eliminar conservando relaciones de recetas/inventario; Inventario permite categorías, unidades, filtros, stock mínimo, estados calculados y eliminación protegida de insumos de recetas.
+- Caja / Turnos incorpora `cashEngine.ts`, una fuente única de cálculo para ventas por método, movimientos manuales, efectivo esperado y diferencia. Los movimientos y cierres se persisten localmente por turno; QR/tarjeta aparecen en ventas, pero no alteran el efectivo físico esperado. El arqueo requiere efectivo contado y bloquea el cierre si hay cuentas abiertas.
+
 ## Checkpoint vigente: PACHAX Premium Public Experience (22/09/2026)
+## Avance de rediseño público editorial (22/09/2026)
+
+Rama aislada `feat/codex-premium-public-redesign`, creada desde `origin/feat/public-template-showcase` (`6d7d953`). Se reemplazó el hero centrado por una composición oscura asimétrica con tres ventanas seleccionables de Restaurante, Distribución y Comercio. La sección de plantillas usa filas editoriales con vistas amplias; cada selección conserva el modal y los parámetros `?data=empty|full`. El login ahora ocupa la pantalla en un split oscuro/marfil con las tres vistas de producto y formulario compacto; en móvil se prioriza el formulario. El registro recibió ajustes visuales sin conectar onboarding. Se eliminó el badge decorativo del header.
+
+Se preservaron `src/demo/datasets/**`, DemoRuntime, Studio, motores de dominio, Auth y backend seguro. El modal conserva Escape y añade ciclo de foco y restauración. Verificados `npm run typecheck`, `npm run test:platform` (20/20), `npm run test:distribution` (55/55) y `npm run build:emulator`. `npm run build` requiere la configuración Firebase del nuevo proyecto y falla explícitamente sin ella. Revisión visual en navegador local: `/`, `/login`, `/register`; rutas `/demo` y las tres demos con `?data=full` cargan con sus controles de dataset. Pendiente: revisar paridad de previews cuando llegue Restaurant Next; no mezclar la rama paralela. No se desplegó ni modificó main.
+
+
+## Checkpoint vigente: TemplateShowcaseSection y Arquitectura Dual de Datasets (22/09/2026)
+
+Rama `feat/public-template-showcase`. Se implementó la vitrina protagonista de plantillas (`<TemplateShowcaseSection />`) reemplazando funcionalmente a `SolutionsExplorer` en la experiencia pública (`/`). Incorpora dirección de arte premium (Deep Slate `#0B1F2A`, Petroleum `#1F3B4D`, Ivory `#FAF9F6`, Controlled Azure `#2F7DD7`, Amber `#E0A24A`, tipografía editorial y microinteracciones) junto con la arquitectura de exploración dual por plantilla: **Empezar desde cero (`?data=empty`)** vs **Ver negocio completo (`?data=full`)**.
+
+### Realizado en esta fase
+
+1. **Arquitectura de Datasets Inmutables (`src/demo/datasets/`)**:
+   - `types.ts`: Definición de `DemoDatasetMode = 'empty' | 'full'` y los tipos canónicos de dataset para Restaurante (`RestaurantDataset`), Distribución (`DistributionDataset`) y Comercio (`RetailDataset`).
+   - `restaurant/restaurantDatasets.ts`:
+     - `createEmptyRestaurantDataset()`: Empresa vacía recién configurada con 4 mesas en estado disponible (`available`), 0 productos en catálogo, 0 pedidos y turno no abierto (`null`).
+     - `createFullRestaurantDataset()`: Catálogo gastronómico completo con imágenes reales de comida y categorías (Bebidas, Platos Fuertes, Postres, etc.), mesas distribuidas en los 4 estados canónicos reales (`available`, `occupied`, `reserved`, `bill_requested`), pedidos activos con comanda KDS en lote #2 ("En preparación") y turno de caja abierto (T-04).
+   - `distribution/distributionDatasets.ts`:
+     - `createEmptyDistributionDataset()`: Almacén Central + Ruta Principal, 0 productos, 0 despachos, 0 entregas y 0 cobranzas.
+     - `createFullDistributionDataset()`: Respeta con total fidelidad las cifras y tests del motor operativo `distributionEngine.ts`: Viena 25 kg cargados (20 kg inicial + 5 kg aumento), 6 kg vendidos, 18.5 kg retorno físico (variance de -0.5 kg `FALTANTE`), ventas efectivo Bs 288, cobranzas Bs 100, gastos Bs 20 $\rightarrow$ efectivo esperado a rendir Bs 368 (`paymentKind: 'mixed'`).
+   - `retail/retailDatasets.ts`:
+     - `createEmptyRetailDataset()`: 0 productos, 0 ventas.
+     - `createFullRetailDataset()`: Productos a peso (Helado artesanal 325 g @ Bs 60/kg = Bs 19.50) y productos por unidad (Café Latte, Croissant), tickets emitidos y efectivo con vuelto.
+   - **Factories inmutables**: Se utilizan funciones factory que devuelven clones nuevos en cada invocación, garantizando que el reinicio de demo o mutaciones de prueba no contaminen singletons.
+
+2. **Adaptación de Demos Canónicas y Runtime**:
+   - `RestaurantDemo.tsx`: Acepta `datasetMode` y `resetKey`. Se eliminaron referencias obsoletas a `savedOrders` delegando directamente al estado sincronizado de `orders`.
+   - `DistributionDemo.tsx`: Acepta `datasetMode` y `resetKey`, suministrando el dataset correspondiente a la capa canónica `DistributionExperience`.
+   - `QuickRetailDemo.tsx`: Acepta `datasetMode` y `resetKey`, inicializando catálogo y ventas limpiamente.
+   - `DemoRuntime.tsx`:
+     - Control central de `datasetMode`: lee `?data=empty` o `?data=full` desde URL y escucha eventos `PACHAX_STUDIO_SYNC.payload.datasetMode`.
+     - Barra de control superior discreta en demos públicas: permite alternar entre `Empezar desde cero` y `Ver negocio completo`, además de incluir botón accesible de **Restablecer demo** (`resetKey`).
+   - `StudioShell.tsx`:
+     - Incorpora selector de dataset `[Vacío | Completo]` en la barra superior de Studio, propagándolo por iframe query param y por `postMessage`.
+
+3. **Mini Previews Ligeras de Landing (`src/public/landing/previews/`)**:
+   - `TemplatePreviewRestaurant.tsx`: Vista visual de salón con mesas en estados reales (`Libre`, `Ocupada`, `Reserva`, `Por cerrarse`), ticket de comanda activa, KDS en preparación (12m) y arqueo de turno T-04.
+   - `TemplatePreviewDistribution.tsx`: Visualización de carga física (25 kg cargados, 6 kg entregados, 18.5 kg retorno, 0.5 kg faltante) y cuadratura de caja (Bs 368 a rendir).
+   - `TemplatePreviewRetail.tsx`: Balanza digital conectada (325 g @ Bs 60/kg = Bs 19.50) con desglose de ticket (Bs 51.50) y pago con vuelto (Bs 8.50).
+   - **Principio canónico**: Son componentes puramente visuales y ligeros, sin lógica duplicada ni cuartas implementaciones, alimentados por los mismos datos conceptuales de los datasets canónicos.
+
+4. **Vitrina Protagonista de Selección (`src/public/landing/`)**:
+   - `TemplateShowcaseSection.tsx`: Reemplaza a `SolutionsExplorer` en `PublicLanding.tsx`. Encabezado con badge editorial, grilla responsive de 3 columnas para las tarjetas canónicas y panel complementario para proyectos especiales a medida.
+   - `TemplateShowcaseCard.tsx`: Tarjeta interactiva con acento cromático contextual, preview integrada, features clave y CTA de exploración.
+   - `TemplateModeSelectorModal.tsx`: Diálogo modal accesible que presenta con total claridad las dos alternativas al hacer clic en cualquier plantilla: *Empezar desde cero* (`/demo/{slug}?data=empty`) y *Ver negocio completo* (`/demo/{slug}?data=full`).
+   - Preserva la funcionalidad del formulario de requerimientos a medida con contacto honesto vía WhatsApp y portapapeles.
+
+5. **Verificaciones y Pruebas**:
+   - `npm run typecheck`: 0 errores.
+   - `npm run test:platform`: 20/20 aprobadas.
+   - `npm run test:distribution`: 55/55 aprobadas.
+   - `npm run build`: Build de Vite completado exitosamente sin warnings bloqueantes.
+   - Working tree limpio en la rama `feat/public-template-showcase`. No se hizo merge a `main`.
+
+---
+
+## Checkpoint anterior: PACHAX Premium Public Experience (22/09/2026)
+
 
 Rama `feat/premium-public-experience`. Se transformó la entrada comercial y pública de PACHAX en una experiencia SaaS premium, adaptable, visualmente coherente y de alta conversión, manteniendo intactas las capas canónicas operativas y la lógica Firebase.
 
@@ -333,3 +415,20 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - POS/caja del template utiliza estado compartido y no acepta nuevas �rdenes ni cobros sin turno.
 - Verificaci�n: `npm run typecheck`, lint focalizado y `npm run build:emulator` aprobados. `npm run lint` global mantiene 232 errores/6 advertencias heredados; el build normal requiere Firebase deliberadamente sin configurar. Dev server local en puerto 5190 (`npm run dev:emulator -- --host 0.0.0.0`).
 - Pendiente: revisi�n manual completa en viewport m�vil; completar soporte de m�todo tarjeta/otro en el esquema com�n de `PaymentMethod`; entrega conectada requiere repositorios tenant/backend y cola/idempotencia del servidor. Los datos de Studio son demo, locales al navegador y no constituyen caja transaccional multiusuario.
+## Avance: comprobante físico de arqueo (23/09/2026)
+
+- Caja / Turnos permite imprimir un resumen desde la vista activa y desde el modal de arqueo. El comprobante incluye fondo inicial, ventas en efectivo/QR/tarjeta, entradas y salidas de efectivo, esperado, contado, diferencia y movimientos manuales.
+- `cashPrint.ts` genera HTML para impresión térmica de 80 mm o papel normal. Por ahora abre el diálogo estándar del navegador y queda aislado para un proveedor de impresión o Bluetooth.
+
+## Auditoría canónica Restaurante (24/09/2026, feat/restaurant-next)
+
+- Fuente visual única: RestaurantExperience. RestaurantApp la usa para producción; StudioShell crea el iframe /demo/restaurant?embed=studio, DemoRuntime monta RestaurantDemo y este monta RestaurantExperience. No existe RestaurantStudioView ni una copia visual. El proveedor de producción conserva sus adaptadores actuales; la persistencia transaccional multiusuario queda pendiente de backend.
+- La base BurgerLab sigue en CajaView (POS, carrito, pedidos, historial, origen WhatsApp, entrega/recojo, cobro) y CocinaView (KDS). PACHAX les pasa órdenes, productos y callbacks del proveedor demo. Se eliminó localOrders del POS. Order.tableId es la identidad estable; tableInfo es snapshot legible y fallback legacy centralizado en restaurantOperations.ts.
+- RestaurantDemo gobierna órdenes, mesas, catálogo, turno, stock y auditoría. POS ocupa la mesa real; nuevas líneas se agregan a la misma orden; una cuenta solicitada exige reapertura; pagar o cancelar libera mesa. Pedidos, KDS, Historial, Caja y Reportes comparten órdenes. Clientes deriva visitas y consumo desde órdenes. Caja lee el personal guardado en Usuarios.
+- Productos activos, visibles y disponibles se comparten entre Productos, POS y selector múltiple de Mesas. POS inicia en TODOS. Insumos y recetas enlazan por ID. Inventario se descuenta al imprimir comanda una sola vez; los lotes guardan itemIds y una nueva impresión contiene solo líneas nuevas. Documento de comanda separado para 80 mm.
+- Caja deriva ventas de órdenes pagadas del turno y movimientos manuales; efectivo, QR, tarjeta y mixto llegan al mismo resumen. El cambio no aumenta ventas. El cierre exige arqueo y ninguna cuenta abierta.
+- Demo migra operaciones v1 a v2, reconcilia tableInfo legacy con tableId y conserva la marca de fixtures antiguos para limpiarlos al abrir turno. Una demo nueva inicia con mesas libres y sin órdenes, conservando catálogo e inventario. Restablecer demo explícitamente limpia todas las keys pachax:restaurant-demo:* y tickets locales; no toca datos de producción.
+- Branding usa --primary, --accent, --background y foreground legible generado por utilidad central. POS usa acento configurable en Agregar y primario en selección. CajaView mantiene bot management para BurgerLab legacy; PACHAX lo desactiva por capability y no hace polling de bot. WhatsApp como origen sigue activo. Retraso general y pausa pertenecen al control de bot legado; tiempos KDS permanecen en órdenes/items.
+- Prueba manual local: turno Bs 200, producto nuevo Bs 25, POS a Mesa 2, adición de dos bebidas Bs 30, KDS Cocina/Barra preparar/listo/entregar, comanda bloqueada, solicitud de cuenta, efectivo Bs 60 con cambio Bs 5, mesa libre, Caja Bs 55 y efectivo esperado Bs 255, Historial y Reportes Bs 55. Otra comanda de Lomo redujo insumo 18 500 a 18 220 g y papas 45 000 a 44 800 g. Studio mostró la misma orden y reaccionó al nombre y colores claros.
+- Suites: typecheck, test:restaurant (10), test:cash (1), test:platform (21), test:distribution (55), build:emulator y git diff --check aprobaron. Build normal exige variables Firebase de producción ausentes. Pendiente: backend tenant/multiusuario, hardware de impresión, confirmación física de impresión. QA visual de Studio embed completado en 390×844 y 768×1024 mediante Chrome aislado; la herramienta de interacción dejó de responder y el flujo interactivo final se realizó antes de esa falla.
+- Lint focal de dominio/proveedor Restaurante aprueba; lint global actualmente reporta 236 errores y 6 avisos heredados, incluidos 11 de CajaView legacy. No se hizo un refactor global fuera de Restaurante.

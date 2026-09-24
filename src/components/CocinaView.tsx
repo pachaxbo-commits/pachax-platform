@@ -16,10 +16,13 @@ function emphasizeText(input: string) {
 export function CocinaView({
   orders,
   onAdvanceStatus,
+  onAdvanceItemStatus,
 }: {
   orders: Order[]
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
+  onAdvanceItemStatus?: (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered') => Promise<boolean>
 }) {
+  const [area, setArea] = useState<'all' | 'Cocina' | 'Barra' | 'Otro'>('all')
   const [notice, setNotice] = useState<string | null>(null)
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
   const [ticketToPrint, setTicketToPrint] = useState<Order | null>(null)
@@ -34,13 +37,13 @@ export function CocinaView({
   // Cocina active orders: pending, preparing, or ready (legacy compatibility)
   const activeOrders = useMemo(() => {
     return orders
-      .filter((order) => order.status === 'pending' || order.status === 'preparing' || order.status === 'ready')
+      .filter((order) => (order.status === 'pending' || order.status === 'preparing' || order.status === 'ready') && (!onAdvanceItemStatus || area === 'all' || order.items.some(item => (item.productArea || 'Cocina') === area && item.status !== 'delivered')))
       .sort((left, right) => {
         const leftTime = new Date(left.createdAt).getTime()
         const rightTime = new Date(right.createdAt).getTime()
         return leftTime - rightTime
       })
-  }, [orders])
+  }, [orders, area, onAdvanceItemStatus])
 
   useEffect(() => {
     const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
@@ -180,6 +183,7 @@ export function CocinaView({
         </div>
       </div>
 
+      {onAdvanceItemStatus && <div className="flex flex-wrap gap-2">{(['all', 'Cocina', 'Barra', 'Otro'] as const).map(name => <button key={name} onClick={() => setArea(name)} className={`rounded-xl px-4 py-2 text-xs font-bold ${area === name ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'border border-slate-200 bg-white text-slate-700'}`}>{name === 'all' ? 'Todos' : name}</button>)}</div>}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
         {activeOrders.map((order) => {
           const isLegacy = order.status === 'preparing' || order.status === 'ready'
@@ -243,7 +247,7 @@ export function CocinaView({
 
               {/* Items List */}
               <div className="mt-5 space-y-3.5">
-                {order.items.map((item) => (
+                {order.items.filter(item => area === 'all' || !onAdvanceItemStatus || (item.productArea || 'Cocina') === area).map((item) => (
                   <div key={item.id} className="rounded-[1.4rem] border border-line bg-white/90 p-3.5 shadow-sm">
                     <div className="text-xl font-bold leading-6 text-ink">
                       {item.quantity}x {item.name}
@@ -275,12 +279,15 @@ export function CocinaView({
                         OBS: {emphasizeText(item.modifiers.note)}
                       </div>
                     ) : null}
+                    {onAdvanceItemStatus && <div className="mt-3 flex flex-wrap items-center gap-2"><span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold">{item.productArea || 'Cocina'} · {item.status === 'preparing' ? 'En preparación' : item.status === 'ready' ? 'Listo' : item.status === 'delivered' ? 'Entregado' : 'Pendiente'}</span>{item.status !== 'delivered' && <button type="button" onClick={() => void onAdvanceItemStatus(order.id, item.id, item.status === 'preparing' ? 'ready' : item.status === 'ready' ? 'delivered' : 'preparing')} className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[10px] font-bold text-[var(--accent-foreground)]">{item.status === 'preparing' ? 'Marcar listo' : item.status === 'ready' ? 'Entregar' : 'Preparar'}</button>}</div>}
                   </div>
                 ))}
               </div>
 
+              {onAdvanceItemStatus && <button type="button" onClick={() => setTicketToPrint(order)} className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"><Printer size={15} /> Imprimir ticket</button>}
+
               {/* Contextual Action Button */}
-              <div className="mt-6">
+              {!onAdvanceItemStatus && <div className="mt-6">
                 {(() => {
                   const buttonText =
                     order.fulfillmentType === 'table'
@@ -336,7 +343,7 @@ export function CocinaView({
                     </div>
                   )
                 })()}
-              </div>
+              </div>}
             </article>
           )
         })}
