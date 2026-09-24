@@ -7,11 +7,13 @@ import {
   RESTAURANT_EXTRAS,
   INITIAL_TABLES,
   type RestaurantTable,
+  type RestaurantSector,
 } from '../mocks/restaurantMock'
 import type { Order, OrderStatus, Product } from '../../types'
 import { consumePrintedBatch, type RestaurantStockMovement } from '../../modules/restaurant/domain/restaurantEngine'
 import { calculateCashShiftSummary, type CashMovement } from '../../modules/restaurant/domain/cashEngine'
 import { cancelRestaurantOrder, completeRestaurantPayment, placeRestaurantOrder, reconcileTableOrders, resolveOrderTable } from '../../modules/restaurant/domain/restaurantOperations'
+import { applyRestaurantFloorAction, migrateRestaurantFloor, type FloorAction } from '../../modules/restaurant/domain/restaurantFloor'
 import {
   RestaurantExperience,
   type RestaurantSession,
@@ -51,16 +53,16 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
       if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
     }
   }
-  const hasCurrent = localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) === '2'
+  const hasCurrent = ['2', '3'].includes(localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
   const hasLegacy = localStorage.getItem(`${LEGACY_KEY}:orders`) !== null
   if (!hasCurrent && !hasLegacy) {
     const dataset = createRestaurantDataset(datasetMode)
     const linked = reconcileTableOrders(dataset.orders, dataset.tables)
-    const state = { ...linked, products: dataset.products, shift: dataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
-    for (const key of ['orders', 'tables', 'products', 'shift', 'stockMovements', 'audit'] as const) {
+    const state = { ...linked, sectors: dataset.sectors, products: dataset.products, shift: dataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
+    for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
       localStorage.setItem(`${STORAGE_KEY}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
     }
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '2')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '3')
     localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
     localStorage.setItem(`${STORAGE_KEY}:seeded`, 'false')
     return state
@@ -71,7 +73,8 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
   const savedTables = hadOrders
     ? readSaved<RestaurantTable[]>(`${source}:tables`, INITIAL_TABLES)
     : INITIAL_TABLES.map(table => ({ ...table, status: 'available' as const, activeOrderId: undefined, openedAt: undefined, openedBy: undefined, diners: undefined }))
-  const reconciled = reconcileTableOrders(savedOrders, normalizeLegacyTables(savedTables, savedOrders))
+  const floor = migrateRestaurantFloor(normalizeLegacyTables(savedTables, savedOrders), readSaved<RestaurantSector[] | undefined>(`${source}:sectors`, undefined))
+  const reconciled = reconcileTableOrders(savedOrders, floor.tables)
   const legacyCatalog = readSaved<Product[]>(`${source}:products`, RESTAURANT_PRODUCTS)
   const catalogCrud = hasCurrent ? [] : readSaved<Product[]>('pachax:restaurant-demo:catalog-crud:v1', [])
   const catalog = (catalogCrud.length ? catalogCrud : legacyCatalog).map(product => {
@@ -89,14 +92,19 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
   const products = [...catalog.filter(product => product.restaurantType !== 'ingredient'), ...ingredients, ...catalog.filter(product => product.restaurantType === 'ingredient' && !ingredients.some(item => item.id === product.id))]
   const normalizedOrders = reconciled.orders.map(order => ({ ...order, items: order.items.map(line => ({ ...line, productArea: line.productArea || products.find(product => product.id === line.productId)?.preparationArea || 'Cocina' })) }))
   const seeded = hasCurrent ? readSaved<boolean>(`${STORAGE_KEY}:seeded`, false) : false
-  const state = { ...reconciled, orders: normalizedOrders, products, shift: readSaved<Shift | null>(`${source}:shift`, null), stockMovements: readSaved<RestaurantStockMovement[]>(`${source}:stock-movements`, []), audit: readSaved<AuditEvent[]>(`${source}:audit`, []), seeded }
+  const state = { ...reconciled, sectors: floor.sectors, orders: normalizedOrders, products, shift: readSaved<Shift | null>(`${source}:shift`, null), stockMovements: readSaved<RestaurantStockMovement[]>(`${source}:stock-movements`, []), audit: readSaved<AuditEvent[]>(`${source}:audit`, []), seeded }
   if (!hasCurrent) {
-    for (const key of ['orders', 'tables', 'products', 'shift', 'stockMovements', 'audit'] as const) {
+    for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
       const storageName = key === 'stockMovements' ? 'stock-movements' : key
       localStorage.setItem(`${STORAGE_KEY}:${storageName}`, JSON.stringify(state[key]))
     }
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '2')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '3')
     localStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
+  }
+  if (hasCurrent) {
+    localStorage.setItem(`${STORAGE_KEY}:tables`, JSON.stringify(state.tables))
+    localStorage.setItem(`${STORAGE_KEY}:sectors`, JSON.stringify(state.sectors))
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '3')
   }
   localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
   return state
@@ -142,6 +150,7 @@ export function RestaurantDemo({
   const seededRef = useRef(initial.seeded)
   const [orders, setOrders] = useState<Order[]>(initial.orders)
   const [tables, setTables] = useState<RestaurantTable[]>(initial.tables)
+  const [sectors, setSectors] = useState<RestaurantSector[]>(initial.sectors)
   const [products, setProducts] = useState<Product[]>(initial.products)
   const [stockMovements, setStockMovements] = useState<RestaurantStockMovement[]>(initial.stockMovements)
   const [shift, setShift] = useState<Shift | null>(initial.shift)
@@ -187,6 +196,20 @@ export function RestaurantDemo({
       persist('tables', next)
       return next
     })
+  }
+
+  const handleFloorAction = (action: FloorAction): { ok: boolean; error?: string } => {
+    if (!['admin', 'owner', 'team'].includes(mode === 'team' ? 'team' : simulatedRole)) return { ok: false, error: 'No tienes permiso para administrar el salón.' }
+    try {
+      const next = applyRestaurantFloorAction(tables, sectors, action, new Date().toISOString())
+      updateTables(() => next.tables)
+      setSectors(next.sectors)
+      persist('sectors', next.sectors)
+      record({ type: `floor_${action.type}`, tableId: action.type.startsWith('table.') ? action.id : undefined, details: { ...action } })
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'No se pudo actualizar el salón.' }
+    }
   }
 
   const updateProducts = (updater: (previous: Product[]) => Product[]) => {
@@ -422,7 +445,7 @@ export function RestaurantDemo({
   }
 
   const createOrderForTable = (table: RestaurantTable, firstProduct?: Product) => {
-    if (!shift || table.activeOrderId || table.status === 'bill_requested' || table.status === 'reserved') return
+    if (!shift || table.active === false || table.archivedAt || table.activeOrderId || table.status === 'bill_requested' || table.status === 'reserved') return
     const seq = Math.max(0, ...orders.map((order) => order.sequence || 0)) + 1
     const at = new Date().toISOString()
     const lines = firstProduct
@@ -667,7 +690,7 @@ export function RestaurantDemo({
 
   const handleUpdateTableStatus = (tableId: string, status: RestaurantTable['status']) => {
     const table = tables.find((item) => item.id === tableId)
-    if (!shift || (status === 'available' && table?.activeOrderId)) return
+    if (!shift || !table || table.active === false || table.archivedAt || (status === 'available' && table.activeOrderId)) return
     updateTables((previous) =>
       previous.map((item) =>
         item.id === tableId
@@ -699,6 +722,7 @@ export function RestaurantDemo({
       companyName={companyName}
       orders={orders}
       tables={tables}
+      sectors={sectors}
       products={products}
       shift={shift}
       categories={RESTAURANT_CATEGORIES}
@@ -719,6 +743,7 @@ export function RestaurantDemo({
       onAddProduct={handleAddTableProduct}
       onPrintBatch={handlePrintBatch}
       onCreateProduct={handleCreateProduct}
+      onFloorAction={handleFloorAction}
       onSaveProducts={(next) => updateProducts(() => next)}
       onResetDemo={() => {
         if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return

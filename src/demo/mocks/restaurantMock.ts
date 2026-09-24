@@ -2,15 +2,38 @@ import type { CatalogCategory, Order, OrderItem, Product, ProductExtra } from '.
 
 export interface RestaurantTable {
   id: string
-  number: number
+  number?: number
   name: string
   capacity: number
   status: 'available' | 'occupied' | 'bill_requested' | 'reserved'
+  sectorId?: string
+  shape?: 'square' | 'rectangle' | 'round'
+  sortOrder?: number
+  active?: boolean
+  createdAt?: string
+  updatedAt?: string
+  archivedAt?: string
   openedBy?: string
   activeOrderId?: string
   diners?: number
   openedAt?: string
 }
+
+export interface RestaurantSector {
+  id: string
+  name: string
+  description?: string
+  sortOrder: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export const INITIAL_SECTORS: RestaurantSector[] = [
+  { id: 'sector-salon', name: 'Salón principal', sortOrder: 0, active: true, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' },
+  { id: 'sector-terraza', name: 'Terraza', sortOrder: 1, active: true, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' },
+  { id: 'sector-barra', name: 'Barra', sortOrder: 2, active: true, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' },
+]
 
 export interface RestaurantIngredient {
   id: string
@@ -143,7 +166,13 @@ export const INITIAL_TABLES: RestaurantTable[] = [
   { id: 't10', number: 10, name: 'Mesa 10 (Terraza)', capacity: 4, status: 'occupied', activeOrderId: 'ord-104', diners: 2, openedAt: '13:30' },
   { id: 't11', number: 11, name: 'Mesa 11 (Terraza)', capacity: 4, status: 'available' },
   { id: 't12', number: 12, name: 'Mesa 12 (Barra)', capacity: 2, status: 'available' },
-]
+].map((table, sortOrder) => ({
+  ...table,
+  status: table.status as RestaurantTable['status'],
+  sectorId: table.id === 't10' || table.id === 't11' ? 'sector-terraza' : table.id === 't12' ? 'sector-barra' : 'sector-salon',
+  sortOrder, active: true, shape: 'square' as const,
+  createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+}))
 
 const emptyModifiers = { extras: [], options: [], note: '' }
 

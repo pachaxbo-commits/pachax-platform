@@ -23,6 +23,9 @@ import { useBackButtonBridge } from '../../../hooks/useBackHandler'
 import { RestaurantDashboard } from '../../../demo/restaurant/RestaurantDashboard'
 import { RestaurantPOS } from '../../../demo/restaurant/RestaurantPOS'
 import { RestaurantTables } from '../../../demo/restaurant/RestaurantTables'
+import type { RestaurantSector } from '../../../demo/mocks/restaurantMock'
+import type { FloorAction } from '../domain/restaurantFloor'
+import { visibleTables } from '../domain/restaurantFloor'
 import { RestaurantOrders } from '../../../demo/restaurant/RestaurantOrders'
 import { RestaurantKitchen } from '../../../demo/restaurant/RestaurantKitchen'
 import { RestaurantHistory } from '../../../demo/restaurant/RestaurantHistory'
@@ -87,6 +90,7 @@ export interface RestaurantExperienceProps {
   companyName?: string
   orders: Order[]
   tables: RestaurantTable[]
+  sectors: RestaurantSector[]
   products: Product[]
   shift: RestaurantShift | null
   categories?: typeof RESTAURANT_CATEGORIES
@@ -109,6 +113,7 @@ export interface RestaurantExperienceProps {
     input: { name: string; categoryName: string; price: number; preparationArea: string },
     orderId?: string
   ) => void
+  onFloorAction: (action: FloorAction) => { ok: boolean; error?: string }
   onSaveProducts?: (products: Product[]) => void
   onResetDemo?: () => void
   onSelectRole?: (roleId: string) => void
@@ -146,6 +151,7 @@ export function RestaurantExperience({
   companyName,
   orders,
   tables,
+  sectors,
   products,
   shift,
   categories = RESTAURANT_CATEGORIES,
@@ -164,6 +170,7 @@ export function RestaurantExperience({
   onAddProduct,
   onPrintBatch,
   onCreateProduct,
+  onFloorAction,
   onSaveProducts,
   onResetDemo,
   onSelectRole,
@@ -399,12 +406,15 @@ export function RestaurantExperience({
               userRole={session.role}
               userName={session.userName}
               enabled={!!shift}
-              tables={tables}
+              tables={visibleTables(tables)}
             />
           )}
           {activeModule === 'tables' && (
             <RestaurantTables
               tables={tables}
+              sectors={sectors}
+              canManageFloor={['owner', 'admin', 'team'].includes(session.role)}
+              onFloorAction={onFloorAction}
               orders={orders}
               initialTableId={selectedTableId}
               enabled={!!shift}

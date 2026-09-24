@@ -9,6 +9,7 @@ import {
   RESTAURANT_CATEGORIES,
   RESTAURANT_EXTRAS,
   INITIAL_TABLES,
+  INITIAL_SECTORS,
   INITIAL_RESTAURANT_ORDERS,
   RESTAURANT_PRODUCTS,
 } from '../../../demo/mocks/restaurantMock'
@@ -55,6 +56,7 @@ export function RestaurantApp({
       companyName={companyName || restaurantName}
       orders={INITIAL_RESTAURANT_ORDERS}
       tables={INITIAL_TABLES}
+      sectors={INITIAL_SECTORS}
       products={RESTAURANT_PRODUCTS}
       shift={null}
       categories={RESTAURANT_CATEGORIES}
@@ -72,6 +74,7 @@ export function RestaurantApp({
       onAddProduct={() => {}}
       onPrintBatch={() => {}}
       onCreateProduct={() => {}}
+      onFloorAction={() => ({ ok: false, error: 'Configuración disponible al conectar el proveedor de datos.' })}
       onSignOut={onSignOut}
       onOpenPrinterSettings={onOpenPrinterSettings}
     />

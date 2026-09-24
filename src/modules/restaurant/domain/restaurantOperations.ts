@@ -32,6 +32,7 @@ export function reconcileTableOrders(orders: Order[], tables: RestaurantTable[])
 export function placeRestaurantOrder(orders: Order[], tables: RestaurantTable[], incoming: Order) {
   const table = incoming.fulfillmentType === 'table' ? resolveOrderTable(incoming, tables) : undefined
   if (incoming.fulfillmentType === 'table' && !table) throw new Error('Selecciona una mesa válida.')
+  if (table && (table.active === false || table.archivedAt)) throw new Error('Esta mesa está desactivada.')
   if (table?.status === 'bill_requested') throw new Error('Reabre la cuenta antes de añadir productos.')
   if (table?.status === 'reserved' && !table.activeOrderId) throw new Error('La mesa está reservada.')
   const current = table?.activeOrderId ? orders.find(order => order.id === table.activeOrderId && active(order)) : undefined
