@@ -10,7 +10,7 @@ export type OrderStatus =
   | 'delivered'
   | 'cancelled'
 
-export type PaymentMethod = 'cash' | 'qr' | 'mixed'
+export type PaymentMethod = 'cash' | 'qr' | 'card' | 'mixed'
 export type OrderSource = 'local' | 'whatsapp'
 export type FulfillmentType = 'table' | 'pickup' | 'delivery'
 export type ProductAvailability = 'available' | 'soldout'
@@ -385,6 +385,8 @@ export interface Order extends Partial<TenantScopedEntity> {
   paidBy?: string
   orderSource: OrderSource
   fulfillmentType: FulfillmentType
+  /** Identidad estable de la mesa; tableInfo conserva el nombre visible histórico. */
+  tableId?: string
   /** @deprecated Use fulfillmentType instead. Kept for backward compat reads. */
   orderType?: 'table' | 'delivery'
   tableInfo?: string

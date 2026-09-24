@@ -9,12 +9,12 @@ type Staff = { id: string; name: string; email: string; role: Role; roleName: st
 type Attendance = { staffId: string; checkIn: string; checkOut?: string }
 const ROLE_LABEL: Record<Role, string> = { owner: 'Propietario', admin: 'Administrador', cashier: 'Caja', waiter: 'Mesero', kitchen: 'Cocina', inventory: 'Inventario' }
 const STORAGE = 'pachax:restaurant-demo:users:v1'
-const read = <T,>(fallback: T): T => { try { return JSON.parse(localStorage.getItem(STORAGE) || '') as T } catch { return fallback } }
+const read = <T,>(fallback: T, key = STORAGE): T => { try { return JSON.parse(localStorage.getItem(key) || '') as T } catch { return fallback } }
 const time = (value?: string) => value ? new Date(value).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) : '—'
 
 export function RestaurantUsers({ currentRole, onSelectRole }: { currentRole: string; onSelectRole?: (roleId: string) => void }) {
   const [staff, setStaff] = useState<Staff[]>(() => read(RESTAURANT_STAFF as Staff[]))
-  const [attendance, setAttendance] = useState<Attendance[]>(() => read<Attendance[]>([]))
+  const [attendance, setAttendance] = useState<Attendance[]>(() => read<Attendance[]>([], `${STORAGE}:attendance`))
   const [editing, setEditing] = useState<Staff | null>(null), [removing, setRemoving] = useState<Staff | null>(null), [openMenu, setOpenMenu] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', email: '', role: 'waiter' as Role, active: true })
   const [notice, setNotice] = useState('')

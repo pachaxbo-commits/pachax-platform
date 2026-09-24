@@ -92,9 +92,10 @@ export interface RestaurantExperienceProps {
   categories?: typeof RESTAURANT_CATEGORIES
   quickExtras?: typeof RESTAURANT_EXTRAS
   onStartShift: (amount: number, openedAt: string, openedBy: string) => void
-  onCloseShift: () => boolean
-  onAddOrder: (order: Order) => void
+  onCloseShift: (countedCash?: number) => boolean
+  onAddOrder: (order: Order) => boolean
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
+  onAdvanceItemStatus?: (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered') => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
   onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
   onOpenTableOrder: (table: RestaurantTable & { customerName?: string }) => void
@@ -108,7 +109,8 @@ export interface RestaurantExperienceProps {
     input: { name: string; categoryName: string; price: number; preparationArea: string },
     orderId?: string
   ) => void
-  onToggleProductActive?: (productId: string) => void
+  onSaveProducts?: (products: Product[]) => void
+  onResetDemo?: () => void
   onSelectRole?: (roleId: string) => void
   onSignOut?: () => void | Promise<void>
   onOpenPrinterSettings?: () => void
@@ -152,6 +154,7 @@ export function RestaurantExperience({
   onCloseShift,
   onAddOrder,
   onAdvanceStatus,
+  onAdvanceItemStatus,
   onCancelOrder,
   onPayment,
   onOpenTableOrder,
@@ -161,7 +164,8 @@ export function RestaurantExperience({
   onAddProduct,
   onPrintBatch,
   onCreateProduct,
-  onToggleProductActive,
+  onSaveProducts,
+  onResetDemo,
   onSelectRole,
   onSignOut,
   onOpenPrinterSettings,
@@ -330,7 +334,7 @@ export function RestaurantExperience({
       <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-1 gap-4 px-3 py-4">
         {/* Navegación lateral en pantallas amplias (>= 768px activa md) */}
         <nav
-          className="hidden w-56 shrink-0 flex-col gap-1 md:flex"
+          className="hidden w-56 shrink-0 flex-col gap-1 lg:flex"
           style={{ backgroundColor: 'var(--sidebar, transparent)' }}
         >
           {visibleModules.map((m) => {
@@ -342,9 +346,9 @@ export function RestaurantExperience({
                 type="button"
                 onClick={() => selectModule(m.id)}
                 className={`flex min-h-[44px] items-center gap-2.5 rounded-2xl px-3 text-left text-sm font-bold transition ${
-                  isActive ? 'text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+                  isActive ? 'shadow-xs' : 'text-slate-600 hover:bg-white'
                 }`}
-                style={isActive ? { backgroundColor: 'var(--primary)' } : undefined}
+                style={isActive ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' } : undefined}
               >
                 <Icon size={17} />
                 <span className="min-w-0 break-words text-xs leading-tight">{m.label}</span>
@@ -391,11 +395,11 @@ export function RestaurantExperience({
               onAddOrder={onAddOrder}
               onSetOrderStatus={onAdvanceStatus}
               onConfirmPayment={onPayment}
+              onCancelOrder={onCancelOrder}
               userRole={session.role}
+              userName={session.userName}
               enabled={!!shift}
-              tables={tables
-                .filter((table) => table.status === 'available' || table.activeOrderId)
-                .map((table) => table.name)}
+              tables={tables}
             />
           )}
           {activeModule === 'tables' && (
@@ -419,7 +423,7 @@ export function RestaurantExperience({
             <RestaurantOrders orders={orders} onAdvanceStatus={onAdvanceStatus} />
           )}
           {activeModule === 'kitchen' && (
-            <RestaurantKitchen orders={orders} onAdvanceStatus={onAdvanceStatus} />
+            <RestaurantKitchen orders={orders} onAdvanceStatus={onAdvanceStatus} onAdvanceItemStatus={onAdvanceItemStatus} />
           )}
           {activeModule === 'history' && (
             <RestaurantHistory orders={orders} onAdvanceStatus={onAdvanceStatus} onCancelOrder={onCancelOrder} />
@@ -430,30 +434,33 @@ export function RestaurantExperience({
               orders={orders}
               tables={tables}
               userName={session.userName}
+              restaurantName={displayName}
               onStartShift={onStartShift}
               onCloseShift={onCloseShift}
             />
           )}
-          {activeModule === 'inventory' && <RestaurantInventory />}
+          {activeModule === 'inventory' && <RestaurantInventory products={products} onSaveProducts={onSaveProducts || (() => {})} />}
           {activeModule === 'products' && (
             <RestaurantProducts
               categories={categories}
               products={products}
-              onToggleProductActive={onToggleProductActive || (() => {})}
+              orders={orders}
+              onSaveProducts={onSaveProducts || (() => {})}
             />
           )}
-          {activeModule === 'customers' && <RestaurantCustomers />}
+          {activeModule === 'customers' && <RestaurantCustomers orders={orders} />}
           {activeModule === 'users' && (
             <RestaurantUsers currentRole={session.role} onSelectRole={onSelectRole} />
           )}
-          {activeModule === 'reports' && <RestaurantReports />}
-          {activeModule === 'settings' && <RestaurantSettings />}
+          {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} />}
+          {activeModule === 'settings' && <RestaurantSettings onResetDemo={onResetDemo} />}
           {activeModule === 'printers' && <RestaurantPrinters />}
         </main>
       </div>
 
       {/* Navegación Inferior Móvil (activa solo en pantallas < 768px via md:hidden) */}
       <BottomNav
+        tabletVisible
         items={[
           ...navItems,
           ...(overflowModules.length > 0
@@ -489,8 +496,8 @@ export function RestaurantExperience({
               <button
                 type="button"
                 onClick={() => void onSignOut()}
-                className="min-h-[44px] rounded-2xl px-4 text-sm font-extrabold text-white"
-                style={{ backgroundColor: 'var(--primary)' }}
+                className="min-h-[44px] rounded-2xl px-4 text-sm font-extrabold"
+                style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
               >
                 Cerrar sesión
               </button>
