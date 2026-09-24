@@ -37,13 +37,17 @@ export function formatElapsed(fromIsoDate: string, now = Date.now()) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
-export function formatPaymentMethod(method: 'cash' | 'qr' | 'mixed') {
+export function formatPaymentMethod(method: 'cash' | 'qr' | 'card' | 'mixed') {
   if (method === 'cash') {
     return 'Efectivo'
   }
 
   if (method === 'qr') {
     return 'QR'
+  }
+
+  if (method === 'card') {
+    return 'Tarjeta'
   }
 
   return 'Mixto'

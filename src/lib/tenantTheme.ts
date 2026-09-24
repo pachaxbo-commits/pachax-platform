@@ -22,6 +22,16 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } | nul
   return null
 }
 
+/** Escoge el texto con mejor contraste WCAG entre blanco y azul oscuro. */
+export function readableForeground(hex: string): '#ffffff' | '#0f172a' {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return '#0f172a'
+  const channel = (value: number) => { const normalized = value / 255; return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4 }
+  const luminance = 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b)
+  const dark = 0.2126 * channel(15) + 0.7152 * channel(23) + 0.0722 * channel(42)
+  return (luminance + 0.05) / (dark + 0.05) > 1.05 / (luminance + 0.05) ? '#0f172a' : '#ffffff'
+}
+
 /**
  * Genera un tono hover (ligeramente más oscuro) para un color hex.
  */
@@ -79,9 +89,11 @@ export function buildThemeTokens(custom: {
 export function applyCanonicalThemeTokens(targetDoc: Document, tokens: CanonicalThemeTokens) {
   const root = targetDoc.documentElement
   root.style.setProperty('--primary', tokens.primary)
+  root.style.setProperty('--primary-foreground', readableForeground(tokens.primary))
   root.style.setProperty('--primary-hover', tokens.primaryHover)
   root.style.setProperty('--primary-soft', tokens.primarySoft)
   root.style.setProperty('--accent', tokens.accent)
+  root.style.setProperty('--accent-foreground', readableForeground(tokens.accent))
   root.style.setProperty('--accent-soft', tokens.accentSoft)
   root.style.setProperty('--background', tokens.background)
   root.style.setProperty('--surface', tokens.surface)
@@ -103,9 +115,11 @@ export function applyTenantTheme(theme: BusinessTypeTheme, overrides?: { primary
   const accent = overrides?.accent || theme.accent
 
   root.style.setProperty('--primary', primary)
+  root.style.setProperty('--primary-foreground', readableForeground(primary))
   root.style.setProperty('--primary-hover', theme.primaryHover)
   root.style.setProperty('--primary-soft', theme.primarySoft)
   root.style.setProperty('--accent', accent)
+  root.style.setProperty('--accent-foreground', readableForeground(accent))
   root.style.setProperty('--accent-soft', theme.accentSoft)
   root.style.setProperty('--background', theme.background)
   root.style.setProperty('--surface', theme.surface)

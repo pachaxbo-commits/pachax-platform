@@ -1,69 +1,32 @@
-import { Shield } from 'lucide-react'
+import { useState } from 'react'
+import { Clock3, MoreHorizontal, Pencil, Plus, Shield, Trash2 } from 'lucide-react'
+import { Modal } from '../../components/ui/Modal'
+import { Field, SelectInput, TextInput } from '../../components/ui/Form'
 import { RESTAURANT_STAFF } from '../mocks/restaurantMock'
 
-export function RestaurantUsers({
-  currentRole,
-  onSelectRole,
-}: {
-  currentRole: string
-  onSelectRole?: (roleId: string) => void
-}) {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Equipo & Roles del Restaurante</h1>
-        <p className="text-sm text-slate-500">
-          Miembros asignados a salón, cocina, caja y administración
-        </p>
-      </div>
+type Role = 'owner' | 'admin' | 'cashier' | 'waiter' | 'kitchen' | 'inventory'
+type Staff = { id: string; name: string; email: string; role: Role; roleName: string; active: boolean }
+type Attendance = { staffId: string; checkIn: string; checkOut?: string }
+const ROLE_LABEL: Record<Role, string> = { owner: 'Propietario', admin: 'Administrador', cashier: 'Caja', waiter: 'Mesero', kitchen: 'Cocina', inventory: 'Inventario' }
+const STORAGE = 'pachax:restaurant-demo:users:v1'
+const read = <T,>(fallback: T, key = STORAGE): T => { try { return JSON.parse(localStorage.getItem(key) || '') as T } catch { return fallback } }
+const time = (value?: string) => value ? new Date(value).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) : '—'
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {RESTAURANT_STAFF.map((staff) => {
-          const isSelected = currentRole === staff.role
-          return (
-            <div
-              key={staff.id}
-              className={`p-5 rounded-2xl border transition ${
-                isSelected
-                  ? 'bg-teal-50/50 border-teal-300 ring-2 ring-teal-400/30 shadow-xs'
-                  : 'bg-white border-slate-200 hover:border-slate-300 shadow-xs'
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center text-sm">
-                    {staff.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">{staff.name}</h3>
-                    <p className="text-xs text-slate-500">{staff.email}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-800 rounded-lg">
-                  <Shield className="w-3.5 h-3.5 text-slate-500" />
-                  {staff.roleName}
-                </span>
-
-                {onSelectRole && (
-                  <button
-                    onClick={() => onSelectRole(staff.role)}
-                    className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition ${
-                      isSelected
-                        ? 'bg-teal-600 text-white'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    {isSelected ? 'Rol Activo' : 'Simular rol'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+export function RestaurantUsers({ currentRole, onSelectRole }: { currentRole: string; onSelectRole?: (roleId: string) => void }) {
+  const [staff, setStaff] = useState<Staff[]>(() => read(RESTAURANT_STAFF as Staff[]))
+  const [attendance, setAttendance] = useState<Attendance[]>(() => read<Attendance[]>([], `${STORAGE}:attendance`))
+  const [editing, setEditing] = useState<Staff | null>(null), [removing, setRemoving] = useState<Staff | null>(null), [openMenu, setOpenMenu] = useState<string | null>(null)
+  const [form, setForm] = useState({ name: '', email: '', role: 'waiter' as Role, active: true })
+  const [notice, setNotice] = useState('')
+  const saveStaff = (next: Staff[]) => { setStaff(next); localStorage.setItem(STORAGE, JSON.stringify(next)) }
+  const saveAttendance = (next: Attendance[]) => { setAttendance(next); localStorage.setItem(`${STORAGE}:attendance`, JSON.stringify(next)) }
+  const beginCreate = () => { setForm({ name: '', email: '', role: 'waiter', active: true }); setEditing({ id: '', name: '', email: '', role: 'waiter', roleName: '', active: true }) }
+  const submit = () => {
+    if (!form.name.trim() || !/^\S+@\S+\.\S+$/.test(form.email)) { setNotice('Completa nombre y un correo válido.'); return }
+    const member: Staff = { id: editing?.id || crypto.randomUUID(), name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role, roleName: ROLE_LABEL[form.role], active: form.active }
+    saveStaff(editing?.id ? staff.map(item => item.id === member.id ? member : item) : [...staff, member])
+    setEditing(null); setNotice(editing?.id ? 'Usuario actualizado correctamente.' : 'Usuario creado correctamente.')
+  }
+  const toggleAttendance = (staffId: string) => { const active = attendance.find(item => item.staffId === staffId && !item.checkOut); const now = new Date().toISOString(); saveAttendance(active ? attendance.map(item => item === active ? { ...item, checkOut: now } : item) : [{ staffId, checkIn: now }, ...attendance]) }
+  return <div className="space-y-6"><header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-slate-900">Usuarios y asistencia</h1><p className="text-sm text-slate-500">Personal, roles y registro diario del restaurante.</p></div><button onClick={beginCreate} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-bold text-white"><Plus size={16} /> Nuevo usuario</button></header>{notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{notice}</p>}<section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{(Object.keys(ROLE_LABEL) as Role[]).map(role => <article key={role} className="rounded-2xl border border-slate-200 bg-white p-3"><div className="flex items-center gap-2"><Shield size={15} className="text-teal-600" /><strong className="text-xs">{ROLE_LABEL[role]}</strong></div><p className="mt-2 text-[11px] text-slate-500">{staff.filter(item => item.role === role).length} usuario(s) asignado(s)</p></article>)}</section><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{staff.map(member => { const onDuty = attendance.find(item => item.staffId === member.id && !item.checkOut); const last = attendance.find(item => item.staffId === member.id); return <article key={member.id} className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-xs"><div className="flex gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white">{member.name.slice(0,2).toUpperCase()}</span><div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold">{member.name}</h3><p className="truncate text-xs text-slate-500">{member.email}</p></div><button aria-label={`Administrar ${member.name}`} onClick={() => setOpenMenu(openMenu === member.id ? null : member.id)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><MoreHorizontal size={18} /></button></div>{openMenu === member.id && <div className="absolute right-4 top-14 z-10 grid w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"><button onClick={() => { setEditing(member); setForm({ name: member.name, email: member.email, role: member.role, active: member.active }); setOpenMenu(null) }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50"><Pencil size={14} /> Editar</button><button onClick={() => { setRemoving(member); setOpenMenu(null) }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-700 hover:bg-rose-50"><Trash2 size={14} /> Eliminar</button></div>}<div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><span className="inline-flex gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold"><Shield size={12} />{member.roleName}</span>{onSelectRole && <button onClick={() => onSelectRole(member.role)} className={`rounded-lg px-2 py-1 text-xs font-semibold ${currentRole === member.role ? 'bg-teal-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{currentRole === member.role ? 'Rol activo' : 'Simular rol'}</button>}</div><div className="mt-3 rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600"><p className="flex gap-1 font-semibold"><Clock3 size={13} /> Entrada {time(onDuty?.checkIn || last?.checkIn)} · Salida {time(last?.checkOut)}</p><button onClick={() => toggleAttendance(member.id)} className={`mt-2 w-full rounded-xl py-2 text-xs font-bold ${onDuty ? 'border border-slate-200 bg-white' : 'bg-teal-500 text-slate-950'}`}>{onDuty ? 'Registrar salida' : 'Registrar entrada'}</button></div></article> })}</div><Modal isOpen={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Editar usuario' : 'Nuevo usuario'} footer={<button onClick={submit} className="w-full rounded-xl bg-slate-900 p-3 text-sm font-bold text-white">Guardar usuario</button>}><div className="grid gap-3"><Field label="Nombre" required><TextInput value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></Field><Field label="Correo electrónico" required><TextInput type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></Field><Field label="Rol"><SelectInput value={form.role} onChange={event => setForm({ ...form, role: event.target.value as Role })}>{(Object.keys(ROLE_LABEL) as Role[]).map(role => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}</SelectInput></Field><label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={form.active} onChange={event => setForm({ ...form, active: event.target.checked })} /> Usuario activo</label></div></Modal><Modal isOpen={!!removing} onClose={() => setRemoving(null)} title="Eliminar usuario" subtitle="Esta acción no se puede deshacer." footer={<div className="grid grid-cols-2 gap-2"><button onClick={() => setRemoving(null)} className="rounded-xl border p-3 text-sm font-bold">Cancelar</button><button onClick={() => { if (removing) { saveStaff(staff.filter(item => item.id !== removing.id)); setNotice('Usuario eliminado.'); setRemoving(null) } }} className="rounded-xl bg-rose-700 p-3 text-sm font-bold text-white">Eliminar usuario</button></div>}><p className="text-sm text-slate-700">¿Seguro que deseas eliminar a <strong>{removing?.name}</strong>?</p></Modal></div>
 }

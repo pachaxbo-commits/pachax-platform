@@ -61,7 +61,7 @@ export function RestaurantApp({
       quickExtras={RESTAURANT_EXTRAS}
       onStartShift={() => {}}
       onCloseShift={() => true}
-      onAddOrder={() => {}}
+      onAddOrder={() => false}
       onAdvanceStatus={async () => true}
       onCancelOrder={async () => true}
       onPayment={() => {}}

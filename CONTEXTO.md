@@ -1,5 +1,17 @@
 # Continuidad del proyecto PACHAX
 
+## Restaurante: pagos combinados y base de recetas/inventario (22/09/2026)
+
+- `RestaurantExperience` sigue siendo la única experiencia visual para producción, Studio y demo; los adaptadores mantienen separados los datos y efectos.
+- Mesas conserva el selector múltiple con cantidad y observación y añade el acceso directo `+ Abrir mesa`.
+- El cobro acepta efectivo, QR, tarjeta y pago dividido. La suma dividida debe coincidir con el total y el cambio se calcula solo sobre la parte en efectivo.
+- El catálogo compartido admite metadatos opcionales de restaurante: tipo, unidad base, stock, mínimo, costo, proveedor y receta.
+- `restaurantEngine.ts` calcula pagos, costo teórico y consumo de inventario. Cada tanda usa `command:{orderId}:{batchId}` como clave idempotente para descontar stock una sola vez.
+- El adaptador demo persiste los movimientos localmente y deja los contratos listos para un repositorio Firebase posterior.
+- Usuarios de Restaurante usa ahora tarjetas y jerarquía visual coherentes con Distribución, roles canónicos (`owner`, `admin`, `cashier`, `waiter`, `kitchen`), creación local y registro automático de entrada/salida. La asistencia se guarda en el adaptador local y queda preparada para sustituirse por repositorio.
+- CRUD local añadido a Restaurante sin cambiar su experiencia canónica: Usuarios permite crear, editar, activar y eliminar con confirmación; Productos permite ver, crear, editar y eliminar conservando relaciones de recetas/inventario; Inventario permite categorías, unidades, filtros, stock mínimo, estados calculados y eliminación protegida de insumos de recetas.
+- Caja / Turnos incorpora `cashEngine.ts`, una fuente única de cálculo para ventas por método, movimientos manuales, efectivo esperado y diferencia. Los movimientos y cierres se persisten localmente por turno; QR/tarjeta aparecen en ventas, pero no alteran el efectivo físico esperado. El arqueo requiere efectivo contado y bloquea el cierre si hay cuentas abiertas.
+
 ## Checkpoint vigente: PACHAX Premium Public Experience (22/09/2026)
 
 Rama `feat/premium-public-experience`. Se transformó la entrada comercial y pública de PACHAX en una experiencia SaaS premium, adaptable, visualmente coherente y de alta conversión, manteniendo intactas las capas canónicas operativas y la lógica Firebase.
@@ -333,3 +345,20 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - POS/caja del template utiliza estado compartido y no acepta nuevas �rdenes ni cobros sin turno.
 - Verificaci�n: `npm run typecheck`, lint focalizado y `npm run build:emulator` aprobados. `npm run lint` global mantiene 232 errores/6 advertencias heredados; el build normal requiere Firebase deliberadamente sin configurar. Dev server local en puerto 5190 (`npm run dev:emulator -- --host 0.0.0.0`).
 - Pendiente: revisi�n manual completa en viewport m�vil; completar soporte de m�todo tarjeta/otro en el esquema com�n de `PaymentMethod`; entrega conectada requiere repositorios tenant/backend y cola/idempotencia del servidor. Los datos de Studio son demo, locales al navegador y no constituyen caja transaccional multiusuario.
+## Avance: comprobante físico de arqueo (23/09/2026)
+
+- Caja / Turnos permite imprimir un resumen desde la vista activa y desde el modal de arqueo. El comprobante incluye fondo inicial, ventas en efectivo/QR/tarjeta, entradas y salidas de efectivo, esperado, contado, diferencia y movimientos manuales.
+- `cashPrint.ts` genera HTML para impresión térmica de 80 mm o papel normal. Por ahora abre el diálogo estándar del navegador y queda aislado para un proveedor de impresión o Bluetooth.
+
+## Auditoría canónica Restaurante (24/09/2026, feat/restaurant-next)
+
+- Fuente visual única: RestaurantExperience. RestaurantApp la usa para producción; StudioShell crea el iframe /demo/restaurant?embed=studio, DemoRuntime monta RestaurantDemo y este monta RestaurantExperience. No existe RestaurantStudioView ni una copia visual. El proveedor de producción conserva sus adaptadores actuales; la persistencia transaccional multiusuario queda pendiente de backend.
+- La base BurgerLab sigue en CajaView (POS, carrito, pedidos, historial, origen WhatsApp, entrega/recojo, cobro) y CocinaView (KDS). PACHAX les pasa órdenes, productos y callbacks del proveedor demo. Se eliminó localOrders del POS. Order.tableId es la identidad estable; tableInfo es snapshot legible y fallback legacy centralizado en restaurantOperations.ts.
+- RestaurantDemo gobierna órdenes, mesas, catálogo, turno, stock y auditoría. POS ocupa la mesa real; nuevas líneas se agregan a la misma orden; una cuenta solicitada exige reapertura; pagar o cancelar libera mesa. Pedidos, KDS, Historial, Caja y Reportes comparten órdenes. Clientes deriva visitas y consumo desde órdenes. Caja lee el personal guardado en Usuarios.
+- Productos activos, visibles y disponibles se comparten entre Productos, POS y selector múltiple de Mesas. POS inicia en TODOS. Insumos y recetas enlazan por ID. Inventario se descuenta al imprimir comanda una sola vez; los lotes guardan itemIds y una nueva impresión contiene solo líneas nuevas. Documento de comanda separado para 80 mm.
+- Caja deriva ventas de órdenes pagadas del turno y movimientos manuales; efectivo, QR, tarjeta y mixto llegan al mismo resumen. El cambio no aumenta ventas. El cierre exige arqueo y ninguna cuenta abierta.
+- Demo migra operaciones v1 a v2, reconcilia tableInfo legacy con tableId y conserva la marca de fixtures antiguos para limpiarlos al abrir turno. Una demo nueva inicia con mesas libres y sin órdenes, conservando catálogo e inventario. Restablecer demo explícitamente limpia todas las keys pachax:restaurant-demo:* y tickets locales; no toca datos de producción.
+- Branding usa --primary, --accent, --background y foreground legible generado por utilidad central. POS usa acento configurable en Agregar y primario en selección. CajaView mantiene bot management para BurgerLab legacy; PACHAX lo desactiva por capability y no hace polling de bot. WhatsApp como origen sigue activo. Retraso general y pausa pertenecen al control de bot legado; tiempos KDS permanecen en órdenes/items.
+- Prueba manual local: turno Bs 200, producto nuevo Bs 25, POS a Mesa 2, adición de dos bebidas Bs 30, KDS Cocina/Barra preparar/listo/entregar, comanda bloqueada, solicitud de cuenta, efectivo Bs 60 con cambio Bs 5, mesa libre, Caja Bs 55 y efectivo esperado Bs 255, Historial y Reportes Bs 55. Otra comanda de Lomo redujo insumo 18 500 a 18 220 g y papas 45 000 a 44 800 g. Studio mostró la misma orden y reaccionó al nombre y colores claros.
+- Suites: typecheck, test:restaurant (10), test:cash (1), test:platform (21), test:distribution (55), build:emulator y git diff --check aprobaron. Build normal exige variables Firebase de producción ausentes. Pendiente: backend tenant/multiusuario, hardware de impresión, confirmación física de impresión. QA visual de Studio embed completado en 390×844 y 768×1024 mediante Chrome aislado; la herramienta de interacción dejó de responder y el flujo interactivo final se realizó antes de esa falla.
+- Lint focal de dominio/proveedor Restaurante aprueba; lint global actualmente reporta 236 errores y 6 avisos heredados, incluidos 11 de CajaView legacy. No se hizo un refactor global fuera de Restaurante.

@@ -1,31 +1,23 @@
-import { useState } from 'react'
 import { CajaView } from '../../components/CajaView'
 import type { CartItem, CatalogCategory, Order, OrderStatus, PaymentMethod, PaymentSummary, Product, ProductExtra } from '../../types'
+import type { RestaurantTable } from '../mocks/restaurantMock'
+import { makeRestaurantOrderItem } from '../../modules/restaurant/domain/restaurantOperations'
 
-export function RestaurantPOS({
-  categories,
-  products,
-  quickExtras,
-  orders,
-  onAddOrder,
-  onSetOrderStatus,
-  onConfirmPayment,
-  enabled = true,
-  tables = [],
-  userRole = 'caja',
-}: {
+export function RestaurantPOS({ categories, products, quickExtras, orders, onAddOrder, onSetOrderStatus, onCancelOrder, onConfirmPayment, enabled = true, tables = [], userRole = 'cashier', userName }: {
   categories: CatalogCategory[]
   products: Product[]
   quickExtras: ProductExtra[]
   orders: Order[]
-  onAddOrder: (newOrder: Order) => void
+  onAddOrder: (order: Order) => boolean
   onSetOrderStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
-  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }) => void
+  onCancelOrder: (orderId: string) => Promise<boolean>
+  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
   enabled?: boolean
-  tables?: string[]
+  tables?: RestaurantTable[]
   userRole?: string
+  userName: string
 }) {
-  const [localOrders, setLocalOrders] = useState<Order[]>(orders)
+  const nextSeq = Math.max(44, ...orders.map(order => order.sequence || 0)) + 1
 
   const handleSubmitOrder = async (input: {
     cartItems: CartItem[]
@@ -36,108 +28,52 @@ export function RestaurantPOS({
     expectedPaymentMethod: PaymentMethod | null
     orderSource: 'local' | 'whatsapp'
     fulfillmentType: 'table' | 'pickup' | 'delivery'
+    tableId?: string
     tableInfo?: string
     customerName?: string
     customerPhone?: string
     deliveryAddress?: string
-    createdBy?: string
   }): Promise<boolean> => {
     if (!enabled) return false
-    const nextSeq = localOrders.length + 45
-    const orderNumber = String(nextSeq).padStart(3, '0')
-
-    const items = input.cartItems.map((item) => {
-      const prod = input.productsById.get(item.productId)
-      const basePrice = prod?.price || 0
-      return {
-        id: item.lineId,
-        productId: item.productId,
-        name: prod?.name || 'Producto',
-        basePrice,
-        quantity: item.quantity,
-        lineTotal: basePrice * item.quantity,
-        modifiers: item.modifiers,
-      }
+    const at = new Date().toISOString()
+    const items = input.cartItems.flatMap(item => {
+      const product = input.productsById.get(item.productId)
+      return product ? [makeRestaurantOrderItem(product, { id: item.lineId, quantity: item.quantity, modifiers: item.modifiers }, at)] : []
     })
-
-    const total = items.reduce((sum, it) => sum + it.lineTotal, 0)
-
-    const newOrder: Order = {
-      id: `ord-${Date.now()}`,
-      sequence: nextSeq,
-      displayNumber: orderNumber,
-      status: 'pending',
-      orderSource: input.orderSource,
-      fulfillmentType: input.fulfillmentType,
-      tableInfo: input.tableInfo || (input.fulfillmentType === 'table' ? 'Mesa 1' : ''),
-      customerName: input.customerName || 'Cliente',
-      customerPhone: input.customerPhone,
-      deliveryAddress: input.deliveryAddress,
-      total,
-      productSubtotal: total,
-      payment: input.payment,
-      paymentStatus: input.paymentStatus,
-      paymentMethod: input.paymentMethod,
-      expectedPaymentMethod: input.expectedPaymentMethod,
-      items,
-      createdAt: new Date().toISOString(),
-      createdBy: input.createdBy || 'Cajero Demo',
+    if (items.length !== input.cartItems.length || !items.length) return false
+    const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
+    const order: Order = {
+      id: crypto.randomUUID(), sequence: nextSeq, displayNumber: String(nextSeq).padStart(3, '0'),
+      status: 'pending', orderSource: input.orderSource, fulfillmentType: input.fulfillmentType,
+      tableId: input.tableId, tableInfo: input.tableInfo,
+      customerName: input.customerName || 'Cliente', customerPhone: input.customerPhone,
+      deliveryAddress: input.deliveryAddress, total, productSubtotal: total,
+      payment: input.payment, paymentStatus: input.paymentStatus,
+      paymentMethod: input.paymentMethod, expectedPaymentMethod: input.expectedPaymentMethod,
+      items, createdAt: at, createdBy: userName,
     }
-
-    setLocalOrders((prev) => [newOrder, ...prev])
-    onAddOrder(newOrder)
-    return true
+    return onAddOrder(order)
   }
 
-  const handleConfirmPayment = async (orderId: string, input: {
-    paymentStatus: 'paid'
-    paymentMethod: PaymentMethod
-    payment: PaymentSummary
-    paidBy: string
-  }): Promise<void> => {
-    const order = localOrders.find((item) => item.id === orderId)
+  const handleConfirmPayment = async (orderId: string, input: { paymentStatus: 'paid'; paymentMethod: PaymentMethod; payment: PaymentSummary; paidBy: string }) => {
+    const order = orders.find(item => item.id === orderId)
     if (!enabled || !order || order.paymentStatus === 'paid') return
-    onConfirmPayment(orderId, { method: input.paymentMethod === 'qr' ? 'qr' : 'cash', received: input.payment.cashReceived })
-    setLocalOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, paymentStatus: 'paid', paymentMethod: input.paymentMethod, payment: input.payment } : o))
-    )
+    const { payment } = input
+    onConfirmPayment(orderId, { method: input.paymentMethod === 'mixed' ? 'mixed' : input.paymentMethod === 'qr' ? 'qr' : input.paymentMethod === 'card' ? 'card' : 'cash', received: payment.cashReceived, cashAmount: payment.cashAmount, qrAmount: payment.qrAmount, cardAmount: payment.cardAmount })
   }
 
-  const handleCancelOrder = async (orderId: string): Promise<boolean> => {
-    setLocalOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: 'cancelled' } : o))
-    )
-    return true
-  }
-
-  const handleDeleteOrder = async (orderId: string): Promise<void> => {
-    setLocalOrders((prev) => prev.filter((o) => o.id !== orderId))
-  }
-
-  const handleUpdateOrder = async (): Promise<void> => {}
-
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
-      {!enabled && <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">Debes iniciar un turno antes de realizar operaciones.</div>}
-      <CajaView
-        nextOrderNumber={String(localOrders.length + 45).padStart(3, '0')}
-        categories={categories}
-        products={products}
-        quickExtras={quickExtras}
-        orders={localOrders}
-        userRole={userRole}
-        userId="demo-cashier-id"
-        userName="Cajero Bistró Demo"
-        onSubmitOrder={handleSubmitOrder}
-        onConfirmPayment={handleConfirmPayment}
-        onCancelOrder={handleCancelOrder}
-        onDeleteOrder={handleDeleteOrder}
-        onUpdateOrder={handleUpdateOrder}
-        onSetOrderStatus={onSetOrderStatus}
-        onConfirmDemoPayment={onConfirmPayment}
-        operationsDisabled={!enabled}
-        restaurantTables={tables}
-      />
-    </div>
-  )
+  return <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+    {!enabled && <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">Debes iniciar un turno antes de realizar operaciones.</div>}
+    <CajaView
+      nextOrderNumber={String(nextSeq).padStart(3, '0')}
+      categories={categories} products={products} quickExtras={quickExtras} orders={orders}
+      userRole={userRole} userId="demo-cashier-id" userName={userName}
+      onSubmitOrder={handleSubmitOrder} onConfirmPayment={handleConfirmPayment}
+      onCancelOrder={async orderId => onCancelOrder(orderId)}
+      onDeleteOrder={async orderId => { await onCancelOrder(orderId) }}
+      onUpdateOrder={async () => { throw new Error('Las correcciones de una cuenta de mesa se realizan con nuevas líneas desde Mesas.') }}
+      onSetOrderStatus={onSetOrderStatus}
+      operationsDisabled={!enabled} restaurantTables={tables} botManagementEnabled={false} orderEditingEnabled={false}
+    />
+  </div>
 }

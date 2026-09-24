@@ -13,6 +13,7 @@ import {
   ShoppingBag,
   Truck,
   Coins,
+  CreditCard,
   QrCode,
   Shuffle,
   CheckCircle2,
@@ -46,6 +47,8 @@ function formatExtrasList(extras: any[]) {
     .join(', ')
 }
 import { botApiUrl, botAdminToken, emitBotHealthChanged, fetchBotHealth, fetchBotSettings, onBotHealthChanged, saveBotSettings, setBotAcceptingOrders } from '../lib/botApi'
+import type { RestaurantTable } from '../demo/mocks/restaurantMock'
+import { selectRestaurantProducts } from '../modules/restaurant/domain/restaurantOperations'
 
 const DEFAULT_PREP_DELAY = 10
 const DEMAND_STORAGE_KEY = 'pachax:demand-delay'
@@ -120,6 +123,8 @@ export function CajaView({
   onSetOrderStatus,
   operationsDisabled = false,
   restaurantTables = [],
+  botManagementEnabled = true,
+  orderEditingEnabled = true,
   onConfirmDemoPayment,
 }: {
   nextOrderNumber: string
@@ -139,6 +144,7 @@ export function CajaView({
     expectedPaymentMethod: PaymentMethod | null
     orderSource: 'local' | 'whatsapp'
     fulfillmentType: 'table' | 'pickup' | 'delivery'
+    tableId?: string
     tableInfo?: string
     customerName?: string
     customerPhone?: string
@@ -169,8 +175,10 @@ export function CajaView({
   }) => Promise<void>
   onSetOrderStatus: (orderId: string, status: OrderStatus, estimatedDelay?: number, options?: { suppressWhatsappDispatchNotice?: boolean; forceWhatsappDispatchNotice?: boolean }) => Promise<boolean | void>
   operationsDisabled?: boolean
-  restaurantTables?: string[]
-  onConfirmDemoPayment?: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }) => void
+  restaurantTables?: RestaurantTable[]
+  orderEditingEnabled?: boolean
+  botManagementEnabled?: boolean
+  onConfirmDemoPayment?: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
 }) {
   // Main view mode: either POS catalog or orders list
   const [viewMode, setViewMode] = useState<'new_order' | 'orders_list'>('new_order')
@@ -229,7 +237,7 @@ export function CajaView({
     () => categories.filter((category) => category.isActive && category.isVisible).sort((left, right) => left.sortOrder - right.sortOrder),
     [categories],
   )
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(visibleCategories[0]?.id ?? '')
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'catalog' | 'cart'>('catalog')
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null)
@@ -240,12 +248,13 @@ export function CajaView({
   // pagado cuando alguien lo cobra de verdad. El de caja se cobra en el momento, asi que ese si
   // arranca en pagado.
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'pending' | 'gift'>(
-    userRole === 'pedidos' ? 'pending' : 'paid',
+    userRole === 'pedidos' || restaurantTables.length > 0 ? 'pending' : 'paid',
   )
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>('cash')
   const [portalElement, setPortalElement] = useState<HTMLElement | null>(null)
   const [expectedPaymentMethod, setExpectedPaymentMethod] = useState<PaymentMethod | null>(null)
   const [tableInfo, setTableInfo] = useState('')
+  const [tableId, setTableId] = useState('')
   const [cashReceivedInput, setCashReceivedInput] = useState('')
   const [cashSplitInput, setCashSplitInput] = useState('')
 
@@ -254,7 +263,6 @@ export function CajaView({
   const [operationMessage, setOperationMessage] = useState('')
   const submitOrderRef = useRef(false)
   const paidOrderIds = useRef(new Set<string>())
-  void restaurantTables
   const [fastPayMethod, setFastPayMethod] = useState<PaymentMethod>('cash')
   const [fastCashReceived, setFastCashReceived] = useState('')
   const [fastCashSplit, setFastCashSplit] = useState('')
@@ -304,6 +312,7 @@ export function CajaView({
 
 
   useEffect(() => {
+    if (!botManagementEnabled) return
     try {
       const raw = window.localStorage.getItem(DEMAND_STORAGE_KEY)
       if (!raw) return
@@ -318,17 +327,17 @@ export function CajaView({
     } catch {
       clearDemandDelay()
     }
-  }, [])
+  }, [botManagementEnabled])
 
   useEffect(() => {
-    if (!demandDelayUntil) return undefined
+    if (!botManagementEnabled || !demandDelayUntil) return undefined
     const interval = window.setInterval(() => {
       if (new Date(demandDelayUntil).getTime() <= Date.now()) {
         clearDemandDelay()
       }
     }, 15000)
     return () => window.clearInterval(interval)
-  }, [demandDelayUntil])
+  }, [botManagementEnabled, demandDelayUntil])
 
   useEffect(() => {
     const el = document.getElementById('portal-header-controls')
@@ -340,7 +349,7 @@ export function CajaView({
   }, [viewMode])
 
   useEffect(() => {
-    if (!botApiUrl || !botAdminToken) return
+    if (!botManagementEnabled || !botApiUrl || !botAdminToken) return
 
     let isMounted = true
     const refresh = async () => {
@@ -371,25 +380,13 @@ export function CajaView({
       window.clearInterval(interval)
       unsubscribe()
     }
-  }, [])
+  }, [botManagementEnabled])
 
-  const activeCategory = visibleCategories.some((category) => category.id === selectedCategoryId)
+  const activeCategory = selectedCategoryId === 'all' ? 'all' : visibleCategories.some((category) => category.id === selectedCategoryId)
     ? selectedCategoryId
-    : (visibleCategories[0]?.id ?? '')
+    : 'all'
 
-  const visibleProducts = useMemo(
-    () =>
-      products
-        .filter(
-          (product) =>
-            product.categoryId === activeCategory &&
-            product.isActive &&
-            product.isVisible &&
-            product.availability === 'available',
-        )
-        .sort((left, right) => left.sortOrder - right.sortOrder),
-    [activeCategory, products],
-  )
+  const visibleProducts = useMemo(() => selectRestaurantProducts(products, categories, activeCategory), [activeCategory, categories, products])
 
   const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products])
 
@@ -410,6 +407,7 @@ export function CajaView({
   const cashReceived = clampCurrency(cashReceivedInput)
   const mixedCashAmount = Math.min(cartTotal, clampCurrency(cashSplitInput))
   const qrAmount = paymentMethod === 'mixed' ? Math.max(0, cartTotal - mixedCashAmount) : paymentMethod === 'qr' ? cartTotal : 0
+  const cardAmount = paymentMethod === 'card' ? cartTotal : 0
   const cashAmount = paymentMethod === 'cash' ? cartTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0
   const effectiveCashReceived = cashReceivedInput.trim() === '' ? cashAmount : cashReceived
   const change = paymentMethod === 'cash' || paymentMethod === 'mixed' ? Math.max(0, effectiveCashReceived - cashAmount) : 0
@@ -419,6 +417,8 @@ export function CajaView({
       ? cartTotal > 0
       : paymentMethod === 'qr'
         ? cartTotal > 0
+        : paymentMethod === 'card'
+          ? cartTotal > 0
         : paymentMethod === 'cash'
           ? cartTotal > 0
           : paymentMethod === 'mixed'
@@ -433,7 +433,8 @@ export function CajaView({
     method: paymentMethod || 'cash',
     cashAmount: isPendingOrGift ? 0 : cashAmount,
     qrAmount: isPendingOrGift ? 0 : qrAmount,
-    cashReceived: isPendingOrGift ? 0 : (paymentMethod === 'qr' ? 0 : effectiveCashReceived),
+    cardAmount: isPendingOrGift ? 0 : cardAmount,
+    cashReceived: isPendingOrGift ? 0 : (paymentMethod === 'qr' || paymentMethod === 'card' ? 0 : effectiveCashReceived),
     change: isPendingOrGift ? 0 : change,
   })
 
@@ -674,6 +675,7 @@ export function CajaView({
     setOrderSource(order.orderSource || 'local')
     setFulfillmentType(order.fulfillmentType || (order.orderType === 'delivery' ? 'delivery' : 'table'))
     setTableInfo(order.tableInfo || '')
+    setTableId(order.tableId || restaurantTables.find(table => table.name === order.tableInfo)?.id || '')
     setCustomerName(order.customerName || '')
     setCustomerPhone(order.customerPhone || '')
     setDeliveryAddress(order.deliveryAddress || '')
@@ -702,7 +704,8 @@ export function CajaView({
     setCustomerPhone('')
     setDeliveryAddress('')
     setTableInfo('')
-    setPaymentStatus(userRole === 'pedidos' ? 'pending' : 'paid')
+    setTableId('')
+    setPaymentStatus(userRole === 'pedidos' || restaurantTables.length > 0 ? 'pending' : 'paid')
     setPaymentMethod('cash')
     setExpectedPaymentMethod(null)
     setCashReceivedInput('')
@@ -710,7 +713,7 @@ export function CajaView({
     setShowCheckoutModal(false)
   }
 
-  const controlsContent = (
+  const controlsContent = botManagementEnabled ? (
     <div className="flex flex-wrap items-center gap-2">
       {/* Botón de Pausar/Reanudar y Delivery/Solo Recojo */}
       <div className="flex items-center rounded-xl border border-line bg-white p-1 gap-1 shadow-sm shrink-0">
@@ -778,7 +781,7 @@ export function CajaView({
         ) : null}
       </div>
     </div>
-  )
+  ) : null
 
   return (
     <div className={`space-y-4 ${showCheckoutModal && viewMode === 'new_order' ? 'lg:pr-[430px]' : ''}`}>
@@ -870,7 +873,7 @@ export function CajaView({
             <>
               {/* POS Categories & Catalog */}
               <div className="flex flex-wrap gap-2 pb-2 overflow-x-auto no-scrollbar">
-                {visibleCategories.map((category) => {
+                {[{ id: 'all', name: 'Todos', emoji: '', sortOrder: -1, isActive: true, isVisible: true }, ...visibleCategories].map((category) => {
                   const isActive = category.id === activeCategory
 
                   return (
@@ -878,7 +881,7 @@ export function CajaView({
                       key={category.id}
                       className={`px-4 py-2 rounded-full text-xs font-black tracking-wider transition shrink-0 shadow-sm ${
                         isActive
-                          ? 'bg-ink text-white'
+                          ? 'bg-[var(--primary)] text-[var(--primary-foreground)]'
                           : 'bg-white border border-line text-ink hover:bg-panel'
                       }`}
                       onClick={() => setSelectedCategoryId(category.id)}
@@ -906,7 +909,7 @@ export function CajaView({
                       </div>
                       
                       <Button
-                        className="w-full px-2.5 py-1.5 h-8 text-[11px] font-black rounded-lg bg-accent hover:bg-accent/95 text-white flex items-center justify-between shadow-sm shrink-0"
+                        className="w-full px-2.5 py-1.5 h-8 text-[11px] font-black rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-95 flex items-center justify-between shadow-sm shrink-0"
                         disabled={operationsDisabled}
                         onClick={() => {
                           const nextItem = buildCartItem(product)
@@ -1397,13 +1400,13 @@ export function CajaView({
                                 Entregado
                               </button>
 
-                              <button
+                              {orderEditingEnabled && <button
                                 type="button"
                                 className="flex items-center justify-center p-1.5 border border-line bg-panel text-muted hover:text-ink rounded-lg text-[10px] font-black transition"
                                 onClick={() => handleEditOrder(order)}
                               >
                                 <FileEdit size={12} />
-                              </button>
+                              </button>}
 
                               <button
                                 type="button"
@@ -1540,13 +1543,13 @@ export function CajaView({
                                 Entregado
                               </button>
 
-                              <button
+                              {orderEditingEnabled && <button
                                 type="button"
                                 className="flex items-center justify-center p-1.5 border border-line bg-panel text-muted hover:text-ink rounded-lg text-[10px] font-black transition"
                                 onClick={() => handleEditOrder(order)}
                               >
                                 <FileEdit size={12} />
-                              </button>
+                              </button>}
 
                               <button
                                 type="button"
@@ -1580,7 +1583,7 @@ export function CajaView({
       {cartItems.length > 0 && !showCheckoutModal && (
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-40 bg-accent hover:bg-accent/90 text-white font-black px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 transition transform hover:scale-105 active:scale-95 border border-white/20"
+          className="fixed bottom-4 right-4 z-40 bg-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-95 font-black px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 transition transform hover:scale-105 active:scale-95 border border-white/20"
           disabled={operationsDisabled}
           onClick={() => { if (operationsDisabled) { setOperationMessage('Debes iniciar un turno antes de realizar operaciones.'); return } setShowCheckoutModal(true) }}
         >
@@ -1721,7 +1724,7 @@ export function CajaView({
                                     <button
                                       key={option.id}
                                       type="button"
-                                      className={`rounded-full px-2 py-0.5 text-[11px] transition font-semibold ${isSelected ? 'bg-accent text-white shadow-sm' : 'bg-canvas text-ink hover:bg-accentSoft'}`}
+                                      className={`rounded-full px-2 py-0.5 text-[11px] transition font-semibold ${isSelected ? 'bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm' : 'bg-canvas text-ink hover:bg-accentSoft'}`}
                                       onClick={() =>
                                         updateItem(item.lineId, (cur) => ({
                                           ...cur,
@@ -1896,7 +1899,7 @@ export function CajaView({
                             key={option.id}
                             type="button"
                             className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition flex items-center justify-center gap-1.5 ${isActive ? activeStyles : 'border-line bg-panel/80 text-ink hover:bg-panel'}`}
-                            onClick={() => setFulfillmentType(option.id)}
+                            onClick={() => { setFulfillmentType(option.id); if (option.id === 'table' && restaurantTables.length) { setPaymentStatus('pending'); setPaymentMethod(null) } }}
                           >
                             <Icon size={13} />
                             {option.label.toUpperCase()}
@@ -1907,12 +1910,11 @@ export function CajaView({
                   </div>
                   {fulfillmentType === 'table' ? (
                     <div className="mt-1.5">
-                      <input
+                      {restaurantTables.length ? <select
                         className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
-                        placeholder="Mesa (ej: 4, Terraza 2)"
-                        value={tableInfo}
-                        onChange={(e) => setTableInfo(e.target.value)}
-                      />
+                        value={tableId}
+                        onChange={(e) => { const selected = restaurantTables.find(table => table.id === e.target.value); setTableId(selected?.id || ''); setTableInfo(selected?.name || '') }}
+                      ><option value="">Seleccionar mesa</option>{restaurantTables.map(table => <option key={table.id} value={table.id} disabled={table.status === 'bill_requested' || table.status === 'reserved'}>{table.name} — {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse · reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}</option>)}</select> : <input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink" placeholder="Mesa" value={tableInfo} onChange={e => setTableInfo(e.target.value)} />}
                     </div>
                   ) : null}
                 </div>
@@ -1960,6 +1962,7 @@ export function CajaView({
                         <button
                           key={option.id}
                           type="button"
+                          disabled={fulfillmentType === 'table' && restaurantTables.length > 0 && option.id !== 'pending'}
                           className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition ${isActive
                             ? option.id === 'paid'
                               ? 'border-[#10b981] bg-[#10b981] text-white shadow-sm'
@@ -1986,6 +1989,7 @@ export function CajaView({
                         {[
                           { id: 'cash', label: 'Efectivo', icon: Coins },
                           { id: 'qr', label: 'QR', icon: QrCode },
+                          ...(restaurantTables.length > 0 ? [{ id: 'card', label: 'Tarjeta', icon: CreditCard }] : []),
                           { id: 'mixed', label: 'Mixto', icon: Shuffle },
                         ].map((option) => {
                           const isActive = paymentMethod === option.id
@@ -2115,7 +2119,7 @@ export function CajaView({
                 <Button
                   size="lg"
                   className="shadow-xl shadow-accent/20 shrink-0"
-                  disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || submitOrderRef.current}
+                  disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && restaurantTables.length > 0 && !tableId) || submitOrderRef.current}
                   onClick={async () => {
                     if (operationsDisabled || submitOrderRef.current) { setOperationMessage('Debes iniciar un turno antes de realizar operaciones.'); return }
                     submitOrderRef.current = true
@@ -2136,12 +2140,13 @@ export function CajaView({
                     const payload = {
                       cartItems,
                       productsById,
-                      payment: buildPaymentSummary(),
-                      paymentStatus,
-                      paymentMethod,
+                      payment: fulfillmentType === 'table' && restaurantTables.length ? { method: 'cash' as const, cashAmount: 0, qrAmount: 0, cashReceived: 0, change: 0 } : buildPaymentSummary(),
+                      paymentStatus: fulfillmentType === 'table' && restaurantTables.length ? 'pending' as const : paymentStatus,
+                      paymentMethod: fulfillmentType === 'table' && restaurantTables.length ? null : paymentMethod,
                       expectedPaymentMethod,
                       orderSource,
                       fulfillmentType,
+                      tableId: fulfillmentType === 'table' ? tableId : undefined,
                       tableInfo: fulfillmentType === 'table' ? tableInfo.trim() : '',
                       customerName: nombreFinal,
                       customerPhone: telefonoFinal,
@@ -2232,13 +2237,14 @@ export function CajaView({
 
                       setCartItems([])
                       setExpandedLineId(null)
-                      setPaymentStatus('paid')
+                      setPaymentStatus(userRole === 'pedidos' || restaurantTables.length > 0 ? 'pending' : 'paid')
                       setPaymentMethod('cash')
                       setCashReceivedInput('')
                       setCashSplitInput('')
                       setFulfillmentType(userRole === 'pedidos' ? 'pickup' : 'table')
                       setOrderSource(userRole === 'pedidos' ? 'whatsapp' : 'local')
                       setTableInfo('')
+                      setTableId('')
                       setCustomerName('')
                       setCustomerPhone('')
                       setDeliveryAddress('')

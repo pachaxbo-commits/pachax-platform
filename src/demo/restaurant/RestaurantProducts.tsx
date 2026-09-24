@@ -1,131 +1,21 @@
 import { useState } from 'react'
-import { Eye, EyeOff, Tag, Search } from 'lucide-react'
-import type { CatalogCategory, Product } from '../../types'
+import { Eye, MoreHorizontal, Pencil, Plus, Search, Tag, Trash2 } from 'lucide-react'
+import { Modal } from '../../components/ui/Modal'
+import { Field, NumberInput, SelectInput, TextArea, TextInput } from '../../components/ui/Form'
+import type { CatalogCategory, Order, Product } from '../../types'
 
-export function RestaurantProducts({
-  categories,
-  products,
-  onToggleProductActive,
-}: {
-  categories: CatalogCategory[]
-  products: Product[]
-  onToggleProductActive: (productId: string) => void
-}) {
-  const [selectedCat, setSelectedCat] = useState<string>('all')
-  const [searchTerm, setSearchTerm] = useState('')
+type ProductType = 'prepared' | 'ingredient' | 'beverage'
+const categoryNames = ['Entradas', 'Platos principales', 'Bebidas', 'Postres']
 
-  const filtered = products.filter((p) => {
-    if (selectedCat !== 'all' && p.categoryId !== selectedCat) return false
-    if (!searchTerm.trim()) return true
-    return (
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase()))
-    )
-  })
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Catálogo de Productos y Platos</h1>
-          <p className="text-sm text-slate-500">Gestión de menú, precios y disponibilidad en salón</p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Buscar plato o bebida..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400 w-52"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Category Pills */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setSelectedCat('all')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
-            selectedCat === 'all'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          Todos ({products.length})
-        </button>
-        {categories.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setSelectedCat(c.id)}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
-              selectedCat === c.id
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            {c.name}
-          </button>
-        ))}
-      </div>
-
-      {/* Products Table / Grid */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-              <th className="py-3 px-4">Plato / Producto</th>
-              <th className="py-3 px-4">Categoría</th>
-              <th className="py-3 px-4 text-right">Precio</th>
-              <th className="py-3 px-4 text-center">Estado</th>
-              <th className="py-3 px-4 text-right">Acción</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 text-sm">
-            {filtered.map((p) => {
-              const cat = categories.find((c) => c.id === p.categoryId)
-              return (
-                <tr key={p.id} className="hover:bg-slate-50/70 transition">
-                  <td className="py-3 px-4">
-                    <div className="font-semibold text-slate-900">{p.name}</div>
-                    {p.description && <div className="text-xs text-slate-500 line-clamp-1">{p.description}</div>}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="inline-flex items-center gap-1 text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-                      <Tag className="w-3 h-3 text-slate-400" />
-                      {cat?.name || 'General'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right font-bold text-slate-900">
-                    Bs {p.price.toFixed(2)}
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span
-                      className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                        p.isActive !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
-                      }`}
-                    >
-                      {p.isActive !== false ? 'Activo en salón' : 'Oculto'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => onToggleProductActive(p.id)}
-                      className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
-                      title="Alternar disponibilidad"
-                    >
-                      {p.isActive !== false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
+export function RestaurantProducts({ categories, products, orders, onSaveProducts }: { categories: CatalogCategory[]; products: Product[]; orders: Order[]; onSaveProducts: (products: Product[]) => void }) {
+  const catalog = products
+  const [query, setQuery] = useState(''), [filter, setFilter] = useState<'all' | 'sale' | 'ingredient' | 'beverage'>('all'), [menu, setMenu] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Product | null>(null), [viewing, setViewing] = useState<Product | null>(null), [removing, setRemoving] = useState<Product | null>(null), [notice, setNotice] = useState('')
+  const blank = (): Product => ({ id: '', name: '', description: '', categoryId: categories[0]?.id || 'cat-entradas', price: 0, image: '', availability: 'available', sortOrder: catalog.length, isActive: true, isVisible: true, restaurantType: 'prepared', baseUnit: 'unit' })
+  const [form, setForm] = useState<Product>(blank)
+  const save = onSaveProducts
+  const filtered = catalog.filter(product => (filter === 'sale' ? product.restaurantType !== 'ingredient' : filter === 'ingredient' ? product.restaurantType === 'ingredient' : filter === 'beverage' ? product.restaurantType === 'beverage' : true) && (!query || `${product.name} ${product.description || ''}`.toLowerCase().includes(query.toLowerCase())))
+  const submit = () => { if (!form.name.trim() || !Number.isFinite(form.price) || form.price < 0) { setNotice('Completa nombre y un precio válido.'); return }; const product = { ...form, id: form.id || crypto.randomUUID(), name: form.name.trim(), description: form.description?.trim(), categoryId: form.categoryId || categories[0]?.id || 'cat-entradas' }; save(form.id ? catalog.map(item => item.id === product.id ? product : item) : [...catalog, product]); setEditing(null); setNotice(form.id ? 'Producto actualizado correctamente.' : 'Producto creado correctamente.') }
+  const relationWarning = (product: Product) => !!product.recipe?.length || products.some(item => item.recipe?.some(line => line.ingredientId === product.id)) || orders.some(order => order.items.some(line => line.productId === product.id))
+  return <div className="space-y-6"><header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-slate-900">Catálogo de Productos y Platos</h1><p className="text-sm text-slate-500">Gestión de menú, precios y disponibilidad en salón.</p></div><button onClick={() => { setForm(blank()); setEditing(blank()) }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-bold text-white"><Plus size={16} /> Nuevo producto</button></header>{notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{notice}</p>}<div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="relative flex-1"><Search className="absolute left-3 top-3 text-slate-400" size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar plato o bebida..." className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm" /></div><div className="flex gap-1 overflow-x-auto">{([['all','Todos'],['sale','Venta'],['ingredient','Ingredientes'],['beverage','Bebidas']] as const).map(([id,label]) => <button key={id} onClick={() => setFilter(id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold ${filter === id ? 'bg-teal-500 text-slate-950' : 'bg-slate-100 text-slate-600'}`}>{label}</button>)}</div></div><div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><table className="w-full text-left"><thead><tr className="bg-slate-50 text-xs uppercase text-slate-500"><th className="p-3">Producto</th><th className="p-3">Categoría</th><th className="p-3 text-right">Precio</th><th className="p-3 text-center">Estado</th><th className="p-3" /></tr></thead><tbody className="divide-y">{filtered.map(product => { const cat = categories.find(item => item.id === product.categoryId); return <tr key={product.id}><td className="p-3"><strong className="block text-sm">{product.name}</strong><span className="text-xs text-slate-500">{product.restaurantType === 'ingredient' ? 'Ingrediente' : product.restaurantType === 'beverage' ? 'Bebida' : 'Venta'}{product.description ? ` · ${product.description}` : ''}</span></td><td className="p-3 text-xs"><span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1"><Tag size={12} />{cat?.name || categoryNames.find(name => name.toLowerCase() === product.categoryId) || 'General'}</span></td><td className="p-3 text-right text-sm font-bold">Bs {product.price.toFixed(2)}</td><td className="p-3 text-center"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${product.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{product.isActive ? 'Activo en salón' : 'No disponible'}</span></td><td className="relative p-3 text-right"><button onClick={() => setMenu(menu === product.id ? null : product.id)} className="rounded-lg p-2 hover:bg-slate-100"><MoreHorizontal size={17} /></button>{menu === product.id && <div className="absolute right-3 top-10 z-10 grid w-32 rounded-xl border bg-white p-1 shadow-lg"><button onClick={() => { setViewing(product); setMenu(null) }} className="flex gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><Eye size={14} /> Ver</button><button onClick={() => { setForm(product); setEditing(product); setMenu(null) }} className="flex gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"><Pencil size={14} /> Editar</button><button onClick={() => { setRemoving(product); setMenu(null) }} className="flex gap-2 rounded-lg p-2 text-xs text-rose-700 hover:bg-rose-50"><Trash2 size={14} /> Eliminar</button></div>}</td></tr> })}</tbody></table></div><Modal isOpen={!!editing} onClose={() => setEditing(null)} title={form.id ? 'Editar producto' : 'Nuevo producto'} footer={<button onClick={submit} className="w-full rounded-xl bg-slate-900 p-3 font-bold text-white">Guardar producto</button>}><div className="grid gap-3"><Field label="Nombre" required><TextInput value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></Field><Field label="Descripción"><TextArea value={form.description || ''} onChange={event => setForm({ ...form, description: event.target.value })} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Categoría"><SelectInput value={form.categoryId} onChange={event => setForm({ ...form, categoryId: event.target.value })}>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</SelectInput></Field><Field label="Precio" required><NumberInput min="0" step="0.01" value={form.price} onChange={event => setForm({ ...form, price: Number(event.target.value) })} /></Field></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Tipo"><SelectInput value={form.restaurantType || 'prepared'} onChange={event => setForm({ ...form, restaurantType: event.target.value as ProductType })}><option value="prepared">Venta</option><option value="ingredient">Ingrediente</option><option value="beverage">Bebida</option></SelectInput></Field><Field label="Unidad"><SelectInput value={form.baseUnit || 'unit'} onChange={event => setForm({ ...form, baseUnit: event.target.value as Product['baseUnit'] })}><option value="unit">Unidad</option><option value="g">g</option><option value="ml">ml</option></SelectInput></Field></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Área de preparación"><SelectInput value={form.preparationArea || "Cocina"} onChange={event => setForm({ ...form, preparationArea: event.target.value as Product["preparationArea"] })}><option>Cocina</option><option>Barra</option><option>Otro</option></SelectInput></Field><Field label="Disponibilidad"><SelectInput value={form.availability} onChange={event => setForm({ ...form, availability: event.target.value as Product["availability"] })}><option value="available">Disponible</option><option value="soldout">Agotado</option></SelectInput></Field></div><div className="flex gap-4"><label className="flex gap-2 text-sm font-semibold"><input type="checkbox" checked={form.isActive} onChange={event => setForm({ ...form, isActive: event.target.checked })} /> Activo</label><label className="flex gap-2 text-sm font-semibold"><input type="checkbox" checked={form.isVisible} onChange={event => setForm({ ...form, isVisible: event.target.checked })} /> Visible en ventas</label></div></div></Modal><Modal isOpen={!!viewing} onClose={() => setViewing(null)} title={viewing?.name || 'Producto'}><dl className="grid gap-3 text-sm"><div><dt className="text-xs text-slate-500">Descripción</dt><dd>{viewing?.description || 'Sin descripción'}</dd></div><div><dt className="text-xs text-slate-500">Precio</dt><dd>Bs {viewing?.price.toFixed(2)}</dd></div><div><dt className="text-xs text-slate-500">Tipo</dt><dd>{viewing?.restaurantType || 'Venta'}</dd></div></dl></Modal><Modal isOpen={!!removing} onClose={() => setRemoving(null)} title="Eliminar producto" footer={<div className="grid grid-cols-2 gap-2"><button onClick={() => setRemoving(null)} className="rounded-xl border p-3 font-bold">Cancelar</button><button disabled={!!removing && relationWarning(removing)} onClick={() => { if (removing) { save(catalog.filter(item => item.id !== removing.id)); setRemoving(null); setNotice('Producto eliminado.') } }} className="rounded-xl bg-rose-700 p-3 font-bold text-white disabled:opacity-40">Eliminar</button></div>}><p className="text-sm">¿Seguro que deseas eliminar <strong>{removing?.name}</strong>?</p>{removing && relationWarning(removing) && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Este producto tiene relaciones de inventario o receta. No se puede eliminar para evitar referencias rotas.</p>}</Modal></div>
 }

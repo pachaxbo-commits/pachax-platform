@@ -2,12 +2,16 @@ import { useState, useRef } from 'react'
 import {
   RESTAURANT_CATEGORIES,
   RESTAURANT_PRODUCTS,
+  RESTAURANT_INVENTORY_PRODUCTS,
+  RESTAURANT_INGREDIENTS,
   RESTAURANT_EXTRAS,
   INITIAL_TABLES,
-  INITIAL_RESTAURANT_ORDERS,
   type RestaurantTable,
 } from '../mocks/restaurantMock'
 import type { Order, OrderStatus, Product } from '../../types'
+import { consumePrintedBatch, type RestaurantStockMovement } from '../../modules/restaurant/domain/restaurantEngine'
+import { calculateCashShiftSummary, type CashMovement } from '../../modules/restaurant/domain/cashEngine'
+import { cancelRestaurantOrder, completeRestaurantPayment, placeRestaurantOrder, reconcileTableOrders, resolveOrderTable } from '../../modules/restaurant/domain/restaurantOperations'
 import {
   RestaurantExperience,
   type RestaurantSession,
@@ -26,7 +30,8 @@ type AuditEvent = {
 }
 type Batch = { id: string; sequence: number; createdAt: string; printedAt?: string; itemIds: string[] }
 
-const STORAGE_KEY = 'pachax:restaurant-demo:operations:v1'
+const STORAGE_KEY = 'pachax:restaurant-demo:operations:v2'
+const LEGACY_KEY = 'pachax:restaurant-demo:operations:v1'
 
 function readSaved<T>(key: string, fallback: T): T {
   try {
@@ -35,6 +40,44 @@ function readSaved<T>(key: string, fallback: T): T {
   } catch {
     return fallback
   }
+}
+
+function loadInitialState() {
+  const hasCurrent = localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) === '2'
+  const source = hasCurrent ? STORAGE_KEY : LEGACY_KEY
+  const hadOrders = localStorage.getItem(`${source}:orders`) !== null
+  const savedOrders = readSaved<Order[]>(`${source}:orders`, [])
+  const savedTables = hadOrders
+    ? readSaved<RestaurantTable[]>(`${source}:tables`, INITIAL_TABLES)
+    : INITIAL_TABLES.map(table => ({ ...table, status: 'available' as const, activeOrderId: undefined, openedAt: undefined, openedBy: undefined, diners: undefined }))
+  const reconciled = reconcileTableOrders(savedOrders, normalizeLegacyTables(savedTables, savedOrders))
+  const legacyCatalog = readSaved<Product[]>(`${source}:products`, RESTAURANT_PRODUCTS)
+  const catalogCrud = hasCurrent ? [] : readSaved<Product[]>('pachax:restaurant-demo:catalog-crud:v1', [])
+  const catalog = (catalogCrud.length ? catalogCrud : legacyCatalog).map(product => {
+    const fixture = RESTAURANT_PRODUCTS.find(item => item.id === product.id)
+    return fixture ? { ...fixture, ...product, recipe: product.recipe || fixture.recipe, preparationArea: product.preparationArea || fixture.preparationArea, restaurantType: product.restaurantType || fixture.restaurantType } : product
+  })
+  const legacyInventory = hasCurrent ? [] : readSaved<typeof RESTAURANT_INGREDIENTS>('pachax:restaurant-demo:inventory-crud:v1', [])
+  const ingredients = RESTAURANT_INVENTORY_PRODUCTS.map(product => {
+    const current = catalog.find(item => item.id === product.id)
+    if (current) return current
+    const saved = legacyInventory.find(item => item.id === product.id)
+    const factor = product.baseUnit === 'g' ? 1000 : 1
+    return saved ? { ...product, stockBase: saved.currentStock * factor, minimumStockBase: saved.minStock * factor, unitCost: saved.unitCost / factor } : product
+  })
+  const products = [...catalog.filter(product => product.restaurantType !== 'ingredient'), ...ingredients, ...catalog.filter(product => product.restaurantType === 'ingredient' && !ingredients.some(item => item.id === product.id))]
+  const normalizedOrders = reconciled.orders.map(order => ({ ...order, items: order.items.map(line => ({ ...line, productArea: line.productArea || products.find(product => product.id === line.productId)?.preparationArea || 'Cocina' })) }))
+  const seeded = hasCurrent ? readSaved<boolean>(`${STORAGE_KEY}:seeded`, false) : false
+  const state = { ...reconciled, orders: normalizedOrders, products, shift: readSaved<Shift | null>(`${source}:shift`, null), stockMovements: readSaved<RestaurantStockMovement[]>(`${source}:stock-movements`, []), audit: readSaved<AuditEvent[]>(`${source}:audit`, []), seeded }
+  if (!hasCurrent) {
+    for (const key of ['orders', 'tables', 'products', 'shift', 'stockMovements', 'audit'] as const) {
+      const storageName = key === 'stockMovements' ? 'stock-movements' : key
+      localStorage.setItem(`${STORAGE_KEY}:${storageName}`, JSON.stringify(state[key]))
+    }
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '2')
+    localStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
+  }
+  return state
 }
 
 function normalizeLegacyTables(input: RestaurantTable[], existingOrders: Order[]): RestaurantTable[] {
@@ -46,7 +89,7 @@ function normalizeLegacyTables(input: RestaurantTable[], existingOrders: Order[]
     const orderExists = existingOrders.some(
       (order) =>
         order.id === table.activeOrderId ||
-        (order.tableInfo === table.name &&
+        (resolveOrderTable(order, input)?.id === table.id &&
           order.paymentStatus !== 'paid' &&
           order.status !== 'cancelled')
     )
@@ -69,22 +112,14 @@ export function RestaurantDemo({
   logoUrl?: string
   companyName?: string
 }) {
-  const [savedOrders, setSavedOrders] = useState<Order[]>(() =>
-    readSaved(`${STORAGE_KEY}:orders`, INITIAL_RESTAURANT_ORDERS)
-  )
-  const [orders, setOrders] = useState<Order[]>(() =>
-    savedOrders.length ? savedOrders : INITIAL_RESTAURANT_ORDERS
-  )
-  const [tables, setTables] = useState<RestaurantTable[]>(() =>
-    readSaved(`${STORAGE_KEY}:tables`, INITIAL_TABLES)
-  )
-  const [products, setProducts] = useState<Product[]>(() =>
-    readSaved(`${STORAGE_KEY}:products`, RESTAURANT_PRODUCTS)
-  )
-  const [shift, setShift] = useState<Shift | null>(() =>
-    readSaved<Shift | null>(`${STORAGE_KEY}:shift`, null)
-  )
-  const [audit, setAudit] = useState<AuditEvent[]>(() => readSaved(`${STORAGE_KEY}:audit`, []))
+  const [initial] = useState(loadInitialState)
+  const seededRef = useRef(initial.seeded)
+  const [orders, setOrders] = useState<Order[]>(initial.orders)
+  const [tables, setTables] = useState<RestaurantTable[]>(initial.tables)
+  const [products, setProducts] = useState<Product[]>(initial.products)
+  const [stockMovements, setStockMovements] = useState<RestaurantStockMovement[]>(initial.stockMovements)
+  const [shift, setShift] = useState<Shift | null>(initial.shift)
+  const [audit, setAudit] = useState<AuditEvent[]>(initial.audit)
   const [cashierName, setCashierName] = useState(
     `Cajero ${simulatedRole === 'waiter' ? 'Ana' : 'Bistró Demo'}`
   )
@@ -99,19 +134,6 @@ export function RestaurantDemo({
     }
   }
 
-  const [legacyTablesMigrated, setLegacyTablesMigrated] = useState(false)
-  if (!legacyTablesMigrated) {
-    setLegacyTablesMigrated(true)
-    const hasSavedTables = localStorage.getItem(`${STORAGE_KEY}:tables`)
-    const hasSavedOrders = localStorage.getItem(`${STORAGE_KEY}:orders`)
-    if (hasSavedTables && !hasSavedOrders) {
-      const reconciled = normalizeLegacyTables(tables, orders)
-      if (JSON.stringify(reconciled) !== JSON.stringify(tables)) {
-        setTables(reconciled)
-        persist('tables', reconciled)
-      }
-    }
-  }
 
   const record = (event: Omit<AuditEvent, 'id' | 'actor' | 'at'>) => {
     setAudit((prev) => {
@@ -152,7 +174,7 @@ export function RestaurantDemo({
 
   const handleAdvanceStatus = async (orderId: string, status: OrderStatus): Promise<boolean> => {
     const order = orders.find((item) => item.id === orderId)
-    if (!order || !shift || order.paymentStatus === 'paid') return false
+    if (!order || !shift || order.status === 'cancelled') return false
     const at = new Date().toISOString()
     const previousStatus = order.status
     updateOrders((previous) =>
@@ -166,6 +188,7 @@ export function RestaurantDemo({
               deliveredAt: status === 'delivered' ? at : item.deliveredAt,
               items: item.items.map((line) => ({
                 ...line,
+                status: status === 'preparing' ? 'preparing' : status === 'ready' ? 'ready' : status === 'delivered' ? 'delivered' : line.status,
                 createdAt: line.createdAt || item.createdAt,
                 startedAt: status === 'preparing' ? line.startedAt || at : line.startedAt,
                 readyAt: status === 'ready' ? at : line.readyAt,
@@ -192,7 +215,7 @@ export function RestaurantDemo({
       return
     const product = products.find((item) => item.id === input.productId)
     const current = orders.find((item) => item.id === orderId)
-    if (!product || !current || current.paymentStatus === 'paid') return
+    if (!product || !product.isActive || !product.isVisible || product.availability !== 'available' || !current || current.paymentStatus === 'paid' || current.accountStatus === 'bill_requested') return
     submissionLock.current = true
     try {
       const at = new Date().toISOString()
@@ -243,32 +266,30 @@ export function RestaurantDemo({
     orderLocks.current.add(orderId)
     const existing = (current.submittedBatches as Batch[] | undefined) || []
     const timestamp = new Date().toISOString()
-    const savedBatch: Batch = {
-      id: crypto.randomUUID(),
-      sequence: existing.length + 1,
-      createdAt: timestamp,
-      itemIds: [],
-    }
-    updateOrders((previous) =>
-      previous.map((order) =>
-        order.id === orderId ? { ...order, submittedBatches: [...existing, savedBatch] } : order
-      )
-    )
     const locked = new Set(existing.flatMap((batch) => batch.itemIds))
     const lines = current.items.filter((item) => !locked.has(item.id))
     if (!lines.length) {
       orderLocks.current.delete(orderId)
-      window.print()
       return
     }
     const at = new Date().toISOString()
     const batch: Batch = {
-      id: savedBatch.id,
-      sequence: savedBatch.sequence,
-      createdAt: savedBatch.createdAt,
+      id: crypto.randomUUID(),
+      sequence: existing.length + 1,
+      createdAt: timestamp,
       printedAt: at,
       itemIds: lines.map((item) => item.id),
     }
+    const consumption = consumePrintedBatch(
+      { ...current, submittedBatches: [...existing, batch] },
+      batch.id,
+      products,
+      stockMovements,
+      at
+    )
+    updateProducts(() => consumption.products)
+    setStockMovements(consumption.movements)
+    persist('stock-movements', consumption.movements)
     updateOrders((previous) =>
       previous.map((order) =>
         order.id === orderId ? { ...order, submittedBatches: [...existing, batch] } : order
@@ -374,7 +395,7 @@ export function RestaurantDemo({
   }
 
   const createOrderForTable = (table: RestaurantTable, firstProduct?: Product) => {
-    if (!shift || submissionLock.current) return
+    if (!shift || table.activeOrderId || table.status === 'bill_requested' || table.status === 'reserved') return
     const seq = Math.max(0, ...orders.map((order) => order.sequence || 0)) + 1
     const at = new Date().toISOString()
     const lines = firstProduct
@@ -402,6 +423,7 @@ export function RestaurantDemo({
       status: 'pending',
       orderSource: 'local',
       fulfillmentType: 'table',
+      tableId: table.id,
       tableInfo: table.name,
       customerName: (table as RestaurantTable & { customerName?: string }).customerName || '',
       total,
@@ -443,25 +465,35 @@ export function RestaurantDemo({
   }
 
   const handleCancelOrder = async (orderId: string): Promise<boolean> => {
-    if (!orders.some((item) => item.id === orderId && item.paymentStatus !== 'paid')) return false
-    updateOrders((previous) =>
-      previous.map((item) =>
-        item.id === orderId
-          ? {
-              ...item,
-              status: 'cancelled',
-              cancelledAt: new Date().toISOString(),
-              cancelledBy: cashierName,
-            }
-          : item
-      )
-    )
-    record({ type: 'order_cancelled', orderId })
+    if (orderLocks.current.has(orderId)) return false
+    const result = cancelRestaurantOrder(orders, tables, orderId, new Date().toISOString(), cashierName)
+    if (!result) return false
+    orderLocks.current.add(orderId)
+    updateOrders(() => result.orders)
+    updateTables(() => result.tables)
+    record({ type: 'order_cancelled', orderId, tableId: resolveOrderTable(orders.find(item => item.id === orderId)!, tables)?.id })
+    window.setTimeout(() => orderLocks.current.delete(orderId), 800)
     return true
   }
 
-  const handleAddOrder = (order: Order) => {
-    if (!shift || submissionLock.current) return
+  const handleAdvanceItemStatus = async (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered'): Promise<boolean> => {
+    const order = orders.find(item => item.id === orderId)
+    if (!shift || !order || order.status === 'cancelled' || !order.items.some(item => item.id === itemId)) return false
+    const at = new Date().toISOString()
+    updateOrders(previous => previous.map(item => {
+      if (item.id !== orderId) return item
+      const lines = item.items.map(line => line.id === itemId ? { ...line, status, startedAt: status === 'preparing' ? line.startedAt || at : line.startedAt, readyAt: status === 'ready' ? line.readyAt || at : line.readyAt, deliveredAt: status === 'delivered' ? line.deliveredAt || at : line.deliveredAt } : line)
+      const allDelivered = lines.every(line => line.status === 'delivered')
+      const allReady = lines.every(line => line.status === 'ready' || line.status === 'delivered')
+      const preparing = lines.some(line => line.status === 'preparing')
+      return { ...item, items: lines, status: allDelivered ? 'delivered' as const : allReady ? 'ready' as const : preparing ? 'preparing' as const : 'pending' as const, readyAt: allReady ? item.readyAt || at : item.readyAt, deliveredAt: allDelivered ? item.deliveredAt || at : item.deliveredAt }
+    }))
+    record({ type: 'item_status_changed', orderId, tableId: order.tableId, details: { itemId, status } })
+    return true
+  }
+
+  const handleAddOrder = (order: Order): boolean => {
+    if (!shift || submissionLock.current) return false
     submissionLock.current = true
     try {
       const timestamp = new Date().toISOString()
@@ -472,47 +504,32 @@ export function RestaurantDemo({
           products.find((product) => product.id === item.productId)?.preparationArea || 'Cocina',
         status: 'pending' as const,
       }))
-      const table = tables.find((item) => item.name === order.tableInfo)
-      const placed = {
+      const candidate: Order = {
         ...order,
         shiftId: shift.id,
         createdBy: cashierName,
         status: 'pending' as const,
-        paymentStatus: 'pending' as const,
+        paymentStatus: order.fulfillmentType === 'table' ? 'pending' as const : order.paymentStatus,
+        paymentMethod: order.fulfillmentType === 'table' ? null : order.paymentMethod,
         items: ticketItems,
         createdAt: timestamp,
-        submittedBatches: [
-          {
-            id: crypto.randomUUID(),
-            sequence: 1,
-            createdAt: timestamp,
-            printedAt: timestamp,
-            itemIds: ticketItems.map((item) => item.id),
-          },
-        ],
+        paidAt: order.fulfillmentType !== 'table' && order.paymentStatus === 'paid' ? timestamp : undefined,
+        paidBy: order.fulfillmentType !== 'table' && order.paymentStatus === 'paid' ? cashierName : undefined,
+        submittedBatches: [],
       }
-      updateOrders((previous) => [placed, ...previous.filter((item) => item.id !== order.id)])
-      if (table)
-        updateTables((previous) =>
-          previous.map((item) =>
-            item.id === table.id
-              ? {
-                  ...item,
-                  status: 'occupied',
-                  activeOrderId: placed.id,
-                  openedAt: item.openedAt || timestamp,
-                  openedBy: item.openedBy || cashierName,
-                  diners: item.diners || 2,
-                }
-              : item
-          )
-        )
+      const placed = placeRestaurantOrder(orders, tables, candidate)
+      updateOrders(() => placed.orders)
+      updateTables(() => placed.tables)
       record({
-        type: 'order_created',
-        orderId: placed.id,
-        tableId: table?.id,
-        details: { total: placed.total, batch: 1 },
+        type: placed.added ? 'product_added' : 'order_created',
+        orderId: placed.order.id,
+        tableId: placed.order.tableId,
+        details: { total: placed.order.total, itemIds: ticketItems.map(item => item.id) },
       })
+      return true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'No se pudo crear el pedido.')
+      return false
     } finally {
       submissionLock.current = false
     }
@@ -524,6 +541,7 @@ export function RestaurantDemo({
     updateTables((previous) =>
       previous.map((item) => (item.id === tableId ? { ...item, status: 'bill_requested' } : item))
     )
+    updateOrders(previous => previous.map(order => order.id === table.activeOrderId ? { ...order, accountStatus: 'bill_requested' } : order))
     record({ type: 'bill_requested', orderId: table.activeOrderId, tableId })
   }
 
@@ -533,70 +551,38 @@ export function RestaurantDemo({
     updateTables((previous) =>
       previous.map((item) => (item.id === tableId ? { ...item, status: 'occupied' } : item))
     )
+    updateOrders(previous => previous.map(order => order.id === table.activeOrderId ? { ...order, accountStatus: 'open' } : order))
     record({ type: 'bill_reopened', orderId: table.activeOrderId, tableId })
   }
 
   const handlePayment = (
     orderId: string,
-    input: { method: 'cash' | 'qr' | 'card' | 'other'; received: number }
+    input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }
   ) => {
     const order = orders.find((item) => item.id === orderId)
-    const table = tables.find((item) => item.activeOrderId === orderId)
+    const table = order ? resolveOrderTable(order, tables) : undefined
     if (
       !shift ||
       !order ||
       orderLocks.current.has(orderId) ||
       order.paymentStatus === 'paid' ||
-      (input.method === 'cash' && input.received < order.total)
+      order.status === 'cancelled'
     )
       return
     orderLocks.current.add(orderId)
-    const timestamp = new Date().toISOString()
-    const paidOrder: Order = {
-      ...order,
-      status: 'delivered',
-      paymentStatus: 'paid',
-      paymentMethod: input.method === 'qr' ? 'qr' : 'cash',
-      payment: {
-        method: input.method === 'qr' ? 'qr' : 'cash',
-        cashAmount: input.method === 'cash' ? order.total : 0,
-        qrAmount: input.method === 'qr' ? order.total : 0,
-        cashReceived: input.received,
-        change: input.method === 'cash' ? input.received - order.total : 0,
-      },
-      paidAt: timestamp,
-      paidBy: cashierName,
-      closedAt: timestamp,
-      accountStatus: 'closed',
+    let completed = false
+    try {
+      const paid = completeRestaurantPayment(orders, tables, orderId, input, cashierName, new Date().toISOString())
+      updateOrders(() => paid.orders)
+      updateTables(() => paid.tables)
+      record({ type: 'payment_confirmed', orderId, tableId: table?.id, details: { total: order.total, method: input.method, received: input.received, change: paid.order.payment.change } })
+      completed = true
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'No se pudo confirmar el pago.')
+    } finally {
+      if (completed) window.setTimeout(() => orderLocks.current.delete(orderId), 800)
+      else orderLocks.current.delete(orderId)
     }
-    updateOrders((previous) => previous.map((item) => (item.id === orderId ? paidOrder : item)))
-    if (table)
-      updateTables((previous) =>
-        previous.map((item) =>
-          item.id === table.id
-            ? {
-                ...item,
-                status: 'available',
-                activeOrderId: undefined,
-                diners: undefined,
-                openedAt: undefined,
-                openedBy: undefined,
-              }
-            : item
-        )
-      )
-    record({
-      type: 'payment_confirmed',
-      orderId,
-      tableId: table?.id,
-      details: {
-        total: order.total,
-        method: input.method,
-        received: input.received,
-        change: paidOrder.payment.change,
-      },
-    })
-    orderLocks.current.delete(orderId)
   }
 
   const startShift = (openingFloat: number, openedAt: string, openedBy: string) => {
@@ -613,31 +599,33 @@ export function RestaurantDemo({
     persist('shift', next)
     setCashierName(openedBy)
     record({ type: 'shift_opened', details: { openingFloat } })
-    if (savedOrders === INITIAL_RESTAURANT_ORDERS) {
+    if (seededRef.current) {
       updateOrders(() => [])
-      setSavedOrders([])
+      updateTables(previous => previous.map(table => ({ ...table, status: 'available', activeOrderId: undefined, openedAt: undefined, openedBy: undefined, diners: undefined })))
+      seededRef.current = false
+      persist('seeded', false)
     }
   }
 
-  const closeShift = () => {
-    if (!shift || tables.some((table) => table.activeOrderId && table.status !== 'available'))
+  const closeShift = (countedCash?: number) => {
+    if (!shift || countedCash === undefined || !Number.isFinite(countedCash) || countedCash < 0 || tables.some((table) => table.activeOrderId && table.status !== 'available'))
       return false
     const sales = orders.filter((order) => order.shiftId === shift.id && order.paymentStatus === 'paid')
-    const cash = sales.reduce((sum, order) => sum + (order.payment?.cashAmount || 0), 0)
+    const movements = readSaved<CashMovement[]>('pachax:restaurant-demo:cash-movements:v1', [])
+    const summary = calculateCashShiftSummary(shift.openingFloat, sales, shift.id, movements)
     const closed = {
       ...shift,
       closedAt: new Date().toISOString(),
       closedBy: cashierName,
-      expectedCashAtClose: shift.openingFloat + cash,
+      expectedCashAtClose: summary.expectedCash,
       reconciliation: {
         ...shift.reconciliation,
-        countedCash: undefined,
-        difference: undefined,
-        expenses: shift.reconciliation?.expenses ?? 0,
+        countedCash,
+        difference: Math.round((countedCash - summary.expectedCash) * 100) / 100,
+        expenses: summary.totalExpenses,
       },
     }
     setShift(null)
-    setSavedOrders(orders)
     persist('shift-history', [...readSaved<Shift[]>(`${STORAGE_KEY}:shift-history`, []), closed])
     persist('shift', null)
     record({
@@ -692,6 +680,7 @@ export function RestaurantDemo({
       onCloseShift={closeShift}
       onAddOrder={handleAddOrder}
       onAdvanceStatus={handleAdvanceStatus}
+      onAdvanceItemStatus={handleAdvanceItemStatus}
       onCancelOrder={handleCancelOrder}
       onPayment={handlePayment}
       onOpenTableOrder={(table) => {
@@ -703,13 +692,13 @@ export function RestaurantDemo({
       onAddProduct={handleAddTableProduct}
       onPrintBatch={handlePrintBatch}
       onCreateProduct={handleCreateProduct}
-      onToggleProductActive={(id) =>
-        updateProducts((previous) =>
-          previous.map((product) =>
-            product.id === id ? { ...product, isActive: product.isActive === false } : product
-          )
-        )
-      }
+      onSaveProducts={(next) => updateProducts(() => next)}
+      onResetDemo={() => {
+        if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return
+        for (const key of Object.keys(localStorage)) if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
+        localStorage.removeItem('cocina-tickets-impresos')
+        window.location.reload()
+      }}
       onSelectRole={onSelectRole}
       onSignOut={() => {}}
     />
