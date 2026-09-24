@@ -58,6 +58,7 @@ export function createFullRestaurantDataset(): RestaurantDataset {
 
   const fullOrders: Order[] = INITIAL_RESTAURANT_ORDERS.map((o) => ({
     ...o,
+    shiftId: 'shift-demo-01',
     total: o.items.reduce((sum, item) => sum + item.lineTotal, 0),
     productSubtotal: o.items.reduce((sum, item) => sum + item.lineTotal, 0),
     payment: o.payment ? {
