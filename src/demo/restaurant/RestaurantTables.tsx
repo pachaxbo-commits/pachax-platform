@@ -9,7 +9,11 @@ type ProductInput = { productId: string; quantity: number; note: string }
 type SelectedProduct = { productId: string; quantity: number; note: string }
 type Payment = { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const readableTime = (iso?: string) => iso ? new Date(iso).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) : '—'
+const readableTime = (value?: string) => {
+  if (!value) return '—'
+  const date = /^\d{1,2}:\d{2}$/.test(value) ? new Date(`${new Date().toISOString().slice(0, 10)}T${value}:00`) : new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })
+}
 const STATUS_LABEL: Record<string, string> = { pending: 'Pendiente', preparing: 'En preparación', ready: 'Listo', ready_for_pickup: 'Listo', delivered: 'Entregado' }
 const initials = [{ label: 'Salón Principal', id: 'salon' }, { label: 'Terraza', id: 'terraza' }, { label: 'Barra', id: 'barra' }, { label: 'Todas', id: 'all' }]
 
