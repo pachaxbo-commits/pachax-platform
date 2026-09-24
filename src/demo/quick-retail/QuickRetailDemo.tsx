@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -12,11 +12,11 @@ import {
   Settings,
 } from 'lucide-react'
 import {
-  INITIAL_RETAIL_PRODUCTS,
-  INITIAL_RETAIL_SALES,
   type RetailProduct,
   type CompletedRetailSale,
 } from '../mocks/retailMock'
+import { createRetailDataset } from '../datasets'
+import type { DemoDatasetMode } from '../datasets/types'
 import { QuickRetailDashboard } from './QuickRetailDashboard'
 import { QuickRetailPOS } from './QuickRetailPOS'
 import { QuickRetailSales } from './QuickRetailSales'
@@ -57,14 +57,27 @@ export function QuickRetailDemo({
   mode = 'team',
   simulatedRole = 'admin',
   onSelectRole,
+  datasetMode = 'full',
+  resetKey = 0,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
   onSelectRole?: (roleId: string) => void
+  datasetMode?: DemoDatasetMode
+  resetKey?: number
 }) {
   const [activeModule, setActiveModule] = useState<QuickRetailModuleId>('dashboard')
-  const [products] = useState<RetailProduct[]>(INITIAL_RETAIL_PRODUCTS)
-  const [sales, setSales] = useState<CompletedRetailSale[]>(INITIAL_RETAIL_SALES)
+  const initial = useRef(createRetailDataset(datasetMode))
+  const [products, setProducts] = useState<RetailProduct[]>(() => initial.current.products)
+  const [sales, setSales] = useState<CompletedRetailSale[]>(() => initial.current.sales)
+
+  const prevResetRef = useRef(`${datasetMode}:${resetKey}`)
+  if (prevResetRef.current !== `${datasetMode}:${resetKey}`) {
+    prevResetRef.current = `${datasetMode}:${resetKey}`
+    const fresh = createRetailDataset(datasetMode)
+    setProducts(fresh.products)
+    setSales(fresh.sales)
+  }
 
   const visibleModules = QUICK_RETAIL_MODULES.filter((m) => {
     if (mode === 'team') return true

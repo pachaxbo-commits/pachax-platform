@@ -29,8 +29,8 @@ export function OperationsFeatures() {
     },
     {
       icon: Cpu,
-      title: 'Arquitectura Multiempresa Limpia',
-      desc: 'Tus datos, inventario y finanzas permanecen estrictamente aislados bajo la seguridad de contratos y reglas empresariales robustas.',
+      title: 'Arquitectura preparada para crecer',
+      desc: 'La separación por empresa está prevista en la plataforma. Su activación comercial requiere completar y validar el backend de aislamiento.',
     },
   ]
 

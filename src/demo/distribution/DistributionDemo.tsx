@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
-import { previewData } from '../../preview-data'
+import { useState, useMemo, useRef } from 'react'
+import { createDistributionDataset } from '../datasets'
+import type { DemoDatasetMode } from '../datasets/types'
 import { DistributionPrinterModal } from '../../modules/distribution/views/DistributionPrinterModal'
 import {
   DistributionExperience,
@@ -13,15 +14,30 @@ export function DistributionDemo({
   simulatedRole = 'admin',
   logoUrl,
   companyName,
+  datasetMode = 'full',
+  resetKey = 0,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
   onSelectRole?: (roleId: string) => void
   logoUrl?: string
   companyName?: string
+  datasetMode?: DemoDatasetMode
+  resetKey?: number
 }) {
   const [isPrinterOpen, setIsPrinterOpen] = useState(false)
-  const [dayKeys, setDayKeys] = useState<string[]>(['2026-09-08'])
+  const initialDataset = useRef(createDistributionDataset(datasetMode))
+  const [currentData, setCurrentData] = useState(() => initialDataset.current.data)
+
+  const prevResetRef = useRef(`${datasetMode}:${resetKey}`)
+  if (prevResetRef.current !== `${datasetMode}:${resetKey}`) {
+    prevResetRef.current = `${datasetMode}:${resetKey}`
+    setCurrentData(createDistributionDataset(datasetMode).data)
+  }
+
+  const [dayKeys, setDayKeys] = useState<string[]>(() => {
+    return [new Date().toISOString().slice(0, 10)]
+  })
 
   const role = (simulatedRole as UserRole) || 'admin'
   const can = useMemo(() => (permission: Permission) => hasPermission(role, permission), [role])
@@ -56,7 +72,7 @@ export function DistributionDemo({
     <>
       <DistributionExperience
         session={session}
-        data={previewData}
+        data={currentData}
         syncState={syncState}
         logoUrl={logoUrl}
         companyName={companyName || 'Distribuidora Demo'}

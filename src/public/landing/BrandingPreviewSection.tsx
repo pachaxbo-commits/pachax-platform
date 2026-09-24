@@ -164,7 +164,7 @@ export function BrandingPreviewSection() {
               </div>
             </div>
             <p className="text-[11px] text-slate-400 text-center">
-              Vista previa interactiva. El tema y colores se guardan por tenant en la plataforma.
+              Vista previa interactiva de nombre y colores. La configuración definitiva se habilitará con cada empresa.
             </p>
           </div>
         </div>

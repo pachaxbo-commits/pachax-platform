@@ -85,7 +85,7 @@ export function LandingFooter() {
             © {new Date().getFullYear()} PACHAX. Todos los derechos reservados.
           </div>
           <div>
-            Plataforma SaaS multiempresa • Software empresarial adaptable
+            Software empresarial adaptable • Demos de producto
           </div>
         </div>
       </div>

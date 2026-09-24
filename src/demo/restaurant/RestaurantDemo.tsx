@@ -17,6 +17,8 @@ import {
   type RestaurantSession,
   type RestaurantShift,
 } from '../../modules/restaurant/views/RestaurantExperience'
+import { createRestaurantDataset } from '../datasets'
+import type { DemoDatasetMode } from '../datasets/types'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -42,8 +44,27 @@ function readSaved<T>(key: string, fallback: T): T {
   }
 }
 
-function loadInitialState() {
+function loadInitialState(datasetMode: DemoDatasetMode) {
+  const savedMode = localStorage.getItem(`${STORAGE_KEY}:dataset-mode`)
+  if ((savedMode && savedMode !== datasetMode) || (datasetMode === 'empty' && !savedMode)) {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
+    }
+  }
   const hasCurrent = localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) === '2'
+  const hasLegacy = localStorage.getItem(`${LEGACY_KEY}:orders`) !== null
+  if (!hasCurrent && !hasLegacy) {
+    const dataset = createRestaurantDataset(datasetMode)
+    const linked = reconcileTableOrders(dataset.orders, dataset.tables)
+    const state = { ...linked, products: dataset.products, shift: dataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
+    for (const key of ['orders', 'tables', 'products', 'shift', 'stockMovements', 'audit'] as const) {
+      localStorage.setItem(`${STORAGE_KEY}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
+    }
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '2')
+    localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
+    localStorage.setItem(`${STORAGE_KEY}:seeded`, 'false')
+    return state
+  }
   const source = hasCurrent ? STORAGE_KEY : LEGACY_KEY
   const hadOrders = localStorage.getItem(`${source}:orders`) !== null
   const savedOrders = readSaved<Order[]>(`${source}:orders`, [])
@@ -77,6 +98,7 @@ function loadInitialState() {
     localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '2')
     localStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
   }
+  localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
   return state
 }
 
@@ -105,14 +127,18 @@ export function RestaurantDemo({
   onSelectRole,
   logoUrl,
   companyName,
+  datasetMode = 'full',
+  resetKey = 0,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
   onSelectRole?: (roleId: string) => void
   logoUrl?: string
   companyName?: string
+  datasetMode?: DemoDatasetMode
+  resetKey?: number
 }) {
-  const [initial] = useState(loadInitialState)
+  const [initial] = useState(() => loadInitialState(datasetMode))
   const seededRef = useRef(initial.seeded)
   const [orders, setOrders] = useState<Order[]>(initial.orders)
   const [tables, setTables] = useState<RestaurantTable[]>(initial.tables)
@@ -120,6 +146,7 @@ export function RestaurantDemo({
   const [stockMovements, setStockMovements] = useState<RestaurantStockMovement[]>(initial.stockMovements)
   const [shift, setShift] = useState<Shift | null>(initial.shift)
   const [audit, setAudit] = useState<AuditEvent[]>(initial.audit)
+  void resetKey
   const [cashierName, setCashierName] = useState(
     `Cajero ${simulatedRole === 'waiter' ? 'Ana' : 'Bistró Demo'}`
   )

@@ -1,13 +1,14 @@
 import { LandingHeader } from './LandingHeader'
 import { LandingHero } from './LandingHero'
-import { SolutionsExplorer } from './SolutionsExplorer'
+import { TemplateShowcaseSection } from './TemplateShowcaseSection'
 import { BrandingPreviewSection } from './BrandingPreviewSection'
 import { OperationsFeatures } from './OperationsFeatures'
 import { LandingFooter } from './LandingFooter'
+import '../publicExperience.css'
 
 export function PublicLanding() {
   return (
-    <div className="w-full min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col selection:bg-slate-900 selection:text-white">
+    <div className="w-full min-h-screen bg-[#FAF9F6] text-slate-900 font-sans flex flex-col selection:bg-slate-900 selection:text-white">
       {/* Barra de Navegación Institucional */}
       <LandingHeader />
 
@@ -16,8 +17,8 @@ export function PublicLanding() {
         {/* 1. Hero Principal con vitrina viva de producto */}
         <LandingHero />
 
-        {/* 2. Sección "Encuentra tu PACHAX" (Soluciones interactivas) */}
-        <SolutionsExplorer />
+        {/* 2. Sección Protagonista de Selección de Plantillas Canónicas */}
+        <TemplateShowcaseSection />
 
         {/* 3. Sección "Tu identidad visual, no la nuestra" (Branding interactivo) */}
         <BrandingPreviewSection />

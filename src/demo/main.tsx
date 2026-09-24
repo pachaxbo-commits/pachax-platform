@@ -10,24 +10,26 @@ function resolveDemoRoute(): {
   templateId: DemoTemplateId
   isStudioEmbed: boolean
   initialRole?: string
+  initialDatasetMode: 'empty' | 'full'
 } {
   const path = window.location.pathname
   const params = new URLSearchParams(window.location.search)
   const queryTemplate = params.get('template') as DemoTemplateId | null
   const isStudioEmbed = params.get('embed') === 'studio' || params.get('embed') === '1'
   const initialRole = params.get('role') || undefined
+  const initialDatasetMode = params.get('data') === 'empty' ? 'empty' : 'full'
 
   if (path.includes('/restaurant') || queryTemplate === 'restaurant') {
-    return { isGallery: false, templateId: 'restaurant', isStudioEmbed, initialRole }
+    return { isGallery: false, templateId: 'restaurant', isStudioEmbed, initialRole, initialDatasetMode }
   }
   if (path.includes('/distribution') || queryTemplate === 'distribution') {
-    return { isGallery: false, templateId: 'distribution', isStudioEmbed, initialRole }
+    return { isGallery: false, templateId: 'distribution', isStudioEmbed, initialRole, initialDatasetMode }
   }
   if (path.includes('/retail') || queryTemplate === 'retail') {
-    return { isGallery: false, templateId: 'retail', isStudioEmbed, initialRole }
+    return { isGallery: false, templateId: 'retail', isStudioEmbed, initialRole, initialDatasetMode }
   }
 
-  return { isGallery: !isStudioEmbed, templateId: 'distribution', isStudioEmbed, initialRole }
+  return { isGallery: !isStudioEmbed, templateId: 'distribution', isStudioEmbed, initialRole, initialDatasetMode }
 }
 
 function DemoRoot() {
@@ -43,6 +45,7 @@ function DemoRoot() {
       isPublicDemo={!route.isStudioEmbed}
       isStudioEmbed={route.isStudioEmbed}
       initialRole={route.initialRole}
+      initialDatasetMode={route.initialDatasetMode}
     />
   )
 }
