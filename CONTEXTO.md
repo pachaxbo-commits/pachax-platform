@@ -561,3 +561,8 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Salón ofrece «Administrar salón»: crear y renombrar zonas; crear y editar mesas con nombre, zona, capacidad y estado libre/reservada. Las mesas con cuenta activa conservan su estado y relación por ID. Los nombres duplicados dentro de una zona se rechazan.
 - Zonas y mesas usan el mismo dataset del controlador Nightclub; aparecen inmediatamente en Salón, dashboard y selector POS. La demo persiste cambios en la key v2 existente, incluso tras recargar, y guarda eventos de auditoría. Al liberar una reserva desde la edición se marca la reserva confirmada como cancelada.
 - Verificación manual local: se creó zona Pista y Mesa Pista 1, se comprobó que el POS la ofrece como libre y que dashboard muestra Pista 0/1 después de recargar. Luego se renombró a Mesa Pista A y se cambió la capacidad a 6; Salón reflejó ambos cambios. El backend transaccional multiusuario sigue pendiente.
+
+## Efectivo visible en Caja de Club nocturno (25/09/2026, feat/nightclub-live-cash-balance)
+
+- Caja muestra arriba, en una tarjeta destacada, el efectivo que debe haber en ese momento: fondo inicial + ventas cobradas en efectivo + entradas de efectivo − salidas de efectivo. QR y tarjeta quedan fuera del dinero físico. Se reutiliza `nightclubCashSummary`, el mismo cálculo usado para arqueo y recibo impreso.
+- Verificación manual local: con fondo Bs 1.000 y una venta QR Bs 756, el efectivo esperado seguía en Bs 1.000; una entrada de efectivo Bs 20 lo actualizó de inmediato a Bs 1.020. El movimiento de prueba queda en los datos locales de la demo hasta restablecerla.
