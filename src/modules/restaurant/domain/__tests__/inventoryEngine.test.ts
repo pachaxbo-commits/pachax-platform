@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { confirmInventoryLines, convertInventoryQuantity, inventoryShiftRows, openingInventorySnapshot, returnInventoryLine, stockAwareProducts, changeInventoryStock, reconcileInventoryLedger } from '../inventoryEngine.ts'
+import { RESTAURANT_INVENTORY_PRODUCTS, RESTAURANT_PRODUCTS } from '../../../../demo/mocks/restaurantMock.ts'
 
 const at = '2026-09-24T20:00:00Z'
 const product = (id, stockBase, baseUnit = 'unit', extra = {}) => ({ id, name: id, categoryId: 'beverages', price: 12, image: '', availability: 'available', sortOrder: 0, isActive: true, isVisible: true, restaurantType: 'direct', baseUnit, stockBase, minimumStockBase: 2, ...extra })
@@ -68,6 +69,21 @@ test('botella por copa, conversiones y tipos de salida preservan trazabilidad', 
   assert.equal(waste.movement.type, 'waste')
   assert.equal(waste.movement.quantityBase, -50)
   assert.equal(waste.movement.createdBy, 'Barra')
+})
+
+test('las bebidas del catálogo descuentan mililitros y los platos descuentan gramos', () => {
+  const lomo = RESTAURANT_PRODUCTS.find(item => item.id === 'prod-1')
+  const limonada = RESTAURANT_PRODUCTS.find(item => item.id === 'prod-4')
+  const vino = RESTAURANT_PRODUCTS.find(item => item.id === 'prod-5')
+  assert.deepEqual(lomo?.recipe, [{ ingredientId: 'ing-1', quantityBase: 280 }, { ingredientId: 'ing-2', quantityBase: 200 }])
+  assert.deepEqual(limonada?.recipe, [{ ingredientId: 'ing-7', quantityBase: 350 }])
+  assert.deepEqual(vino?.recipe, [{ ingredientId: 'ing-4', quantityBase: 200 }])
+  const stock = structuredClone([...RESTAURANT_INVENTORY_PRODUCTS, ...RESTAURANT_PRODUCTS])
+  const sold = confirmInventoryLines(order('o-fixture', 't1'), [line('lomo', 'prod-1', 1), line('limonada', 'prod-4', 2), line('vino', 'prod-5', 1)], stock, [], at, 'Mesero')
+  assert.equal(sold.products.find(item => item.id === 'ing-1')?.stockBase, 18220)
+  assert.equal(sold.products.find(item => item.id === 'ing-2')?.stockBase, 44800)
+  assert.equal(sold.products.find(item => item.id === 'ing-7')?.stockBase, 11300)
+  assert.equal(sold.products.find(item => item.id === 'ing-4')?.stockBase, 17800)
 })
 
 test('migración deja movimiento explícito si stock local y libro de movimientos difieren', () => {

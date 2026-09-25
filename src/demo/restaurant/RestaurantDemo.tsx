@@ -50,6 +50,71 @@ function readSaved<T>(key: string, fallback: T): T {
   }
 }
 
+const roundInventoryValue = (value: number) => Math.round((value + Number.EPSILON) * 1000) / 1000
+
+function copyRecipe(product: Product) {
+  return product.recipe?.map((line) => ({ ...line }))
+}
+
+/**
+ * Keeps local demo data usable after inventory recipes or base units evolve.
+ * This deliberately preserves staff-created products, stock and movements.
+ */
+function migrateInventoryProducts(products: Product[]) {
+  const savedById = new Map(products.map((product) => [product.id, product]))
+  const menu = RESTAURANT_PRODUCTS.map((fixture) => {
+    const saved = savedById.get(fixture.id)
+    if (!saved) return { ...fixture, recipe: copyRecipe(fixture) }
+    const legacyWineRecipe = fixture.id === 'prod-5' && saved.recipe?.some((line) => line.ingredientId === 'ing-4' && line.quantityBase === 0.2)
+    const shouldRestoreRecipe = (fixture.recipe?.length || 0) > 0 && (!(saved.recipe?.length) || legacyWineRecipe)
+    return {
+      ...fixture,
+      ...saved,
+      recipe: shouldRestoreRecipe ? copyRecipe(fixture) : copyRecipe(saved),
+      preparationArea: saved.preparationArea || fixture.preparationArea,
+      restaurantType: saved.restaurantType || fixture.restaurantType,
+    }
+  })
+  const ingredients = RESTAURANT_INVENTORY_PRODUCTS.map((fixture) => {
+    const saved = savedById.get(fixture.id)
+    if (!saved) return { ...fixture }
+    if (fixture.id === 'ing-4' && saved.baseUnit !== 'ml') {
+      const bottleMillilitres = 750
+      return {
+        ...fixture,
+        ...saved,
+        baseUnit: 'ml' as const,
+        stockBase: roundInventoryValue((saved.stockBase ?? fixture.stockBase ?? 0) * bottleMillilitres),
+        minimumStockBase: roundInventoryValue((saved.minimumStockBase ?? fixture.minimumStockBase ?? 0) * bottleMillilitres),
+        unitCost: (saved.unitCost ?? fixture.unitCost ?? 0) / bottleMillilitres,
+      }
+    }
+    return { ...fixture, ...saved }
+  })
+  const fixtureIds = new Set([...RESTAURANT_PRODUCTS, ...RESTAURANT_INVENTORY_PRODUCTS].map((product) => product.id))
+  return [...menu, ...ingredients, ...products.filter((product) => !fixtureIds.has(product.id))]
+}
+
+function migrateWineMeasurements(movements: RestaurantStockMovement[], shift: Shift | null, savedProducts: Product[]) {
+  const wineWasStoredAsBottles = savedProducts.find((product) => product.id === 'ing-4')?.baseUnit !== 'ml'
+  if (!wineWasStoredAsBottles) return { movements, shift }
+  const bottleMillilitres = 750
+  const scale = (value: number | undefined) => value === undefined ? undefined : roundInventoryValue(value * bottleMillilitres)
+  const nextMovements = movements.map((movement) => movement.productId !== 'ing-4' ? movement : {
+    ...movement,
+    quantityBase: roundInventoryValue(movement.quantityBase * bottleMillilitres),
+    previousStock: scale(movement.previousStock),
+    newStock: scale(movement.newStock),
+  })
+  if (!shift) return { movements: nextMovements, shift }
+  const snapshot = shift.stockSnapshot ? { ...shift.stockSnapshot, 'ing-4': scale(shift.stockSnapshot['ing-4']) ?? shift.stockSnapshot['ing-4'] } : undefined
+  const inventoryCounts = shift.inventoryCounts ? {
+    ...shift.inventoryCounts,
+    ...(shift.inventoryCounts['ing-4'] ? { 'ing-4': { ...shift.inventoryCounts['ing-4'], physical: roundInventoryValue(shift.inventoryCounts['ing-4'].physical * bottleMillilitres) } } : {}),
+  } : undefined
+  return { movements: nextMovements, shift: { ...shift, stockSnapshot: snapshot, inventoryCounts } }
+}
+
 function loadInitialState(datasetMode: DemoDatasetMode) {
   const savedMode = localStorage.getItem(`${STORAGE_KEY}:dataset-mode`)
   if ((savedMode && savedMode !== datasetMode) || (datasetMode === 'empty' && !savedMode)) {
@@ -57,7 +122,7 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
       if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
     }
   }
-  const hasCurrent = ['2', '3', '4'].includes(localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
+  const hasCurrent = ['2', '3', '4', '5'].includes(localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
   const hasLegacy = localStorage.getItem(`${LEGACY_KEY}:orders`) !== null
   if (!hasCurrent && !hasLegacy) {
     const dataset = createRestaurantDataset(datasetMode)
@@ -67,7 +132,7 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
       localStorage.setItem(`${STORAGE_KEY}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
     }
     localStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '4')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '5')
     localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
     localStorage.setItem(`${STORAGE_KEY}:seeded`, 'false')
     return state
@@ -84,7 +149,7 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
   const catalogCrud = hasCurrent ? [] : readSaved<Product[]>('pachax:restaurant-demo:catalog-crud:v1', [])
   const catalog = (catalogCrud.length ? catalogCrud : legacyCatalog).map(product => {
     const fixture = RESTAURANT_PRODUCTS.find(item => item.id === product.id)
-    return fixture ? { ...fixture, ...product, recipe: product.recipe || fixture.recipe, preparationArea: product.preparationArea || fixture.preparationArea, restaurantType: product.restaurantType || fixture.restaurantType } : product
+    return fixture ? { ...fixture, ...product, recipe: product.recipe?.length ? product.recipe : fixture.recipe, preparationArea: product.preparationArea || fixture.preparationArea, restaurantType: product.restaurantType || fixture.restaurantType } : product
   })
   const legacyInventory = hasCurrent ? [] : readSaved<typeof RESTAURANT_INGREDIENTS>('pachax:restaurant-demo:inventory-crud:v1', [])
   const ingredients = RESTAURANT_INVENTORY_PRODUCTS.map(product => {
@@ -96,31 +161,37 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
   })
   const assembledProducts = [...catalog.filter(product => product.restaurantType !== 'ingredient'), ...ingredients, ...catalog.filter(product => product.restaurantType === 'ingredient' && !ingredients.some(item => item.id === product.id))]
   const storedInventory = readSaved<{ products: Product[]; movements: RestaurantStockMovement[] } | null>(`${STORAGE_KEY}:inventory-store:v1`, null)
-  const products = storedInventory && Array.isArray(storedInventory.products) ? storedInventory.products : assembledProducts
+  const storedProducts = storedInventory && Array.isArray(storedInventory.products) ? storedInventory.products : assembledProducts
+  const products = migrateInventoryProducts(storedProducts)
   let stockMovements = storedInventory && Array.isArray(storedInventory.movements) ? storedInventory.movements : readSaved<RestaurantStockMovement[]>(`${source}:stock-movements`, [])
   const normalizedOrders = reconciled.orders.map(order => ({ ...order, items: order.items.map(line => ({ ...line, productArea: line.productArea || products.find(product => product.id === line.productId)?.preparationArea || 'Cocina' })) }))
   const seeded = hasCurrent ? readSaved<boolean>(`${STORAGE_KEY}:seeded`, false) : false
   const savedShift = readSaved<Shift | null>(`${source}:shift`, null)
-  const shift = savedShift && !savedShift.stockSnapshot ? { ...savedShift, stockSnapshot: openingInventorySnapshot(products) } : savedShift
-  if (savedShift?.stockSnapshot) stockMovements = reconcileInventoryLedger(products, savedShift.stockSnapshot, stockMovements, savedShift.id, new Date().toISOString())
+  const migratedMeasurements = migrateWineMeasurements(stockMovements, savedShift, storedProducts)
+  stockMovements = migratedMeasurements.movements
+  const migratedShift = migratedMeasurements.shift
+  const shift = migratedShift
+    ? { ...migratedShift, stockSnapshot: { ...openingInventorySnapshot(products), ...migratedShift.stockSnapshot } }
+    : migratedShift
+  if (shift?.stockSnapshot) stockMovements = reconcileInventoryLedger(products, shift.stockSnapshot, stockMovements, shift.id, new Date().toISOString())
   const state = { ...reconciled, sectors: floor.sectors, orders: normalizedOrders, products, shift, stockMovements, audit: readSaved<AuditEvent[]>(`${source}:audit`, []), seeded }
   if (!hasCurrent) {
     for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
       const storageName = key === 'stockMovements' ? 'stock-movements' : key
       localStorage.setItem(`${STORAGE_KEY}:${storageName}`, JSON.stringify(state[key]))
     }
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '4')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '5')
     localStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
   }
   if (hasCurrent) {
     localStorage.setItem(`${STORAGE_KEY}:orders`, JSON.stringify(state.orders))
     localStorage.setItem(`${STORAGE_KEY}:tables`, JSON.stringify(state.tables))
     localStorage.setItem(`${STORAGE_KEY}:sectors`, JSON.stringify(state.sectors))
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '4')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '5')
   }
   localStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
   localStorage.setItem(`${STORAGE_KEY}:stock-movements`, JSON.stringify(state.stockMovements))
-  if (shift && !savedShift?.stockSnapshot) localStorage.setItem(`${STORAGE_KEY}:shift`, JSON.stringify(shift))
+  if (shift && (JSON.stringify(shift) !== JSON.stringify(savedShift))) localStorage.setItem(`${STORAGE_KEY}:shift`, JSON.stringify(shift))
   localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
   return state
 }
