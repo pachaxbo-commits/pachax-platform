@@ -31,6 +31,7 @@ function defaults(capabilities: Capability[]): BusinessTemplate['defaults'] {
 const restaurantCapabilities: Capability[] = [...commonCapabilities, 'orders', 'cash', 'kitchen', 'tables', 'unitSales']
 const distributionCapabilities: Capability[] = [...commonCapabilities, 'credits', 'dispatch', 'routes']
 const gelateriaCapabilities: Capability[] = [...commonCapabilities, 'cash', 'weightSales', 'unitSales']
+const nightclubCapabilities: Capability[] = [...commonCapabilities, 'orders', 'cash', 'kitchen', 'tables', 'unitSales']
 
 export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTemplate>> = {
   restaurant_pos: {
@@ -56,6 +57,15 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     capabilities: gelateriaCapabilities, defaults: defaults(gelateriaCapabilities), modules: [...common, cash],
     roles: [owner, admin, cashier, { id: 'sales', name: 'Atención y ventas', permissions: ['sales.read', 'sales.create', 'customers.read'] }, inventory],
     units: ['kg', 'g', 'unit'], pos: 'mixed-weight', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'weight', 'cash'],
+  },
+  nightclub_lounge: {
+    businessType: 'nightclub_lounge', name: 'Club nocturno / Lounge',
+    description: 'Mesas, rondas, barra, cuentas abiertas, caja e inventario para operación nocturna.',
+    icon: 'music', version: 1,
+    capabilities: nightclubCapabilities, defaults: defaults(nightclubCapabilities),
+    modules: [...common, cash, { id: 'orders', name: 'Cuentas abiertas', capability: 'orders', permission: 'orders.read' }, { id: 'bar', name: 'Barra / preparación', capability: 'kitchen', permission: 'orders.manage' }],
+    roles: [owner, admin, cashier, { id: 'waiter', name: 'Servicio', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'bar', name: 'Barra', permissions: ['orders.read', 'orders.manage'] }, inventory],
+    units: ['unit', 'ml'], pos: 'orders', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'cash', 'openTabs'],
   },
 }
 

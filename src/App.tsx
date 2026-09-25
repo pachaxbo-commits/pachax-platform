@@ -3,6 +3,7 @@ import { UnauthorizedView } from './components/UnauthorizedView'
 import { DistributionApp } from './modules/distribution/views/DistributionApp'
 import { DistributionPrinterModal } from './modules/distribution/views/DistributionPrinterModal'
 import { RestaurantApp } from './modules/restaurant/views/RestaurantApp'
+import { NightclubApp } from './modules/nightclub/views/NightclubApp'
 import { PublicLanding } from './public/landing/PublicLanding'
 import { PublicLoginView } from './public/auth/PublicLoginView'
 import { PublicRegisterView } from './public/register/PublicRegisterView'
@@ -128,6 +129,21 @@ function App() {
         key={`${auth.tenantId}:${auth.member.uid}`}
         tenantId={auth.tenantId}
         restaurantName={auth.account.name}
+        companyName={activeTenant?.tenant.name || auth.account.name}
+        logoUrl={activeTenant?.branding?.logoUrl || auth.account.branding?.logoUrl}
+        uid={auth.member.uid}
+        userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
+        role={activeTenant?.role || auth.member.role}
+        onSignOut={auth.signOut}
+      />
+    )
+  }
+
+  if (canonicalBusinessType === 'nightclub_lounge') {
+    return (
+      <NightclubApp
+        key={`${auth.tenantId}:${auth.member.uid}`}
+        tenantId={auth.tenantId}
         companyName={activeTenant?.tenant.name || auth.account.name}
         logoUrl={activeTenant?.branding?.logoUrl || auth.account.branding?.logoUrl}
         uid={auth.member.uid}

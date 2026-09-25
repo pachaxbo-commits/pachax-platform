@@ -1,36 +1,35 @@
-import { Utensils, Truck, Store, ArrowRight, Shield } from 'lucide-react'
+import { Utensils, Truck, Store, Music2, ArrowRight, Shield } from 'lucide-react'
 import type { DemoTemplateId } from '../demo/demoTypes'
+import { PUBLIC_TEMPLATES } from '../core/publicTemplates'
 
 export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId: DemoTemplateId) => void }) {
-  const templates = [
-    {
-      id: 'restaurant' as DemoTemplateId,
-      title: 'Restaurante',
+  const presentation = {
+    restaurant: {
       company: 'Bistró Demo',
-      description: 'Pedidos, mesas, cocina, caja, inventario y atención en salón.',
       icon: Utensils,
       badges: ['Salón & Mesas', 'KDS Cocina', 'Caja POS'],
       internalNote: 'Flujo gastronómico completo sin dependencias remotas.',
     },
-    {
-      id: 'distribution' as DemoTemplateId,
-      title: 'Producción y distribución',
+    distribution: {
       company: 'Distribuidora Demo',
-      description: 'Inventario, almacenes, despachos, rutas, ventas, créditos y retornos.',
       icon: Truck,
       badges: ['17 Módulos', 'Preventa & Rutas', 'Créditos'],
       internalNote: 'Plantilla de referencia conectada con 55 comprobaciones unitarias.',
     },
-    {
-      id: 'retail' as DemoTemplateId,
-      title: 'Comercio / Venta rápida',
+    retail: {
       company: 'Amapola Demo',
-      description: 'Venta por unidad o peso, atención en mostrador, caja e inventario.',
       icon: Store,
       badges: ['Peso (Gramos)', 'Unidades', 'Carrito Mixto'],
       internalNote: 'Útil para heladerías, cafeterías de mostrador, panaderías, reposterías, tiendas a granel, dulcerías y negocios que vendan por peso y/o unidad.',
     },
-  ]
+    nightclub: {
+      company: 'Nocturna Demo',
+      icon: Music2,
+      badges: ['VIP & Reservados', 'Rondas', 'Barra'],
+      internalNote: 'Base independiente para operación nocturna y evolución visual propia.',
+    },
+  } as const
+  const templates = PUBLIC_TEMPLATES.map(template => ({ id: template.studioTemplateId as DemoTemplateId, title: template.title, description: template.shortDescription, ...presentation[template.id] }))
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col justify-between">
@@ -77,8 +76,8 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
           </div>
         </div>
 
-        {/* Las Tres Tarjetas Principales */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Tarjetas de plantillas canónicas */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {templates.map((t) => {
             const Icon = t.icon
             return (

@@ -1,6 +1,7 @@
 import type { StudioBranding } from '../studio/branding/brandingTypes'
+import type { PublicTemplateId } from '../core/publicTemplates'
 
-export type DemoTemplateId = 'restaurant' | 'distribution' | 'retail'
+export type DemoTemplateId = PublicTemplateId
 
 export type DemoMode = 'team' | 'simulated_role'
 

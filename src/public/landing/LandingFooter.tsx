@@ -1,5 +1,6 @@
 import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
+import { PUBLIC_TEMPLATES } from '../../core/publicTemplates'
 
 export function LandingFooter() {
   const { navigate } = usePublicRouter()
@@ -22,21 +23,7 @@ export function LandingFooter() {
               Soluciones
             </h4>
             <ul className="space-y-2">
-              <li>
-                <a href="/demo/restaurant" className="hover:text-white transition">
-                  Restaurante & Gastronomía
-                </a>
-              </li>
-              <li>
-                <a href="/demo/distribution" className="hover:text-white transition">
-                  Producción y distribución
-                </a>
-              </li>
-              <li>
-                <a href="/demo/retail" className="hover:text-white transition">
-                  Comercio & Venta rápida
-                </a>
-              </li>
+              {PUBLIC_TEMPLATES.map(template => <li key={template.id}><a href={template.demoPath} className="hover:text-white transition">{template.title}</a></li>)}
               <li>
                 <button
                   onClick={() => navigate('#soluciones')}

@@ -1,5 +1,95 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint vigente: base común, routing de demos y Nightclub (25/09/2026)
+
+Rama de integración `integrate/nightclub-routing-base`, creada desde `origin/main` en `cb2d186`. Esta sesión integra las correcciones recientes de Restaurante, corrige el cruce entre entrypoints públicos y añade la base independiente de Club nocturno / Lounge. No integra `feat/secure-tenant-onboarding`, no despliega Functions/Rules y no accede a `G:/pachax-comandero`.
+
+### Restaurante integrado antes de construir Nightclub
+
+Se integró `origin/feat/restaurant-next` hasta `071124f`, incluidos:
+
+- `361bade`: sectores, mesas y floor manager.
+- `52389e6`: consumo de inventario y snapshots de turno.
+- `d6f037a`: stock de ingredientes visible en catálogo.
+- `bb8e361`: CRM de clientes con `customerId` estable y acciones WhatsApp.
+- `071124f`: consumo de recetas en gramos y mililitros.
+- `54f71a4`: consumo de inventario pendiente al cobrar, integrado tras el segundo `git fetch` de cierre.
+
+El merge fue limpio, sin conflictos. Se preservaron POS/mesa, cuentas, rondas, Caja, Historial, Reportes, `RestaurantExperience`, inventario, ledger, turnos, productos, clientes y datasets recientes.
+
+### Bug de navegación pública resuelto
+
+La causa quedó confirmada: `TemplateModeSelectorModal` llamaba `usePublicRouter.navigate()`, que usa `history.pushState()`, para abrir `/demo/*`. Esas rutas pertenecen a `demo.html`, mientras landing/login usan `index.html`; el cambio SPA mantenía montado `App.tsx`, que podía devolver `PublicLanding` en lugar de `DemoRuntime`.
+
+- Se creó `navigateToDemo()` en `src/public/routing/demoNavigation.ts`, que usa `window.location.assign()` para cruzar al entrypoint real.
+- `usePublicRouter` queda limitado a `/`, `/login`, `/register` y anclas del mismo entrypoint.
+- Los accesos de Landing/ProductStage, TemplateShowcase, Login y el selector empty/full usan el registro canónico y la navegación de documento.
+- DemoGallery, footer y accesos generales usan enlaces `<a href>` reales.
+- Se corrigió además la superposición de las cuatro ventanas de ProductStage: los centros clicables ya no quedan interceptados por la tarjeta siguiente.
+
+### Registro público único
+
+`src/core/publicTemplates.ts` define para cada solución `id`, `businessType`, título, descripción corta, `demoPath`, `studioTemplateId` y estado. Alimenta Landing, Login/ProductStage, TemplateShowcase, DemoGallery, Register, Studio y resolución de rutas. Las rutas ya no se mantienen manualmente en cinco componentes.
+
+Registro vigente:
+
+- `restaurant` -> `restaurant_pos` -> `/demo/restaurant`.
+- `distribution` -> `route_distribution` -> `/demo/distribution`.
+- `retail` -> `gelateria_weight_cafe` -> `/demo/retail`.
+- `nightclub` -> `nightclub_lounge` -> `/demo/nightclub`.
+
+### Plantilla independiente Club nocturno / Lounge
+
+- `BusinessType` y `BusinessTemplateRegistry` incorporan `nightclub_lounge` con capacidades de mesas, órdenes/cuentas, barra, caja, inventario, clientes, usuarios y reportes.
+- `NightclubExperience` es la única interfaz canónica compartida por `NightclubDemo` y `NightclubApp`. No usa `RestaurantExperience` con flags.
+- El flujo local inicial conserva una cuenta única por `tableId`: abrir mesa -> agregar varias rondas -> preparar en barra -> solicitar cuenta -> cobrar -> liberar mesa.
+- Navegación prioriza Inicio, Salón, POS rápido, Cuentas abiertas, Barra/preparación, Inventario, Productos, Caja, Historial, Clientes, Usuarios, Reportes y Configuración.
+- Zonas demo: General, VIP, Lounge, Barra y Terraza. Categorías: Botellas, Tragos/Cócteles, Cervezas, Mixers/Energizantes, Combos, Snacks y Cortesías.
+- `createNightclubDataset('empty')` representa cinco zonas, mesas libres, turno cerrado y cero productos/cuentas/ventas. `full` incluye mesas activas, VIP, reserva, cuentas con varias rondas, comandas de barra, turno, clientes e inventario enlazados por IDs.
+- Demo directa: `/demo/nightclub?data=empty` y `/demo/nightclub?data=full`.
+- Studio: `/studio?template=nightclub`, con branding, rol, dataset y viewport mediante el mismo `NightclubExperience`.
+- Routing productivo reconoce `businessType === 'nightclub_lounge'` y monta `NightclubApp`. Su adapter es temporal/local; no se afirma persistencia remota ni seguridad backend terminada.
+- Roadmap de open tabs, división/reapertura de cuenta, reservas, floor plan, inventario, auditoría y preautorización futura en `docs/NIGHTCLUB-ROADMAP.md`.
+
+### Vercel colaborativo verificado
+
+- Proyecto: `pachax-app`.
+- Git: `pachaxbo-commits/pachax-platform`.
+- Framework/build/output: Vite, `npm run build`, `dist`.
+- Production Branch: `main`, sin cambios.
+- La integración Git mantiene Preview Deployments para ramas no productivas. Flujo documentado en `AGENTS.md`: branch -> push -> Pull Request -> Vercel Preview -> revisión -> merge.
+- No se deshabilitó Vercel Authentication. Los previews protegidos requieren miembro del proyecto o shareable protected-preview link.
+
+### Pruebas y QA de esta integración
+
+- `npm run typecheck`: aprobado.
+- `npm run test:restaurant`: 25/25.
+- `npm run test:cash`: 1/1.
+- `npm run test:nightclub`: 4/4.
+- `npm run test:platform`: 24/24, incluidos registro público, targets de navegación y resolución Nightclub.
+- `npm run test:distribution`: 55/55.
+- `npm run build:emulator`: aprobado; conserva advertencias no bloqueantes de chunks grandes y Firebase Functions importado estática/dinámicamente.
+- Navegador real en modo emulador: Landing -> Restaurante/Distribución/Retail/Nightclub -> empty/full cargó las ocho URLs correctas en `DemoRuntime`; ninguna volvió a `PublicLanding`.
+- `/login` mostró el formulario y las cuatro soluciones; `/demo` mostró las cuatro demos; `/demo/nightclub` funcionó pegando URL; `/studio?template=nightclub` montó `NightclubExperience` dentro del iframe. Sin errores de consola detectados.
+
+### Pendientes reales después de esta base
+
+- Diseño visual profundo de Nightclub por Helmy dentro de sus carpetas propias.
+- Rediseño/correcciones de Restaurante por Dario sin modificar Nightclub.
+- Persistencia backend real de Nightclub: paths tenant, roles, Rules/Functions, idempotencia, auditoría y aislamiento A/B/C.
+- Open tabs sin mesa, división/reapertura autorizada, reservas avanzadas, floor plan gráfico y procesamiento de preautorizaciones.
+- Consolidación productiva de `QuickRetailExperience` para Comercio / Venta rápida.
+- Rediseño editorial definitivo de las tarjetas públicas con arte por industria.
+
+Los checkpoints inferiores se conservan como historial. Si contradicen este bloque, este checkpoint superior describe el estado vigente.
+
+## Clientes Restaurante (24/09/2026, feat/restaurant-next)
+
+- `RestaurantCustomers` pasó de una lista calculada por nombre a un CRM ligero dentro de la experiencia canónica. La demo persiste clientes en `pachax:restaurant-demo:operations:v2:customers:v1`; los pedidos antiguos con nombre se migran a contactos sin teléfono, sin inventar datos. Restablecer demo limpia esta clave con las demás.
+- Los clientes nuevos tienen ID estable, teléfono normalizado con código de país, nombre, apellido y campos opcionales. Mesas permite seleccionarlos o crearlos con nombre y teléfono sin salir de la cuenta; POS también permite seleccionarlos. Las órdenes nuevas guardan `customerId` y snapshots de nombre/teléfono. Pedidos legacy se relacionan por teléfono normalizado o, únicamente cuando carecen de teléfono, por nombre de contacto migrado.
+- Visitas, última visita y total consumido derivan de órdenes pagadas no canceladas. Editar el teléfono no pierde historial vinculado por ID. El WhatsApp visible usa `wa.me` con saludo/reserva prellenados, sin envío automático ni API paga. Roles owner/admin/team editan, archivan y ven historial; cashier/waiter crean, buscan y abren WhatsApp. Archivar es lógico y conserva órdenes. La producción todavía requiere un repositorio tenant y permisos de escritura reales; su adaptador actual no persiste clientes.
+- QA en origen demo aislado `127.0.0.1:5193`: crear cliente, bloquear teléfono duplicado, crear otro desde Mesa 2, asociarlo a orden #045, vender y cobrar Bs 58, ver 1 visita/Bs 58 en Clientes, editar teléfono y conservar historial. `test:restaurant` cubre normalización, URL WhatsApp, enlace legacy e historial por ID. Typecheck, las pruebas de Restaurante/Caja/Plataforma/Distribución y `build:emulator` aprobaron. El lint focal de los archivos nuevos y conectores de Restaurante aprobó; `CajaView` y el lint global aún tienen errores heredados (243 errores/6 avisos en global). `npm run build` normal sigue bloqueado por las variables Firebase ausentes del nuevo proyecto; no se modificó backend.
+
 ## Integración Restaurante + experiencia pública (24/09/2026)
 
 - Rama de integración `integrate/restaurant-public-studio`, iniciada en `origin/main` (`a3603ec`). Se integró primero `feat/restaurant-next` y luego `feat/codex-premium-public-redesign`. Los conflictos de `RestaurantDemo.tsx` y este documento se resolvieron conservando el motor operativo nuevo y la historia de ambas ramas.
@@ -432,3 +522,28 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Prueba manual local: turno Bs 200, producto nuevo Bs 25, POS a Mesa 2, adición de dos bebidas Bs 30, KDS Cocina/Barra preparar/listo/entregar, comanda bloqueada, solicitud de cuenta, efectivo Bs 60 con cambio Bs 5, mesa libre, Caja Bs 55 y efectivo esperado Bs 255, Historial y Reportes Bs 55. Otra comanda de Lomo redujo insumo 18 500 a 18 220 g y papas 45 000 a 44 800 g. Studio mostró la misma orden y reaccionó al nombre y colores claros.
 - Suites: typecheck, test:restaurant (10), test:cash (1), test:platform (21), test:distribution (55), build:emulator y git diff --check aprobaron. Build normal exige variables Firebase de producción ausentes. Pendiente: backend tenant/multiusuario, hardware de impresión, confirmación física de impresión. QA visual de Studio embed completado en 390×844 y 768×1024 mediante Chrome aislado; la herramienta de interacción dejó de responder y el flujo interactivo final se realizó antes de esa falla.
 - Lint focal de dominio/proveedor Restaurante aprueba; lint global actualmente reporta 236 errores y 6 avisos heredados, incluidos 11 de CajaView legacy. No se hizo un refactor global fuera de Restaurante.
+
+## Configuración de salón y mesas (24/09/2026, feat/restaurant-next)
+
+- `RestaurantExperience` mantiene la interfaz visual única. La configuración de sectores y mesas vive en el proveedor de demo (`RestaurantDemo`) y se entrega a `RestaurantTables` como datos y acciones; producción conserva su proveedor separado, pendiente de repositorio tenant.
+- `restaurantFloor.ts` define acciones de crear, editar, archivar y reordenar sectores y mesas; los IDs son estables. Una mesa con cuenta activa no puede desactivarse ni archivarse. Archivar un sector con mesas exige trasladarlas a otro sector. El archivo es lógico para conservar referencias históricas.
+- El modo «Administrar salón» se muestra a owner/admin/team. La operación normal usa los mismos componentes de Mesas y POS: sectores por `sectorId`, mesa por `tableId`; el nombre es solo presentación. Las mesas inactivas o archivadas no se ofrecen para nuevas ventas. Dashboard calcula métricas desde mesas activas visibles.
+- La demo persiste sectores junto a mesas en `pachax:restaurant-demo:operations:v2` con `schemaVersion: 3`. Una migración asigna `sectorId` a mesas legacy; los datasets full/empty tienen un grafo coherente, y empty permite crear el primer sector y mesa. Restablecer demo limpia ambas entidades con el resto del fixture.
+- Validación manual local: crear sector Patio y Mesa Patio A, seleccionar la mesa en POS, registrar pedido de Bs 58, comprobar cuenta en Mesas y persistencia tras recarga; dashboard mostró 2/13. Pruebas de dominio cubren CRUD, archivo seguro, migración y POS por ID.
+
+## Inventario operativo Restaurante (24/09/2026, feat/restaurant-next)
+
+- Productos → Ingredientes muestra el stock actual con su unidad base (por ejemplo, Lomo Fino Vacuno en gramos) desde el mismo estado de inventario que POS y Mesas actualizan al confirmar consumos. La demo también escucha cambios de `inventory-store:v1` de otra pestaña del mismo origen para refrescar el saldo visible sin recargar; la sincronización entre dispositivos sigue pendiente del repositorio transaccional de producción.
+- `RestaurantExperience` sigue siendo la UI canónica. `RestaurantDemo` conserva el estado local compartido de productos, órdenes, mesas, movimientos y turnos. El proveedor de producción todavía no tiene repositorio transaccional de inventario; antes de usar varios dispositivos reales hay que implementar validación y escritura atómica en backend con clave idempotente por línea de pedido.
+- `inventoryEngine.ts` concentra cálculo por producto directo o receta, conversiones g/kg y ml/L, validación de stock, consumo al confirmar pedido POS o nueva tanda de Mesa, devolución parcial/total, movimientos con stock anterior/final, IDs de orden/línea/mesa/turno y usuario. Reimprimir una comanda no repite el descuento. Cancelar la última unidad cierra la cuenta anulada y libera la mesa; el historial permanece.
+- `RestaurantInventory` muestra stock actual, mínimo, estado y movimientos filtrables. Productos permite configurar stock directo, etiqueta de unidad y recetas por ID. Los movimientos de compra, merma, pérdida, cortesía, consumo interno y ajuste se distinguen de ventas; Caja recibe únicamente pagos y movimientos de dinero. Reportes muestra consumo confirmado aunque la cuenta esté abierta.
+- La apertura de turno guarda snapshot de stock; el cierre requiere conteo físico y guarda teórico, físico y diferencia sin modificar stock por esa diferencia. El arqueo aparece en Caja, impresión y Turnos cerrados de Historial. Los datos demo actuales migran a `schemaVersion: 4` y guardan productos+movimientos juntos en `inventory-store:v1`; discrepancias detectadas entre ambos al cargar se anotan como movimientos explícitos de reconciliación local para revisión.
+- Prueba manual en origen local aislado: turno Bs 200, Corona con 24 unidades, POS Mesa 1 vende 2 → 22; Mesa 2 vende 3 → 19 con cuentas abiertas; cancelación parcial desde Mesas; pago Mesa 2 Bs 30 con recibido Bs 50; cierre con efectivo esperado/contado Bs 230, conteo físico 21 frente a teórico 22, diferencia -1 guardada en Historial. Luego se probó la cancelación de la última unidad, que liberó la mesa; un ajuste a stock 2 bloqueó un nuevo pedido de 3 sin crear cuenta. Una confirmación nativa de navegador durante la prueba produjo una brecha local entre stock y libro; se sustituyó por modal, se centralizó la actualización del par stock/movimientos y la migración ahora registra la reconciliación. No se ha validado concurrencia entre usuarios reales.
+- Validación: `npm run typecheck`, `npm run test:restaurant` (21), `npm run test:cash`, `npm run test:platform`, `npm run test:distribution` y `git diff --check` aprobados. `npm run build` normal sigue bloqueado por las variables Firebase de producción ausentes; usar `npm run build:emulator` para esta rama local. Lint global conserva errores heredados fuera de este cambio.
+
+## Corrección de recetas con gramos y mililitros (25/09/2026, feat/restaurant-next)
+
+- El catálogo full modela Lomo con gramos de carne/papas, Limonada con 350 ml de base y Copa de vino con 200 ml. La venta descuenta esos insumos desde el mismo motor de inventario y deja sus movimientos trazables por orden y línea.
+- La carga local migra de forma no destructiva inventarios persistidos: restaura recetas de fixture que antes quedaron vacías, transforma la reserva histórica de vino de botellas a mililitros, convierte movimientos y conteos de turno asociados, y agrega la base de limonada sin borrar productos ni movimientos creados por el usuario. `schemaVersion` pasa a 5.
+- Pruebas de dominio verifican el catálogo real: una venta de lomo, dos limonadas y una copa deja carne en 18 220 g, papas en 44 800 g, base de limonada en 11 300 ml y vino en 17 800 ml.
+- El cobro ahora es una salvaguarda final de inventario: si una cuenta de Mesa se pagó sin haber pasado antes por POS o por impresión de comanda, confirma sus líneas pendientes al cobrar. La clave idempotente por orden/línea evita descontar por segunda vez productos ya confirmados. Todos los platos y bebidas del fixture full tienen receta; productos nuevos pueden usar receta o stock directo. `schemaVersion` pasa a 6.

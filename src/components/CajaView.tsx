@@ -123,6 +123,7 @@ export function CajaView({
   onSetOrderStatus,
   operationsDisabled = false,
   restaurantTables = [],
+  restaurantCustomers = [],
   botManagementEnabled = true,
   orderEditingEnabled = true,
   onConfirmDemoPayment,
@@ -148,6 +149,7 @@ export function CajaView({
     tableInfo?: string
     customerName?: string
     customerPhone?: string
+    customerId?: string
     deliveryAddress?: string
     createdBy?: string
   }) => Promise<boolean>
@@ -176,6 +178,7 @@ export function CajaView({
   onSetOrderStatus: (orderId: string, status: OrderStatus, estimatedDelay?: number, options?: { suppressWhatsappDispatchNotice?: boolean; forceWhatsappDispatchNotice?: boolean }) => Promise<boolean | void>
   operationsDisabled?: boolean
   restaurantTables?: RestaurantTable[]
+  restaurantCustomers?: import('../modules/restaurant/domain/restaurantCustomers').RestaurantCustomer[]
   orderEditingEnabled?: boolean
   botManagementEnabled?: boolean
   onConfirmDemoPayment?: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
@@ -203,6 +206,7 @@ export function CajaView({
   )
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
+  const [customerId, setCustomerId] = useState('')
   const [deliveryAddress, setDeliveryAddress] = useState('')
 
   async function handleSetOrderStatus(order: Order, status: OrderStatus, estimatedDelay?: number) {
@@ -678,6 +682,7 @@ export function CajaView({
     setTableId(order.tableId || restaurantTables.find(table => table.name === order.tableInfo)?.id || '')
     setCustomerName(order.customerName || '')
     setCustomerPhone(order.customerPhone || '')
+    setCustomerId(order.customerId || '')
     setDeliveryAddress(order.deliveryAddress || '')
     setPaymentStatus(order.paymentStatus)
     setPaymentMethod(order.paymentMethod || null)
@@ -702,6 +707,7 @@ export function CajaView({
     setOrderSource(userRole === 'pedidos' ? 'whatsapp' : 'local')
     setCustomerName('')
     setCustomerPhone('')
+    setCustomerId('')
     setDeliveryAddress('')
     setTableInfo('')
     setTableId('')
@@ -1914,7 +1920,7 @@ export function CajaView({
                         className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
                         value={tableId}
                         onChange={(e) => { const selected = restaurantTables.find(table => table.id === e.target.value); setTableId(selected?.id || ''); setTableInfo(selected?.name || '') }}
-                      ><option value="">Seleccionar mesa</option>{restaurantTables.map(table => <option key={table.id} value={table.id} disabled={table.status === 'bill_requested' || table.status === 'reserved'}>{table.name} — {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse · reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}</option>)}</select> : <input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink" placeholder="Mesa" value={tableInfo} onChange={e => setTableInfo(e.target.value)} />}
+                      ><option value="">Seleccionar mesa</option>{restaurantTables.filter(table => !table.archivedAt && table.active !== false).map(table => <option key={table.id} value={table.id} disabled={table.status === 'bill_requested' || table.status === 'reserved'}>{table.name} — {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse · reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}</option>)}</select> : <input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink" placeholder="Mesa" value={tableInfo} onChange={e => setTableInfo(e.target.value)} />}
                     </div>
                   ) : null}
                 </div>
@@ -1922,18 +1928,19 @@ export function CajaView({
                 {/* Contacto */}
                 <div className="rounded-[0.9rem] border border-line bg-white p-2 shadow-sm space-y-1.5">
                   <div className="text-[9px] font-black uppercase tracking-wider text-muted">Datos de Contacto</div>
+                  {!!restaurantCustomers.length && <select aria-label="Cliente registrado" value={customerId} onChange={event => { const selected = restaurantCustomers.find(item => item.id === event.target.value); setCustomerId(selected?.id || ''); if (selected) { setCustomerName([selected.firstName, selected.lastName].filter(Boolean).join(' ')); setCustomerPhone(selected.normalizedPhone) } }} className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink"><option value="">Sin cliente registrado</option>{restaurantCustomers.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{[item.firstName, item.lastName].filter(Boolean).join(' ')} · +{item.normalizedPhone}</option>)}</select>}
                   <input
                     className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
                     placeholder="Nombre del Cliente (opcional)"
                     value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
+                    onChange={(e) => { setCustomerName(e.target.value); setCustomerId('') }}
                   />
                   {(orderSource === 'whatsapp' || fulfillmentType === 'delivery') ? (
                     <input
                       className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
                       placeholder="Telefono (opcional)"
                       value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      onChange={(e) => { setCustomerPhone(e.target.value); setCustomerId('') }}
                     />
                   ) : null}
                   {fulfillmentType === 'delivery' ? (
@@ -2150,6 +2157,7 @@ export function CajaView({
                       tableInfo: fulfillmentType === 'table' ? tableInfo.trim() : '',
                       customerName: nombreFinal,
                       customerPhone: telefonoFinal,
+                      customerId: customerId || undefined,
                       deliveryAddress: direccionFinal,
                       createdBy: userId,
                     }
@@ -2247,6 +2255,7 @@ export function CajaView({
                       setTableId('')
                       setCustomerName('')
                       setCustomerPhone('')
+                      setCustomerId('')
                       setDeliveryAddress('')
                       setExpectedPaymentMethod(null)
                       setEditingOrderId(null)

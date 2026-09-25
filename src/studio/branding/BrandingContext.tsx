@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { StudioBranding } from './brandingTypes'
-import { DEFAULT_RESTAURANT_BRANDING, DEFAULT_DISTRIBUTION_BRANDING, DEFAULT_RETAIL_BRANDING } from './brandingTypes'
+import { DEFAULT_RESTAURANT_BRANDING, DEFAULT_DISTRIBUTION_BRANDING, DEFAULT_RETAIL_BRANDING, DEFAULT_NIGHTCLUB_BRANDING } from './brandingTypes'
+import type { DemoTemplateId } from '../../demo/demoTypes'
 
 interface BrandingContextValue {
   branding: StudioBranding
@@ -12,11 +13,12 @@ interface BrandingContextValue {
 
 const BrandingContext = createContext<BrandingContextValue | null>(null)
 
-export function getInitialBranding(template: 'restaurant' | 'distribution' | 'retail'): StudioBranding {
+export function getInitialBranding(template: DemoTemplateId): StudioBranding {
   const defaults = {
     restaurant: DEFAULT_RESTAURANT_BRANDING,
     distribution: DEFAULT_DISTRIBUTION_BRANDING,
     retail: DEFAULT_RETAIL_BRANDING,
+    nightclub: DEFAULT_NIGHTCLUB_BRANDING,
   }[template]
 
   try {
@@ -34,7 +36,7 @@ export function BrandingProvider({
   template,
   children,
 }: {
-  template: 'restaurant' | 'distribution' | 'retail'
+  template: DemoTemplateId
   children: ReactNode
 }) {
   const [branding, setBrandingState] = useState<StudioBranding>(() => getInitialBranding(template))
@@ -58,6 +60,7 @@ export function BrandingProvider({
       restaurant: DEFAULT_RESTAURANT_BRANDING,
       distribution: DEFAULT_DISTRIBUTION_BRANDING,
       retail: DEFAULT_RETAIL_BRANDING,
+      nightclub: DEFAULT_NIGHTCLUB_BRANDING,
     }[template]
     setBranding(defaults)
   }

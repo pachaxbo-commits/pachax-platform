@@ -6,7 +6,7 @@ import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 export function ProductStage({ compact = false }: { compact?: boolean }) {
   const [selected, setSelected] = useState<TemplateShowcaseItem | null>(null)
   return <>
-    <div className={`product-stage ${compact ? 'product-stage-compact' : ''}`} aria-label="Explora las tres soluciones PACHAX">
+    <div className={`product-stage ${compact ? 'product-stage-compact' : ''}`} aria-label="Explora las soluciones PACHAX">
       {TEMPLATE_SHOWCASE_DATA.map((item, index) => {
         const Preview = item.preview
         return <button key={item.id} type="button" className={`product-window product-window-${index + 1}`} onClick={() => setSelected(item)} aria-label={`Explorar ${item.title}`}>

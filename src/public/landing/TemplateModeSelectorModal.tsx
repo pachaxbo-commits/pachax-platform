@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { X, Sparkles, PlusCircle, ArrowRight } from 'lucide-react'
 import type { TemplateShowcaseItem } from './templateShowcaseData'
-import { usePublicRouter } from '../routing/usePublicRouter'
+import { navigateToDemo } from '../routing/demoNavigation'
 
 interface TemplateModeSelectorModalProps {
   item: TemplateShowcaseItem | null
@@ -9,7 +9,6 @@ interface TemplateModeSelectorModalProps {
 }
 
 export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelectorModalProps) {
-  const { navigate } = usePublicRouter()
   const modalRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
@@ -41,7 +40,7 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
 
   const handleSelectMode = (mode: 'empty' | 'full') => {
     onClose()
-    navigate(`${item.demoPath}?data=${mode}`)
+    navigateToDemo(item.templateId, mode)
   }
 
   const Icon = item.icon

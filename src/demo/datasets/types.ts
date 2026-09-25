@@ -1,5 +1,5 @@
 import type { Order, Product } from '../../types'
-import type { RestaurantTable } from '../mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../mocks/restaurantMock'
 import type { RestaurantShift } from '../../modules/restaurant/views/RestaurantExperience'
 import type { DistributionData } from '../../modules/distribution/state/useDistributionStore'
 import type { RetailProduct, CompletedRetailSale } from '../mocks/retailMock'
@@ -8,6 +8,7 @@ export type DemoDatasetMode = 'empty' | 'full'
 
 export interface RestaurantDataset {
   tables: RestaurantTable[]
+  sectors: RestaurantSector[]
   products: Product[]
   orders: Order[]
   shift: RestaurantShift | null
