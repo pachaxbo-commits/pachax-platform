@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { addNightclubRound, adjustNightclubInventory, advanceNightclubRound, closeNightclubAccount, closeNightclubShift, nightclubProductAvailability, openNightclubAccount, openNightclubShift, recordNightclubCashMovement, reopenNightclubBill, requestNightclubBill } from '../domain/nightclubAccounts'
 import type { NightclubCashMovement, NightclubCustomer, NightclubDataset, NightclubInventoryItem, NightclubPaymentDraft, NightclubProduct, NightclubRoundDraft, NightclubStaff } from '../domain/nightclubAccounts'
+import { saveNightclubTable, saveNightclubZone } from '../domain/nightclubFloor'
+import type { TableDraft, ZoneDraft } from '../domain/nightclubFloor'
 
 export function useNightclubController(initial: () => NightclubDataset, actor: string, storageKey?: string, datasetMode?: string) {
   const [data, setData] = useState<NightclubDataset>(() => {
@@ -31,6 +33,8 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
   const apply = (change: (dataset: NightclubDataset) => NightclubDataset) => { const next = change(current.current); current.current = next; setData(next) }
   return {
     data,
+    onSaveZone: (draft: ZoneDraft) => apply(state => saveNightclubZone(state, draft, actor)),
+    onSaveTable: (draft: TableDraft) => apply(state => saveNightclubTable(state, draft, actor)),
     onOpenAccount: (tableId: string) => apply(state => openNightclubAccount(state, tableId, actor)),
     onAddRound: (accountId: string, items: NightclubRoundDraft[]) => apply(state => addNightclubRound(state, accountId, items, actor)),
     onAdvanceRound: (accountId: string, roundId: string) => apply(state => advanceNightclubRound(state, accountId, roundId, actor)),
