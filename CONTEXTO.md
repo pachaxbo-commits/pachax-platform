@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+## Clientes Restaurante (24/09/2026, feat/restaurant-next)
+
+- `RestaurantCustomers` pasó de una lista calculada por nombre a un CRM ligero dentro de la experiencia canónica. La demo persiste clientes en `pachax:restaurant-demo:operations:v2:customers:v1`; los pedidos antiguos con nombre se migran a contactos sin teléfono, sin inventar datos. Restablecer demo limpia esta clave con las demás.
+- Los clientes nuevos tienen ID estable, teléfono normalizado con código de país, nombre, apellido y campos opcionales. Mesas permite seleccionarlos o crearlos con nombre y teléfono sin salir de la cuenta; POS también permite seleccionarlos. Las órdenes nuevas guardan `customerId` y snapshots de nombre/teléfono. Pedidos legacy se relacionan por teléfono normalizado o, únicamente cuando carecen de teléfono, por nombre de contacto migrado.
+- Visitas, última visita y total consumido derivan de órdenes pagadas no canceladas. Editar el teléfono no pierde historial vinculado por ID. El WhatsApp visible usa `wa.me` con saludo/reserva prellenados, sin envío automático ni API paga. Roles owner/admin/team editan, archivan y ven historial; cashier/waiter crean, buscan y abren WhatsApp. Archivar es lógico y conserva órdenes. La producción todavía requiere un repositorio tenant y permisos de escritura reales; su adaptador actual no persiste clientes.
+- QA en origen demo aislado `127.0.0.1:5193`: crear cliente, bloquear teléfono duplicado, crear otro desde Mesa 2, asociarlo a orden #045, vender y cobrar Bs 58, ver 1 visita/Bs 58 en Clientes, editar teléfono y conservar historial. `test:restaurant` cubre normalización, URL WhatsApp, enlace legacy e historial por ID. Typecheck, las pruebas de Restaurante/Caja/Plataforma/Distribución y `build:emulator` aprobaron. El lint focal de los archivos nuevos y conectores de Restaurante aprobó; `CajaView` y el lint global aún tienen errores heredados (243 errores/6 avisos en global). `npm run build` normal sigue bloqueado por las variables Firebase ausentes del nuevo proyecto; no se modificó backend.
+
 ## Integración Restaurante + experiencia pública (24/09/2026)
 
 - Rama de integración `integrate/restaurant-public-studio`, iniciada en `origin/main` (`a3603ec`). Se integró primero `feat/restaurant-next` y luego `feat/codex-premium-public-redesign`. Los conflictos de `RestaurantDemo.tsx` y este documento se resolvieron conservando el motor operativo nuevo y la historia de ambas ramas.

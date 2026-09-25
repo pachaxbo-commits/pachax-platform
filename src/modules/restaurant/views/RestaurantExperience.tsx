@@ -35,6 +35,8 @@ import { RestaurantCash } from '../../../demo/restaurant/RestaurantCash'
 import { RestaurantInventory } from '../../../demo/restaurant/RestaurantInventory'
 import { RestaurantProducts } from '../../../demo/restaurant/RestaurantProducts'
 import { RestaurantCustomers } from '../../../demo/restaurant/RestaurantCustomers'
+import type { RestaurantCustomer } from '../domain/restaurantCustomers'
+import type { CustomerDraft } from '../../../demo/restaurant/RestaurantCustomerForm'
 import { RestaurantUsers } from '../../../demo/restaurant/RestaurantUsers'
 import { RestaurantReports } from '../../../demo/restaurant/RestaurantReports'
 import { RestaurantSettings } from '../../../demo/restaurant/RestaurantSettings'
@@ -97,6 +99,7 @@ export interface RestaurantExperienceProps {
   tables: RestaurantTable[]
   sectors: RestaurantSector[]
   products: Product[]
+  customers?: RestaurantCustomer[]
   shift: RestaurantShift | null
   shiftHistory?: RestaurantShift[]
   categories?: typeof RESTAURANT_CATEGORIES
@@ -108,7 +111,10 @@ export interface RestaurantExperienceProps {
   onAdvanceItemStatus?: (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered') => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
   onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
-  onOpenTableOrder: (table: RestaurantTable & { customerName?: string }) => void
+  onOpenTableOrder: (table: RestaurantTable & { customerId?: string; customerName?: string; customerPhone?: string }) => void
+  onSaveCustomer?: (draft: CustomerDraft, id?: string) => RestaurantCustomer | null
+  onArchiveCustomer?: (id: string) => void
+  onAssignCustomer?: (orderId: string, customerId: string | undefined) => void
   onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void
   onRequestBill: (tableId: string) => void
   onReopenBill: (tableId: string) => void
@@ -163,6 +169,7 @@ export function RestaurantExperience({
   tables,
   sectors,
   products,
+  customers = [],
   shift,
   shiftHistory = [],
   categories = RESTAURANT_CATEGORIES,
@@ -175,6 +182,9 @@ export function RestaurantExperience({
   onCancelOrder,
   onPayment,
   onOpenTableOrder,
+  onSaveCustomer,
+  onArchiveCustomer,
+  onAssignCustomer,
   onUpdateTableStatus,
   onRequestBill,
   onReopenBill,
@@ -423,6 +433,7 @@ export function RestaurantExperience({
               userName={session.userName}
               enabled={!!shift}
               tables={visibleTables(tables)}
+              customers={customers}
             />
           )}
           {activeModule === 'tables' && (
@@ -435,6 +446,9 @@ export function RestaurantExperience({
               initialTableId={selectedTableId}
               enabled={!!shift}
               products={saleProducts}
+              customers={customers}
+              onSaveCustomer={onSaveCustomer}
+              onAssignCustomer={onAssignCustomer}
               onOpenTableOrder={onOpenTableOrder}
               onUpdateTableStatus={onUpdateTableStatus}
               onRequestBill={onRequestBill}
@@ -478,7 +492,7 @@ export function RestaurantExperience({
               onSaveProducts={onSaveProducts || (() => {})}
             />
           )}
-          {activeModule === 'customers' && <RestaurantCustomers orders={orders} />}
+          {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={['owner', 'admin', 'team'].includes(session.role)} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} />}
           {activeModule === 'users' && (
             <RestaurantUsers currentRole={session.role} onSelectRole={onSelectRole} />
           )}

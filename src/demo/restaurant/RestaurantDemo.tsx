@@ -21,6 +21,9 @@ import {
   type RestaurantShift,
 } from '../../modules/restaurant/views/RestaurantExperience'
 import { createRestaurantDataset } from '../datasets'
+import type { RestaurantCustomer } from '../../modules/restaurant/domain/restaurantCustomers'
+import { customerName, legacyCustomersFromOrders, normalizeCustomerPhone } from '../../modules/restaurant/domain/restaurantCustomers'
+import type { CustomerDraft } from './RestaurantCustomerForm'
 import type { DemoDatasetMode } from '../datasets/types'
 
 type Shift = RestaurantShift
@@ -164,6 +167,13 @@ export function RestaurantDemo({
   const [tables, setTables] = useState<RestaurantTable[]>(initial.tables)
   const [sectors, setSectors] = useState<RestaurantSector[]>(initial.sectors)
   const [products, setProducts] = useState<Product[]>(initial.products)
+  const [customers, setCustomers] = useState<RestaurantCustomer[]>(() => {
+    const key = `${STORAGE_KEY}:customers:v1`
+    if (localStorage.getItem(key) !== null) return readSaved<RestaurantCustomer[]>(key, [])
+    const migrated = legacyCustomersFromOrders(initial.orders)
+    localStorage.setItem(key, JSON.stringify(migrated))
+    return migrated
+  })
   const [stockMovements, setStockMovements] = useState<RestaurantStockMovement[]>(initial.stockMovements)
   const inventoryRef = useRef({ products: initial.products, movements: initial.stockMovements })
   useEffect(() => {
@@ -224,6 +234,39 @@ export function RestaurantDemo({
       persist('tables', next)
       return next
     })
+  }
+
+  const saveCustomer = (draft: CustomerDraft, id?: string): RestaurantCustomer | null => {
+    const normalizedPhone = normalizeCustomerPhone(draft.countryCode, draft.phone)
+    if (!draft.firstName.trim() || !normalizedPhone || customers.some(item => item.id !== id && item.normalizedPhone === normalizedPhone)) return null
+    const now = new Date().toISOString()
+    const previous = customers.find(item => item.id === id)
+    const saved: RestaurantCustomer = {
+      id: id || crypto.randomUUID(), firstName: draft.firstName.trim(), lastName: draft.lastName?.trim(),
+      countryCode: draft.countryCode, phone: normalizedPhone.slice(draft.countryCode.length), normalizedPhone,
+      email: draft.email?.trim(), birthday: draft.birthday, notes: draft.notes?.trim(),
+      active: previous?.active ?? true, createdAt: previous?.createdAt || now, updatedAt: now,
+    }
+    const next = previous ? customers.map(item => item.id === id ? saved : item) : [...customers, saved]
+    setCustomers(next)
+    persist('customers:v1', next)
+    record({ type: previous ? 'customer_updated' : 'customer_created', details: { customerId: saved.id } })
+    return saved
+  }
+
+  const archiveCustomer = (id: string) => {
+    const next = customers.map(item => item.id === id ? { ...item, active: false, updatedAt: new Date().toISOString() } : item)
+    setCustomers(next)
+    persist('customers:v1', next)
+    record({ type: 'customer_archived', details: { customerId: id } })
+  }
+
+  const assignCustomer = (orderId: string, customerId: string | undefined) => {
+    const customer = customers.find(item => item.id === customerId && item.active)
+    updateOrders(previous => previous.map(order => order.id === orderId && order.paymentStatus !== 'paid' ? {
+      ...order, customerId: customer?.id, customerName: customer ? customerName(customer) : '', customerPhone: customer?.normalizedPhone,
+    } : order))
+    record({ type: 'customer_assigned', orderId, details: { customerId: customer?.id || null } })
   }
 
   const handleFloorAction = (action: FloorAction): { ok: boolean; error?: string } => {
@@ -542,7 +585,9 @@ export function RestaurantDemo({
       fulfillmentType: 'table',
       tableId: table.id,
       tableInfo: table.name,
+      customerId: (table as RestaurantTable & { customerId?: string }).customerId,
       customerName: (table as RestaurantTable & { customerName?: string }).customerName || '',
+      customerPhone: (table as RestaurantTable & { customerPhone?: string }).customerPhone,
       total,
       productSubtotal: total,
       paymentStatus: 'pending',
@@ -852,6 +897,7 @@ export function RestaurantDemo({
       tables={tables}
       sectors={sectors}
       products={products}
+      customers={customers}
       shift={shift}
       shiftHistory={shiftHistory}
       categories={RESTAURANT_CATEGORIES}
@@ -874,6 +920,9 @@ export function RestaurantDemo({
       onCancelOrderItem={handleCancelOrderItem}
       onCreateProduct={handleCreateProduct}
       onFloorAction={handleFloorAction}
+      onSaveCustomer={saveCustomer}
+      onArchiveCustomer={archiveCustomer}
+      onAssignCustomer={assignCustomer}
       onSaveProducts={handleSaveProducts}
       stockMovements={stockMovements}
       onInventoryMovement={handleInventoryMovement}

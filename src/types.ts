@@ -393,6 +393,7 @@ export interface Order extends Partial<TenantScopedEntity> {
   /** @deprecated Use fulfillmentType instead. Kept for backward compat reads. */
   orderType?: 'table' | 'delivery'
   tableInfo?: string
+  customerId?: string
   customerName?: string
   customerPhone?: string
   deliveryAddress?: string

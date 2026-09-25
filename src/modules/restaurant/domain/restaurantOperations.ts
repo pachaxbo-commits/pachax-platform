@@ -42,7 +42,7 @@ export function placeRestaurantOrder(orders: Order[], tables: RestaurantTable[],
     const added = incoming.items.filter(line => !lineIds.has(line.id))
     if (!added.length) throw new Error('No hay productos nuevos.')
     const subtotal = added.reduce((sum, line) => sum + line.lineTotal, 0)
-    const updated: Order = { ...current, items: [...current.items, ...added], total: current.total + subtotal, productSubtotal: (current.productSubtotal ?? current.total) + subtotal, status: 'pending' }
+    const updated: Order = { ...current, items: [...current.items, ...added], total: current.total + subtotal, productSubtotal: (current.productSubtotal ?? current.total) + subtotal, status: 'pending', ...(!current.customerId && incoming.customerId ? { customerId: incoming.customerId, customerName: incoming.customerName, customerPhone: incoming.customerPhone } : {}) }
     return { orders: orders.map(order => order.id === current.id ? updated : order), tables, order: updated, added: true }
   }
   const placed: Order = table ? { ...incoming, tableId: table.id, tableInfo: table.name, accountStatus: 'open' } : incoming
