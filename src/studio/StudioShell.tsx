@@ -77,6 +77,18 @@ export function StudioShell({
         { id: 'inventory', label: 'Inventario' },
       ],
     },
+    nightclub: {
+      name: 'Club nocturno / Lounge',
+      defaultCompany: 'Nocturna Demo',
+      roles: [
+        { id: 'owner', label: 'Dueño' },
+        { id: 'admin', label: 'Administración' },
+        { id: 'cashier', label: 'Caja' },
+        { id: 'waiter', label: 'Servicio' },
+        { id: 'bar', label: 'Barra' },
+        { id: 'inventory', label: 'Inventario' },
+      ],
+    },
   }[templateId]
 
   // Enviar mensaje de sincronización seguro al iframe

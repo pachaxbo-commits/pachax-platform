@@ -38,3 +38,13 @@ export const DEFAULT_RETAIL_BRANDING: StudioBranding = {
   surfaceColor: '#FFFFFF',
   styleTheme: 'warm',
 }
+
+export const DEFAULT_NIGHTCLUB_BRANDING: StudioBranding = {
+  companyName: 'Nocturna Demo',
+  primaryColor: '#7E22CE',
+  sidebarColor: '#0F172A',
+  accentColor: '#F59E0B',
+  backgroundColor: '#020617',
+  surfaceColor: '#0F172A',
+  styleTheme: 'slate',
+}

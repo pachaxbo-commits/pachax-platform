@@ -5,13 +5,14 @@ import {
   Utensils,
   Truck,
   Store,
+  Music2,
   Check,
 } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import '../publicExperience.css'
-
-type BusinessType = 'restaurant_pos' | 'route_distribution' | 'gelateria_weight_cafe'
+import type { BusinessType } from '../../core/platform'
+import { getPublicTemplate, PUBLIC_TEMPLATES } from '../../core/publicTemplates'
 
 interface ColorPreset {
   id: string
@@ -27,6 +28,20 @@ const BRAND_PALETTES: ColorPreset[] = [
   { id: 'amber', name: 'Ámbar & Café', primary: '#B45309', accent: '#D97706' },
 ]
 
+const REGISTER_PRESENTATION = {
+  restaurant: { icon: Utensils, badgeColor: 'text-amber-700 bg-amber-50 border-amber-200' },
+  distribution: { icon: Truck, badgeColor: 'text-blue-700 bg-blue-50 border-blue-200' },
+  retail: { icon: Store, badgeColor: 'text-teal-700 bg-teal-50 border-teal-200' },
+  nightclub: { icon: Music2, badgeColor: 'text-purple-700 bg-purple-50 border-purple-200' },
+} as const
+
+const REGISTER_TEMPLATES = PUBLIC_TEMPLATES.map(template => ({
+  id: template.businessType,
+  name: template.title,
+  desc: template.shortDescription,
+  ...REGISTER_PRESENTATION[template.id],
+}))
+
 export function PublicRegisterView() {
   const { navigate, templateParam } = usePublicRouter()
 
@@ -41,9 +56,8 @@ export function PublicRegisterView() {
 
   // Plantilla preseleccionada desde query param
   const [selectedTemplate, setSelectedTemplate] = useState<BusinessType>(() => {
-    if (templateParam === 'restaurant_pos' || templateParam === 'restaurant') return 'restaurant_pos'
-    if (templateParam === 'route_distribution' || templateParam === 'distribution') return 'route_distribution'
-    if (templateParam === 'gelateria_weight_cafe' || templateParam === 'retail') return 'gelateria_weight_cafe'
+    const match = PUBLIC_TEMPLATES.find(template => template.id === templateParam || template.businessType === templateParam)
+    if (match) return match.businessType
     return 'restaurant_pos'
   })
 
@@ -52,13 +66,8 @@ export function PublicRegisterView() {
 
   useEffect(() => {
     if (templateParam) {
-      if (templateParam === 'restaurant_pos' || templateParam === 'restaurant') {
-        setSelectedTemplate('restaurant_pos')
-      } else if (templateParam === 'route_distribution' || templateParam === 'distribution') {
-        setSelectedTemplate('route_distribution')
-      } else if (templateParam === 'gelateria_weight_cafe' || templateParam === 'retail') {
-        setSelectedTemplate('gelateria_weight_cafe')
-      }
+      const match = PUBLIC_TEMPLATES.find(template => template.id === templateParam || template.businessType === templateParam)
+      if (match) setSelectedTemplate(match.businessType)
     }
   }, [templateParam])
 
@@ -260,29 +269,7 @@ export function PublicRegisterView() {
               </div>
 
               <div className="space-y-3">
-                {[
-                  {
-                    id: 'restaurant_pos' as BusinessType,
-                    name: 'Restaurante & Gastronomía',
-                    icon: Utensils,
-                    badgeColor: 'text-amber-700 bg-amber-50 border-amber-200',
-                    desc: 'Mesas, cuentas activas, comandas por lote a cocina (KDS), POS y turnos con arqueo ciego.',
-                  },
-                  {
-                    id: 'route_distribution' as BusinessType,
-                    name: 'Producción y distribución',
-                    icon: Truck,
-                    badgeColor: 'text-blue-700 bg-blue-50 border-blue-200',
-                    desc: 'Carga de camión, despacho de rutas, créditos de cartera, liquidación de choferes y almacenes.',
-                  },
-                  {
-                    id: 'gelateria_weight_cafe' as BusinessType,
-                    name: 'Comercio / Venta rápida',
-                    icon: Store,
-                    badgeColor: 'text-teal-700 bg-teal-50 border-teal-200',
-                    desc: 'Mostrador ágil, balanza de peso digital en gramos, carrito mixto y cobro rápido con QR o efectivo.',
-                  },
-                ].map((item) => {
+                {REGISTER_TEMPLATES.map((item) => {
                   const Icon = item.icon
                   const isSelected = selectedTemplate === item.id
                   return (
@@ -360,7 +347,7 @@ export function PublicRegisterView() {
                 </div>
                 <div className="p-3 bg-slate-50 text-xs text-slate-500 flex justify-between">
                   <span>Sucursal principal</span>
-                  <span>Plantilla: {selectedTemplate === 'restaurant_pos' ? 'Restaurante' : selectedTemplate === 'route_distribution' ? 'Distribución' : 'Comercio'}</span>
+                  <span>Plantilla: {getPublicTemplate(selectedTemplate).title}</span>
                 </div>
               </div>
 
@@ -440,11 +427,7 @@ export function PublicRegisterView() {
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Plantilla seleccionada:</span>
                   <span className="font-bold text-slate-900">
-                    {selectedTemplate === 'restaurant_pos'
-                      ? 'Restaurante & Gastronomía'
-                      : selectedTemplate === 'route_distribution'
-                      ? 'Producción y distribución'
-                      : 'Comercio / Venta rápida'}
+                    {getPublicTemplate(selectedTemplate).title}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/60">

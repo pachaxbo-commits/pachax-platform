@@ -1,5 +1,87 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint vigente: base común, routing de demos y Nightclub (25/09/2026)
+
+Rama de integración `integrate/nightclub-routing-base`, creada desde `origin/main` en `cb2d186`. Esta sesión integra las correcciones recientes de Restaurante, corrige el cruce entre entrypoints públicos y añade la base independiente de Club nocturno / Lounge. No integra `feat/secure-tenant-onboarding`, no despliega Functions/Rules y no accede a `G:/pachax-comandero`.
+
+### Restaurante integrado antes de construir Nightclub
+
+Se integró `origin/feat/restaurant-next` hasta `071124f`, incluidos:
+
+- `361bade`: sectores, mesas y floor manager.
+- `52389e6`: consumo de inventario y snapshots de turno.
+- `d6f037a`: stock de ingredientes visible en catálogo.
+- `bb8e361`: CRM de clientes con `customerId` estable y acciones WhatsApp.
+- `071124f`: consumo de recetas en gramos y mililitros.
+
+El merge fue limpio, sin conflictos. Se preservaron POS/mesa, cuentas, rondas, Caja, Historial, Reportes, `RestaurantExperience`, inventario, ledger, turnos, productos, clientes y datasets recientes.
+
+### Bug de navegación pública resuelto
+
+La causa quedó confirmada: `TemplateModeSelectorModal` llamaba `usePublicRouter.navigate()`, que usa `history.pushState()`, para abrir `/demo/*`. Esas rutas pertenecen a `demo.html`, mientras landing/login usan `index.html`; el cambio SPA mantenía montado `App.tsx`, que podía devolver `PublicLanding` en lugar de `DemoRuntime`.
+
+- Se creó `navigateToDemo()` en `src/public/routing/demoNavigation.ts`, que usa `window.location.assign()` para cruzar al entrypoint real.
+- `usePublicRouter` queda limitado a `/`, `/login`, `/register` y anclas del mismo entrypoint.
+- Los accesos de Landing/ProductStage, TemplateShowcase, Login y el selector empty/full usan el registro canónico y la navegación de documento.
+- DemoGallery, footer y accesos generales usan enlaces `<a href>` reales.
+- Se corrigió además la superposición de las cuatro ventanas de ProductStage: los centros clicables ya no quedan interceptados por la tarjeta siguiente.
+
+### Registro público único
+
+`src/core/publicTemplates.ts` define para cada solución `id`, `businessType`, título, descripción corta, `demoPath`, `studioTemplateId` y estado. Alimenta Landing, Login/ProductStage, TemplateShowcase, DemoGallery, Register, Studio y resolución de rutas. Las rutas ya no se mantienen manualmente en cinco componentes.
+
+Registro vigente:
+
+- `restaurant` -> `restaurant_pos` -> `/demo/restaurant`.
+- `distribution` -> `route_distribution` -> `/demo/distribution`.
+- `retail` -> `gelateria_weight_cafe` -> `/demo/retail`.
+- `nightclub` -> `nightclub_lounge` -> `/demo/nightclub`.
+
+### Plantilla independiente Club nocturno / Lounge
+
+- `BusinessType` y `BusinessTemplateRegistry` incorporan `nightclub_lounge` con capacidades de mesas, órdenes/cuentas, barra, caja, inventario, clientes, usuarios y reportes.
+- `NightclubExperience` es la única interfaz canónica compartida por `NightclubDemo` y `NightclubApp`. No usa `RestaurantExperience` con flags.
+- El flujo local inicial conserva una cuenta única por `tableId`: abrir mesa -> agregar varias rondas -> preparar en barra -> solicitar cuenta -> cobrar -> liberar mesa.
+- Navegación prioriza Inicio, Salón, POS rápido, Cuentas abiertas, Barra/preparación, Inventario, Productos, Caja, Historial, Clientes, Usuarios, Reportes y Configuración.
+- Zonas demo: General, VIP, Lounge, Barra y Terraza. Categorías: Botellas, Tragos/Cócteles, Cervezas, Mixers/Energizantes, Combos, Snacks y Cortesías.
+- `createNightclubDataset('empty')` representa cinco zonas, mesas libres, turno cerrado y cero productos/cuentas/ventas. `full` incluye mesas activas, VIP, reserva, cuentas con varias rondas, comandas de barra, turno, clientes e inventario enlazados por IDs.
+- Demo directa: `/demo/nightclub?data=empty` y `/demo/nightclub?data=full`.
+- Studio: `/studio?template=nightclub`, con branding, rol, dataset y viewport mediante el mismo `NightclubExperience`.
+- Routing productivo reconoce `businessType === 'nightclub_lounge'` y monta `NightclubApp`. Su adapter es temporal/local; no se afirma persistencia remota ni seguridad backend terminada.
+- Roadmap de open tabs, división/reapertura de cuenta, reservas, floor plan, inventario, auditoría y preautorización futura en `docs/NIGHTCLUB-ROADMAP.md`.
+
+### Vercel colaborativo verificado
+
+- Proyecto: `pachax-app`.
+- Git: `pachaxbo-commits/pachax-platform`.
+- Framework/build/output: Vite, `npm run build`, `dist`.
+- Production Branch: `main`, sin cambios.
+- La integración Git mantiene Preview Deployments para ramas no productivas. Flujo documentado en `AGENTS.md`: branch -> push -> Pull Request -> Vercel Preview -> revisión -> merge.
+- No se deshabilitó Vercel Authentication. Los previews protegidos requieren miembro del proyecto o shareable protected-preview link.
+
+### Pruebas y QA de esta integración
+
+- `npm run typecheck`: aprobado.
+- `npm run test:restaurant`: 25/25.
+- `npm run test:cash`: 1/1.
+- `npm run test:nightclub`: 4/4.
+- `npm run test:platform`: 24/24, incluidos registro público, targets de navegación y resolución Nightclub.
+- `npm run test:distribution`: 55/55.
+- `npm run build:emulator`: aprobado; conserva advertencias no bloqueantes de chunks grandes y Firebase Functions importado estática/dinámicamente.
+- Navegador real en modo emulador: Landing -> Restaurante/Distribución/Retail/Nightclub -> empty/full cargó las ocho URLs correctas en `DemoRuntime`; ninguna volvió a `PublicLanding`.
+- `/login` mostró el formulario y las cuatro soluciones; `/demo` mostró las cuatro demos; `/demo/nightclub` funcionó pegando URL; `/studio?template=nightclub` montó `NightclubExperience` dentro del iframe. Sin errores de consola detectados.
+
+### Pendientes reales después de esta base
+
+- Diseño visual profundo de Nightclub por Helmy dentro de sus carpetas propias.
+- Rediseño/correcciones de Restaurante por Dario sin modificar Nightclub.
+- Persistencia backend real de Nightclub: paths tenant, roles, Rules/Functions, idempotencia, auditoría y aislamiento A/B/C.
+- Open tabs sin mesa, división/reapertura autorizada, reservas avanzadas, floor plan gráfico y procesamiento de preautorizaciones.
+- Consolidación productiva de `QuickRetailExperience` para Comercio / Venta rápida.
+- Rediseño editorial definitivo de las tarjetas públicas con arte por industria.
+
+Los checkpoints inferiores se conservan como historial. Si contradicen este bloque, este checkpoint superior describe el estado vigente.
+
 ## Clientes Restaurante (24/09/2026, feat/restaurant-next)
 
 - `RestaurantCustomers` pasó de una lista calculada por nombre a un CRM ligero dentro de la experiencia canónica. La demo persiste clientes en `pachax:restaurant-demo:operations:v2:customers:v1`; los pedidos antiguos con nombre se migran a contactos sin teléfono, sin inventar datos. Restablecer demo limpia esta clave con las demás.

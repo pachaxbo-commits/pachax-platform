@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { RestaurantDemo } from './restaurant/RestaurantDemo'
 import { DistributionDemo } from './distribution/DistributionDemo'
 import { QuickRetailDemo } from './quick-retail/QuickRetailDemo'
+import { NightclubDemo } from './nightclub/NightclubDemo'
 import type { DemoTemplateId, DemoMode } from './demoTypes'
 import type { StudioBranding } from '../studio/branding/brandingTypes'
 import { applyStudioThemeTokens } from '../studio/branding/brandingAdapter'
@@ -47,12 +48,13 @@ export function DemoRuntime({
   const [resetKey, setResetKey] = useState(0)
 
   const clearRestaurantDemo = () => {
-    if (templateId !== 'restaurant') return
+    if (templateId !== 'restaurant' && templateId !== 'nightclub') return
     try {
       for (const key of Object.keys(localStorage)) {
         if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
       }
       localStorage.removeItem('cocina-tickets-impresos')
+      localStorage.removeItem('pachax:nightclub-demo:operations:v1')
     } catch { /* Private mode may disable storage. */ }
   }
 
@@ -124,6 +126,11 @@ export function DemoRuntime({
       company: branding?.companyName || 'Amapola Demo',
       desc: 'Venta por unidad o peso, atención en mostrador, caja e inventario.',
     },
+    nightclub: {
+      name: 'Club nocturno / Lounge',
+      company: branding?.companyName || 'Nocturna Demo',
+      desc: 'Mesas, rondas, barra, cuentas abiertas, caja e inventario.',
+    },
   }[templateId]
 
   const handleContactSubmit = (e: React.FormEvent) => {
@@ -172,6 +179,16 @@ export function DemoRuntime({
             mode={mode}
             simulatedRole={activeRole}
             onSelectRole={onSelectRole}
+            datasetMode={currentDatasetMode}
+            resetKey={resetKey}
+          />
+        )}
+        {templateId === 'nightclub' && (
+          <NightclubDemo
+            key={`nightclub:${currentDatasetMode}:${resetKey}`}
+            simulatedRole={activeRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
           />
@@ -293,6 +310,16 @@ export function DemoRuntime({
             mode={mode}
             simulatedRole={activeRole}
             onSelectRole={onSelectRole}
+            datasetMode={currentDatasetMode}
+            resetKey={resetKey}
+          />
+        )}
+        {templateId === 'nightclub' && (
+          <NightclubDemo
+            key={`nightclub:${currentDatasetMode}:${resetKey}`}
+            simulatedRole={activeRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
           />

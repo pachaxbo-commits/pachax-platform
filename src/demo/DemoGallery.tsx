@@ -1,40 +1,32 @@
-import { Utensils, Truck, Store, ArrowRight, Sparkles } from 'lucide-react'
+import { Utensils, Truck, Store, Music2, ArrowRight, Sparkles } from 'lucide-react'
 import { BrandMark } from '../public/components/BrandMark'
+import { PUBLIC_TEMPLATES } from '../core/publicTemplates'
 
 export function DemoGallery() {
-  const demos = [
-    {
-      id: 'restaurant',
-      title: 'Restaurante',
-      company: 'Bistró Demo',
-      description: 'Pedidos, mesas, cocina, caja, inventario y atención en salón.',
-      icon: Utensils,
-      url: '/demo/restaurant',
-      tag: 'Gastronomía & Salón',
+  const presentation = {
+    restaurant: {
+      company: 'Bistró Demo', icon: Utensils, tag: 'Gastronomía & Salón',
       highlights: ['Comandas en tiempo real', 'Plano visual de mesas', 'Cocina KDS', 'Arqueo de turnos'],
     },
-    {
-      id: 'distribution',
-      title: 'Producción y distribución',
-      company: 'Distribuidora Demo',
-      description: 'Inventario, almacenes, despachos, rutas, ventas, créditos y retornos.',
-      icon: Truck,
-      url: '/demo/distribution',
-      tag: 'Logística & Preventa',
+    distribution: {
+      company: 'Distribuidora Demo', icon: Truck, tag: 'Logística & Preventa',
       highlights: ['Cierre de rutas', 'Cobranza de créditos', 'Gestión de almacenes', 'Tickets e impresión'],
     },
-    {
-      id: 'retail',
-      title: 'Comercio / Venta rápida',
-      company: 'Amapola Demo',
-      description: 'Venta por unidad o peso, atención en mostrador, caja e inventario.',
-      icon: Store,
-      url: '/demo/retail',
-      tag: 'Mostrador & Balanza',
+    retail: {
+      company: 'Amapola Demo', icon: Store, tag: 'Mostrador & Balanza',
       highlights: ['Balanza en gramos', 'Carrito mixto (peso/unidad)', 'Venta rápida al paso', 'Caja en mostrador'],
     },
-  ]
-
+    nightclub: {
+      company: 'Nocturna Demo', icon: Music2, tag: 'Nocturno & Barra',
+      highlights: ['Mesas y zonas VIP', 'Varias rondas por cuenta', 'Barra / preparación', 'Caja nocturna'],
+    },
+  } as const
+  const demos = PUBLIC_TEMPLATES.map(template => ({
+    ...template,
+    ...presentation[template.id],
+    description: template.shortDescription,
+    url: `${template.demoPath}?data=full`,
+  }))
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col justify-between">
       {/* Header */}
@@ -70,8 +62,8 @@ export function DemoGallery() {
           </p>
         </div>
 
-        {/* Grid de las 3 Soluciones */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Grid de soluciones canónicas */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {demos.map((d) => {
             const Icon = d.icon
             return (
