@@ -547,3 +547,22 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - La carga local migra de forma no destructiva inventarios persistidos: restaura recetas de fixture que antes quedaron vacías, transforma la reserva histórica de vino de botellas a mililitros, convierte movimientos y conteos de turno asociados, y agrega la base de limonada sin borrar productos ni movimientos creados por el usuario. `schemaVersion` pasa a 5.
 - Pruebas de dominio verifican el catálogo real: una venta de lomo, dos limonadas y una copa deja carne en 18 220 g, papas en 44 800 g, base de limonada en 11 300 ml y vino en 17 800 ml.
 - El cobro ahora es una salvaguarda final de inventario: si una cuenta de Mesa se pagó sin haber pasado antes por POS o por impresión de comanda, confirma sus líneas pendientes al cobrar. La clave idempotente por orden/línea evita descontar por segunda vez productos ya confirmados. Todos los platos y bebidas del fixture full tienen receta; productos nuevos pueden usar receta o stock directo. `schemaVersion` pasa a 6.
+
+## Operación integrada de Club nocturno (25/09/2026, feat/nightclub-operations)
+
+- `NightclubExperience` sigue siendo la única interfaz visual para producción, demo pública y Studio. `NightclubDemo` y `NightclubApp` usan el mismo controlador local y dominio; Studio llega mediante `DemoRuntime`.
+- Una cuenta se vincula a una mesa por ID estable y conserva todas sus rondas. POS permite añadir varios productos en una ronda; Barra avanza su preparación. Al enviar la ronda se consume cada insumo de su receta una sola vez y se registra un movimiento con cuenta, ronda, operador y saldos anterior/final. El cobro no vuelve a descontar inventario.
+- Caja deriva efectivo, QR, tarjeta, pagos mixtos, entradas, salidas y efectivo esperado del turno. El cierre exige cuentas cobradas, guarda efectivo contado y diferencia; el movimiento del día puede imprimirse. Clientes permite alta/edición, vinculación a cuentas, consumo derivado y enlace WhatsApp sin enviar mensajes automáticamente.
+- El dataset full une productos, recetas, inventario, cuentas, rondas, mesas, clientes y turno por IDs. El dataset empty permite comenzar sin productos. La demo persiste operaciones en `pachax:nightclub-demo:operations:v2`, sincroniza pestañas del mismo origen y Restablecer demo borra esa key junto con el resto de datos demo. No representa sincronización entre dispositivos: para operación multiusuario real falta un backend transaccional con idempotencia y permisos.
+- Se conservó la estética oscura del club. La gestión de usuarios en esta fase es un directorio local; todavía no asigna permisos ni autentica personas. Impresión física depende del navegador y la impresora configurada.
+
+## Salón editable de Club nocturno (25/09/2026, feat/nightclub-floor-management)
+
+- Salón ofrece «Administrar salón»: crear y renombrar zonas; crear y editar mesas con nombre, zona, capacidad y estado libre/reservada. Las mesas con cuenta activa conservan su estado y relación por ID. Los nombres duplicados dentro de una zona se rechazan.
+- Zonas y mesas usan el mismo dataset del controlador Nightclub; aparecen inmediatamente en Salón, dashboard y selector POS. La demo persiste cambios en la key v2 existente, incluso tras recargar, y guarda eventos de auditoría. Al liberar una reserva desde la edición se marca la reserva confirmada como cancelada.
+- Verificación manual local: se creó zona Pista y Mesa Pista 1, se comprobó que el POS la ofrece como libre y que dashboard muestra Pista 0/1 después de recargar. Luego se renombró a Mesa Pista A y se cambió la capacidad a 6; Salón reflejó ambos cambios. El backend transaccional multiusuario sigue pendiente.
+
+## Efectivo visible en Caja de Club nocturno (25/09/2026, feat/nightclub-live-cash-balance)
+
+- Caja muestra arriba, en una tarjeta destacada, el efectivo que debe haber en ese momento: fondo inicial + ventas cobradas en efectivo + entradas de efectivo − salidas de efectivo. QR y tarjeta quedan fuera del dinero físico. Se reutiliza `nightclubCashSummary`, el mismo cálculo usado para arqueo y recibo impreso.
+- Verificación manual local: con fondo Bs 1.000 y una venta QR Bs 756, el efectivo esperado seguía en Bs 1.000; una entrada de efectivo Bs 20 lo actualizó de inmediato a Bs 1.020. El movimiento de prueba queda en los datos locales de la demo hasta restablecerla.

@@ -55,6 +55,7 @@ export function DemoRuntime({
       }
       localStorage.removeItem('cocina-tickets-impresos')
       localStorage.removeItem('pachax:nightclub-demo:operations:v1')
+      localStorage.removeItem('pachax:nightclub-demo:operations:v2')
     } catch { /* Private mode may disable storage. */ }
   }
 
