@@ -13,6 +13,7 @@ Se integró `origin/feat/restaurant-next` hasta `071124f`, incluidos:
 - `d6f037a`: stock de ingredientes visible en catálogo.
 - `bb8e361`: CRM de clientes con `customerId` estable y acciones WhatsApp.
 - `071124f`: consumo de recetas en gramos y mililitros.
+- `54f71a4`: consumo de inventario pendiente al cobrar, integrado tras el segundo `git fetch` de cierre.
 
 El merge fue limpio, sin conflictos. Se preservaron POS/mesa, cuentas, rondas, Caja, Historial, Reportes, `RestaurantExperience`, inventario, ledger, turnos, productos, clientes y datasets recientes.
 
