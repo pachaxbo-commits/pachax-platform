@@ -78,6 +78,7 @@ test('fixture full enlaza mesas, órdenes, productos, categorías e insumos por 
   }
   for (const product of RESTAURANT_PRODUCTS) {
     assert.ok(categoryIds.has(product.categoryId))
+    assert.ok((product.recipe || []).length > 0, `${product.name} debe tener receta para descontar inventario`)
     for (const ingredient of product.recipe || []) assert.ok(ingredientIds.has(ingredient.ingredientId))
   }
 })

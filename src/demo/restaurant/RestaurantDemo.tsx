@@ -122,7 +122,7 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
       if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
     }
   }
-  const hasCurrent = ['2', '3', '4', '5'].includes(localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
+  const hasCurrent = ['2', '3', '4', '5', '6'].includes(localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
   const hasLegacy = localStorage.getItem(`${LEGACY_KEY}:orders`) !== null
   if (!hasCurrent && !hasLegacy) {
     const dataset = createRestaurantDataset(datasetMode)
@@ -132,7 +132,7 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
       localStorage.setItem(`${STORAGE_KEY}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
     }
     localStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '5')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
     localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
     localStorage.setItem(`${STORAGE_KEY}:seeded`, 'false')
     return state
@@ -180,14 +180,14 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
       const storageName = key === 'stockMovements' ? 'stock-movements' : key
       localStorage.setItem(`${STORAGE_KEY}:${storageName}`, JSON.stringify(state[key]))
     }
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '5')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
     localStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
   }
   if (hasCurrent) {
     localStorage.setItem(`${STORAGE_KEY}:orders`, JSON.stringify(state.orders))
     localStorage.setItem(`${STORAGE_KEY}:tables`, JSON.stringify(state.tables))
     localStorage.setItem(`${STORAGE_KEY}:sectors`, JSON.stringify(state.sectors))
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '5')
+    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
   }
   localStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
   localStorage.setItem(`${STORAGE_KEY}:stock-movements`, JSON.stringify(state.stockMovements))
@@ -850,10 +850,24 @@ export function RestaurantDemo({
     orderLocks.current.add(orderId)
     let completed = false
     try {
-      const paid = completeRestaurantPayment(orders, tables, orderId, input, cashierName, new Date().toISOString())
+      const at = new Date().toISOString()
+      // POS consumes inventory on confirmation and a printed batch consumes it on print.
+      // A table can be paid without either action, so payment is the final idempotent
+      // safeguard that records every remaining line before the sale closes.
+      const consumption = confirmInventoryLines(
+        order,
+        order.items.filter((line) => line.quantity > 0),
+        inventoryRef.current.products,
+        inventoryRef.current.movements,
+        at,
+        cashierName
+      )
+      const paid = completeRestaurantPayment(orders, tables, orderId, input, cashierName, at)
+      saveInventory(consumption.products, consumption.movements)
       updateOrders(() => paid.orders)
       updateTables(() => paid.tables)
       record({ type: 'payment_confirmed', orderId, tableId: table?.id, details: { total: order.total, method: input.method, received: input.received, change: paid.order.payment.change } })
+      if (consumption.appended.length) record({ type: 'inventory_sale', orderId, tableId: table?.id, details: { movementIds: consumption.appended.map(item => item.id), trigger: 'payment' } })
       completed = true
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'No se pudo confirmar el pago.')

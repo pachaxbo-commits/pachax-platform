@@ -100,6 +100,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 3,
     isVisible: true,
     isActive: true,
+    restaurantType: 'prepared', preparationArea: 'Cocina', recipe: [{ ingredientId: 'ing-6', quantityBase: 2 }, { ingredientId: 'ing-8', quantityBase: 180 }],
   },
   {
     id: 'prod-4',
@@ -138,6 +139,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 6,
     isVisible: true,
     isActive: true,
+    restaurantType: 'prepared', preparationArea: 'Cocina', recipe: [{ ingredientId: 'ing-3', quantityBase: 120 }, { ingredientId: 'ing-5', quantityBase: 18 }],
   },
   {
     id: 'prod-7', categoryId: 'cat-entradas', name: 'Papas rústicas extra',
@@ -292,6 +294,7 @@ export const RESTAURANT_INGREDIENTS: RestaurantIngredient[] = [
   { id: 'ing-5', name: 'Café Grano Tostado Especial', category: 'Café', unit: 'kg', currentStock: 8, minStock: 5, unitCost: 55 },
   { id: 'ing-6', name: 'Pan Brioche Artesanal', category: 'Panadería', unit: 'unidad', currentStock: 32, minStock: 20, unitCost: 2.5 },
   { id: 'ing-7', name: 'Base de limonada preparada', category: 'Bebidas', unit: 'ml', currentStock: 12000, minStock: 3000, unitCost: 0.02 },
+  { id: 'ing-8', name: 'Tomate fresco', category: 'Verduras', unit: 'kg', currentStock: 30, minStock: 12, unitCost: 5.5 },
 ]
 
 export const RESTAURANT_INVENTORY_PRODUCTS: Product[] = RESTAURANT_INGREDIENTS.map((ingredient, index) => {
