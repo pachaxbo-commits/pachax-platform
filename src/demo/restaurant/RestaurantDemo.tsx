@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   RESTAURANT_CATEGORIES,
   RESTAURANT_PRODUCTS,
@@ -166,6 +166,20 @@ export function RestaurantDemo({
   const [products, setProducts] = useState<Product[]>(initial.products)
   const [stockMovements, setStockMovements] = useState<RestaurantStockMovement[]>(initial.stockMovements)
   const inventoryRef = useRef({ products: initial.products, movements: initial.stockMovements })
+  useEffect(() => {
+    const syncInventory = (event: StorageEvent) => {
+      if (event.key !== `${STORAGE_KEY}:inventory-store:v1` || !event.newValue) return
+      try {
+        const next = JSON.parse(event.newValue) as { products: Product[]; movements: RestaurantStockMovement[] }
+        if (!Array.isArray(next.products) || !Array.isArray(next.movements)) return
+        inventoryRef.current = next
+        setProducts(next.products)
+        setStockMovements(next.movements)
+      } catch { /* Ignore a partial or invalid demo snapshot. */ }
+    }
+    window.addEventListener('storage', syncInventory)
+    return () => window.removeEventListener('storage', syncInventory)
+  }, [])
   const [shift, setShift] = useState<Shift | null>(initial.shift)
   const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => readSaved<Shift[]>(`${STORAGE_KEY}:shift-history`, []))
   const [audit, setAudit] = useState<AuditEvent[]>(initial.audit)
