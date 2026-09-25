@@ -2,8 +2,9 @@ import { CajaView } from '../../components/CajaView'
 import type { CartItem, CatalogCategory, Order, OrderStatus, PaymentMethod, PaymentSummary, Product, ProductExtra } from '../../types'
 import type { RestaurantTable } from '../mocks/restaurantMock'
 import { makeRestaurantOrderItem } from '../../modules/restaurant/domain/restaurantOperations'
+import type { RestaurantCustomer } from '../../modules/restaurant/domain/restaurantCustomers'
 
-export function RestaurantPOS({ categories, products, quickExtras, orders, onAddOrder, onSetOrderStatus, onCancelOrder, onConfirmPayment, enabled = true, tables = [], userRole = 'cashier', userName }: {
+export function RestaurantPOS({ categories, products, quickExtras, orders, onAddOrder, onSetOrderStatus, onCancelOrder, onConfirmPayment, enabled = true, tables = [], customers = [], userRole = 'cashier', userName }: {
   categories: CatalogCategory[]
   products: Product[]
   quickExtras: ProductExtra[]
@@ -14,6 +15,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
   onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
   enabled?: boolean
   tables?: RestaurantTable[]
+  customers?: RestaurantCustomer[]
   userRole?: string
   userName: string
 }) {
@@ -32,6 +34,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
     tableInfo?: string
     customerName?: string
     customerPhone?: string
+    customerId?: string
     deliveryAddress?: string
   }): Promise<boolean> => {
     if (!enabled) return false
@@ -46,7 +49,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
       id: crypto.randomUUID(), sequence: nextSeq, displayNumber: String(nextSeq).padStart(3, '0'),
       status: 'pending', orderSource: input.orderSource, fulfillmentType: input.fulfillmentType,
       tableId: input.tableId, tableInfo: input.tableInfo,
-      customerName: input.customerName || 'Cliente', customerPhone: input.customerPhone,
+      customerId: input.customerId, customerName: input.customerName || 'Cliente', customerPhone: input.customerPhone,
       deliveryAddress: input.deliveryAddress, total, productSubtotal: total,
       payment: input.payment, paymentStatus: input.paymentStatus,
       paymentMethod: input.paymentMethod, expectedPaymentMethod: input.expectedPaymentMethod,
@@ -74,6 +77,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
       onUpdateOrder={async () => { throw new Error('Las correcciones de una cuenta de mesa se realizan con nuevas líneas desde Mesas.') }}
       onSetOrderStatus={onSetOrderStatus}
       operationsDisabled={!enabled} restaurantTables={tables} botManagementEnabled={false} orderEditingEnabled={false}
+      restaurantCustomers={customers}
     />
   </div>
 }

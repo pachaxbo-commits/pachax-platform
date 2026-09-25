@@ -23,6 +23,11 @@ import { useBackButtonBridge } from '../../../hooks/useBackHandler'
 import { RestaurantDashboard } from '../../../demo/restaurant/RestaurantDashboard'
 import { RestaurantPOS } from '../../../demo/restaurant/RestaurantPOS'
 import { RestaurantTables } from '../../../demo/restaurant/RestaurantTables'
+import type { RestaurantSector } from '../../../demo/mocks/restaurantMock'
+import type { FloorAction } from '../domain/restaurantFloor'
+import { visibleTables } from '../domain/restaurantFloor'
+import type { InventoryCount, InventoryShiftSnapshot, InventoryMovement, InventoryMovementType, InventoryShiftRow } from '../domain/inventoryEngine'
+import { stockAwareProducts } from '../domain/inventoryEngine'
 import { RestaurantOrders } from '../../../demo/restaurant/RestaurantOrders'
 import { RestaurantKitchen } from '../../../demo/restaurant/RestaurantKitchen'
 import { RestaurantHistory } from '../../../demo/restaurant/RestaurantHistory'
@@ -30,6 +35,8 @@ import { RestaurantCash } from '../../../demo/restaurant/RestaurantCash'
 import { RestaurantInventory } from '../../../demo/restaurant/RestaurantInventory'
 import { RestaurantProducts } from '../../../demo/restaurant/RestaurantProducts'
 import { RestaurantCustomers } from '../../../demo/restaurant/RestaurantCustomers'
+import type { RestaurantCustomer } from '../domain/restaurantCustomers'
+import type { CustomerDraft } from '../../../demo/restaurant/RestaurantCustomerForm'
 import { RestaurantUsers } from '../../../demo/restaurant/RestaurantUsers'
 import { RestaurantReports } from '../../../demo/restaurant/RestaurantReports'
 import { RestaurantSettings } from '../../../demo/restaurant/RestaurantSettings'
@@ -74,6 +81,9 @@ export type RestaurantShift = {
   closedAt?: string
   closedBy?: string
   expectedCashAtClose?: number
+  stockSnapshot?: InventoryShiftSnapshot
+  inventoryCounts?: Record<string, InventoryCount>
+  inventoryClosure?: { rows: InventoryShiftRow[]; countedAt: string; countedBy: string }
   reconciliation?: {
     countedCash?: number
     difference?: number
@@ -87,8 +97,11 @@ export interface RestaurantExperienceProps {
   companyName?: string
   orders: Order[]
   tables: RestaurantTable[]
+  sectors: RestaurantSector[]
   products: Product[]
+  customers?: RestaurantCustomer[]
   shift: RestaurantShift | null
+  shiftHistory?: RestaurantShift[]
   categories?: typeof RESTAURANT_CATEGORIES
   quickExtras?: typeof RESTAURANT_EXTRAS
   onStartShift: (amount: number, openedAt: string, openedBy: string) => void
@@ -98,18 +111,26 @@ export interface RestaurantExperienceProps {
   onAdvanceItemStatus?: (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered') => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
   onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
-  onOpenTableOrder: (table: RestaurantTable & { customerName?: string }) => void
+  onOpenTableOrder: (table: RestaurantTable & { customerId?: string; customerName?: string; customerPhone?: string }) => void
+  onSaveCustomer?: (draft: CustomerDraft, id?: string) => RestaurantCustomer | null
+  onArchiveCustomer?: (id: string) => void
+  onAssignCustomer?: (orderId: string, customerId: string | undefined) => void
   onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void
   onRequestBill: (tableId: string) => void
   onReopenBill: (tableId: string) => void
   onAddProduct: (orderId: string, input: { productId: string; quantity: number; note: string }) => void
-  onPrintBatch: (orderId: string) => void
+  onPrintBatch: (orderId: string) => boolean
   onCreateProduct: (
     tableId: string,
     input: { name: string; categoryName: string; price: number; preparationArea: string },
     orderId?: string
   ) => void
+  onFloorAction: (action: FloorAction) => { ok: boolean; error?: string }
   onSaveProducts?: (products: Product[]) => void
+  stockMovements?: InventoryMovement[]
+  onInventoryMovement?: (productId: string, nextStock: number, type: Exclude<InventoryMovementType, 'sale' | 'cancellation_return' | 'command_consumption' | 'migration_reconciliation'>, reason: string) => { ok: boolean; error?: string }
+  onCountInventoryItem?: (productId: string, physical: number, note?: string) => void
+  onCancelOrderItem?: (orderId: string, itemId: string, quantity: number) => boolean
   onResetDemo?: () => void
   onSelectRole?: (roleId: string) => void
   onSignOut?: () => void | Promise<void>
@@ -146,8 +167,11 @@ export function RestaurantExperience({
   companyName,
   orders,
   tables,
+  sectors,
   products,
+  customers = [],
   shift,
+  shiftHistory = [],
   categories = RESTAURANT_CATEGORIES,
   quickExtras = RESTAURANT_EXTRAS,
   onStartShift,
@@ -158,13 +182,21 @@ export function RestaurantExperience({
   onCancelOrder,
   onPayment,
   onOpenTableOrder,
+  onSaveCustomer,
+  onArchiveCustomer,
+  onAssignCustomer,
   onUpdateTableStatus,
   onRequestBill,
   onReopenBill,
   onAddProduct,
   onPrintBatch,
   onCreateProduct,
+  onFloorAction,
   onSaveProducts,
+  stockMovements = [],
+  onInventoryMovement,
+  onCountInventoryItem,
+  onCancelOrderItem,
   onResetDemo,
   onSelectRole,
   onSignOut,
@@ -178,6 +210,7 @@ export function RestaurantExperience({
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
+  const saleProducts = useMemo(() => stockAwareProducts(products), [products])
 
   // Módulos visibles según el rol del usuario (o todos en admin/owner/team)
   const visibleModules = useMemo(() => {
@@ -389,7 +422,7 @@ export function RestaurantExperience({
           {activeModule === 'pos' && (
             <RestaurantPOS
               categories={categories}
-              products={products}
+              products={saleProducts}
               quickExtras={quickExtras}
               orders={orders}
               onAddOrder={onAddOrder}
@@ -399,16 +432,23 @@ export function RestaurantExperience({
               userRole={session.role}
               userName={session.userName}
               enabled={!!shift}
-              tables={tables}
+              tables={visibleTables(tables)}
+              customers={customers}
             />
           )}
           {activeModule === 'tables' && (
             <RestaurantTables
               tables={tables}
+              sectors={sectors}
+              canManageFloor={['owner', 'admin', 'team'].includes(session.role)}
+              onFloorAction={onFloorAction}
               orders={orders}
               initialTableId={selectedTableId}
               enabled={!!shift}
-              products={products}
+              products={saleProducts}
+              customers={customers}
+              onSaveCustomer={onSaveCustomer}
+              onAssignCustomer={onAssignCustomer}
               onOpenTableOrder={onOpenTableOrder}
               onUpdateTableStatus={onUpdateTableStatus}
               onRequestBill={onRequestBill}
@@ -416,6 +456,7 @@ export function RestaurantExperience({
               onPayment={onPayment}
               onAddProduct={onAddProduct}
               onPrintBatch={onPrintBatch}
+              onCancelOrderItem={onCancelOrderItem}
               onCreateProduct={onCreateProduct}
             />
           )}
@@ -426,7 +467,7 @@ export function RestaurantExperience({
             <RestaurantKitchen orders={orders} onAdvanceStatus={onAdvanceStatus} onAdvanceItemStatus={onAdvanceItemStatus} />
           )}
           {activeModule === 'history' && (
-            <RestaurantHistory orders={orders} onAdvanceStatus={onAdvanceStatus} onCancelOrder={onCancelOrder} />
+            <RestaurantHistory orders={orders} shiftHistory={shiftHistory} onAdvanceStatus={onAdvanceStatus} onCancelOrder={onCancelOrder} />
           )}
           {activeModule === 'cash' && (
             <RestaurantCash
@@ -437,9 +478,12 @@ export function RestaurantExperience({
               restaurantName={displayName}
               onStartShift={onStartShift}
               onCloseShift={onCloseShift}
+              products={products}
+              stockMovements={stockMovements}
+              onCountInventoryItem={onCountInventoryItem}
             />
           )}
-          {activeModule === 'inventory' && <RestaurantInventory products={products} onSaveProducts={onSaveProducts || (() => {})} />}
+          {activeModule === 'inventory' && <RestaurantInventory products={products} catalogCategories={categories} shift={shift} movements={stockMovements} onInventoryMovement={onInventoryMovement} onSaveProducts={onSaveProducts || (() => {})} />}
           {activeModule === 'products' && (
             <RestaurantProducts
               categories={categories}
@@ -448,11 +492,11 @@ export function RestaurantExperience({
               onSaveProducts={onSaveProducts || (() => {})}
             />
           )}
-          {activeModule === 'customers' && <RestaurantCustomers orders={orders} />}
+          {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={['owner', 'admin', 'team'].includes(session.role)} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} />}
           {activeModule === 'users' && (
             <RestaurantUsers currentRole={session.role} onSelectRole={onSelectRole} />
           )}
-          {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} />}
+          {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
           {activeModule === 'settings' && <RestaurantSettings onResetDemo={onResetDemo} />}
           {activeModule === 'printers' && <RestaurantPrinters />}
         </main>

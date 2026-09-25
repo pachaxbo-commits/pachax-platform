@@ -5,6 +5,7 @@ import {
   RESTAURANT_INVENTORY_PRODUCTS,
   RESTAURANT_EXTRAS,
   INITIAL_TABLES,
+  INITIAL_SECTORS,
   INITIAL_RESTAURANT_ORDERS,
   type RestaurantTable,
 } from '../../mocks/restaurantMock'
@@ -22,19 +23,15 @@ const FOOD_IMAGES: Record<string, string> = {
 
 /**
  * Minimum viable tenant state for a freshly created restaurant:
- * - Base tables available in main salon (ready for service)
+ * - Empty salon, ready for the owner to create sectors and tables
  * - Empty catalogue (ready for onboarding / product creation)
  * - 0 historic orders
  * - Shift closed (ready for cashier opening)
  */
 export function createEmptyRestaurantDataset(): RestaurantDataset {
-  const baseTables: RestaurantTable[] = INITIAL_TABLES.map((table) => ({
-    ...table, status: 'available', activeOrderId: undefined, openedAt: undefined,
-    openedBy: undefined, diners: undefined,
-  }))
-
   return {
-    tables: baseTables,
+    tables: [],
+    sectors: [],
     products: [],
     orders: [],
     shift: null,
@@ -103,6 +100,7 @@ export function createFullRestaurantDataset(): RestaurantDataset {
 
   return {
     tables: fullTables,
+    sectors: INITIAL_SECTORS.map(sector => ({ ...sector })),
     products: fullProducts,
     orders: fullOrders,
     shift: fullShift,

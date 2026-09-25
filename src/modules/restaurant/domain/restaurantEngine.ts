@@ -1,4 +1,5 @@
 import type { Order, Product, RestaurantPaymentEntry } from '../../../types'
+import type { InventoryMovement } from './inventoryEngine'
 
 export type PaymentDraft = { method: 'cash' | 'qr' | 'card'; amount: number; received?: number }
 
@@ -23,7 +24,7 @@ export function recipeCost(product: Product, products: Product[]) {
   }, 0))
 }
 
-export type RestaurantStockMovement = { id: string; operationId: string; productId: string; quantityBase: number; type: 'command_consumption'; createdAt: string; orderId: string; batchId: string }
+export type RestaurantStockMovement = InventoryMovement
 
 export function consumePrintedBatch(order: Order, batchId: string, products: Product[], existing: RestaurantStockMovement[], at: string) {
   const batch = order.submittedBatches?.find((item) => item.id === batchId)

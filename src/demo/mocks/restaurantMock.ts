@@ -2,15 +2,38 @@ import type { CatalogCategory, Order, OrderItem, Product, ProductExtra } from '.
 
 export interface RestaurantTable {
   id: string
-  number: number
+  number?: number
   name: string
   capacity: number
   status: 'available' | 'occupied' | 'bill_requested' | 'reserved'
+  sectorId?: string
+  shape?: 'square' | 'rectangle' | 'round'
+  sortOrder?: number
+  active?: boolean
+  createdAt?: string
+  updatedAt?: string
+  archivedAt?: string
   openedBy?: string
   activeOrderId?: string
   diners?: number
   openedAt?: string
 }
+
+export interface RestaurantSector {
+  id: string
+  name: string
+  description?: string
+  sortOrder: number
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export const INITIAL_SECTORS: RestaurantSector[] = [
+  { id: 'sector-salon', name: 'Salón principal', sortOrder: 0, active: true, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' },
+  { id: 'sector-terraza', name: 'Terraza', sortOrder: 1, active: true, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' },
+  { id: 'sector-barra', name: 'Barra', sortOrder: 2, active: true, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' },
+]
 
 export interface RestaurantIngredient {
   id: string
@@ -89,7 +112,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 4,
     isVisible: true,
     isActive: true,
-    restaurantType: 'beverage', preparationArea: 'Barra',
+    restaurantType: 'beverage', preparationArea: 'Barra', recipe: [{ ingredientId: 'ing-7', quantityBase: 350 }],
   },
   {
     id: 'prod-5',
@@ -102,7 +125,7 @@ export const RESTAURANT_PRODUCTS: Product[] = [
     sortOrder: 5,
     isVisible: true,
     isActive: true,
-    restaurantType: 'beverage', preparationArea: 'Barra', recipe: [{ ingredientId: 'ing-4', quantityBase: 0.2 }],
+    restaurantType: 'beverage', preparationArea: 'Barra', recipe: [{ ingredientId: 'ing-4', quantityBase: 200 }],
   },
   {
     id: 'prod-6',
@@ -143,7 +166,13 @@ export const INITIAL_TABLES: RestaurantTable[] = [
   { id: 't10', number: 10, name: 'Mesa 10 (Terraza)', capacity: 4, status: 'occupied', activeOrderId: 'ord-104', diners: 2, openedAt: '13:30' },
   { id: 't11', number: 11, name: 'Mesa 11 (Terraza)', capacity: 4, status: 'available' },
   { id: 't12', number: 12, name: 'Mesa 12 (Barra)', capacity: 2, status: 'available' },
-]
+].map((table, sortOrder) => ({
+  ...table,
+  status: table.status as RestaurantTable['status'],
+  sectorId: table.id === 't10' || table.id === 't11' ? 'sector-terraza' : table.id === 't12' ? 'sector-barra' : 'sector-salon',
+  sortOrder, active: true, shape: 'square' as const,
+  createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+}))
 
 const emptyModifiers = { extras: [], options: [], note: '' }
 
@@ -259,14 +288,15 @@ export const RESTAURANT_INGREDIENTS: RestaurantIngredient[] = [
   { id: 'ing-1', name: 'Lomo Fino Vacuno', category: 'Carnes', unit: 'kg', currentStock: 18.5, minStock: 10, unitCost: 42 },
   { id: 'ing-2', name: 'Papas Rústicas Holandesa', category: 'Verduras', unit: 'kg', currentStock: 45, minStock: 25, unitCost: 4 },
   { id: 'ing-3', name: 'Queso Mascarpone Italiano', category: 'Lácteos', unit: 'kg', currentStock: 6.2, minStock: 4, unitCost: 65 },
-  { id: 'ing-4', name: 'Vino Tinto Cabernet Sauvignon', category: 'Bebidas', unit: 'botella', currentStock: 24, minStock: 12, unitCost: 35 },
+  { id: 'ing-4', name: 'Vino Tinto Cabernet Sauvignon', category: 'Bebidas', unit: 'ml', currentStock: 18000, minStock: 9000, unitCost: 35 / 750 },
   { id: 'ing-5', name: 'Café Grano Tostado Especial', category: 'Café', unit: 'kg', currentStock: 8, minStock: 5, unitCost: 55 },
   { id: 'ing-6', name: 'Pan Brioche Artesanal', category: 'Panadería', unit: 'unidad', currentStock: 32, minStock: 20, unitCost: 2.5 },
+  { id: 'ing-7', name: 'Base de limonada preparada', category: 'Bebidas', unit: 'ml', currentStock: 12000, minStock: 3000, unitCost: 0.02 },
 ]
 
 export const RESTAURANT_INVENTORY_PRODUCTS: Product[] = RESTAURANT_INGREDIENTS.map((ingredient, index) => {
-  const unit = ingredient.unit === 'kg' ? 'g' : 'unit'
-  const factor = ingredient.unit === 'kg' ? 1000 : 1
+  const unit = ingredient.unit === 'kg' ? 'g' : ingredient.unit === 'l' || ingredient.unit === 'ml' ? 'ml' : 'unit'
+  const factor = ingredient.unit === 'kg' || ingredient.unit === 'l' ? 1000 : 1
   return { id: ingredient.id, name: ingredient.name, categoryId: 'cat-insumos', description: ingredient.category, price: 0, image: '', availability: 'available', sortOrder: 100 + index, isActive: true, isVisible: false, restaurantType: 'ingredient', baseUnit: unit, stockBase: ingredient.currentStock * factor, minimumStockBase: ingredient.minStock * factor, unitCost: ingredient.unitCost / factor }
 })
 
