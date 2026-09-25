@@ -34,7 +34,9 @@
     match /tenants/{tenantId}/branches/{branchId} { allow read: if tBranch(tenantId,branchId); allow write: if false; }
     match /tenants/{tenantId}/auditLogs/{eventId} { allow read: if tPermission(tenantId,'settings.manage','settings'); allow write: if false; }
     match /users/{uid}/tenantLinks/{tenantId} { allow read: if request.auth != null && request.auth.uid == uid; allow write: if false; }
+    match /users/{uid}/onboarding/{document=**} { allow read, write: if false; }
     match /platformOperators/{uid} { allow read, write: if false; }
+    match /platformBootstrap/{document=**} { allow read, write: if false; }
     match /supportSessions/{uid} { allow read, write: if false; }
     match /platformAuditLogs/{eventId} { allow read, write: if false; }
     match /tenants/{tenantId}/products/{productId} {

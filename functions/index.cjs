@@ -4,6 +4,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { processCommand } = require("./operations.cjs");
+const { LEGACY_FUNCTIONS_REGION } = require("./regions.cjs");
 const { prepareCleanDelivery, executeCleanDelivery } = require("./maintenance.cjs");
 initializeApp();
 // TODO remove legacy restaurants/pachax entrypoints after all historical suites are migrated.
@@ -11,7 +12,7 @@ Object.assign(exports, require('./tenantEntrypoints.cjs'));
 exports.processPachaxOperation = onDocumentCreated(
   {
     document: "restaurants/pachax/distOperations/{operationId}",
-    region: "us-central1",
+    region: LEGACY_FUNCTIONS_REGION,
     retry: true,
     maxInstances: 3,
     memory: "256MiB",
@@ -25,7 +26,7 @@ const { refreshCreditStatus } = require("./operations.cjs");
 exports.refreshPachaxCredit = onDocumentWritten(
   {
     document: "restaurants/pachax/distReceivables/{id}",
-    region: "us-central1",
+    region: LEGACY_FUNCTIONS_REGION,
     retry: true,
     maxInstances: 2,
   },
@@ -47,7 +48,7 @@ exports.refreshPachaxCredit = onDocumentWritten(
 exports.initializePachaxCredit = onDocumentCreated(
   {
     document: "restaurants/pachax/distCustomers/{id}",
-    region: "us-central1",
+    region: LEGACY_FUNCTIONS_REGION,
     retry: true,
     maxInstances: 2,
   },
@@ -65,7 +66,7 @@ exports.initializePachaxCredit = onDocumentCreated(
 
 exports.changePachaxMemberPassword = onCall(
   {
-    region: "us-central1",
+    region: LEGACY_FUNCTIONS_REGION,
     memory: "512MiB",
     timeoutSeconds: 540,
     // La llamada sigue protegida por Firebase Auth dentro del handler. Este permiso

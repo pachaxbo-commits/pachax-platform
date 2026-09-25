@@ -1,5 +1,129 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint vigente: integración de backend seguro y operaciones Nightclub (25/09/2026)
+
+Rama `codex/integrate-backend-nightclub`, creada desde `origin/main` en `f427131`. Integra la rama acumulativa `feat/nightclub-live-cash-balance` (`dc2b1bc`, `1350f09`, `6d1d5df`) y el backend completo de `feat/secure-tenant-onboarding` (`580f714`, `27f6a61`, `e52241c`, `4d1495f`). Los únicos conflictos fueron `AGENTS.md` y este documento; se resolvieron conservando el protocolo actual, las reglas canónicas de plantillas, la propiedad de módulos y el contrato de seguridad backend.
+
+### Backend y Functions integrados
+
+- `tenantGateway`, `platformGateway` y los triggers tenant usan `southamerica-west1`; los entrypoints heredados `restaurants/pachax` permanecen explícitamente en `us-central1` hasta retirar sus consumidores. El cliente comparte las mismas constantes en `src/config/functions.ts`.
+- Platform exige custom claim más operador activo protegido. Support View conserva identidad, empieza read-only y requiere elevación temporal, motivo y auditoría para editar.
+- `completeOnboarding` deriva UID, tenant determinístico, owner, roles, sucursal principal, link, perfil y auditoría dentro de una transacción idempotente. No acepta roles, owner ni privilegios Platform desde el cliente.
+- La regeneración de Rules corrigió el artefacto `firebase/firestore.rules` para incluir los bloqueos de `users/{uid}/onboarding/**` y `platformBootstrap/**` ya definidos en `firebase/tenant-core.rules`.
+- Se añadió cobertura de integración que crea un tenant `nightclub_lounge` y comprueba su owner, documento tenant y seis roles del template canónico.
+- El proyecto remoto `pachax-platform` fue confirmado explícitamente con la cuenta PACHAX. No había Functions desplegadas al hacer esta verificación. No se ejecutó bootstrap ni se crearon usuarios reales.
+
+### Operaciones Nightclub integradas
+
+- El controlador canónico conecta salón, POS, rondas, consumo de stock, caja, clientes, productos e inventario sobre el adaptador local de demo/Studio.
+- Floor management administra zonas y mesas con identidades estables. La caja muestra saldo en vivo y exige cuentas cerradas antes del arqueo.
+- Esta integración no convierte el adaptador local en persistencia productiva: repositorio tenant, operaciones server-side y Rules específicas de Nightclub siguen pendientes.
+
+### Validación de integración
+
+- Node `22.23.3` confirmado por Functions Emulator (`Using node@22 from host`).
+- Typecheck, build de emulador y build de producción aprobados.
+- Dominio: Platform 24/24, Distribución 55/55, Restaurante 25/25, Caja 1/1 y Nightclub 6/6.
+- Backend en emuladores `demo-pachax-platform`: Platform Security 19/19, aislamiento tenant A/B/C 21/21, onboarding 16/16 y Rules/operaciones heredadas 56/56.
+- Sintaxis de todos los `.cjs`, ESLint focalizado de Nightclub/gateway/configuración y `git diff --check` aprobados.
+- Advertencias no bloqueantes: chunks grandes de Vite, importación estática/dinámica de Firebase Functions y aviso del CLI sobre versión de `firebase-functions`; `functions/package.json` permanece fijado al contrato Node 22 y la instalación no reportó vulnerabilidades.
+
+Los checkpoints siguientes se conservan como historial técnico. Si contradicen este bloque superior, prevalece el checkpoint vigente.
+
+## Checkpoint histórico: backend Platform y onboarding seguro antes de integración (22/09/2026)
+
+Rama `feat/secure-tenant-onboarding`, publicada en `origin` con backend funcional hasta `e52241c`. La rama conserva los commits `580f714` (región de Functions), `27f6a61` (seguridad Platform) y `e52241c` (onboarding seguro). No se desplegaron Functions ni Rules, no se ejecutó el bootstrap real, no se conectó `/register` y no se hizo merge a `main`.
+
+### Estado backend preservado en esta rama
+
+- Platform exige custom claim `platform: true` y operador activo en `platformOperators/{uid}`. Support View mantiene la identidad del operador, empieza read-only y requiere elevación temporal, motivo y auditoría para mutaciones permitidas.
+- `tenantGateway.completeOnboarding` crea de forma atómica e idempotente el perfil global, tenant, owner membership, tenant link, roles, branch `main`, estado de onboarding y auditoría. El servidor deriva UID, tenant inicial, rol owner y permisos; no los acepta del cliente.
+- El contrato futuro de `/register` está en `docs/REGISTER-ONBOARDING-CONTRACT.md`: Firebase Auth Client crea la cuenta y la creación del tenant pasa exclusivamente por la Function. La UI de registro no se conectó en esta fase.
+- Un operador Platform activo recibe `permission-denied` en `completeOnboarding`. Antes del bootstrap real se debe decidir si Platform y tenant owner usarán identidades separadas o si se diseñará un flujo administrativo explícito. No debilitar esta barrera para facilitar el registro.
+- Storage continúa fuera del onboarding. No se añadieron cargas de logos ni reglas nuevas de Storage.
+
+### Evidencia backend ya ejecutada
+
+- Runtime objetivo Node `22.23.2` confirmado por Functions Emulator.
+- Typecheck y build aprobados.
+- `test:platform`: 20/20.
+- `test:platform-security`: 19/19.
+- `test:tenant-core`: 21/21, incluido aislamiento A/B/C y miembro desactivado.
+- `test:onboarding`: 15/15, incluidos concurrencia, reintentos, estado parcial, tenant previo, campos no permitidos y operador Platform bloqueado.
+- `test:distribution`: 55/55.
+- Suite de Rules/operaciones: 56/56.
+
+### Estado observado de `origin/main`
+
+Durante este cierre se ejecutó `git fetch origin`. `origin/main` está en `958efa1` y contiene seis commits que aún no están en esta rama, incluidos:
+
+- `80afc91`: `DistributionExperience` compartida por producción, Studio y demo.
+- `1cd27e4`: ampliación visual de turnos y mesas de Restaurante.
+- `abb32af`: `RestaurantExperience` canónica y conexión productiva por `restaurant_pos`.
+
+Por tanto, el estado vigente de `main` ya incluye experiencias canónicas conectadas para Producción/Distribución y Restaurante. Las afirmaciones antiguas más abajo que describen Restaurante como demo, desconectado o pendiente pertenecen a checkpoints históricos y no describen el estado actual de `main`. Comercio / Venta rápida (`gelateria_weight_cafe`) todavía tiene pendiente su `QuickRetailExperience` canónica.
+
+Esta rama está tres commits por delante y seis por detrás de `origin/main`. La integración se difirió deliberadamente: los seis commits entrantes forman un bloque visual amplio y continúa trabajo paralelo de Restaurante. Mezclarlo en este cierre documental aumentaría el riesgo de conflicto en `CONTEXTO.md` y de incorporar un estado intermedio ajeno al backend. No se descartó ni sobrescribió trabajo de ninguna rama.
+
+### Regla permanente para nuevas funciones
+
+Una función no está terminada por existir visualmente. Debe completar la cadena:
+
+`UI -> contrato de dominio -> repositorio/gateway -> permisos -> Rules/Function -> aislamiento tenant -> auditoría cuando corresponda -> pruebas positivas y negativas`.
+
+El criterio exige UI, datos reales, autorización, aislamiento tenant, seguridad y pruebas comprobadas. La lista operativa está en `docs/SECURE-FEATURE-CHECKLIST.md` y aplica a todas las plantillas. No copiar Rules de Distribución literalmente: cada dominio debe modelar sus propias operaciones, roles, branch/route, estados y riesgos. No confiar en `tenantId`, owner, rol, permisos, totales, precios, descuentos ni transiciones sensibles enviados por el cliente.
+
+La regla visual permanente es **Single Canonical Template Experience**:
+
+- `route_distribution` -> `DistributionExperience`.
+- `restaurant_pos` -> `RestaurantExperience`.
+- `gelateria_weight_cafe` -> `QuickRetailExperience`, pendiente.
+
+Producción, Studio y demo pública reutilizan la misma experiencia; solo cambian adaptadores de datos, sesión, permisos, tenant, mocks y efectos externos.
+
+### Primer paso de la próxima sesión
+
+1. Ejecutar `git status`, `git branch --show-current` y `git fetch origin`.
+2. Revisar los commits nuevos de Restaurante que hayan entrado después de `958efa1` y esperar a que el bloque paralelo esté estable.
+3. Con el árbol limpio, integrar `git merge origin/main` dentro de `feat/secure-tenant-onboarding`; resolver `CONTEXTO.md` preservando tanto el historial visual como este checkpoint backend.
+4. Ejecutar la suite completa con Node 22 antes de subir la rama integrada.
+5. Auditar módulo por módulo la cadena real de productos, usuarios, inventario, clientes, caja, turnos, mesas, pedidos, cocina y configuración. Para cada operación mapear rol, tenant/branch/route, gateway, Rules/Function, auditoría y pruebas positivas/negativas antes de implementar huecos.
+
+No desplegar, ejecutar bootstrap, conectar `/register`, construir `/platform`, modificar Storage ni avanzar diseño durante ese primer paso de sincronización.
+
+## Checkpoint: backend de seguridad PACHAX Platform (22/09/2026)
+
+Rama `feat/platform-security-backend`, creada desde `origin/main` en `57a5d9e`. Esta fase solo prepara backend; no añade `/platform`, onboarding ni cambios visuales. No se desplegaron Functions, no se ejecutó el bootstrap real y no se hizo merge a `main`.
+
+### Implementado
+
+- Autorización Platform de doble fuente: custom claim `platform: true` más documento protegido `platformOperators/{uid}`, validado en cada acción. Roles server-side: `platform_owner`, `platform_admin`, `platform_support` y `platform_finance`.
+- `platformGateway` con validación de operador, directorio paginado, detalle tenant acotado, lectura de contratos de templates, sesiones Support View, elevación temporal, actualización allowlisted y consulta de auditoría.
+- Support View conserva el UID del operador. Inicia read-only; la edición requiere `support.elevate`, confirmación, motivo y sesión vigente de 15 minutos. Firestore Rules nunca da bypass directo al operador.
+- Auditoría Platform con `operatorUid`, acción, tenant, motivo y timestamp de servidor. Colecciones de operadores, bootstrap, sesiones y auditoría están cerradas al cliente.
+- Bootstrap administrativo de uso único en `scripts/bootstrap-platform-owner.cjs`; no contiene identidades ni secretos, preserva claims existentes, reserva un único UID y se puede reanudar solo para ese UID si queda pendiente. Procedimiento en `docs/PLATFORM-BOOTSTRAP.md`. No fue ejecutado contra producción.
+- Firestore real confirmado en Santiago. Tenant/Platform Functions v2 y su cliente explícito se prepararon para `southamerica-west1`. Los entrypoints legacy `restaurants/pachax` continúan separados en `us-central1`.
+
+### Evidencia
+
+- Node `22.23.2`: Functions Emulator confirmó `Using node@22 from host`.
+- `test:platform-security`: 19/19, incluidos callable real, bootstrap único, tenant sin enumeración/autopromoción, soporte sin elevación, expiración, operador desactivado, identidad y región.
+- `test:tenant-core`: 21/21, aislamiento A/B/C y callable tenant en Santiago.
+- `test:platform`: 20/20. `test:distribution`: 55/55. Suite legacy de Rules/operaciones: 56/56.
+- Typecheck y build aprobados. Vite conserva advertencias existentes de chunks grandes y un import dinámico/estático de Firebase Functions.
+
+### Pendiente
+
+- Revisar y aprobar esta rama; desplegar Functions solo cuando billing y el destino remoto estén expresamente aprobados.
+- Ejecutar el bootstrap real únicamente después de revisar el UID y el procedimiento final.
+- Construir `/platform` y conectar su UI al gateway en una tarea posterior.
+- Implementar gestión autenticada de operadores posteriores al primer owner. El bootstrap no sirve para añadir propietarios arbitrarios.
+- Retirar los entrypoints legacy `restaurants/pachax` y su región `us-central1` cuando termine la migración de sus consumidores.
+
+## Checkpoint vigente: PACHAX Studio & Demos Desacopladas (22/09/2026)
+
+Rama `feat/pachax-studio`. Se implementó un entorno interno de desarrollo y previsualización (**PACHAX Studio**) desacoplado de Firebase, Cloud Functions y autenticación real, junto con rutas públicas de demostración (`/demo`, `/demo/restaurant`, `/demo/distribution`, `/demo/retail`).
+
 ## Checkpoint vigente: base común, routing de demos y Nightclub (25/09/2026)
 
 Rama de integración `integrate/nightclub-routing-base`, creada desde `origin/main` en `cb2d186`. Esta sesión integra las correcciones recientes de Restaurante, corrige el cruce entre entrypoints públicos y añade la base independiente de Club nocturno / Lounge. No integra `feat/secure-tenant-onboarding`, no despliega Functions/Rules y no accede a `G:/pachax-comandero`.
@@ -547,3 +671,22 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - La carga local migra de forma no destructiva inventarios persistidos: restaura recetas de fixture que antes quedaron vacías, transforma la reserva histórica de vino de botellas a mililitros, convierte movimientos y conteos de turno asociados, y agrega la base de limonada sin borrar productos ni movimientos creados por el usuario. `schemaVersion` pasa a 5.
 - Pruebas de dominio verifican el catálogo real: una venta de lomo, dos limonadas y una copa deja carne en 18 220 g, papas en 44 800 g, base de limonada en 11 300 ml y vino en 17 800 ml.
 - El cobro ahora es una salvaguarda final de inventario: si una cuenta de Mesa se pagó sin haber pasado antes por POS o por impresión de comanda, confirma sus líneas pendientes al cobrar. La clave idempotente por orden/línea evita descontar por segunda vez productos ya confirmados. Todos los platos y bebidas del fixture full tienen receta; productos nuevos pueden usar receta o stock directo. `schemaVersion` pasa a 6.
+
+## Operación integrada de Club nocturno (25/09/2026, feat/nightclub-operations)
+
+- `NightclubExperience` sigue siendo la única interfaz visual para producción, demo pública y Studio. `NightclubDemo` y `NightclubApp` usan el mismo controlador local y dominio; Studio llega mediante `DemoRuntime`.
+- Una cuenta se vincula a una mesa por ID estable y conserva todas sus rondas. POS permite añadir varios productos en una ronda; Barra avanza su preparación. Al enviar la ronda se consume cada insumo de su receta una sola vez y se registra un movimiento con cuenta, ronda, operador y saldos anterior/final. El cobro no vuelve a descontar inventario.
+- Caja deriva efectivo, QR, tarjeta, pagos mixtos, entradas, salidas y efectivo esperado del turno. El cierre exige cuentas cobradas, guarda efectivo contado y diferencia; el movimiento del día puede imprimirse. Clientes permite alta/edición, vinculación a cuentas, consumo derivado y enlace WhatsApp sin enviar mensajes automáticamente.
+- El dataset full une productos, recetas, inventario, cuentas, rondas, mesas, clientes y turno por IDs. El dataset empty permite comenzar sin productos. La demo persiste operaciones en `pachax:nightclub-demo:operations:v2`, sincroniza pestañas del mismo origen y Restablecer demo borra esa key junto con el resto de datos demo. No representa sincronización entre dispositivos: para operación multiusuario real falta un backend transaccional con idempotencia y permisos.
+- Se conservó la estética oscura del club. La gestión de usuarios en esta fase es un directorio local; todavía no asigna permisos ni autentica personas. Impresión física depende del navegador y la impresora configurada.
+
+## Salón editable de Club nocturno (25/09/2026, feat/nightclub-floor-management)
+
+- Salón ofrece «Administrar salón»: crear y renombrar zonas; crear y editar mesas con nombre, zona, capacidad y estado libre/reservada. Las mesas con cuenta activa conservan su estado y relación por ID. Los nombres duplicados dentro de una zona se rechazan.
+- Zonas y mesas usan el mismo dataset del controlador Nightclub; aparecen inmediatamente en Salón, dashboard y selector POS. La demo persiste cambios en la key v2 existente, incluso tras recargar, y guarda eventos de auditoría. Al liberar una reserva desde la edición se marca la reserva confirmada como cancelada.
+- Verificación manual local: se creó zona Pista y Mesa Pista 1, se comprobó que el POS la ofrece como libre y que dashboard muestra Pista 0/1 después de recargar. Luego se renombró a Mesa Pista A y se cambió la capacidad a 6; Salón reflejó ambos cambios. El backend transaccional multiusuario sigue pendiente.
+
+## Efectivo visible en Caja de Club nocturno (25/09/2026, feat/nightclub-live-cash-balance)
+
+- Caja muestra arriba, en una tarjeta destacada, el efectivo que debe haber en ese momento: fondo inicial + ventas cobradas en efectivo + entradas de efectivo − salidas de efectivo. QR y tarjeta quedan fuera del dinero físico. Se reutiliza `nightclubCashSummary`, el mismo cálculo usado para arqueo y recibo impreso.
+- Verificación manual local: con fondo Bs 1.000 y una venta QR Bs 756, el efectivo esperado seguía en Bs 1.000; una entrada de efectivo Bs 20 lo actualizó de inmediato a Bs 1.020. El movimiento de prueba queda en los datos locales de la demo hasta restablecerla.
