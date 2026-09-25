@@ -68,12 +68,14 @@ export function HistorialView({
   onCancelOrder,
   userName,
   userRole,
+  showLegacyIngredientEstimate = true,
 }: {
   orders: Order[]
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
   onCancelOrder: (orderId: string, cancelledBy: string, reason?: string) => Promise<boolean>
   userName: string
   userRole: string
+  showLegacyIngredientEstimate?: boolean
 }) {
   const dayOptions = useMemo(() => {
     const options: string[] = []
@@ -219,7 +221,7 @@ export function HistorialView({
 
           let extraPatties = 0
           if (item.modifiers && item.modifiers.extras) {
-            item.modifiers.extras.forEach((extra: any) => {
+            item.modifiers.extras.forEach((extra) => {
               const extraNameLower = extra.name
                 .normalize('NFD')
                 .replace(/\p{Diacritic}/gu, '')
@@ -478,8 +480,7 @@ export function HistorialView({
               <div className="mt-2 text-xl font-black text-ink">{summary.delivered}</div>
             </div>
 
-            {/* Cálculo de Insumos Gastados */}
-            <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4 shadow-insetSoft">
+            {showLegacyIngredientEstimate && <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4 shadow-insetSoft">
               <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">Insumos Gastados</div>
               <div className="mt-2 flex gap-3">
                 <div>
@@ -491,7 +492,7 @@ export function HistorialView({
                   <div className="text-sm font-black text-slate-900">{insumos.carnes} u</div>
                 </div>
               </div>
-            </div>
+            </div>}
           </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.35fr_0.95fr]">
@@ -631,7 +632,7 @@ export function HistorialView({
                     <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                       <SourceBadge source={order.orderSource} />
                       <FulfillmentBadge type={order.fulfillmentType} tableInfo={order.tableInfo} />
-                      <PaymentBadge paymentStatus={order.paymentStatus} paymentMethod={order.paymentMethod} />
+                      {order.status !== 'cancelled' && <PaymentBadge paymentStatus={order.paymentStatus} paymentMethod={order.paymentMethod} />}
                       <StatusPill status={order.status} />
                     </div>
                   </div>

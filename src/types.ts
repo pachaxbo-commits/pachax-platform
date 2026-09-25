@@ -234,6 +234,7 @@ export interface Product extends Partial<TenantScopedEntity> {
   /** Datos operativos del catálogo de restaurante. Las cantidades se guardan en unidad base. */
   restaurantType?: 'prepared' | 'beverage' | 'direct' | 'ingredient'
   baseUnit?: 'g' | 'ml' | 'unit'
+  stockUnitLabel?: string
   stockBase?: number
   minimumStockBase?: number
   unitCost?: number
@@ -333,6 +334,8 @@ export interface OrderFinancialSnapshot {
 
 export interface OrderItem extends OrderItemSnapshot {
   id: string
+  cancelledQuantity?: number
+  cancellations?: Array<{ id: string; quantity: number; reason: string; at: string; by: string }>
   /** Trazabilidad operativa opcional; los pedidos heredados siguen válidos. */
   createdAt?: string
   startedAt?: string

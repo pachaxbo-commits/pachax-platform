@@ -72,7 +72,7 @@ export function RestaurantApp({
       onRequestBill={() => {}}
       onReopenBill={() => {}}
       onAddProduct={() => {}}
-      onPrintBatch={() => {}}
+      onPrintBatch={() => false}
       onCreateProduct={() => {}}
       onFloorAction={() => ({ ok: false, error: 'Configuración disponible al conectar el proveedor de datos.' })}
       onSignOut={onSignOut}
