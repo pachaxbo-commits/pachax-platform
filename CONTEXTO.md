@@ -700,3 +700,10 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Rules permiten lecturas Nightclub según permisos/capabilities y bloquean todas las escrituras directas. El emulador aprobó 27 comprobaciones multiempresa, incluidas lectura propia, rechazo cruzado, miembro desactivado y escritura directa denegada. No se desplegaron Rules ni Functions; Functions sigue pendiente de Blaze y de implementar los comandos transaccionales del repositorio.
 - QA visual local aprobado en 360x800, 390x844, 768x1024, 1366x768 y 1440x900. Se corrigió el drawer móvil cubierto por la navegación y se movió el menú lateral al breakpoint de escritorio. Demo full/empty, simulación de Mesero y Studio canónico cargaron sin errores de consola.
 - Validación: typecheck; Nightclub 11/11; Platform 24/24; Restaurante 25/25; Distribución 55/55; aislamiento tenant 27/27; build:emulator y git diff --check. El emulador declaró Node 22 pero usó Node 24 del host y avisó que firebase-functions está desactualizado; validar runtime Node 22 antes de un deploy.
+
+## Núcleo de confiabilidad Nightclub (25/09/2026, feat/nightclub-reliability-core)
+
+- Producción Nightclub falla cerrada sin fixtures. El contrato productivo usa subscriptions específicas y comandos; no existe listener ni documento gigante de dataset.
+- Se añadieron despachador application-first, outbox, estados de sincronización, transporte de gateway, adaptador IndexedDB web y contrato de estado UI. La aceptación local ocurre después de persistir; Android requiere seleccionar y validar SQLite antes de conectar producción.
+- `nightclubCommand` prepara transacciones idempotentes para turnos, cuentas, rondas, estados, cancelación/reversión, cobro, movimiento de caja e inventario. Deriva tenant/actor/permisos/precios/estado desde servidor y rechaza colisiones de `operationId`. Cortesías/void quedan bloqueados hasta definir autorización.
+- ADR y plan de pruebas documentan device-only vs Edge, conflictos, coste cualitativo y pendientes. No hubo deploy ni activación de Blaze.
