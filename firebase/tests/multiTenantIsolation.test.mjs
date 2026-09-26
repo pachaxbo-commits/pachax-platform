@@ -20,9 +20,11 @@ const ids = {
   restaurant: '',
   distribution: '',
   gelateria: '',
+  nightclub: '',
   ownerA: `qa-owner-a-${suffix}`,
   ownerB: `qa-owner-b-${suffix}`,
   ownerC: `qa-owner-c-${suffix}`,
+  ownerD: `qa-owner-d-${suffix}`,
   sellerB: `qa-seller-b-${suffix}`,
   cashierA: `qa-cashier-a-${suffix}`,
   disabledA: `qa-disabled-a-${suffix}`,
@@ -53,11 +55,12 @@ async function tenantGateway(idToken, data) {
 }
 
 try {
-  for (const uid of [ids.ownerA, ids.ownerB, ids.ownerC]) await adminAuth.createUser({ uid, email: `${uid}@example.test`, password: 'Emulator123!' })
+  for (const uid of [ids.ownerA, ids.ownerB, ids.ownerC, ids.ownerD]) await adminAuth.createUser({ uid, email: `${uid}@example.test`, password: 'Emulator123!' })
   ids.restaurant = (await createTenant(admin, adminAuth, { auth: { uid: ids.ownerA, token: {} }, data: { action: 'createTenant', operationId: `op-a-${suffix}`, name: 'Restaurante QA', businessType: 'restaurant_pos' } })).tenantId
   ids.distribution = (await createTenant(admin, adminAuth, { auth: { uid: ids.ownerB, token: {} }, data: { action: 'createTenant', operationId: `op-b-${suffix}`, name: 'Distribuidora QA', businessType: 'route_distribution' } })).tenantId
   ids.gelateria = (await createTenant(admin, adminAuth, { auth: { uid: ids.ownerC, token: {} }, data: { action: 'createTenant', operationId: `op-c-${suffix}`, name: 'Heladería QA', businessType: 'gelateria_weight_cafe' } })).tenantId
-  pass('Functions crea tenants A/B/C con owner, roles y branch')
+  ids.nightclub = (await createTenant(admin, adminAuth, { auth: { uid: ids.ownerD, token: {} }, data: { action: 'createTenant', operationId: `op-d-${suffix}`, name: 'Nightclub QA', businessType: 'nightclub_lounge' } })).tenantId
+  pass('Functions crea tenants A/B/C/D con owner, roles y branch')
   await assert.rejects(() => updateSettings(admin, { auth: { uid: ids.ownerA, token: {} }, data: { tenantId: ids.distribution, name: 'Ataque cruzado' } }), error => error.code === 'permission-denied')
   pass('Function rechaza mutación cruzada A hacia B')
   await updateSettings(admin, { auth: { uid: ids.ownerA, token: {} }, data: { tenantId: ids.restaurant, name: 'Restaurante QA actualizado' } })
@@ -76,6 +79,8 @@ try {
   const dist = admin.doc(`tenants/${ids.distribution}`)
   await dist.collection('members').doc(ids.sellerB).set(member(ids.sellerB, ids.distribution, 'distributor', 'active', ['north']))
   await admin.doc(`tenants/${ids.restaurant}/members/${ids.disabledA}`).set(member(ids.disabledA, ids.restaurant, 'owner', 'disabled'))
+  await admin.doc(`tenants/${ids.nightclub}/members/${ids.disabledA}`).set(member(ids.disabledA, ids.nightclub, 'owner', 'disabled'))
+  await admin.doc(`tenants/${ids.nightclub}/nightclubAccounts/account`).set({ id: 'account', tenantId: ids.nightclub, status: 'open', subtotal: 100 })
   await admin.doc(`tenants/${ids.distribution}/distProducts/product`).set({ id: 'product', tenantId: ids.distribution, name: 'Producto QA', unitType: 'unit', referencePrice: 10, active: true })
   await admin.doc(`tenants/${ids.distribution}/distSales/own`).set({ tenantId: ids.distribution, branchId: 'main', routeId: 'north', sellerUid: ids.sellerB })
   await admin.doc(`tenants/${ids.distribution}/distSales/foreign-route`).set({ tenantId: ids.distribution, branchId: 'main', routeId: 'south', sellerUid: 'other' })
@@ -91,7 +96,7 @@ try {
   await processCommand(admin, forgedOperation)
   assert.equal((await forgedOperation.get()).data().status, 'rejected'); pass('Function rechaza actor de otro tenant aunque el documento fue sembrado por Admin SDK')
 
-  for (const [owner, own, foreign] of [[ids.ownerA, ids.restaurant, ids.distribution], [ids.ownerB, ids.distribution, ids.gelateria], [ids.ownerC, ids.gelateria, ids.restaurant]]) {
+  for (const [owner, own, foreign] of [[ids.ownerA, ids.restaurant, ids.distribution], [ids.ownerB, ids.distribution, ids.gelateria], [ids.ownerC, ids.gelateria, ids.restaurant], [ids.ownerD, ids.nightclub, ids.restaurant]]) {
     const client = env.authenticatedContext(owner).firestore()
     await assertSucceeds(getDoc(doc(client, 'tenants', own))); pass(`${owner} lee su empresa`)
     await assertFails(getDoc(doc(client, 'tenants', foreign))); pass(`${owner} no lee otra empresa aunque conoce su ruta`)
@@ -99,6 +104,13 @@ try {
 
   const disabled = env.authenticatedContext(ids.disabledA).firestore()
   await assertFails(getDoc(doc(disabled, 'tenants', ids.restaurant))); pass('miembro desactivado no lee su tenant')
+  await assertFails(getDoc(doc(disabled, 'tenants', ids.nightclub, 'nightclubAccounts', 'account'))); pass('miembro desactivado no lee cuentas Nightclub')
+
+  const nightclubOwner = env.authenticatedContext(ids.ownerD).firestore()
+  await assertSucceeds(getDoc(doc(nightclubOwner, 'tenants', ids.nightclub, 'nightclubAccounts', 'account'))); pass('owner Nightclub lee una cuenta de su tenant')
+  const restaurantOwner = env.authenticatedContext(ids.ownerA).firestore()
+  await assertFails(getDoc(doc(restaurantOwner, 'tenants', ids.nightclub, 'nightclubAccounts', 'account'))); pass('owner A no lee una cuenta Nightclub de D')
+  await assertFails(setDoc(doc(nightclubOwner, 'tenants', ids.nightclub, 'nightclubAccounts', 'forged'), { status: 'open' })); pass('cliente no escribe cuentas Nightclub sin Function')
 
   const seller = env.authenticatedContext(ids.sellerB).firestore()
   await assertSucceeds(getDoc(doc(seller, 'tenants', ids.distribution, 'distSales', 'own'))); pass('distribuidor lee una venta de su ruta')
@@ -109,7 +121,7 @@ try {
   await assertFails(getDocs(collection(cashier, 'tenants', ids.restaurant, 'members'))); pass('caja no lista ni administra usuarios')
   await assertFails(setDoc(doc(cashier, 'tenants', ids.restaurant, 'members', 'forged'), member('forged', ids.restaurant, 'owner'))); pass('cliente no crea memberships')
 
-  assert.equal(checks, 21)
+  assert.equal(checks, 27)
   fs.mkdirSync('docs/qa-pachax', { recursive: true })
   fs.writeFileSync('docs/qa-pachax/multi-tenant-isolation-result.json', JSON.stringify({ passed: true, checks, projectId, at: new Date().toISOString() }, null, 2))
   console.log(`${checks} comprobaciones multiempresa aprobadas`)

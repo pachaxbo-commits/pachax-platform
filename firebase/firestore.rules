@@ -762,6 +762,42 @@ service cloud.firestore {
       allow read: if tPermission(tenantId,'cash.close','cash') && tBranch(tenantId,resource.data.branchId);
       allow write: if false;
     }
+    match /tenants/{tenantId}/nightclubZones/{zoneId} {
+      allow read: if tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubTables/{tableId} {
+      allow read: if tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubAccounts/{accountId} {
+      allow read: if tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubProducts/{productId} {
+      allow read: if tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'products.manage','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubInventory/{inventoryId} {
+      allow read: if tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubInventoryMovements/{movementId} {
+      allow read: if tPermission(tenantId,'inventory.read','inventory') || tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubCustomers/{customerId} {
+      allow read: if tPermission(tenantId,'customers.read','customers');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubShifts/{shiftId} {
+      allow read: if tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubAudit/{eventId} {
+      allow read: if tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
 
 // Transitional distribution rule adapter. Remove legacy names when domain adapter is retired.
     function tDistAdmin(tenantId) {
