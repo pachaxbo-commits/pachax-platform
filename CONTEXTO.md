@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Integración vigente de cambios de Darío e historial de Barra (27/09/2026)
+
+- En `cambios-dario` se integró `origin/feat/nightclub-bar-history` (`33cebf6`) con el trabajo previo de Darío. El historial canónico muestra jornadas, mesas y pedidos en barra, productos por ubicación, filtros y cronología de pagos, cortesías de socios y reembolsos. Los datos de cada línea conservan nombre, precio, categoría y valor al momento de la operación.
+- La integración conserva el flujo vigente: cada ronda se paga antes de enviarse a Barra; «Pedido en barra» puede quedar anónimo o llevar nombre opcional; las cortesías se autorizan por socio y cupo. El historial expone el reembolso permitido para pedidos pagados aún no entregados, con reversión de pago y stock. No se incorporaron los comandos antiguos de ronda sin pago, descuento sobre saldo o cortesía genérica.
+- La demo incluye un turno anterior para comprobar cruces de medianoche y filtros. Nightclub sigue pendiente del adaptador productivo seguro indicado en `docs/NIGHTCLUB-PEDIDOS.md`; la vista histórica opera sobre los datos de demo/Studio. No hubo despliegue de Firebase.
+
 ## Ajuste vigente: pedido en barra sin cliente obligatorio (27/09/2026)
 
 - En `cambios-dario`, con `origin/main` `a160c9b` integrado, el POS presenta «Pedido en barra» donde antes decía «Cuenta personal». Conserva el destino interno `customer`, los IDs y el flujo financiero. El cliente existente y el nombre de referencia son opcionales; si se escribe un nombre, se conserva, y si queda vacío no se crea ningún cliente ficticio. La validación del dominio y el comando `openAccount` aceptan esa referencia vacía sin alterar la apertura de mesas.
@@ -770,3 +776,9 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Se añadieron despachador application-first, outbox, estados de sincronización, transporte de gateway, adaptador IndexedDB web y contrato de estado UI. La aceptación local ocurre después de persistir; Android requiere seleccionar y validar SQLite antes de conectar producción.
 - `nightclubCommand` prepara transacciones idempotentes para turnos, cuentas, rondas, estados, cancelación/reversión, cobro, movimiento de caja e inventario. Deriva tenant/actor/permisos/precios/estado desde servidor y rechaza colisiones de `operationId`. Cortesías/void quedan bloqueados hasta definir autorización.
 - ADR y plan de pruebas documentan device-only vs Edge, conflictos, coste cualitativo y pendientes. No hubo deploy ni activación de Blaze.
+
+## Historial de Barra Nightclub (propuesta original de feat/nightclub-bar-history, 27/09/2026)
+
+- Barra e Historial general comparten `NightclubBarHistory` sobre las mismas cuentas, rondas, pagos, inventario y eventos de `NightclubDataset`. La fecha comercial se toma de la apertura del turno: ventas posteriores a medianoche siguen en la misma jornada. La demo incluye una jornada cerrada anterior enlazada por IDs.
+- La propuesta original incluía rondas sin pago, descuentos sobre saldo, devoluciones por línea y una tercera opción «Venta directa en barra». La integración vigente de arriba adapta el historial al cobro por ronda y a «Pedido en barra»; esas operaciones originales no están habilitadas.
+- Producción sigue bloqueada hasta conectar un repositorio seguro y la proyección histórica. El gateway de cortesías aún necesita unificarse con los documentos normalizados. No considerar localStorage como persistencia multiusuario.

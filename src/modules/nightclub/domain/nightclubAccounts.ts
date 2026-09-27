@@ -24,7 +24,7 @@ export interface NightclubProduct {
   recipe?: NightclubRecipeLine[]
   active?: boolean
 }
-export interface NightclubRoundItem { id: string; productId: string; name: string; quantity: number; unitPrice: number; lineTotal: number; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string }
+export interface NightclubRoundItem { id: string; productId: string; name: string; category?: string; quantity: number; unitPrice: number; lineTotal: number; commercialValue?: number; kind?: 'sale' | 'courtesy'; status?: 'active' | 'cancelled' | 'returned'; cancelledAt?: string; cancelledBy?: string; cancelReason?: string; stockUsage?: NightclubRecipeLine[]; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string }
 export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentAt?: string; paidAt?: string; deliveredBy?: string; sentBy?: string; authorization?: 'payment' | 'courtesy'; paymentId?: string; courtesyId?: string; operationId?: string; cancelledBy?: string; cancellationReason?: string }
 export interface NightclubPayment { id?: string; operationId?: string; roundId?: string; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string; status?: 'confirmed' | 'refunded'; refundedAt?: string; refundedBy?: string; refundReason?: string }
 export interface NightclubAccount {
@@ -34,6 +34,10 @@ export interface NightclubAccount {
   tableId?: string
   customerId?: string
   customerDisplayName?: string
+  tableNameSnapshot?: string
+  zoneNameSnapshot?: string
+  waiterName?: string
+  guestCount?: number
   shiftId?: string
   openedAt: string
   openedBy: string
@@ -41,6 +45,7 @@ export interface NightclubAccount {
   rounds: NightclubRound[]
   subtotal: number
   paidAt?: string
+  closedBy?: string
   payments?: NightclubPayment[]
   /** Snapshot legacy del último pago. */
   payment?: NightclubPayment
@@ -75,8 +80,8 @@ export const NIGHTCLUB_ROLE_MODULES: Readonly<Record<NightclubRole, readonly Nig
   owner: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'members', 'users', 'reports', 'settings'],
   admin: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'members', 'users', 'reports', 'settings'],
   cashier: ['dashboard', 'pos', 'accounts', 'cash', 'history', 'customers', 'members'],
-  waiter: ['floor', 'pos', 'accounts', 'customers', 'members'],
-  service: ['floor', 'pos', 'accounts', 'customers', 'members'],
+  waiter: ['floor', 'pos', 'accounts', 'history', 'customers', 'members'],
+  service: ['floor', 'pos', 'accounts', 'history', 'customers', 'members'],
   bar: ['bar', 'history'],
   inventory: ['inventory', 'products', 'history'],
 }
@@ -102,7 +107,9 @@ export function nightclubAccountLabel(account: NightclubAccount, dataset: Pick<N
   if (tableId) {
     const table = dataset.tables.find(item => item.id === tableId)
     const zone = dataset.zones.find(item => item.id === table?.zoneId)
-    return table ? `${table.name}${zone ? ` · ${zone.name}` : ''}` : 'Mesa'
+    const name = account.tableNameSnapshot || table?.name || 'Mesa'
+    const zoneName = account.zoneNameSnapshot || zone?.name
+    return `${name}${zoneName ? ` · ${zoneName}` : ''}`
   }
   const customer = dataset.customers.find(item => item.id === (account.serviceTarget?.type === 'customer' ? account.serviceTarget.customerId : account.customerId))
   const reference = customer?.name || (account.serviceTarget?.type === 'customer' ? account.serviceTarget.displayName : account.customerDisplayName)
@@ -163,7 +170,7 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
     const customer = serviceTarget.customerId ? next.customers.find(item => item.id === serviceTarget.customerId && item.active !== false) : undefined
     if (next.accounts.some(account => account.status !== 'closed' && account.serviceTarget?.type === 'customer' && account.serviceTarget.customerId && account.serviceTarget.customerId === serviceTarget.customerId)) throw new Error('Ese cliente ya tiene un pedido en barra abierto.')
     const accountId = crypto.randomUUID()
-    next.accounts.push({ id: accountId, serviceTarget: { ...serviceTarget, displayName: customer?.name || displayName }, customerId: customer?.id, customerDisplayName: customer?.name || displayName || undefined, shiftId: next.shift.id, openedAt: now, openedBy: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+    next.accounts.push({ id: accountId, serviceTarget: { ...serviceTarget, displayName: customer?.name || displayName }, customerId: customer?.id, customerDisplayName: customer?.name || displayName || undefined, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
     audit(next, 'account_opened', actor, now, accountId, { target: 'customer' })
     return next
   }
@@ -172,7 +179,7 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
   if (table.status === 'reserved') throw new Error('Confirma la llegada o libera la reserva antes de abrir la mesa.')
   if (table.status === 'occupied' || table.status === 'bill_requested' || table.activeAccountId) throw new Error('La mesa ya tiene una cuenta activa.')
   const accountId = crypto.randomUUID()
-  next.accounts.push({ id: accountId, serviceTarget, tableId: table.id, shiftId: next.shift.id, openedAt: now, openedBy: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+  next.accounts.push({ id: accountId, serviceTarget, tableId: table.id, tableNameSnapshot: table.name, zoneNameSnapshot: next.zones.find(zone => zone.id === table.zoneId)?.name, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
   table.status = 'occupied'; table.activeAccountId = accountId
   audit(next, 'account_opened', actor, now, accountId, { target: 'table', tableId: table.id })
   return next
@@ -191,7 +198,8 @@ function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts:
     const mode = product.inventoryMode || (product.recipe?.length ? 'recipe' : 'unit')
     const recipe = mode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : [{ inventoryId: `inventory-${product.id}`, quantity: 1 }]
     for (const part of recipe) requirements.set(part.inventoryId, (requirements.get(part.inventoryId) || 0) + part.quantity * draft.quantity)
-    return { id: crypto.randomUUID(), productId: product.id, name: product.name, quantity: draft.quantity, unitPrice: product.price, lineTotal: roundMoney(product.price * draft.quantity), preparationArea: product.preparationArea }
+    const value = roundMoney(product.price * draft.quantity)
+    return { id: crypto.randomUUID(), productId: product.id, name: product.name, category: product.category, quantity: draft.quantity, unitPrice: product.price, lineTotal: value, commercialValue: value, kind: 'sale' as const, preparationArea: product.preparationArea }
   })
   for (const [inventoryId, quantity] of requirements) {
     const stock = next.inventory.find(item => item.id === inventoryId)
@@ -263,7 +271,7 @@ export function finishNightclubOccupancy(dataset: NightclubDataset, accountId: s
   const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId)
   if (!account || account.status === 'closed') throw new Error('La ocupación ya está cerrada.')
   if (nightclubBalance(account) > 0 || account.rounds.some(batch => batch.status !== 'cancelled' && (!batch.authorization || batch.status !== 'delivered'))) throw new Error('Resuelve los pedidos pendientes y entrega los pedidos de Barra antes de cerrar la mesa.')
-  account.status = 'closed'; account.paidAt = now
+  account.status = 'closed'; account.paidAt = now; account.closedBy = actor
   const tableId = accountTableId(account); const table = tableId ? next.tables.find(item => item.id === tableId) : undefined
   if (table) { table.status = 'available'; delete table.activeAccountId; delete table.reservationName }
   audit(next, 'occupancy_finished', actor, now, accountId)
