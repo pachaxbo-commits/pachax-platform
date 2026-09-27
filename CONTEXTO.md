@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint vigente: POS Nightclub canónico y demo a pantalla completa (27/09/2026)
+
+- Nightclub POS permite preparar una ronda sin destino, elegir después zona/mesa o cuenta personal y cambiar el destino sin borrar productos. Las mesas se muestran por zona con estado compacto; no existe cuenta predeterminada al entrar al POS.
+- El layout usa categorías compactas, buscador oscuro integrado, tarjetas uniformes y panel de destino estable en escritorio; móvil/tablet usan el mismo componente con drawer inferior. La demo pública Nightclub elimina el wrapper `max-w-7xl` y la experiencia deja de limitarse a 1600 px. Studio continúa renderizando el mismo `NightclubExperience`.
+- Se integró como base `feat/nightclub-reliability-core` (`de59868`), única rama remota con commits no contenidos en `main`; aporta outbox, backend transaccional, Rules y pruebas sin desplegar servicios.
+- QA local: 360×800, 390×844, 768×1024, 1366×768 y 1920×1080 sin overflow horizontal ni errores de consola; carrito conservado al pasar de producto a zona VIP y cuenta VIP 1. Studio validado en iframe canónico. Producción Nightclub continúa cerrada hasta conectar su provider tenant real.
+
 ## Checkpoint vigente: integración de backend seguro y operaciones Nightclub (25/09/2026)
 
 Rama `codex/integrate-backend-nightclub`, creada desde `origin/main` en `f427131`. Integra la rama acumulativa `feat/nightclub-live-cash-balance` (`dc2b1bc`, `1350f09`, `6d1d5df`) y el backend completo de `feat/secure-tenant-onboarding` (`580f714`, `27f6a61`, `e52241c`, `4d1495f`). Los únicos conflictos fueron `AGENTS.md` y este documento; se resolvieron conservando el protocolo actual, las reglas canónicas de plantillas, la propiedad de módulos y el contrato de seguridad backend.
