@@ -47,7 +47,16 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     data,
     onSaveZone: (draft: ZoneDraft) => apply(state => saveNightclubZone(state, draft, actor)),
     onSaveTable: (draft: TableDraft) => apply(state => saveNightclubTable(state, draft, actor)),
-    onOpenAccount: (target: string | NightclubServiceTarget) => apply(state => openNightclubAccount(state, target, actor)),
+    onOpenAccount: (target: string | NightclubServiceTarget) => {
+      let openedId = ''
+      apply(state => {
+        const previousIds = new Set(state.accounts.map(account => account.id))
+        const next = openNightclubAccount(state, target, actor)
+        openedId = next.accounts.find(account => !previousIds.has(account.id))?.id || ''
+        return next
+      })
+      return openedId
+    },
     onAddRound: (accountId: string, items: NightclubRoundDraft[]) => apply(state => addNightclubRound(state, accountId, items, actor)),
     onAdvanceRound: (accountId: string, roundId: string) => apply(state => advanceNightclubRound(state, accountId, roundId, actor)),
     onCancelRound: (accountId: string, roundId: string, reason: string) => apply(state => cancelNightclubRound(state, accountId, roundId, actor, reason)),

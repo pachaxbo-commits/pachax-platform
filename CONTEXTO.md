@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint vigente: POS Nightclub canónico y demo a pantalla completa (27/09/2026)
+
+- Nightclub POS permite preparar una ronda sin destino, elegir después zona/mesa o cuenta personal y cambiar el destino sin borrar productos. Las mesas se muestran por zona con estado compacto; no existe cuenta predeterminada al entrar al POS.
+- El layout usa categorías compactas, buscador oscuro integrado, tarjetas uniformes y panel de destino estable en escritorio; móvil/tablet usan el mismo componente con drawer inferior. La demo pública Nightclub elimina el wrapper `max-w-7xl` y la experiencia deja de limitarse a 1600 px. Studio continúa renderizando el mismo `NightclubExperience`.
+- Se integró como base `feat/nightclub-reliability-core` (`de59868`), única rama remota con commits no contenidos en `main`; aporta outbox, backend transaccional, Rules y pruebas sin desplegar servicios.
+- QA local: 360×800, 390×844, 768×1024, 1366×768 y 1920×1080 sin overflow horizontal ni errores de consola; carrito conservado al pasar de producto a zona VIP y cuenta VIP 1. Studio validado en iframe canónico. Producción Nightclub continúa cerrada hasta conectar su provider tenant real.
+
 ## Checkpoint vigente: integración de backend seguro y operaciones Nightclub (25/09/2026)
 
 Rama `codex/integrate-backend-nightclub`, creada desde `origin/main` en `f427131`. Integra la rama acumulativa `feat/nightclub-live-cash-balance` (`dc2b1bc`, `1350f09`, `6d1d5df`) y el backend completo de `feat/secure-tenant-onboarding` (`580f714`, `27f6a61`, `e52241c`, `4d1495f`). Los únicos conflictos fueron `AGENTS.md` y este documento; se resolvieron conservando el protocolo actual, las reglas canónicas de plantillas, la propiedad de módulos y el contrato de seguridad backend.
@@ -700,3 +707,10 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Rules permiten lecturas Nightclub según permisos/capabilities y bloquean todas las escrituras directas. El emulador aprobó 27 comprobaciones multiempresa, incluidas lectura propia, rechazo cruzado, miembro desactivado y escritura directa denegada. No se desplegaron Rules ni Functions; Functions sigue pendiente de Blaze y de implementar los comandos transaccionales del repositorio.
 - QA visual local aprobado en 360x800, 390x844, 768x1024, 1366x768 y 1440x900. Se corrigió el drawer móvil cubierto por la navegación y se movió el menú lateral al breakpoint de escritorio. Demo full/empty, simulación de Mesero y Studio canónico cargaron sin errores de consola.
 - Validación: typecheck; Nightclub 11/11; Platform 24/24; Restaurante 25/25; Distribución 55/55; aislamiento tenant 27/27; build:emulator y git diff --check. El emulador declaró Node 22 pero usó Node 24 del host y avisó que firebase-functions está desactualizado; validar runtime Node 22 antes de un deploy.
+
+## Núcleo de confiabilidad Nightclub (25/09/2026, feat/nightclub-reliability-core)
+
+- Producción Nightclub falla cerrada sin fixtures. El contrato productivo usa subscriptions específicas y comandos; no existe listener ni documento gigante de dataset.
+- Se añadieron despachador application-first, outbox, estados de sincronización, transporte de gateway, adaptador IndexedDB web y contrato de estado UI. La aceptación local ocurre después de persistir; Android requiere seleccionar y validar SQLite antes de conectar producción.
+- `nightclubCommand` prepara transacciones idempotentes para turnos, cuentas, rondas, estados, cancelación/reversión, cobro, movimiento de caja e inventario. Deriva tenant/actor/permisos/precios/estado desde servidor y rechaza colisiones de `operationId`. Cortesías/void quedan bloqueados hasta definir autorización.
+- ADR y plan de pruebas documentan device-only vs Edge, conflictos, coste cualitativo y pendientes. No hubo deploy ni activación de Blaze.

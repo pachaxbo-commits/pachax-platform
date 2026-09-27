@@ -36,6 +36,7 @@ export function DemoRuntime({
   const [activeRole, setActiveRole] = useState<string>(
     simulatedRole || initialRole || 'admin'
   )
+  const effectiveRole = simulatedRole || activeRole
   const [branding, setBranding] = useState<StudioBranding | null>(null)
 
   const [currentDatasetMode, setCurrentDatasetMode] = useState<DemoDatasetMode>(() => {
@@ -104,13 +105,6 @@ export function DemoRuntime({
     return () => window.removeEventListener('message', handleMessage)
   }, [isStudioEmbed])
 
-  // Sincronizar activeRole si cambia la prop simulatedRole
-  useEffect(() => {
-    if (simulatedRole) {
-      setActiveRole(simulatedRole)
-    }
-  }, [simulatedRole])
-
   const templateInfo = {
     restaurant: {
       name: 'Restaurante',
@@ -156,7 +150,7 @@ export function DemoRuntime({
           <RestaurantDemo
             key={`restaurant:${currentDatasetMode}:${resetKey}`}
             mode={mode}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
@@ -167,7 +161,7 @@ export function DemoRuntime({
         {templateId === 'distribution' && (
           <DistributionDemo
             mode={mode}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
@@ -178,7 +172,7 @@ export function DemoRuntime({
         {templateId === 'retail' && (
           <QuickRetailDemo
             mode={mode}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
@@ -187,7 +181,7 @@ export function DemoRuntime({
         {templateId === 'nightclub' && (
           <NightclubDemo
             key={`nightclub:${currentDatasetMode}:${resetKey}`}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
             datasetMode={currentDatasetMode}
@@ -203,36 +197,37 @@ export function DemoRuntime({
       {/* Barra superior exclusiva para demos públicas (/demo/...) */}
       {isPublicDemo && (
         <>
-          <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3 flex items-center justify-between shadow-xs">
-            <div className="flex items-center gap-3">
+          <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-xs backdrop-blur-md sm:px-8 sm:py-3">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <a
                 href="/demo"
                 className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition bg-slate-100 px-2.5 py-1.5 rounded-lg"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Demos PACHAX</span>
+                <span className="hidden sm:inline">Demos PACHAX</span>
               </a>
-              <div className="h-4 w-px bg-slate-200" />
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-sm font-bold text-slate-900">{templateInfo.company}</h1>
-                  <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200/60">
+              <div className="hidden h-4 w-px bg-slate-200 sm:block" />
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h1 className="truncate text-sm font-bold text-slate-900">{templateInfo.company}</h1>
+                  <span className="hidden rounded-full border border-teal-200/60 bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-800 md:inline">
                     {templateInfo.name}
                   </span>
                 </div>
-                <span className="text-[11px] text-slate-400 hidden sm:inline">
+                <span className="hidden text-[11px] text-slate-400 lg:inline">
                   Demostración interactiva con datos ficticios
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <button
                 onClick={() => setIsContactModalOpen(true)}
-                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs flex items-center gap-2 cursor-pointer"
+                className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-slate-800 sm:px-4"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Quiero una solución para mi negocio</span>
+                <span className="hidden sm:inline">Quiero una solución para mi negocio</span>
+                <span className="sm:hidden">Contactar</span>
               </button>
             </div>
           </header>
@@ -282,12 +277,12 @@ export function DemoRuntime({
       )}
 
       {/* Contenedor principal de la demo */}
-      <main className={`flex-1 w-full max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}>
+      <main className={`flex-1 w-full ${templateId === 'nightclub' ? 'max-w-none p-0' : `max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}`}>
         {templateId === 'restaurant' && (
           <RestaurantDemo
             key={`restaurant:${currentDatasetMode}:${resetKey}`}
             mode={mode}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
@@ -298,7 +293,7 @@ export function DemoRuntime({
         {templateId === 'distribution' && (
           <DistributionDemo
             mode={mode}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
@@ -309,7 +304,7 @@ export function DemoRuntime({
         {templateId === 'retail' && (
           <QuickRetailDemo
             mode={mode}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
@@ -318,7 +313,7 @@ export function DemoRuntime({
         {templateId === 'nightclub' && (
           <NightclubDemo
             key={`nightclub:${currentDatasetMode}:${resetKey}`}
-            simulatedRole={activeRole}
+            simulatedRole={effectiveRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
             datasetMode={currentDatasetMode}

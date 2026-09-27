@@ -1,0 +1,3 @@
+import type { NightclubSyncSummary } from './nightclubOutbox'
+const labels = { online: 'En línea', offline: 'Sin conexión', syncing: 'Sincronizando', attention: 'Atención requerida' } as const
+export function NightclubSyncStatus({ summary }: { summary: NightclubSyncSummary }) { const pending = summary.pending + summary.syncing + summary.failed + summary.conflict; return <div role="status" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-700 px-3 text-xs font-bold"><span className={`h-2.5 w-2.5 rounded-full ${summary.state === 'online' ? 'bg-emerald-400' : summary.state === 'attention' ? 'bg-red-400' : 'bg-amber-400'}`} />{labels[summary.state]}{pending > 0 && <span>· {pending} pendiente(s)</span>}</div> }

@@ -25,7 +25,7 @@
     "test:distribution": "node --experimental-strip-types src/modules/distribution/domain/__tests__/distributionEngine.test.ts",
     "test:restaurant": "node --experimental-strip-types --test src/modules/restaurant/domain/__tests__/*.test.ts",
     "test:cash": "node --experimental-strip-types --test src/modules/restaurant/domain/__tests__/cashEngine.test.ts",
-    "test:nightclub": "node --experimental-strip-types --test src/modules/nightclub/domain/__tests__/*.test.ts",
+    "test:nightclub": "node --experimental-strip-types --test src/modules/nightclub/domain/__tests__/*.test.ts src/modules/nightclub/reliability/__tests__/*.test.ts",
     "test:reports": "node --experimental-strip-types src/modules/distribution/domain/__tests__/reportLabels.test.ts",
     "test:platform": "node --experimental-strip-types --test tests/*.test.ts",
     "test:user-management": "node scripts/validate-user-management.cjs",
