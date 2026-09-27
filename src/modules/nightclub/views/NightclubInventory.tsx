@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { NightclubDataset, NightclubInventoryMovementType } from '../domain/nightclubAccounts'
 
-const labels: Record<NightclubInventoryMovementType, string> = { sale: 'Consumo por venta', reversal: 'Reversión', restock: 'Compra / reposición', withdrawal: 'Retiro', adjustment: 'Ajuste', waste: 'Merma' }
+const labels: Record<NightclubInventoryMovementType, string> = { sale: 'Consumo por venta', reversal: 'Reversión', restock: 'Compra / reposición', withdrawal: 'Retiro', adjustment: 'Ajuste', waste: 'Merma', member_courtesy: 'Cortesía de socio', courtesy_reversal: 'Anulación de cortesía' }
 
 export function NightclubInventory({ data, onMovement }: { data: NightclubDataset; onMovement: (id: string, quantity: number, type: Exclude<NightclubInventoryMovementType, 'sale' | 'reversal'>, reason: string) => boolean }) {
   const [view, setView] = useState<'stock' | 'movements'>('stock')

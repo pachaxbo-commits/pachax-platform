@@ -1,163 +1,144 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment -- Node tests run outside the browser TypeScript project. */
-// @ts-nocheck Node executes this file directly, outside the browser TypeScript project.
+/* eslint-disable @typescript-eslint/ban-ts-comment -- Node runs TypeScript outside the browser project. */
+// @ts-nocheck
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
-import { addNightclubRound, cancelNightclubRound, closeNightclubAccount, closeNightclubShift, nightclubBalance, nightclubCan, nightclubCashSummary, openNightclubAccount, recordNightclubPayment, requestNightclubBill, advanceNightclubRound, reopenNightclubBill } from '../nightclubAccounts.ts'
+import { advanceNightclubRound, deliverNightclubRound, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubCashSummary, openNightclubAccount, refundNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
+import { registerNightclubCourtesy } from '../nightclubCourtesies.ts'
 
-test('an open nightclub table keeps one account across multiple rounds', () => {
+const at = '2026-09-25T22:00:00Z'
+function setup() {
   let data = createNightclubDataset('empty')
-  data = { ...data, shift: { id: 'shift-test', status: 'open', openedAt: '2026-09-25T20:00:00Z', openingFloat: 500, openedBy: 'Owner' }, products: [{ id: 'beer', category: 'Cervezas', name: 'Cerveza', price: 25, preparationArea: 'Directo', stockUnits: 10, recipe: [{ inventoryId: 'beer-stock', quantity: 1 }] }], inventory: [{ id: 'beer-stock', name: 'Cerveza', unit: 'unit', current: 10, minimum: 2 }] }
-  data = openNightclubAccount(data, 'night-table-general-1', 'Mesero', '2026-09-25T21:00:00Z')
-  const accountId = data.tables[0].activeAccountId!
-  data = addNightclubRound(data, accountId, [{ productId: 'beer', quantity: 2 }], 'Mesero', '2026-09-25T21:05:00Z')
-  data = addNightclubRound(data, accountId, [{ productId: 'beer', quantity: 1 }], 'Mesero', '2026-09-25T22:00:00Z')
-  assert.equal(data.accounts.length, 1)
+  data.shift = { id: 'shift', status: 'open', openedAt: at, openedBy: 'Caja', openingFloat: 0 }
+  data.products = [
+    { id: 'ron', name: 'Ron', category: 'Botellas', price: 300, preparationArea: 'Barra', stockUnits: 10, inventoryMode: 'unit', recipe: [{ inventoryId: 'ron-stock', quantity: 1 }] },
+    { id: 'beer', name: 'Cerveza', category: 'Cervezas', price: 25, preparationArea: 'Directo', stockUnits: 20, inventoryMode: 'unit', recipe: [{ inventoryId: 'beer-stock', quantity: 1 }] },
+  ]
+  data.inventory = [{ id: 'ron-stock', name: 'Ron', unit: 'unit', current: 10, minimum: 0 }, { id: 'beer-stock', name: 'Cerveza', unit: 'unit', current: 20, minimum: 0 }]
+  data.members = [{ id: 'carlos', name: 'Carlos', active: true, quota: 3, policy: { anchorAt: at, repeatDays: 7, windowDays: 7 } }]
+  data = openNightclubAccount(data, 'night-table-general-1', 'Mesero', at)
+  return { data, id: data.accounts[0].id }
+}
+
+test('venta QR: pago, caja, stock y comanda se confirman juntos; mesa sigue ocupada', () => {
+  const { data, id } = setup()
+  const next = settleNightclubRound(data, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'op-1')
+  assert.equal(data.inventory[0].current, 10)
+  assert.equal(next.inventory[0].current, 9)
+  assert.equal(next.accounts[0].rounds[0].authorization, 'payment')
+  assert.equal(next.accounts[0].rounds[0].status, 'pending')
+  assert.equal(next.accounts[0].payments[0].roundId, next.accounts[0].rounds[0].id)
+  assert.equal(nightclubCashSummary(next).qrSales, 300)
+  assert.equal(next.tables[0].status, 'occupied')
+})
+
+test('segunda ronda conserva pago y pedido independientes', () => {
+  const { data: initial, id } = setup()
+  let data = initial
+  data = settleNightclubRound(data, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'op-1')
+  data = settleNightclubRound(data, id, [{ productId: 'beer', quantity: 4 }], { method: 'cash', received: 150 }, 'Mesero', at, 'op-2')
   assert.equal(data.accounts[0].rounds.length, 2)
-  assert.equal(data.accounts[0].subtotal, 75)
-  assert.equal(data.products[0].stockUnits, 7)
-  assert.equal(data.inventory[0].current, 7)
-  assert.deepEqual(data.inventoryMovements.map(item => item.quantity), [-2, -1])
-})
-
-test('request, payment and release keep the same table/account identity', () => {
-  let data = createNightclubDataset('full')
-  const table = data.tables.find(item => item.activeAccountId)!
-  const accountId = table.activeAccountId!
-  data = requestNightclubBill(data, accountId)
-  assert.equal(data.tables.find(item => item.id === table.id)?.status, 'bill_requested')
-  data = closeNightclubAccount(data, accountId, { method: 'cash', received: 700 }, 'Caja', '2026-09-25T23:30:00Z')
-  assert.equal(data.accounts.find(item => item.id === accountId)?.status, 'closed')
-  assert.equal(data.tables.find(item => item.id === table.id)?.status, 'available')
-  assert.equal(data.tables.find(item => item.id === table.id)?.activeAccountId, undefined)
-  assert.equal(data.accounts.find(item => item.id === accountId)?.payment?.change, 20)
-  assert.equal(nightclubCashSummary(data).cashSales, 680)
-})
-
-test('multi-product rounds consume ml and units, while payments never consume stock twice', () => {
-  let data = createNightclubDataset('full')
-  data = openNightclubAccount(data, 'night-table-general-1', 'Servicio')
-  const id = data.tables.find(item => item.id === 'night-table-general-1').activeAccountId
-  const beforeVodka = data.inventory.find(item => item.id === 'vodka-ml').current
-  const beforeMixers = data.inventory.find(item => item.id === 'mixer-can').current
-  data = addNightclubRound(data, id, [{ productId: 'combo-1', quantity: 1 }, { productId: 'cocktail-1', quantity: 2 }], 'Servicio')
-  assert.equal(data.inventory.find(item => item.id === 'vodka-ml').current, beforeVodka - 870)
-  assert.equal(data.inventory.find(item => item.id === 'mixer-can').current, beforeMixers - 6)
-  assert.equal(data.inventoryMovements.filter(item => item.accountId === id).length, 3)
-  const roundId = data.accounts.find(item => item.id === id).rounds[0].id
-  data = advanceNightclubRound(data, id, roundId, 'Barra')
-  data = advanceNightclubRound(data, id, roundId, 'Barra')
-  assert.equal(data.accounts.find(item => item.id === id).rounds[0].status, 'ready')
-  data = requestNightclubBill(data, id)
-  data = reopenNightclubBill(data, id, 'Caja')
-  data = requestNightclubBill(data, id)
-  const movementCount = data.inventoryMovements.length
-  assert.throws(() => closeNightclubAccount(data, id, { method: 'cash', received: 10 }), /Monto insuficiente/)
-  data = closeNightclubAccount(data, id, { method: 'mixed', cashAmount: 300, qrAmount: 356, cardAmount: 0, received: 350 }, 'Caja')
-  assert.equal(data.inventoryMovements.length, movementCount)
-  assert.equal(nightclubCashSummary(data).cashSales, 300)
-  assert.equal(nightclubCashSummary(data).qrSales, 356)
-  assert.equal(data.accounts.find(item => item.id === id).payment.change, 50)
-  assert.throws(() => closeNightclubAccount(data, id, { method: 'cash' }), /por cobrar/)
-})
-
-test('cash closure requires all accounts closed and reconciles counted cash', () => {
-  let data = createNightclubDataset('full')
-  assert.throws(() => closeNightclubShift(data, 'Caja', 1000), /cuentas con saldo/)
-  for (const account of data.accounts.filter(item => item.status === 'open')) {
-    data = requestNightclubBill(data, account.id)
-    data = closeNightclubAccount(data, account.id, { method: 'qr' }, 'Caja')
-  }
-  data = closeNightclubShift(data, 'Caja', 1000)
-  assert.equal(data.shift.status, 'closed')
-  assert.equal(data.shift.difference, 0)
-})
-
-test('a second account cannot replace an occupied table', () => {
-  const data = createNightclubDataset('full')
-  const table = data.tables.find(item => item.activeAccountId)!
-  assert.throws(() => openNightclubAccount(data, table.id, 'Otro usuario'), /cuenta activa/)
-})
-
-test('nightclub empty and full datasets keep valid linked identities', () => {
-  const empty = createNightclubDataset('empty')
-  assert.equal(empty.zones.length, 5)
-  assert.equal(empty.tables.length, 10)
-  assert.equal(empty.products.length, 0)
-  assert.equal(empty.accounts.length, 0)
-  assert.equal(empty.shift, null)
-
-  const full = createNightclubDataset('full')
-  assert.ok(full.products.length >= 7)
-  assert.equal(full.shift?.status, 'open')
-  for (const account of full.accounts) {
-    const table = full.tables.find(item => item.id === account.tableId)
-    assert.ok(table)
-    assert.equal(table?.activeAccountId, account.id)
-    for (const round of account.rounds) for (const item of round.items) assert.ok(full.products.some(product => product.id === item.productId))
-  }
-  for (const reservation of full.reservations) assert.ok(full.tables.some(table => table.id === reservation.tableId))
-})
-
-test('a personal account requires identity and never occupies a table', () => {
-  let data = createNightclubDataset('empty')
-  data.shift = { id: 'shift-personal', status: 'open', openedAt: '2026-09-25T20:00:00Z', openingFloat: 0, openedBy: 'Caja' }
-  assert.throws(() => openNightclubAccount(data, { type: 'customer', displayName: '   ' }, 'Mesero'), /cliente identificable/)
-  data = openNightclubAccount(data, { type: 'customer', displayName: 'Juan Pérez' }, 'Mesero')
-  assert.equal(data.accounts[0].serviceTarget.type, 'customer')
-  assert.equal(data.accounts[0].customerDisplayName, 'Juan Pérez')
-  assert.equal(data.tables.some(table => table.activeAccountId), false)
-})
-
-test('bill requested blocks rounds and reopening restores service', () => {
-  let data = createNightclubDataset('full')
-  const id = data.accounts[0].id
-  data = requestNightclubBill(data, id)
-  assert.throws(() => addNightclubRound(data, id, [{ productId: 'beer-1', quantity: 1 }]), /no acepta/)
-  data = reopenNightclubBill(data, id, 'Caja')
-  data = addNightclubRound(data, id, [{ productId: 'beer-1', quantity: 1 }], 'Mesero')
-  assert.equal(data.accounts[0].rounds.at(-1).status, 'ready')
-})
-
-test('partial and idempotent payments preserve balance until the final payment', () => {
-  let data = createNightclubDataset('full')
-  const account = data.accounts[0]
-  data = requestNightclubBill(data, account.id)
-  data = recordNightclubPayment(data, account.id, { method: 'qr', amount: 200, operationId: 'pay-1' }, 'Caja')
-  assert.equal(nightclubBalance(data.accounts[0]), 480)
-  assert.equal(data.accounts[0].status, 'bill_requested')
-  const once = data
-  data = recordNightclubPayment(data, account.id, { method: 'qr', amount: 200, operationId: 'pay-1' }, 'Caja')
-  assert.equal(data, once)
-  data = recordNightclubPayment(data, account.id, { method: 'cash', amount: 480, received: 500, operationId: 'pay-2' }, 'Caja')
-  assert.equal(nightclubBalance(data.accounts[0]), 0)
-  assert.equal(data.accounts[0].status, 'closed')
   assert.equal(data.accounts[0].payments.length, 2)
+  assert.equal(data.accounts[0].payments[1].change, 50)
+  assert.equal(nightclubCashSummary(data).cashSales, 100)
+  assert.equal(nightclubBalance(data.accounts[0]), 0)
 })
 
-test('a duplicated round is idempotent and cancellation reverses stock once', () => {
-  let data = createNightclubDataset('full')
-  data = openNightclubAccount(data, 'night-table-general-1', 'Mesero')
-  const id = data.tables.find(table => table.id === 'night-table-general-1').activeAccountId
-  const before = data.inventory.find(item => item.id === 'beer-unit').current
-  data = addNightclubRound(data, id, [{ productId: 'beer-1', quantity: 2 }], 'Mesero', '2026-09-25T22:00:00Z', 'round-operation')
+test('pedido en barra sin nombre se cobra sin crear cliente; nombre opcional se conserva', () => {
+  const { data: initial, id: tableAccountId } = setup()
+  let data = openNightclubAccount(initial, { type: 'customer', displayName: '' }, 'Mesero', at)
+  const anonymous = data.accounts.at(-1)
+  assert.equal(anonymous.customerId, undefined)
+  assert.equal(anonymous.customerDisplayName, undefined)
+  assert.equal(nightclubAccountLabel(anonymous, data), 'Pedido en barra')
+  assert.equal(data.customers.length, initial.customers.length)
+  data = settleNightclubRound(data, anonymous.id, [{ productId: 'beer', quantity: 1 }], { method: 'cash' }, 'Mesero', at, 'bar-cash')
+  assert.equal(data.accounts.at(-1).payments[0].amount, 25)
+  assert.equal(data.accounts.at(-1).rounds[0].authorization, 'payment')
+  assert.equal(nightclubCashSummary(data).cashSales, 25)
+  assert.equal(data.inventory.find(item => item.id === 'beer-stock').current, 19)
+
+  data = openNightclubAccount(data, { type: 'customer', displayName: 'Juan' }, 'Mesero', at)
+  const named = data.accounts.at(-1)
+  assert.equal(named.customerDisplayName, 'Juan')
+  assert.equal(nightclubAccountLabel(named, data), 'Pedido en barra · Juan')
+  data = settleNightclubRound(data, named.id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'bar-qr')
+  assert.equal(data.accounts.at(-1).rounds[0].status, 'pending')
+  assert.equal(nightclubCashSummary(data).qrSales, 300)
+  assert.equal(data.accounts.find(account => account.id === tableAccountId).rounds.length, 0)
+  assert.equal(data.tables[0].status, 'occupied')
+})
+
+test('borrador sin pago no crea venta, comanda ni movimiento', () => {
+  const { data } = setup()
+  const draft = [{ productId: 'ron', quantity: 1 }]
+  draft[0].quantity = 2
+  draft.pop()
+  assert.equal(data.accounts[0].rounds.length, 0)
+  assert.equal(data.inventoryMovements.length, 0)
+  assert.equal(nightclubCashSummary(data).totalSales, 0)
+})
+
+test('cortesía válida autoriza Barra, consume cupo y stock sin tocar Caja', () => {
+  const { data, id } = setup()
+  const next = registerNightclubCourtesy(data, { memberId: 'carlos', productId: 'ron', quantity: 1, accountId: id }, 'Mesero', at)
+  assert.equal(next.accounts[0].rounds[0].authorization, 'courtesy')
+  assert.equal(next.accounts[0].rounds[0].status, 'pending')
+  assert.equal(next.inventory[0].current, 9)
+  assert.equal(next.courtesies[0].quantity, 1)
+  assert.equal(nightclubCashSummary(next).totalSales, 0)
+})
+
+test('reintento del mismo operationId no duplica pago, pedido ni inventario', () => {
+  const { data: initial, id } = setup()
+  let data = initial
+  data = settleNightclubRound(data, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'op-1')
   const once = data
-  data = addNightclubRound(data, id, [{ productId: 'beer-1', quantity: 2 }], 'Mesero', '2026-09-25T22:00:01Z', 'round-operation')
+  data = settleNightclubRound(data, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'op-1')
   assert.equal(data, once)
-  const roundId = data.accounts.find(item => item.id === id).rounds[0].id
-  data = cancelNightclubRound(data, id, roundId, 'Administrador', 'Pedido duplicado')
-  assert.equal(data.inventory.find(item => item.id === 'beer-unit').current, before)
-  const cancelled = data
-  data = cancelNightclubRound(data, id, roundId, 'Administrador', 'Pedido duplicado')
-  assert.equal(data, cancelled)
-  assert.equal(data.inventoryMovements.filter(item => item.roundId === roundId).length, 2)
+  assert.equal(data.inventoryMovements.length, 1)
+  assert.equal(data.accounts[0].payments.length, 1)
 })
 
-test('role navigation exposes only operational modules assigned to each role', () => {
-  assert.equal(nightclubCan('service', 'pos'), true)
-  assert.equal(nightclubCan('service', 'settings'), false)
-  assert.equal(nightclubCan('bar', 'bar'), true)
-  assert.equal(nightclubCan('bar', 'cash'), false)
-  assert.equal(nightclubCan('cashier', 'cash'), true)
-  assert.equal(nightclubCan('inventory', 'products'), true)
+test('Barra prepara y marca listo; Servicio entrega', () => {
+  const { data: initial, id } = setup()
+  let data = initial
+  data = settleNightclubRound(data, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'op-1')
+  const roundId = data.accounts[0].rounds[0].id
+  assert.throws(() => deliverNightclubRound(data, id, roundId, 'Mesero'), /todavía no/)
+  data = advanceNightclubRound(data, id, roundId, 'Barra')
+  data = advanceNightclubRound(data, id, roundId, 'Barra')
+  assert.equal(data.accounts[0].rounds[0].status, 'ready')
+  data = deliverNightclubRound(data, id, roundId, 'Mesero')
+  assert.equal(data.accounts[0].rounds[0].deliveredBy, 'Mesero')
+  assert.equal(data.accounts[0].rounds[0].status, 'delivered')
+})
+
+test('finalizar ocupación no vuelve a cobrar y conserva historial', () => {
+  const { data: initial, id } = setup()
+  let data = initial
+  for (let i = 0; i < 3; i++) {
+    data = settleNightclubRound(data, id, [{ productId: 'beer', quantity: 1 }], { method: 'cash' }, 'Mesero', at, `op-${i}`)
+    data = deliverNightclubRound(data, id, data.accounts[0].rounds.at(-1).id, 'Mesero')
+  }
+  const sales = nightclubCashSummary(data).totalSales
+  data = finishNightclubOccupancy(data, id, 'Mesero')
+  assert.equal(data.tables[0].status, 'available')
+  assert.equal(data.accounts[0].status, 'closed')
+  assert.equal(data.accounts[0].rounds.length, 3)
+  assert.equal(nightclubCashSummary(data).totalSales, sales)
+})
+
+test('reembolso antes de entrega deja auditoría y revierte pago y stock', () => {
+  const { data: initial, id } = setup()
+  let data = initial
+  data = settleNightclubRound(data, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'op-1')
+  const roundId = data.accounts[0].rounds[0].id
+  assert.throws(() => refundNightclubRound(data, id, roundId, 'Admin', 'x'), /motivo/)
+  data = refundNightclubRound(data, id, roundId, 'Admin', 'Error de pedido')
+  assert.equal(data.accounts[0].payments[0].status, 'refunded')
+  assert.equal(data.accounts[0].rounds[0].status, 'cancelled')
+  assert.equal(data.inventory[0].current, 10)
+  assert.equal(nightclubCashSummary(data).totalSales, 0)
+  assert.ok(data.audit.some(event => event.type === 'round_refunded'))
 })

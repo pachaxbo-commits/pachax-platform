@@ -1,4 +1,4 @@
-export type NightclubCommandType = 'openAccount' | 'addRound' | 'updateRoundStatus' | 'cancelRound' | 'requestBill' | 'reopenBill' | 'recordPayment' | 'inventoryMovement' | 'openShift' | 'closeShift' | 'courtesy' | 'void'
+export type NightclubCommandType = 'openAccount' | 'settleRound' | 'advanceRound' | 'deliverRound' | 'finishOccupancy' | 'refundRound' | 'inventoryMovement' | 'openShift' | 'closeShift' | 'courtesy' | 'void'
 export type NightclubOperationStatus = 'pending' | 'syncing' | 'confirmed' | 'conflict' | 'failed'
 export interface NightclubOutboxOperation<T = unknown> { operationId: string; tenantId: string; branchId: string; actorUid: string; type: NightclubCommandType; payload: T; createdAt: string; status: NightclubOperationStatus; attempts: number; lastError: string | null; confirmedAt?: string }
 export interface NightclubOutboxStore { put(operation: NightclubOutboxOperation): Promise<void>; get(operationId: string): Promise<NightclubOutboxOperation | null>; list(statuses: NightclubOperationStatus[]): Promise<NightclubOutboxOperation[]>; patch(operationId: string, patch: Partial<NightclubOutboxOperation>): Promise<void> }

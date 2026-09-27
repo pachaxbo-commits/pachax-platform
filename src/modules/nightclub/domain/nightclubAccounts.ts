@@ -3,7 +3,7 @@ export type NightclubAccountStatus = 'open' | 'bill_requested' | 'closed'
 export type NightclubPaymentMethod = 'cash' | 'qr' | 'card' | 'mixed'
 export type NightclubRoundStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
 export type NightclubRole = 'owner' | 'admin' | 'cashier' | 'waiter' | 'service' | 'bar' | 'inventory'
-export type NightclubModuleId = 'dashboard' | 'floor' | 'pos' | 'accounts' | 'bar' | 'inventory' | 'products' | 'cash' | 'history' | 'customers' | 'users' | 'reports' | 'settings'
+export type NightclubModuleId = 'dashboard' | 'floor' | 'pos' | 'accounts' | 'bar' | 'inventory' | 'products' | 'cash' | 'history' | 'customers' | 'members' | 'users' | 'reports' | 'settings'
 export type NightclubServiceTarget =
   | { type: 'table'; tableId: string }
   | { type: 'customer'; customerId?: string; displayName: string }
@@ -24,9 +24,9 @@ export interface NightclubProduct {
   recipe?: NightclubRecipeLine[]
   active?: boolean
 }
-export interface NightclubRoundItem { id: string; productId: string; name: string; quantity: number; unitPrice: number; lineTotal: number; preparationArea?: 'Barra' | 'Directo' }
-export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentBy?: string }
-export interface NightclubPayment { id?: string; operationId?: string; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string }
+export interface NightclubRoundItem { id: string; productId: string; name: string; quantity: number; unitPrice: number; lineTotal: number; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string }
+export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentAt?: string; paidAt?: string; deliveredBy?: string; sentBy?: string; authorization?: 'payment' | 'courtesy'; paymentId?: string; courtesyId?: string; operationId?: string; cancelledBy?: string; cancellationReason?: string }
+export interface NightclubPayment { id?: string; operationId?: string; roundId?: string; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string; status?: 'confirmed' | 'refunded'; refundedAt?: string; refundedBy?: string; refundReason?: string }
 export interface NightclubAccount {
   id: string
   serviceTarget?: NightclubServiceTarget
@@ -49,13 +49,17 @@ export interface NightclubShift { id: string; status: 'open' | 'closed'; openedA
 export interface NightclubCustomer { id: string; name: string; phone: string; notes?: string; active?: boolean; visits: number; totalSpent: number }
 export interface NightclubStaff { id: string; name: string; role: 'admin' | 'cashier' | 'service' | 'bar' | 'inventory'; active: boolean }
 export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled' }
-export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g'; current: number; minimum: number }
-export type NightclubInventoryMovementType = 'sale' | 'reversal' | 'restock' | 'withdrawal' | 'adjustment' | 'waste'
-export interface NightclubInventoryMovement { id: string; operationId: string; inventoryId: string; quantity: number; previous: number; current: number; type: NightclubInventoryMovementType; reason?: string; at: string; actor: string; accountId?: string; roundId?: string }
+export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g'; current: number; minimum: number; unitCost?: number }
+export type NightclubInventoryMovementType = 'sale' | 'reversal' | 'restock' | 'withdrawal' | 'adjustment' | 'waste' | 'member_courtesy' | 'courtesy_reversal'
+export interface NightclubInventoryMovement { id: string; operationId: string; inventoryId: string; quantity: number; previous: number; current: number; type: NightclubInventoryMovementType; reason?: string; at: string; actor: string; accountId?: string; roundId?: string; courtesyId?: string; memberId?: string }
+export interface NightclubCourtesyPolicy { anchorAt: string; windowDays: number; repeatDays: number }
+export interface NightclubMember { id: string; name: string; active: boolean; quota: number; policy: NightclubCourtesyPolicy }
+export interface NightclubCourtesy { id: string; memberId: string; productId: string; productName: string; quantity: number; beneficiary?: string; note?: string; accountId?: string; tableId?: string; roundId?: string; actor: string; at: string; periodStart: string; periodEnd: string; status: 'active' | 'cancelled'; cancelledAt?: string; cancelledBy?: string; cost?: number }
 export interface NightclubCashMovement { id: string; shiftId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; at: string; actor: string }
 export interface NightclubAuditEvent { id: string; type: string; at: string; actor: string; accountId?: string; details?: Record<string, string | number> }
-export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; staff?: NightclubStaff[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[] }
+export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; staff?: NightclubStaff[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[] }
 export interface NightclubRoundDraft { productId: string; quantity: number }
+export interface NightclubCourtesyDraft { memberId: string; productId: string; quantity: number; accountId?: string; beneficiary?: string; note?: string }
 export interface NightclubPaymentDraft { method: NightclubPaymentMethod; amount?: number; received?: number; cashAmount?: number; qrAmount?: number; cardAmount?: number; operationId?: string }
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
@@ -63,16 +67,16 @@ const cloneDataset = (dataset: NightclubDataset): NightclubDataset => structured
 const audit = (next: NightclubDataset, type: string, actor: string, at: string, accountId?: string, details?: NightclubAuditEvent['details']) => {
   next.audit = [...(next.audit || []), { id: crypto.randomUUID(), type, actor, at, accountId, details }]
 }
-const accountPayments = (account: NightclubAccount) => account.payments?.length ? account.payments : account.payment ? [account.payment] : []
+const accountPayments = (account: NightclubAccount) => (account.payments?.length ? account.payments : account.payment ? [account.payment] : []).filter(payment => payment.status !== 'refunded')
 const accountTableId = (account: NightclubAccount) => account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : account.tableId
 const paymentAmount = (payment: NightclubPayment) => roundMoney(payment.amount ?? payment.cashAmount + payment.qrAmount + payment.cardAmount)
 
 export const NIGHTCLUB_ROLE_MODULES: Readonly<Record<NightclubRole, readonly NightclubModuleId[]>> = {
-  owner: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'users', 'reports', 'settings'],
-  admin: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'users', 'reports', 'settings'],
-  cashier: ['dashboard', 'pos', 'accounts', 'cash', 'history', 'customers'],
-  waiter: ['floor', 'pos', 'accounts', 'customers'],
-  service: ['floor', 'pos', 'accounts', 'customers'],
+  owner: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'members', 'users', 'reports', 'settings'],
+  admin: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'members', 'users', 'reports', 'settings'],
+  cashier: ['dashboard', 'pos', 'accounts', 'cash', 'history', 'customers', 'members'],
+  waiter: ['floor', 'pos', 'accounts', 'customers', 'members'],
+  service: ['floor', 'pos', 'accounts', 'customers', 'members'],
   bar: ['bar', 'history'],
   inventory: ['inventory', 'products', 'history'],
 }
@@ -101,7 +105,8 @@ export function nightclubAccountLabel(account: NightclubAccount, dataset: Pick<N
     return table ? `${table.name}${zone ? ` · ${zone.name}` : ''}` : 'Mesa'
   }
   const customer = dataset.customers.find(item => item.id === (account.serviceTarget?.type === 'customer' ? account.serviceTarget.customerId : account.customerId))
-  return customer?.name || (account.serviceTarget?.type === 'customer' ? account.serviceTarget.displayName : account.customerDisplayName) || 'Cuenta personal'
+  const reference = customer?.name || (account.serviceTarget?.type === 'customer' ? account.serviceTarget.displayName : account.customerDisplayName)
+  return reference ? `Pedido en barra · ${reference}` : 'Pedido en barra'
 }
 
 export function nightclubProductAvailability(product: NightclubProduct, inventory: NightclubInventoryItem[]) {
@@ -140,6 +145,7 @@ export function openNightclubShift(dataset: NightclubDataset, actor: string, ope
 export function closeNightclubShift(dataset: NightclubDataset, actor: string, countedCash: number, now = new Date().toISOString()): NightclubDataset {
   if (dataset.shift?.status !== 'open') throw new Error('No hay turno abierto.')
   if (dataset.accounts.some(account => nightclubBalance(account) > 0)) throw new Error('No puedes cerrar el turno mientras existan cuentas con saldo.')
+  if (dataset.accounts.some(account => account.status !== 'closed' && account.shiftId === dataset.shift?.id)) throw new Error('Finaliza las ocupaciones del turno antes de cerrar Caja.')
   if (!Number.isFinite(countedCash) || countedCash < 0) throw new Error('Ingresa el efectivo contado.')
   const next = cloneDataset(dataset)
   const summary = nightclubCashSummary(next)
@@ -155,10 +161,9 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
   if (serviceTarget.type === 'customer') {
     const displayName = serviceTarget.displayName.trim()
     const customer = serviceTarget.customerId ? next.customers.find(item => item.id === serviceTarget.customerId && item.active !== false) : undefined
-    if (!displayName && !customer) throw new Error('La cuenta sin mesa necesita un cliente identificable.')
-    if (next.accounts.some(account => account.status !== 'closed' && account.serviceTarget?.type === 'customer' && account.serviceTarget.customerId && account.serviceTarget.customerId === serviceTarget.customerId)) throw new Error('Ese cliente ya tiene una cuenta personal abierta.')
+    if (next.accounts.some(account => account.status !== 'closed' && account.serviceTarget?.type === 'customer' && account.serviceTarget.customerId && account.serviceTarget.customerId === serviceTarget.customerId)) throw new Error('Ese cliente ya tiene un pedido en barra abierto.')
     const accountId = crypto.randomUUID()
-    next.accounts.push({ id: accountId, serviceTarget: { ...serviceTarget, displayName: customer?.name || displayName }, customerId: customer?.id, customerDisplayName: customer?.name || displayName, shiftId: next.shift.id, openedAt: now, openedBy: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+    next.accounts.push({ id: accountId, serviceTarget: { ...serviceTarget, displayName: customer?.name || displayName }, customerId: customer?.id, customerDisplayName: customer?.name || displayName || undefined, shiftId: next.shift.id, openedAt: now, openedBy: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
     audit(next, 'account_opened', actor, now, accountId, { target: 'customer' })
     return next
   }
@@ -173,7 +178,7 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
   return next
 }
 
-export function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], actor = 'Equipo', now = new Date().toISOString(), operationId = crypto.randomUUID()): NightclubDataset {
+function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], actor = 'Equipo', now = new Date().toISOString(), operationId: string = crypto.randomUUID()): NightclubDataset {
   if (!drafts.length || drafts.some(item => !Number.isInteger(item.quantity) || item.quantity <= 0)) throw new Error('La ronda debe incluir cantidades válidas.')
   if ((dataset.inventoryMovements || []).some(item => item.operationId.startsWith(`round:${operationId}:`))) return dataset
   const next = cloneDataset(dataset)
@@ -207,13 +212,83 @@ export function addNightclubRound(dataset: NightclubDataset, accountId: string, 
   return next
 }
 
+/** Pago, movimiento de inventario y envío a Barra forman una única transición. */
+export function settleNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], paymentDraft: NightclubPaymentDraft, actor: string, now = new Date().toISOString(), operationId: string = crypto.randomUUID()): NightclubDataset {
+  if (!operationId.trim()) throw new Error('La operación necesita una clave idempotente.')
+  const existing = dataset.accounts.find(item => item.id === accountId)?.rounds.find(item => item.operationId === operationId)
+  if (existing) return dataset
+  if (!drafts.length || drafts.some(item => !Number.isInteger(item.quantity) || item.quantity <= 0)) throw new Error('El pedido debe tener cantidades válidas.')
+  const total = roundMoney(drafts.reduce((sum, draft) => {
+    const product = dataset.products.find(item => item.id === draft.productId && item.active !== false)
+    if (!product || !Number.isFinite(product.price) || product.price <= 0) throw new Error('Un producto sin precio positivo requiere una autorización de cortesía separada.')
+    return sum + product.price * draft.quantity
+  }, 0))
+  if (paymentDraft.amount !== undefined && roundMoney(paymentDraft.amount) !== total) throw new Error('El pago debe cubrir exactamente este pedido.')
+  const cashAmount = roundMoney(paymentDraft.method === 'cash' ? total : paymentDraft.method === 'mixed' ? paymentDraft.cashAmount || 0 : 0)
+  const qrAmount = roundMoney(paymentDraft.method === 'qr' ? total : paymentDraft.method === 'mixed' ? paymentDraft.qrAmount || 0 : 0)
+  const cardAmount = roundMoney(paymentDraft.method === 'card' ? total : paymentDraft.method === 'mixed' ? paymentDraft.cardAmount || 0 : 0)
+  if (roundMoney(cashAmount + qrAmount + cardAmount) !== total || [cashAmount, qrAmount, cardAmount].some(value => !Number.isFinite(value) || value < 0)) throw new Error('Los métodos de pago deben cubrir el pedido exactamente.')
+  const received = roundMoney(paymentDraft.received ?? cashAmount)
+  if (!Number.isFinite(received) || received < cashAmount) throw new Error('Monto recibido insuficiente.')
+  const next = addNightclubRound(dataset, accountId, drafts, actor, now, operationId)
+  const account = next.accounts.find(item => item.id === accountId)!
+  const batch = account.rounds.at(-1)!
+  const paymentId = crypto.randomUUID()
+  batch.authorization = 'payment'; batch.paymentId = paymentId; batch.paidAt = now; batch.sentAt = now; batch.operationId = operationId
+  const payment: NightclubPayment = { id: paymentId, operationId, roundId: batch.id, method: paymentDraft.method, amount: total, cashAmount, qrAmount, cardAmount, received, change: roundMoney(received - cashAmount), paidAt: now, paidBy: actor, status: 'confirmed' }
+  account.payments = [...(account.payments || (account.payment ? [account.payment] : [])), payment]
+  account.payment = payment
+  audit(next, 'round_paid_and_sent', actor, now, accountId, { roundId: batch.id, paymentId, total, method: payment.method })
+  return next
+}
+
 export function advanceNightclubRound(dataset: NightclubDataset, accountId: string, roundId: string, actor: string, now = new Date().toISOString()): NightclubDataset {
   const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId); const batch = account?.rounds.find(item => item.id === roundId)
-  if (!account || !batch || batch.status === 'delivered' || batch.status === 'cancelled') throw new Error('Ronda no disponible.')
+  if (!account || !batch || !batch.authorization || batch.status !== 'pending' && batch.status !== 'preparing') throw new Error('Solo se preparan pedidos autorizados pendientes o en preparación.')
   if (batch.status === 'pending') { batch.status = 'preparing'; batch.startedAt = now }
-  else if (batch.status === 'preparing') { batch.status = 'ready'; batch.readyAt = now }
-  else { batch.status = 'delivered'; batch.deliveredAt = now }
+  else { batch.status = 'ready'; batch.readyAt = now }
   audit(next, 'round_status_changed', actor, now, accountId, { roundId, status: batch.status })
+  return next
+}
+
+export function deliverNightclubRound(dataset: NightclubDataset, accountId: string, roundId: string, actor: string, now = new Date().toISOString()): NightclubDataset {
+  const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId); const batch = account?.rounds.find(item => item.id === roundId)
+  if (!account || !batch || !batch.authorization || batch.status !== 'ready') throw new Error('El pedido todavía no está listo para entregar.')
+  batch.status = 'delivered'; batch.deliveredAt = now; batch.deliveredBy = actor
+  audit(next, 'round_delivered', actor, now, accountId, { roundId })
+  return next
+}
+
+export function finishNightclubOccupancy(dataset: NightclubDataset, accountId: string, actor: string, now = new Date().toISOString()): NightclubDataset {
+  const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId)
+  if (!account || account.status === 'closed') throw new Error('La ocupación ya está cerrada.')
+  if (nightclubBalance(account) > 0 || account.rounds.some(batch => batch.status !== 'cancelled' && (!batch.authorization || batch.status !== 'delivered'))) throw new Error('Resuelve los pedidos pendientes y entrega los pedidos de Barra antes de cerrar la mesa.')
+  account.status = 'closed'; account.paidAt = now
+  const tableId = accountTableId(account); const table = tableId ? next.tables.find(item => item.id === tableId) : undefined
+  if (table) { table.status = 'available'; delete table.activeAccountId; delete table.reservationName }
+  audit(next, 'occupancy_finished', actor, now, accountId)
+  return next
+}
+
+export function refundNightclubRound(dataset: NightclubDataset, accountId: string, roundId: string, actor: string, reason: string, now = new Date().toISOString()): NightclubDataset {
+  if (reason.trim().length < 4) throw new Error('Indica el motivo del reembolso.')
+  const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId); const batch = account?.rounds.find(item => item.id === roundId)
+  if (!account || !batch || batch.authorization !== 'payment' || !batch.paymentId || batch.status === 'cancelled') throw new Error('El pedido pagado no está disponible para reembolso.')
+  const payment = account.payments?.find(item => item.id === batch.paymentId)
+  if (!payment || payment.status === 'refunded') throw new Error('El pago ya fue reembolsado o falta su registro.')
+  if (batch.status === 'delivered') throw new Error('La devolución de un pedido entregado necesita revisión física y ajuste de stock por separado.')
+  const sales = (next.inventoryMovements || []).filter(item => item.accountId === accountId && item.roundId === roundId && item.type === 'sale')
+  for (const movement of sales) {
+    const stock = next.inventory.find(item => item.id === movement.inventoryId)
+    if (!stock) throw new Error('Falta un insumo original; el reembolso requiere revisión manual.')
+    const previous = stock.current; stock.current = roundMoney(previous - movement.quantity)
+    next.inventoryMovements!.push({ id: crypto.randomUUID(), operationId: `refund:${roundId}:${stock.id}`, inventoryId: stock.id, quantity: -movement.quantity, previous, current: stock.current, type: 'reversal', reason: reason.trim(), at: now, actor, accountId, roundId })
+  }
+  payment.status = 'refunded'; payment.refundedAt = now; payment.refundedBy = actor; payment.refundReason = reason.trim()
+  batch.status = 'cancelled'; batch.cancelledAt = now; batch.cancelledBy = actor; batch.cancellationReason = reason.trim()
+  account.subtotal = roundMoney(account.rounds.filter(item => item.status !== 'cancelled').flatMap(item => item.items).reduce((sum, item) => sum + item.lineTotal, 0))
+  for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
+  audit(next, 'round_refunded', actor, now, accountId, { roundId, paymentId: payment.id || '', amount: paymentAmount(payment), method: payment.method, reason: reason.trim() })
   return next
 }
 

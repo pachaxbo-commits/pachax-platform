@@ -481,6 +481,7 @@ export function RestaurantExperience({
               products={products}
               stockMovements={stockMovements}
               onCountInventoryItem={onCountInventoryItem}
+              onViewTables={() => selectModule('tables')}
             />
           )}
           {activeModule === 'inventory' && <RestaurantInventory products={products} catalogCategories={categories} shift={shift} movements={stockMovements} onInventoryMovement={onInventoryMovement} onSaveProducts={onSaveProducts || (() => {})} />}

@@ -47,7 +47,15 @@ export function createFullNightclubDataset(): NightclubDataset {
       inventoryMovements.push({ id: `fixture-${batch.id}-${item.id}-${stock.id}`, operationId: `round:${batch.id}:${stock.id}:${item.id}`, inventoryId: stock.id, quantity: -ingredient.quantity * item.quantity, previous, current: stock.current, type: 'sale', at: batch.createdAt, actor: account.openedBy, accountId: account.id, roundId: batch.id })
     }
   }
-  for (const account of [accountOne, accountTwo]) account.shiftId = 'night-shift-01'
+  for (const account of [accountOne, accountTwo]) {
+    account.shiftId = 'night-shift-01'
+    account.payments = account.rounds.map(batch => {
+      const amount = batch.items.reduce((sum, item) => sum + item.lineTotal, 0)
+      const paymentId = `payment-${batch.id}`
+      batch.authorization = 'payment'; batch.paymentId = paymentId; batch.paidAt = batch.createdAt; batch.sentAt = batch.createdAt; batch.operationId = `fixture-${batch.id}`
+      return { id: paymentId, operationId: batch.operationId, roundId: batch.id, method: 'qr' as const, amount, cashAmount: 0, qrAmount: amount, cardAmount: 0, received: 0, change: 0, paidAt: batch.createdAt, paidBy: account.openedBy, status: 'confirmed' as const }
+    })
+  }
   return {
     zones: structuredClone(zones), tables: fullTables, products: products.map(product => ({ ...structuredClone(product), stockUnits: nightclubProductAvailability(product, fullInventory) })), accounts: [accountOne, accountTwo],
     shift: { id: 'night-shift-01', status: 'open', openedAt: '2026-09-25T19:30:00Z', openingFloat: 1000, openedBy: 'Caja Nocturna' },

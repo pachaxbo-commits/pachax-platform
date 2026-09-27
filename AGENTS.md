@@ -1,13 +1,24 @@
 # Instrucciones para continuar PACHAX
 
-## Inicio y cierre de cada tarea
+## Rama personal obligatoria de Darío
 
-- Leer `CONTEXTO.md`, `docs/CONFIGURACION.md` y la documentación técnica relacionada antes de modificar el proyecto.
-- Ejecutar al inicio `git status`, `git branch --show-current` y `git fetch origin`. Comparar la rama actual con `origin/main` y revisar los cambios recientes relevantes.
-- Si el árbol está limpio y los cambios de `main` son necesarios para la tarea, integrar `git merge origin/main` dentro de la rama de trabajo. No ejecutar `git pull` a ciegas con cambios locales.
-- Cada tarea se desarrolla en una rama propia. No trabajar directamente en `main` ni hacer merge a `main` salvo petición explícita del responsable.
-- Nunca usar force push, sobrescribir trabajo ajeno ni resolver conflictos con `ours` o `theirs` de forma global. Resolver archivo por archivo y preservar el trabajo válido de ambas ramas.
-- Antes de entregar, repetir `git status` y `git fetch origin`, comparar con `origin/main`, integrar lo relevante cuando corresponda, ejecutar las pruebas apropiadas y subir la rama.
+- Para solicitudes de Darío, **todos los cambios de archivos y commits** se realizan en `cambios-dario`. `main`, `master`, `production`, `develop` y ramas ajenas son de solo lectura. Antes de editar, ejecutar `git branch --show-current`; si no devuelve `cambios-dario`, proteger el trabajo local y cambiar de rama de forma segura. No descartar cambios, sobrescribir archivos ni usar `reset --hard` para cambiar de rama.
+- Al comenzar cada tarea: `git status --short --branch`, `git fetch --all --prune`, verificar `origin/main` y comprobar si existe `origin/cambios-dario`. Si la rama personal falta localmente, seguir `origin/cambios-dario` cuando exista; si tampoco existe allí, crearla desde el `origin/main` actualizado. Mantener el trabajo local existente. No establecer `origin/main` como upstream de `cambios-dario`.
+- Integrar en `cambios-dario` los cambios recientes de `origin/main` antes de implementar. Si basta un avance directo, usar fast-forward. Si hay commits propios, realizar una integración local conservando ambas historias y ejecutar las pruebas relevantes. Si hay cambios sin commit, preservarlos primero de manera recuperable; comprobar y restaurar su contenido tras la integración. Ante un conflicto ambiguo que pueda eliminar funcionalidad, detener la resolución y explicar las alternativas. Nunca usar `push`, `merge` o `reset` sobre `main` sin solicitud explícita de integración.
+- Interpretar un pedido genérico de «haz push» como publicar `cambios-dario` en `origin/cambios-dario`, nunca en `main`. No desplegar `cambios-dario` a producción salvo instrucción explícita. La sincronización local desde `origin/main` no autoriza publicar nada.
+- Antes de abrir o entregar localhost, verificar que la rama es `cambios-dario`, que `origin/main` está integrado, que el servidor responde y que se ejecuta desde esta copia. Si falta sincronizar, resolverlo o informar con claridad; no presentar una vista antigua como actualizada. Para esta máquina, usar `scripts/start-dario.ps1`.
+- Al cerrar una tarea informar: rama; si está actualizada con `main` y por qué; cambios propios; estado de build, lint y tests (incluido «no ejecutado» cuando corresponda); URL local verificada; y si hay cambios pendientes de push.
+
+
+## Protocolo Git
+
+- Leer `CONTEXTO.md` y `docs/CONFIGURACION.md` antes de modificar el proyecto.
+- Ejecutar al inicio: `git status`, `git branch --show-current` y `git fetch origin`. Revisar los commits recientes de `origin/main` y las ramas relacionadas con la tarea.
+- Trabajar siempre en una rama propia. Si el árbol está limpio y los cambios de `main` son relevantes, integrar `git merge origin/main` dentro de la rama de trabajo.
+- No ejecutar `git pull` con cambios locales, no usar force push y no sobrescribir trabajo de otro desarrollador.
+- Resolver conflictos archivo por archivo. No aplicar `ours` o `theirs` globalmente.
+- Antes de entregar, repetir `git status` y `git fetch --all --prune`, comparar con `origin/main` y ejecutar las pruebas correspondientes. Subir la rama solo cuando Darío lo solicite.
+- No hacer merge a `main` salvo petición explícita del responsable del proyecto.
 
 ## Límites y seguridad
 

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { addNightclubRound, advanceNightclubRound, cancelNightclubRound, closeNightclubShift, nightclubProductAvailability, openNightclubAccount, openNightclubShift, recordNightclubCashMovement, recordNightclubInventoryMovement, recordNightclubPayment, reopenNightclubBill, requestNightclubBill } from '../domain/nightclubAccounts'
-import type { NightclubCashMovement, NightclubCustomer, NightclubDataset, NightclubInventoryItem, NightclubInventoryMovementType, NightclubPaymentDraft, NightclubProduct, NightclubRoundDraft, NightclubServiceTarget, NightclubStaff } from '../domain/nightclubAccounts'
+import { advanceNightclubRound, cancelNightclubRound, closeNightclubShift, deliverNightclubRound, finishNightclubOccupancy, nightclubProductAvailability, openNightclubAccount, openNightclubShift, recordNightclubCashMovement, recordNightclubInventoryMovement, refundNightclubRound, settleNightclubRound } from '../domain/nightclubAccounts'
+import type { NightclubCashMovement, NightclubCourtesyDraft, NightclubCustomer, NightclubDataset, NightclubInventoryItem, NightclubInventoryMovementType, NightclubMember, NightclubPaymentDraft, NightclubProduct, NightclubRoundDraft, NightclubServiceTarget, NightclubStaff } from '../domain/nightclubAccounts'
+import { cancelNightclubCourtesy, registerNightclubCourtesy, saveNightclubMember } from '../domain/nightclubCourtesies'
 import { saveNightclubTable, saveNightclubZone } from '../domain/nightclubFloor'
 import type { TableDraft, ZoneDraft } from '../domain/nightclubFloor'
 
-export function useNightclubController(initial: () => NightclubDataset, actor: string, storageKey?: string, datasetMode?: string, resetKey = 0) {
+export function useNightclubController(initial: () => NightclubDataset, actor: string, storageKey?: string, datasetMode?: string, resetKey = 0, role = 'admin') {
   const initialRef = useRef(initial)
   const hasMounted = useRef(false)
   const [data, setData] = useState<NightclubDataset>(() => {
@@ -57,12 +58,12 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
       })
       return openedId
     },
-    onAddRound: (accountId: string, items: NightclubRoundDraft[]) => apply(state => addNightclubRound(state, accountId, items, actor)),
-    onAdvanceRound: (accountId: string, roundId: string) => apply(state => advanceNightclubRound(state, accountId, roundId, actor)),
+    onSettleRound: (accountId: string, items: NightclubRoundDraft[], payment: NightclubPaymentDraft, operationId: string) => { if (!['owner', 'admin', 'cashier', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para cobrar pedidos.'); apply(state => settleNightclubRound(state, accountId, items, payment, actor, new Date().toISOString(), operationId)) },
+    onAdvanceRound: (accountId: string, roundId: string) => { if (!['owner', 'admin', 'bar'].includes(role)) throw new Error('Solo Barra puede preparar pedidos.'); apply(state => advanceNightclubRound(state, accountId, roundId, actor)) },
+    onDeliverRound: (accountId: string, roundId: string) => { if (!['owner', 'admin', 'waiter', 'service'].includes(role)) throw new Error('Solo Servicio puede entregar pedidos.'); apply(state => deliverNightclubRound(state, accountId, roundId, actor)) },
+    onFinishAccount: (accountId: string) => { if (!['owner', 'admin', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para cerrar mesas.'); apply(state => finishNightclubOccupancy(state, accountId, actor)) },
+    onRefundRound: (accountId: string, roundId: string, reason: string) => { if (!['owner', 'admin'].includes(role)) throw new Error('Solo Administración puede reembolsar pedidos.'); apply(state => refundNightclubRound(state, accountId, roundId, actor, reason)) },
     onCancelRound: (accountId: string, roundId: string, reason: string) => apply(state => cancelNightclubRound(state, accountId, roundId, actor, reason)),
-    onRequestBill: (accountId: string) => apply(state => requestNightclubBill(state, accountId, actor)),
-    onReopenBill: (accountId: string) => apply(state => reopenNightclubBill(state, accountId, actor)),
-    onCloseAccount: (accountId: string, draft: NightclubPaymentDraft) => apply(state => recordNightclubPayment(state, accountId, draft, actor)),
     onStartShift: (openingFloat: number) => apply(state => openNightclubShift(state, actor, openingFloat)),
     onCloseShift: (countedCash: number) => apply(state => closeNightclubShift(state, actor, countedCash)),
     onCashMovement: (draft: Omit<NightclubCashMovement, 'id' | 'shiftId' | 'at' | 'actor'>) => apply(state => recordNightclubCashMovement(state, draft, actor)),
@@ -92,5 +93,8 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     onSaveCustomer: (customer: NightclubCustomer) => apply(state => { const next = structuredClone(state); const index = next.customers.findIndex(item => item.id === customer.id); if (index >= 0) next.customers[index] = customer; else next.customers.push(customer); return next }),
     onAssignCustomer: (accountId: string, customerId: string) => apply(state => { const next = structuredClone(state); const account = next.accounts.find(item => item.id === accountId); if (!account || account.status === 'closed') throw new Error('La cuenta está cerrada.'); account.customerId = customerId || undefined; return next }),
     onSaveStaff: (staff: NightclubStaff) => apply(state => { const next = structuredClone(state); const index = (next.staff || []).findIndex(item => item.id === staff.id); next.staff ||= []; if (index >= 0) next.staff[index] = staff; else next.staff.push(staff); return next }),
+    onSaveMember: (member: NightclubMember) => { if (!['owner', 'admin'].includes(role)) throw new Error('Solo Administración puede gestionar cupos.'); apply(state => saveNightclubMember(state, member, actor)) },
+    onRegisterCourtesy: (draft: NightclubCourtesyDraft) => { if (!['owner', 'admin', 'cashier', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para registrar cortesías.'); apply(state => registerNightclubCourtesy(state, draft, actor)) },
+    onCancelCourtesy: (id: string) => { if (!['owner', 'admin'].includes(role)) throw new Error('Solo Administración puede anular cortesías.'); apply(state => cancelNightclubCourtesy(state, id, actor)) },
   }
 }

@@ -1,7 +1,8 @@
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { tenantActor, hasPermission, id } = require('./authorization.cjs')
-const permissions = { openAccount:'orders.manage', addRound:'orders.manage', updateRoundStatus:'orders.manage', cancelRound:'orders.manage', requestBill:'orders.manage', reopenBill:'cash.close', recordPayment:'cash.close', inventoryMovement:'inventory.manage', openShift:'cash.close', closeShift:'cash.close', courtesy:'orders.manage', void:'cash.close' }
+const { applyPaidRoundCommand } = require('./nightclubPaidRounds.cjs')
+const permissions = { openAccount:'orders.manage', settleRound:'sales.create', advanceRound:'orders.manage', deliverRound:'orders.manage', finishOccupancy:'orders.manage', refundRound:'settings.manage', inventoryMovement:'inventory.manage', openShift:'cash.close', closeShift:'cash.close', courtesy:'orders.manage', void:'cash.close' }
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
 const amount = value => { const number = Number(value); if (!Number.isFinite(number) || number < 0) throw new HttpsError('invalid-argument','Monto inválido.'); return money(number) }
 const text = (value,max=200) => { if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument','Texto inválido.'); return value.trim() }
@@ -23,6 +24,9 @@ async function executeNightclubCommand(db, request) {
     }
     if (!hasPermission(tenant.data(), member.data(), permission)) throw new HttpsError('permission-denied','Permiso revocado.')
     if (!member.data().branchIds?.includes(branchId)) throw new HttpsError('permission-denied','Sucursal no autorizada.')
+    if (type === 'advanceRound' && !['owner', 'admin', 'bar'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Barra puede preparar pedidos.')
+    if (['deliverRound', 'finishOccupancy'].includes(type) && !['owner', 'admin', 'waiter'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Servicio puede entregar o cerrar mesas.')
+    if (type === 'refundRound' && !['owner', 'admin'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Administración puede reembolsar.')
     const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now })
     tx.create(operationRef, { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, requestHash, status:'confirmed', createdAt: now, result })
     tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.accountId || result.roundId || result.shiftId || result.movementId || null, createdAt: now })
@@ -39,12 +43,16 @@ async function applyCommand(context) {
   }
   const state = await tx.get(stateRef), activeShiftId = state.data()?.activeShiftId
   if (!activeShiftId) throw new HttpsError('failed-precondition','No hay turno activo.')
+  if (['settleRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) return applyPaidRoundCommand({ ...context, activeShiftId })
   if (type === 'openAccount') {
     const target = payload.target; if (!target || !['table','customer'].includes(target.type)) throw new HttpsError('invalid-argument','Destino inválido.')
-    let tableRef, table
+    let tableRef, table, storedTarget = target
     if (target.type === 'table') { tableRef=root.collection('nightclubTables').doc(id(target.tableId)); table=await tx.get(tableRef); if (!table.exists || table.data().activeAccountId) throw new HttpsError('aborted','La mesa ya no está disponible.') }
-    else if (!text(target.displayName,100)) throw new HttpsError('invalid-argument','Cliente requerido.')
-    const accountId=`account_${operationId}`, ref=root.collection('nightclubAccounts').doc(accountId), value={ id:accountId,tenantId:actor.tenantId,branchId,shiftId:activeShiftId,serviceTarget:target,status:'open',subtotal:0,paidTotal:0,balance:0,openedAt:now,openedBy:actor.uid }
+    else {
+      if (typeof target.displayName !== 'string' || target.displayName.trim().length > 100) throw new HttpsError('invalid-argument','Nombre de referencia inválido.')
+      storedTarget = { type: 'customer', displayName: target.displayName.trim(), ...(target.customerId ? { customerId: id(target.customerId) } : {}) }
+    }
+    const accountId=`account_${operationId}`, ref=root.collection('nightclubAccounts').doc(accountId), value={ id:accountId,tenantId:actor.tenantId,branchId,shiftId:activeShiftId,serviceTarget:storedTarget,status:'open',subtotal:0,paidTotal:0,balance:0,openedAt:now,openedBy:actor.uid }
     tx.create(ref,value); if (tableRef) tx.update(tableRef,{activeAccountId:accountId,status:'occupied',updatedAt:now}); return {accountId}
   }
   if (type === 'addRound') {

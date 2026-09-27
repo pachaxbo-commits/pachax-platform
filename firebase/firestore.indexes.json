@@ -87,6 +87,14 @@
         { "fieldPath": "shiftId", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "nightclubInventoryMovements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "roundId", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

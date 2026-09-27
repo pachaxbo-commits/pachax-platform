@@ -15,12 +15,11 @@ export interface NightclubRepository {
   getStaff(): Promise<NightclubStaff[]>
   getCashMovements(shiftId: string): Promise<NightclubCashMovement[]>
   openAccount(input: { operationId: string; target: NightclubServiceTarget }): Promise<{ accountId: string }>
-  addRound(input: { operationId: string; accountId: string; items: NightclubRoundDraft[] }): Promise<{ roundId: string }>
-  updateRoundStatus(input: { operationId: string; accountId: string; roundId: string; status: NightclubRound['status'] }): Promise<void>
-  cancelRound(input: { operationId: string; accountId: string; roundId: string; reason: string }): Promise<void>
-  requestBill(input: { operationId: string; accountId: string }): Promise<void>
-  reopenBill(input: { operationId: string; accountId: string; reason: string }): Promise<void>
-  recordPayment(input: { operationId: string; accountId: string; payment: NightclubPaymentDraft }): Promise<void>
+  settleRound(input: { operationId: string; accountId: string; items: NightclubRoundDraft[]; payment: NightclubPaymentDraft }): Promise<{ roundId: string; paymentId: string; total: number }>
+  advanceRound(input: { operationId: string; accountId: string; roundId: string }): Promise<void>
+  deliverRound(input: { operationId: string; accountId: string; roundId: string }): Promise<void>
+  refundRound(input: { operationId: string; accountId: string; roundId: string; reason: string }): Promise<void>
+  finishOccupancy(input: { operationId: string; accountId: string }): Promise<void>
   recordInventoryMovement(input: { operationId: string; inventoryId: string; quantity: number; type: NightclubInventoryMovement['type']; reason: string }): Promise<void>
   openShift(input: { operationId: string; openingFloat: number }): Promise<{ shiftId: string }>
   closeShift(input: { operationId: string; shiftId: string; countedCash: number }): Promise<void>
