@@ -23,8 +23,16 @@ const inventory = [
   { id: 'courtesy-unit', name: 'Cortesía de la casa', unit: 'unit' as const, current: 20, minimum: 5 },
 ]
 
+const branding = {
+  businessName: 'Nocturna',
+  subtitle: 'Club nocturno / Lounge',
+  primaryColor: '#d8a84e',
+  accentColor: '#35d0a0',
+  surfaceColor: '#0d1720',
+}
+
 export function createEmptyNightclubDataset(): NightclubDataset {
-  return { zones: structuredClone(zones), tables: structuredClone(tables), products: [], accounts: [], shift: null, customers: [], reservations: [], inventory: [], inventoryMovements: [], cashMovements: [], audit: [], staff: [] }
+  return { zones: structuredClone(zones), tables: structuredClone(tables), products: [], accounts: [], shift: null, customers: [], reservations: [], inventory: [], inventoryMovements: [], cashMovements: [], audit: [], staff: [], branding: structuredClone(branding) }
 }
 
 export function createFullNightclubDataset(): NightclubDataset {
@@ -65,6 +73,7 @@ export function createFullNightclubDataset(): NightclubDataset {
     reservations: [{ id: 'reservation-vip-2', tableId: reserved.id, customerName: 'Andrea Salvatierra', time: '22:30', guests: 8, status: 'confirmed' }],
     inventory: fullInventory, inventoryMovements, cashMovements: [], audit: [],
     staff: [{ id: 'night-staff-1', name: 'Valeria', role: 'service', active: true }, { id: 'night-staff-2', name: 'Marco', role: 'service', active: true }, { id: 'night-staff-3', name: 'Caja Nocturna', role: 'cashier', active: true }],
+    branding: structuredClone(branding),
   }
 }
 

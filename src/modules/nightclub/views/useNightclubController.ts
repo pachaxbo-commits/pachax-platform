@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { advanceNightclubRound, cancelNightclubRound, closeNightclubShift, deliverNightclubRound, finishNightclubOccupancy, nightclubProductAvailability, openNightclubAccount, openNightclubShift, recordNightclubCashMovement, recordNightclubInventoryMovement, refundNightclubRound, settleNightclubRound } from '../domain/nightclubAccounts'
-import type { NightclubCashMovement, NightclubCourtesyDraft, NightclubCustomer, NightclubDataset, NightclubInventoryItem, NightclubInventoryMovementType, NightclubMember, NightclubPaymentDraft, NightclubProduct, NightclubRoundDraft, NightclubServiceTarget, NightclubStaff } from '../domain/nightclubAccounts'
+import type { NightclubBranding, NightclubCashMovement, NightclubCourtesyDraft, NightclubCustomer, NightclubDataset, NightclubInventoryItem, NightclubInventoryMovementType, NightclubMember, NightclubPaymentDraft, NightclubProduct, NightclubRoundDraft, NightclubServiceTarget, NightclubStaff } from '../domain/nightclubAccounts'
 import { cancelNightclubCourtesy, registerNightclubCourtesy, saveNightclubMember } from '../domain/nightclubCourtesies'
-import { saveNightclubTable, saveNightclubZone } from '../domain/nightclubFloor'
-import type { TableDraft, ZoneDraft } from '../domain/nightclubFloor'
+import { arriveNightclubReservation, cancelNightclubReservation, deleteNightclubTable, deleteNightclubZone, saveNightclubBranding, saveNightclubReservation, saveNightclubTable, saveNightclubZone } from '../domain/nightclubFloor'
+import type { ReservationDraft, TableDraft, ZoneDraft } from '../domain/nightclubFloor'
 
 export function useNightclubController(initial: () => NightclubDataset, actor: string, storageKey?: string, datasetMode?: string, resetKey = 0, role = 'admin') {
   const initialRef = useRef(initial)
@@ -48,6 +48,21 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     data,
     onSaveZone: (draft: ZoneDraft) => apply(state => saveNightclubZone(state, draft, actor)),
     onSaveTable: (draft: TableDraft) => apply(state => saveNightclubTable(state, draft, actor)),
+    onDeleteZone: (id: string) => apply(state => deleteNightclubZone(state, id, actor)),
+    onDeleteTable: (id: string) => apply(state => deleteNightclubTable(state, id, actor)),
+    onSaveReservation: (draft: ReservationDraft) => apply(state => saveNightclubReservation(state, draft, actor)),
+    onCancelReservation: (id: string) => apply(state => cancelNightclubReservation(state, id, actor)),
+    onArriveReservation: (id: string) => {
+      let openedId = ''
+      apply(state => {
+        const previousIds = new Set(state.accounts.map(account => account.id))
+        const next = arriveNightclubReservation(state, id, actor)
+        openedId = next.accounts.find(account => !previousIds.has(account.id))?.id || ''
+        return next
+      })
+      return openedId
+    },
+    onSaveBranding: (branding: NightclubBranding) => apply(state => saveNightclubBranding(state, branding, actor)),
     onOpenAccount: (target: string | NightclubServiceTarget) => {
       let openedId = ''
       apply(state => {

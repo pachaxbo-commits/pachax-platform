@@ -1,5 +1,18 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Nightclub premium, configuración funcional y reservas (27/09/2026)
+
+Rama `codex/nightclub-premium-config`, creada desde `origin/main` en `23e17e7` después de integrar en la base el historial de Barra y los flujos pagados de Dario. No se reutilizaron ramas antiguas ni se modificó la aplicación original del cliente.
+
+- La experiencia canónica Nightclub recibió un shell oscuro premium, navegación sobria con Lucide, dashboard de operación nocturna, hero configurable, métricas, zonas compactas, actividad de Barra y resumen operativo. Demo pública y Studio siguen renderizando el mismo `NightclubExperience`.
+- Configuración ahora usa secciones desplegables reales para identidad, apariencia, zonas/mesas y operación. Nombre, subtítulo, colores, logo y portada se guardan dentro del dataset demo persistente. Logo, portada e imágenes de producto se seleccionan desde el dispositivo, con vista previa y límite de 1,5 MB.
+- La persistencia de imágenes es deliberadamente local en demo y la UI lo informa. Producción continúa fail-closed hasta conectar repositorio tenant y Storage; no se simula una persistencia remota.
+- Zonas permite reservar una mesa libre, cancelar la reserva, confirmar llegada abriendo una cuenta y asignar un cliente a una cuenta activa. El dominio valida capacidad, hora, duplicados y turno. Configuración permite crear, editar y eliminar zonas/mesas con protección de cuentas y reservas activas.
+- QA manual comprobó guardado de identidad y reserva contextual. Matriz responsive `360x800`, `390x844`, `768x1024`, `1366x768` y `1920x1080` sin overflow horizontal; Studio cargó el iframe canónico sin errores de consola.
+- Verificación: TypeScript, lint focal, Nightclub 30/30, Platform 27/27, Restaurante 25/25, Distribución 55/55 y build de emulador aprobados. El build conserva únicamente las advertencias conocidas de chunks grandes e importación dinámica de Firebase.
+
+Pendiente: conectar el proveedor operacional remoto de Nightclub, branding tenant y Storage antes de habilitar producción; validar carga y compresión de imágenes con dispositivo físico. No se realizó deploy.
+
 ## Integración vigente de cambios de Darío e historial de Barra (27/09/2026)
 
 - En `cambios-dario` se integró `origin/feat/nightclub-bar-history` (`33cebf6`) con el trabajo previo de Darío. El historial canónico muestra jornadas, mesas y pedidos en barra, productos por ubicación, filtros y cronología de pagos, cortesías de socios y reembolsos. Los datos de cada línea conservan nombre, precio, categoría y valor al momento de la operación.

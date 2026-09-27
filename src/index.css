@@ -154,6 +154,34 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Nightclub owns a dark, tenant-themed surface inside the global light app. */
+.nightclub-shell {
+  color-scheme: dark;
+  background: #050c13;
+}
+
+.nightclub-shell input,
+.nightclub-shell select,
+.nightclub-shell textarea {
+  color-scheme: dark !important;
+  background-color: #07111a !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.nightclub-shell input::placeholder,
+.nightclub-shell textarea::placeholder {
+  color: #64748b !important;
+}
+
+.nightclub-shell ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+.nightclub-shell ::-webkit-scrollbar-track {
+  background: #07111a;
+}
+
 /* Utility Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
