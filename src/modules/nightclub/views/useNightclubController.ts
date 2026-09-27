@@ -47,12 +47,21 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     data,
     onSaveZone: (draft: ZoneDraft) => apply(state => saveNightclubZone(state, draft, actor)),
     onSaveTable: (draft: TableDraft) => apply(state => saveNightclubTable(state, draft, actor)),
-    onOpenAccount: (target: string | NightclubServiceTarget) => apply(state => openNightclubAccount(state, target, actor)).accounts.at(-1)?.id,
+    onOpenAccount: (target: string | NightclubServiceTarget) => {
+      let openedId = ''
+      apply(state => {
+        const previousIds = new Set(state.accounts.map(account => account.id))
+        const next = openNightclubAccount(state, target, actor)
+        openedId = next.accounts.find(account => !previousIds.has(account.id))?.id || ''
+        return next
+      })
+      return openedId
+    },
     onAddRound: (accountId: string, items: NightclubRoundDraft[]) => apply(state => addNightclubRound(state, accountId, items, actor)),
     onAddCourtesy: (accountId: string, items: NightclubRoundDraft[], reason: string) => apply(state => addNightclubCourtesy(state, accountId, items, actor, role, reason)),
     onApplyDiscount: (accountId: string, amount: number, reason: string) => apply(state => applyNightclubDiscount(state, accountId, amount, reason, actor, role)),
     onReverseItem: (accountId: string, roundId: string, itemId: string, reason: string, kind: 'cancelled' | 'returned') => apply(state => {
-      if (!['admin', 'owner'].includes(normalizeNightclubRole(role))) throw new Error('Solo administraciÃ³n puede anular o devolver productos.')
+      if (!['admin', 'owner'].includes(normalizeNightclubRole(role))) throw new Error('Solo administración puede anular o devolver productos.')
       return reverseNightclubItem(state, accountId, roundId, itemId, actor, reason, kind)
     }),
     onAdvanceRound: (accountId: string, roundId: string) => apply(state => advanceNightclubRound(state, accountId, roundId, actor)),
@@ -63,7 +72,7 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     onStartShift: (openingFloat: number) => apply(state => openNightclubShift(state, actor, openingFloat)),
     onCloseShift: (countedCash: number) => apply(state => closeNightclubShift(state, actor, countedCash)),
     onCashMovement: (draft: Omit<NightclubCashMovement, 'id' | 'shiftId' | 'at' | 'actor'>) => apply(state => recordNightclubCashMovement(state, draft, actor)),
-    onAdjustInventory: (id: string, quantity: number, type: Exclude<NightclubInventoryMovementType, 'sale' | 'reversal'> = 'adjustment', reason = 'Conteo fÃ­sico') => apply(state => recordNightclubInventoryMovement(state, id, quantity, type, reason, actor)),
+    onAdjustInventory: (id: string, quantity: number, type: Exclude<NightclubInventoryMovementType, 'sale' | 'reversal'> = 'adjustment', reason = 'Conteo físico') => apply(state => recordNightclubInventoryMovement(state, id, quantity, type, reason, actor)),
     onSaveInventory: (item: NightclubInventoryItem) => apply(state => {
       if (!item.name.trim() || !Number.isFinite(item.current) || item.current < 0 || !Number.isFinite(item.minimum) || item.minimum < 0) throw new Error('Revisa los datos del insumo.')
       const next = structuredClone(state); const index = next.inventory.findIndex(entry => entry.id === item.id)
@@ -80,14 +89,14 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
         normalized.inventoryId = inventoryId
         normalized.recipe = [{ inventoryId, quantity: 1 }]
         if (!next.inventory.some(item => item.id === inventoryId)) next.inventory.push({ id: inventoryId, name: normalized.name, unit: 'unit', current: Math.max(0, normalized.stockUnits || 0), minimum: 0 })
-      } else if (normalized.inventoryMode === 'recipe' && (!normalized.recipe?.length || normalized.recipe.some(line => !state.inventory.some(item => item.id === line.inventoryId) || !Number.isFinite(line.quantity) || line.quantity <= 0))) throw new Error('Configura una composiciÃ³n vÃ¡lida.')
+      } else if (normalized.inventoryMode === 'recipe' && (!normalized.recipe?.length || normalized.recipe.some(line => !state.inventory.some(item => item.id === line.inventoryId) || !Number.isFinite(line.quantity) || line.quantity <= 0))) throw new Error('Configura una composición válida.')
       else if (normalized.inventoryMode === 'none') normalized.recipe = []
       const saved = { ...normalized, stockUnits: nightclubProductAvailability(normalized, next.inventory) }; const index = next.products.findIndex(item => item.id === product.id)
       if (index >= 0) next.products[index] = saved; else next.products.push(saved)
       return next
     }),
     onSaveCustomer: (customer: NightclubCustomer) => apply(state => { const next = structuredClone(state); const index = next.customers.findIndex(item => item.id === customer.id); if (index >= 0) next.customers[index] = customer; else next.customers.push(customer); return next }),
-    onAssignCustomer: (accountId: string, customerId: string) => apply(state => { const next = structuredClone(state); const account = next.accounts.find(item => item.id === accountId); if (!account || account.status === 'closed') throw new Error('La cuenta estÃ¡ cerrada.'); account.customerId = customerId || undefined; return next }),
+    onAssignCustomer: (accountId: string, customerId: string) => apply(state => { const next = structuredClone(state); const account = next.accounts.find(item => item.id === accountId); if (!account || account.status === 'closed') throw new Error('La cuenta está cerrada.'); account.customerId = customerId || undefined; return next }),
     onSaveStaff: (staff: NightclubStaff) => apply(state => { const next = structuredClone(state); const index = (next.staff || []).findIndex(item => item.id === staff.id); next.staff ||= []; if (index >= 0) next.staff[index] = staff; else next.staff.push(staff); return next }),
   }
 }

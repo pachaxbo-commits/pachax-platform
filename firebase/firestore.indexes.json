@@ -79,6 +79,14 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "nightclubAccounts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "shiftId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
-import { addNightclubCourtesy, addNightclubRound, closeNightclubAccount, closeNightclubShift, openNightclubAccount, reopenNightclubBill, requestNightclubBill, reverseNightclubItem } from '../nightclubAccounts.ts'
+import { addNightclubCourtesy, addNightclubRound, applyNightclubDiscount, closeNightclubAccount, closeNightclubShift, openNightclubAccount, reopenNightclubBill, requestNightclubBill, reverseNightclubItem } from '../nightclubAccounts.ts'
 import { nightclubAccountTimeline, selectNightclubHistory } from '../nightclubHistory.ts'
 
 const filters = (shiftId: string) => ({ shiftId, from: '', to: '', query: '', table: '', waiter: '', product: '', category: '', paymentMethod: '', status: 'all', user: '' })
@@ -74,4 +74,18 @@ test('venta directa en barra no ocupa mesa y aparece por producto', () => {
   const selected = selectNightclubHistory(data, filters(data.shift.id))
   assert.ok(selected.accounts.some(row => row.account.id === account.id && row.label === 'Venta directa en barra'))
   assert.ok(selected.productLocations.find(item => item.productId === 'beer-1').places.some(place => place.label === 'Venta directa en barra' && place.quantity === 2))
+})
+
+test('descuento autorizado conserva motivo, actor y total histórico', () => {
+  let data = createNightclubDataset('full')
+  data = openNightclubAccount(data, { type: 'bar' }, 'Carlos')
+  const id = data.accounts.at(-1).id
+  data = addNightclubRound(data, id, [{ productId: 'beer-1', quantity: 2 }], 'Carlos')
+  const original = data.accounts.at(-1).subtotal
+  assert.throws(() => applyNightclubDiscount(data, id, 5, 'Promoción', 'Carlos', 'waiter'), /administración/)
+  data = applyNightclubDiscount(data, id, 5, 'Promoción', 'Administrador', 'admin', '2026-09-27T01:00:00-04:00')
+  assert.equal(data.accounts.at(-1).subtotal, original - 5)
+  const selected = selectNightclubHistory(data, filters(data.shift.id))
+  assert.equal(selected.summary.discountValue, 5)
+  assert.ok(selected.accounts.find(row => row.account.id === id).entries.some(entry => entry.type === 'discount' && entry.reason === 'Promoción' && entry.actor === 'Administrador'))
 })
