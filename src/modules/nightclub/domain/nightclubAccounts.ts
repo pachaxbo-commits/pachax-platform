@@ -7,6 +7,7 @@ export type NightclubModuleId = 'dashboard' | 'floor' | 'pos' | 'accounts' | 'ba
 export type NightclubServiceTarget =
   | { type: 'table'; tableId: string }
   | { type: 'customer'; customerId?: string; displayName: string }
+  | { type: 'bar' }
 
 export interface NightclubZone { id: string; name: string; sortOrder: number }
 export interface NightclubTable { id: string; name: string; zoneId: string; capacity: number; status: NightclubTableStatus; activeAccountId?: string; reservationName?: string }
@@ -24,9 +25,15 @@ export interface NightclubProduct {
   recipe?: NightclubRecipeLine[]
   active?: boolean
 }
-export interface NightclubRoundItem { id: string; productId: string; name: string; quantity: number; unitPrice: number; lineTotal: number; preparationArea?: 'Barra' | 'Directo' }
-export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentBy?: string }
+export interface NightclubRoundItem {
+  id: string; productId: string; name: string; category?: string; quantity: number; unitPrice: number; lineTotal: number
+  commercialValue?: number; kind?: 'sale' | 'courtesy'; status?: 'active' | 'cancelled' | 'returned'
+  preparationArea?: 'Barra' | 'Directo'; stockUsage?: NightclubRecipeLine[]
+  authorizedBy?: string; reason?: string; cancelledAt?: string; cancelledBy?: string; cancelReason?: string
+}
+export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; cancelledBy?: string; cancelReason?: string; sentBy?: string }
 export interface NightclubPayment { id?: string; operationId?: string; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string }
+export interface NightclubDiscount { id: string; amount: number; reason: string; at: string; actor: string }
 export interface NightclubAccount {
   id: string
   serviceTarget?: NightclubServiceTarget
@@ -34,13 +41,19 @@ export interface NightclubAccount {
   tableId?: string
   customerId?: string
   customerDisplayName?: string
+  tableNameSnapshot?: string
+  zoneNameSnapshot?: string
+  waiterName?: string
+  guestCount?: number
   shiftId?: string
   openedAt: string
   openedBy: string
   status: NightclubAccountStatus
   rounds: NightclubRound[]
   subtotal: number
+  discounts?: NightclubDiscount[]
   paidAt?: string
+  closedBy?: string
   payments?: NightclubPayment[]
   /** Snapshot legacy del último pago. */
   payment?: NightclubPayment
@@ -71,8 +84,8 @@ export const NIGHTCLUB_ROLE_MODULES: Readonly<Record<NightclubRole, readonly Nig
   owner: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'users', 'reports', 'settings'],
   admin: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'users', 'reports', 'settings'],
   cashier: ['dashboard', 'pos', 'accounts', 'cash', 'history', 'customers'],
-  waiter: ['floor', 'pos', 'accounts', 'customers'],
-  service: ['floor', 'pos', 'accounts', 'customers'],
+  waiter: ['floor', 'pos', 'accounts', 'history', 'customers'],
+  service: ['floor', 'pos', 'accounts', 'history', 'customers'],
   bar: ['bar', 'history'],
   inventory: ['inventory', 'products', 'history'],
 }
@@ -93,12 +106,40 @@ export function nightclubBalance(account: NightclubAccount) {
   return Math.max(0, roundMoney(account.subtotal - nightclubPaidTotal(account)))
 }
 
+export function nightclubConsumptionTotal(account: NightclubAccount) {
+  const gross = account.rounds.filter(batch => batch.status !== 'cancelled').flatMap(batch => batch.items).filter(item => item.status !== 'cancelled' && item.status !== 'returned').reduce((sum, item) => sum + item.lineTotal, 0)
+  return Math.max(0, roundMoney(gross - (account.discounts || []).reduce((sum, discount) => sum + discount.amount, 0)))
+}
+
+export function applyNightclubDiscount(dataset: NightclubDataset, accountId: string, amount: number, reason: string, actor: string, role: string, now = new Date().toISOString()): NightclubDataset {
+  if (!['admin', 'owner'].includes(normalizeNightclubRole(role))) throw new Error('Solo administración puede autorizar descuentos.')
+  if (!Number.isFinite(amount) || amount <= 0 || reason.trim().length < 4) throw new Error('Indica un descuento positivo y su motivo.')
+  const next = cloneDataset(dataset)
+  const account = next.accounts.find(entry => entry.id === accountId)
+  if (!account || account.status === 'closed') throw new Error('La cuenta está cerrada.')
+  if (roundMoney(amount) > nightclubBalance(account)) throw new Error('El descuento supera el saldo pendiente.')
+  const discount: NightclubDiscount = { id: crypto.randomUUID(), amount: roundMoney(amount), reason: reason.trim(), at: now, actor }
+  account.discounts = [...(account.discounts || []), discount]
+  account.subtotal = nightclubConsumptionTotal(account)
+  if (nightclubBalance(account) === 0) {
+    account.status = 'closed'; account.paidAt = now; account.closedBy = actor
+    const tableId = accountTableId(account)
+    const table = tableId ? next.tables.find(entry => entry.id === tableId) : undefined
+    if (table) { table.status = 'available'; delete table.activeAccountId }
+  }
+  audit(next, 'discount_applied', actor, now, accountId, { amount: discount.amount, reason: discount.reason })
+  return next
+}
+
 export function nightclubAccountLabel(account: NightclubAccount, dataset: Pick<NightclubDataset, 'tables' | 'zones' | 'customers'>) {
+  if (account.serviceTarget?.type === 'bar') return 'Venta directa en barra'
   const tableId = accountTableId(account)
   if (tableId) {
     const table = dataset.tables.find(item => item.id === tableId)
     const zone = dataset.zones.find(item => item.id === table?.zoneId)
-    return table ? `${table.name}${zone ? ` · ${zone.name}` : ''}` : 'Mesa'
+    const name = account.tableNameSnapshot || table?.name || 'Mesa'
+    const zoneName = account.zoneNameSnapshot || zone?.name
+    return `${name}${zoneName ? ` · ${zoneName}` : ''}`
   }
   const customer = dataset.customers.find(item => item.id === (account.serviceTarget?.type === 'customer' ? account.serviceTarget.customerId : account.customerId))
   return customer?.name || (account.serviceTarget?.type === 'customer' ? account.serviceTarget.displayName : account.customerDisplayName) || 'Cuenta personal'
@@ -152,13 +193,19 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
   const next = cloneDataset(dataset)
   if (next.shift?.status !== 'open') throw new Error('Debes abrir el turno antes de abrir una cuenta.')
   const serviceTarget: NightclubServiceTarget = typeof target === 'string' ? { type: 'table', tableId: target } : target
+  if (serviceTarget.type === 'bar') {
+    const accountId = crypto.randomUUID()
+    next.accounts.push({ id: accountId, serviceTarget, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+    audit(next, 'account_opened', actor, now, accountId, { target: 'bar' })
+    return next
+  }
   if (serviceTarget.type === 'customer') {
     const displayName = serviceTarget.displayName.trim()
     const customer = serviceTarget.customerId ? next.customers.find(item => item.id === serviceTarget.customerId && item.active !== false) : undefined
     if (!displayName && !customer) throw new Error('La cuenta sin mesa necesita un cliente identificable.')
     if (next.accounts.some(account => account.status !== 'closed' && account.serviceTarget?.type === 'customer' && account.serviceTarget.customerId && account.serviceTarget.customerId === serviceTarget.customerId)) throw new Error('Ese cliente ya tiene una cuenta personal abierta.')
     const accountId = crypto.randomUUID()
-    next.accounts.push({ id: accountId, serviceTarget: { ...serviceTarget, displayName: customer?.name || displayName }, customerId: customer?.id, customerDisplayName: customer?.name || displayName, shiftId: next.shift.id, openedAt: now, openedBy: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+    next.accounts.push({ id: accountId, serviceTarget: { ...serviceTarget, displayName: customer?.name || displayName }, customerId: customer?.id, customerDisplayName: customer?.name || displayName, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
     audit(next, 'account_opened', actor, now, accountId, { target: 'customer' })
     return next
   }
@@ -167,15 +214,15 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
   if (table.status === 'reserved') throw new Error('Confirma la llegada o libera la reserva antes de abrir la mesa.')
   if (table.status === 'occupied' || table.status === 'bill_requested' || table.activeAccountId) throw new Error('La mesa ya tiene una cuenta activa.')
   const accountId = crypto.randomUUID()
-  next.accounts.push({ id: accountId, serviceTarget, tableId: table.id, shiftId: next.shift.id, openedAt: now, openedBy: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+  next.accounts.push({ id: accountId, serviceTarget, tableId: table.id, tableNameSnapshot: table.name, zoneNameSnapshot: next.zones.find(zone => zone.id === table.zoneId)?.name, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
   table.status = 'occupied'; table.activeAccountId = accountId
   audit(next, 'account_opened', actor, now, accountId, { target: 'table', tableId: table.id })
   return next
 }
 
-export function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], actor = 'Equipo', now = new Date().toISOString(), operationId = crypto.randomUUID()): NightclubDataset {
+function appendNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], actor: string, now: string, operationId: string, courtesy?: { authorizedBy: string; reason?: string }): NightclubDataset {
   if (!drafts.length || drafts.some(item => !Number.isInteger(item.quantity) || item.quantity <= 0)) throw new Error('La ronda debe incluir cantidades válidas.')
-  if ((dataset.inventoryMovements || []).some(item => item.operationId.startsWith(`round:${operationId}:`))) return dataset
+  if ((dataset.audit || []).some(item => item.accountId === accountId && item.details?.operationId === operationId)) return dataset
   const next = cloneDataset(dataset)
   const account = next.accounts.find(item => item.id === accountId)
   if (next.shift?.status !== 'open' || !account || account.status !== 'open') throw new Error('La cuenta no acepta nuevas rondas.')
@@ -186,7 +233,8 @@ export function addNightclubRound(dataset: NightclubDataset, accountId: string, 
     const mode = product.inventoryMode || (product.recipe?.length ? 'recipe' : 'unit')
     const recipe = mode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : [{ inventoryId: `inventory-${product.id}`, quantity: 1 }]
     for (const part of recipe) requirements.set(part.inventoryId, (requirements.get(part.inventoryId) || 0) + part.quantity * draft.quantity)
-    return { id: crypto.randomUUID(), productId: product.id, name: product.name, quantity: draft.quantity, unitPrice: product.price, lineTotal: roundMoney(product.price * draft.quantity), preparationArea: product.preparationArea }
+    const commercialValue = roundMoney(product.price * draft.quantity)
+    return { id: crypto.randomUUID(), productId: product.id, name: product.name, category: product.category, quantity: draft.quantity, unitPrice: product.price, lineTotal: courtesy ? 0 : commercialValue, commercialValue, kind: courtesy ? 'courtesy' as const : 'sale' as const, status: 'active' as const, stockUsage: recipe.map(part => ({ ...part })), authorizedBy: courtesy?.authorizedBy, reason: courtesy?.reason, preparationArea: product.preparationArea }
   })
   for (const [inventoryId, quantity] of requirements) {
     const stock = next.inventory.find(item => item.id === inventoryId)
@@ -197,14 +245,23 @@ export function addNightclubRound(dataset: NightclubDataset, accountId: string, 
   for (const [inventoryId, quantity] of requirements) {
     const stock = next.inventory.find(item => item.id === inventoryId)!
     const previous = stock.current; stock.current = roundMoney(previous - quantity)
-    next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${inventoryId}`, inventoryId, quantity: -quantity, previous, current: stock.current, type: 'sale', reason: 'Ronda enviada', at: now, actor, accountId, roundId }]
+    next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${inventoryId}`, inventoryId, quantity: -quantity, previous, current: stock.current, type: 'sale', reason: courtesy ? 'Cortesía autorizada' : 'Ronda enviada', at: now, actor, accountId, roundId }]
   }
   const requiresBar = items.some(item => item.preparationArea === 'Barra')
   account.rounds.push({ id: roundId, sequence: account.rounds.length + 1, createdAt: now, status: requiresBar ? 'pending' : 'ready', readyAt: requiresBar ? undefined : now, sentBy: actor, items })
-  account.subtotal = roundMoney(account.rounds.filter(item => item.status !== 'cancelled').flatMap(item => item.items).reduce((sum, item) => sum + item.lineTotal, 0))
+  account.subtotal = nightclubConsumptionTotal(account)
   for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
-  audit(next, 'round_sent', actor, now, accountId, { roundId, operationId, total: roundMoney(items.reduce((sum, item) => sum + item.lineTotal, 0)) })
+  audit(next, courtesy ? 'courtesy_granted' : 'round_sent', actor, now, accountId, { roundId, operationId, total: roundMoney(items.reduce((sum, item) => sum + item.lineTotal, 0)), ...(courtesy ? { authorizedBy: courtesy.authorizedBy, reason: courtesy.reason || '' } : {}) })
   return next
+}
+
+export function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], actor = 'Equipo', now = new Date().toISOString(), operationId = crypto.randomUUID()): NightclubDataset {
+  return appendNightclubRound(dataset, accountId, drafts, actor, now, operationId)
+}
+
+export function addNightclubCourtesy(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], actor: string, role: string, reason = '', now = new Date().toISOString(), operationId = crypto.randomUUID()): NightclubDataset {
+  if (normalizeNightclubRole(role) !== 'admin' && normalizeNightclubRole(role) !== 'owner') throw new Error('Solo administración puede autorizar cortesías.')
+  return appendNightclubRound(dataset, accountId, drafts, actor, now, operationId, { authorizedBy: actor, reason: reason.trim() })
 }
 
 export function advanceNightclubRound(dataset: NightclubDataset, accountId: string, roundId: string, actor: string, now = new Date().toISOString()): NightclubDataset {
@@ -217,23 +274,58 @@ export function advanceNightclubRound(dataset: NightclubDataset, accountId: stri
   return next
 }
 
+function reverseNightclubItemStock(next: NightclubDataset, accountId: string, roundId: string, item: NightclubRoundItem, actor: string, reason: string, now: string) {
+  if (!item.stockUsage) throw new Error('Esta línea antigua solo puede anularse junto con su ronda completa.')
+  for (const part of item.stockUsage) {
+    const operationId = `reversal:item:${item.id}:${part.inventoryId}`
+    if ((next.inventoryMovements || []).some(movement => movement.operationId === operationId)) continue
+    const stock = next.inventory.find(entry => entry.id === part.inventoryId)
+    if (!stock) throw new Error('Falta un insumo de la venta original.')
+    const previous = stock.current
+    stock.current = roundMoney(previous + part.quantity * item.quantity)
+    next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId, inventoryId: stock.id, quantity: roundMoney(part.quantity * item.quantity), previous, current: stock.current, type: 'reversal', reason, at: now, actor, accountId, roundId }]
+  }
+}
+
+export function reverseNightclubItem(dataset: NightclubDataset, accountId: string, roundId: string, itemId: string, actor: string, reason: string, kind: 'cancelled' | 'returned' = 'cancelled', now = new Date().toISOString()): NightclubDataset {
+  if (reason.trim().length < 4) throw new Error('Indica el motivo de la anulación o devolución.')
+  const next = cloneDataset(dataset)
+  const account = next.accounts.find(entry => entry.id === accountId)
+  const batch = account?.rounds.find(entry => entry.id === roundId)
+  const item = batch?.items.find(entry => entry.id === itemId)
+  if (!account || !batch || !item || batch.status === 'cancelled') throw new Error('Producto no disponible.')
+  if (item.status === 'cancelled' || item.status === 'returned') return dataset
+  if (accountPayments(account).length) throw new Error('No se puede modificar consumo después de registrar pagos.')
+  reverseNightclubItemStock(next, accountId, roundId, item, actor, reason.trim(), now)
+  item.status = kind; item.cancelledAt = now; item.cancelledBy = actor; item.cancelReason = reason.trim()
+  account.subtotal = nightclubConsumptionTotal(account)
+  for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
+  audit(next, kind === 'returned' ? 'item_returned' : 'item_cancelled', actor, now, accountId, { roundId, itemId, productId: item.productId, reason: reason.trim(), value: item.commercialValue ?? item.lineTotal })
+  return next
+}
+
 export function cancelNightclubRound(dataset: NightclubDataset, accountId: string, roundId: string, actor: string, reason: string, now = new Date().toISOString()): NightclubDataset {
   if (reason.trim().length < 4) throw new Error('Indica el motivo de la anulación.')
   const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId); const batch = account?.rounds.find(item => item.id === roundId)
   if (!account || !batch) throw new Error('Ronda no disponible.')
   if (batch.status === 'cancelled') return dataset
   if (accountPayments(account).length) throw new Error('No se puede anular una ronda después de registrar pagos.')
-  const sales = (next.inventoryMovements || []).filter(item => item.accountId === accountId && item.roundId === roundId && item.type === 'sale')
-  for (const movement of sales) {
-    const reversalId = `reversal:${movement.id}`
-    if ((next.inventoryMovements || []).some(item => item.operationId === reversalId)) continue
-    const stock = next.inventory.find(item => item.id === movement.inventoryId)
-    if (!stock) continue
-    const previous = stock.current; stock.current = roundMoney(previous - movement.quantity)
-    next.inventoryMovements!.push({ id: crypto.randomUUID(), operationId: reversalId, inventoryId: stock.id, quantity: -movement.quantity, previous, current: stock.current, type: 'reversal', reason: reason.trim(), at: now, actor, accountId, roundId })
+  if (batch.items.every(item => !!item.stockUsage)) {
+    for (const item of batch.items.filter(item => item.status !== 'cancelled' && item.status !== 'returned')) reverseNightclubItemStock(next, accountId, roundId, item, actor, reason.trim(), now)
+  } else {
+    const sales = (next.inventoryMovements || []).filter(item => item.accountId === accountId && item.roundId === roundId && item.type === 'sale')
+    for (const movement of sales) {
+      const reversalId = `reversal:${movement.id}`
+      if ((next.inventoryMovements || []).some(item => item.operationId === reversalId)) continue
+      const stock = next.inventory.find(item => item.id === movement.inventoryId)
+      if (!stock) continue
+      const previous = stock.current; stock.current = roundMoney(previous - movement.quantity)
+      next.inventoryMovements!.push({ id: crypto.randomUUID(), operationId: reversalId, inventoryId: stock.id, quantity: -movement.quantity, previous, current: stock.current, type: 'reversal', reason: reason.trim(), at: now, actor, accountId, roundId })
+    }
   }
-  batch.status = 'cancelled'; batch.cancelledAt = now
-  account.subtotal = roundMoney(account.rounds.filter(item => item.status !== 'cancelled').flatMap(item => item.items).reduce((sum, item) => sum + item.lineTotal, 0))
+  batch.status = 'cancelled'; batch.cancelledAt = now; batch.cancelledBy = actor; batch.cancelReason = reason.trim()
+  for (const item of batch.items) if (item.status !== 'cancelled' && item.status !== 'returned') { item.status = 'cancelled'; item.cancelledAt = now; item.cancelledBy = actor; item.cancelReason = reason.trim() }
+  account.subtotal = nightclubConsumptionTotal(account)
   for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
   audit(next, 'round_cancelled', actor, now, accountId, { roundId, reason: reason.trim() })
   return next
@@ -275,7 +367,7 @@ export function recordNightclubPayment(dataset: NightclubDataset, accountId: str
   account.payments = [...accountPayments(account), payment]; account.payment = payment; account.shiftId ||= next.shift.id
   const remaining = nightclubBalance(account)
   if (remaining === 0) {
-    account.status = 'closed'; account.paidAt = now
+    account.status = 'closed'; account.paidAt = now; account.closedBy = actor
     const tableId = accountTableId(account); const table = tableId ? next.tables.find(item => item.id === tableId) : undefined
     if (table) { table.status = 'available'; delete table.activeAccountId; delete table.reservationName }
   }

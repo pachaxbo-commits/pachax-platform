@@ -93,7 +93,7 @@ test('nightclub empty and full datasets keep valid linked identities', () => {
   for (const account of full.accounts) {
     const table = full.tables.find(item => item.id === account.tableId)
     assert.ok(table)
-    assert.equal(table?.activeAccountId, account.id)
+    if (account.status !== 'closed') assert.equal(table?.activeAccountId, account.id)
     for (const round of account.rounds) for (const item of round.items) assert.ok(full.products.some(product => product.id === item.productId))
   }
   for (const reservation of full.reservations) assert.ok(full.tables.some(table => table.id === reservation.tableId))
