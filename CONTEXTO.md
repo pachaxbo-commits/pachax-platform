@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Integración a main: Nightclub premium config (27/09/2026)
+
+- `main` avanzó por fast-forward desde `23e17e7` hasta el trabajo aprobado `1ce8467` de `codex/nightclub-premium-config`, sin conflictos ni reescritura de historial. La rama incorpora el shell premium, dashboard Operación nocturna, Configuración funcional, branding local de demo, zonas/mesas y reservas sobre la experiencia canónica compartida por Demo y Studio.
+- Se verificaron TypeScript, ESLint focal, Nightclub 30/30, Platform 27/27, Restaurante 25/25, Distribución 55/55 y build de emulador. El QA cubrió demo completa, demo vacía y Studio, con identidad, acordeones, previews locales de logo/portada, reserva, POS, consola y overflow.
+- Continúan pendientes la revisión sección por sección de Nightclub, onboarding real, provider tenant Nightclub, Firebase Storage, operaciones productivas y offline Android/SQLite. Producción continúa fail-closed y no se realizó ningún despliegue.
+
 ## Checkpoint: Nightclub premium, configuración funcional y reservas (27/09/2026)
 
 Rama `codex/nightclub-premium-config`, creada desde `origin/main` en `23e17e7` después de integrar en la base el historial de Barra y los flujos pagados de Dario. No se reutilizaron ramas antiguas ni se modificó la aplicación original del cliente.
