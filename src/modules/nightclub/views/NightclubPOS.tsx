@@ -27,13 +27,18 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
   const [card, setCard] = useState('')
   const operation = useRef<string | null>(null)
   const lock = useRef(false)
-  const [destinationMode, setDestinationMode] = useState<'table' | 'customer'>('table')
+  const [destinationMode, setDestinationMode] = useState<'table' | 'bar'>(() => {
+    const initial = data.accounts.find(account => account.id === selectedAccountId)
+    return initial?.serviceTarget?.type === 'bar' || initial?.serviceTarget?.type === 'customer' ? 'bar' : 'table'
+  })
   const [zoneId, setZoneId] = useState(data.zones[0]?.id || '')
   const [customerId, setCustomerId] = useState('')
   const [customerName, setCustomerName] = useState('')
   const accounts = data.accounts.filter(account => account.status !== 'closed')
-  const selected = accounts.find(account => account.id === selectedAccountId)
-  const personalAccounts = accounts.filter(account => account.serviceTarget?.type === 'customer' || (!account.tableId && account.customerDisplayName))
+  const selectedCandidate = accounts.find(account => account.id === selectedAccountId)
+  const isBarAccount = (account: typeof selectedCandidate) => account?.serviceTarget?.type === 'bar' || account?.serviceTarget?.type === 'customer' || account?.orderType === 'BAR'
+  const selected = selectedCandidate && (destinationMode === 'bar' ? isBarAccount(selectedCandidate) : !isBarAccount(selectedCandidate) && !!selectedCandidate.tableId) ? selectedCandidate : undefined
+  const personalAccounts = accounts.filter(isBarAccount)
   const categories = ['Todos', ...new Set(data.products.filter(item => item.active !== false && item.price > 0).map(item => item.category))]
   const products = useMemo(() => data.products.filter(product => product.active !== false && product.price > 0 && (category === 'Todos' || product.category === category) && product.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [category, data.products, search])
   const zoneTables = data.tables.filter(table => table.zoneId === zoneId)
@@ -41,6 +46,15 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
   const draftTotal = draft.reduce((sum, item) => sum + (data.products.find(product => product.id === item.productId)?.price || 0) * item.quantity, 0)
   const update = (productId: string, delta: number) => { operation.current = null; onDraftChange((draft.some(item => item.productId === productId) ? draft.map(item => item.productId === productId ? { ...item, quantity: item.quantity + delta } : item) : [...draft, { productId, quantity: delta }]).filter(item => item.quantity > 0)) }
   const selectAccount = (accountId: string) => { operation.current = null; onSelectAccount(accountId) }
+  const switchDestination = (mode: 'table' | 'bar') => {
+    if (mode === destinationMode) return
+    setDestinationMode(mode)
+    selectAccount('')
+    setPaying(false)
+    setCustomerId('')
+    setCustomerName('')
+  }
+  const cancelDraft = () => { onDraftChange([]); selectAccount(''); setPaying(false); setCustomerId(''); setCustomerName('') }
   const cashDue = method === 'cash' ? draftTotal : method === 'mixed' ? Number(cash) : 0
   const receivedAmount = received === '' ? cashDue : Number(received)
   const validPayment = !!selected && selected.status === 'open' && draftTotal > 0 && (method !== 'mixed' || Math.round((Number(cash) + Number(qr) + Number(card)) * 100) === Math.round(draftTotal * 100)) && [cash, qr, card].every(value => value === '' || Number.isFinite(Number(value)) && Number(value) >= 0) && Number.isFinite(receivedAmount) && receivedAmount >= cashDue
@@ -50,7 +64,7 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     setProcessing(true)
     const operationId = operation.current ||= crypto.randomUUID()
     const success = onSettleRound(selected.id, draft, { method, amount: draftTotal, received: receivedAmount, cashAmount: Number(cash), qrAmount: Number(qr), cardAmount: Number(card) }, operationId)
-    if (success) { onDraftChange([]); operation.current = null; setPaying(false); setDrawerOpen(false); setReceived(''); setCash(''); setQr(''); setCard('') }
+    if (success) { onDraftChange([]); operation.current = null; setPaying(false); setDrawerOpen(false); setReceived(''); setCash(''); setQr(''); setCard(''); if (destinationMode === 'bar') { selectAccount(''); setCustomerId(''); setCustomerName('') } }
     lock.current = false
     setProcessing(false)
   }
@@ -59,20 +73,25 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     const table = data.tables.find(item => item.id === tableId)
     if (!table) return
     const account = accountForTable(table.id)
+    setDestinationMode('table')
+    setCustomerId('')
+    setCustomerName('')
     selectAccount(account?.id || onOpenAccount({ type: 'table', tableId }))
   }
   const createPersonalAccount = () => {
     const customer = data.customers.find(item => item.id === customerId)
     const displayName = customer?.name || customerName.trim()
-    selectAccount(onOpenAccount({ type: 'customer', customerId: customer?.id, displayName }))
+    const id = onOpenAccount({ type: 'bar', customerId: customer?.id, displayName })
+    if (!id) return
+    selectAccount(id)
     setCustomerId('')
     setCustomerName('')
   }
 
   const destinationPicker = <div className="mt-4 rounded-2xl border border-slate-700/80 bg-slate-950/55 p-3">
     <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-900 p-1">
-      <button onClick={() => setDestinationMode('table')} className={`min-h-10 rounded-lg text-xs font-bold ${destinationMode === 'table' ? 'bg-amber-400 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}>Mesa</button>
-      <button onClick={() => setDestinationMode('customer')} className={`min-h-10 rounded-lg text-xs font-bold ${destinationMode === 'customer' ? 'bg-amber-400 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}>Pedido en barra</button>
+      <button onClick={() => switchDestination('table')} className={`min-h-10 rounded-lg text-xs font-bold ${destinationMode === 'table' ? 'bg-amber-400 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}>Mesa</button>
+      <button onClick={() => switchDestination('bar')} className={`min-h-10 rounded-lg text-xs font-bold ${destinationMode === 'bar' ? 'bg-amber-400 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}>Pedido en barra</button>
     </div>
     {destinationMode === 'table' ? <>
       <div className="mt-3 flex flex-wrap gap-1.5">{data.zones.map(zone => <button key={zone.id} onClick={() => setZoneId(zone.id)} className={`min-h-9 rounded-lg border px-3 text-xs font-bold ${zoneId === zone.id ? 'border-amber-300 bg-amber-400/15 text-amber-200' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500'}`}>{zone.name}</button>)}</div>
@@ -92,7 +111,8 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     <div className="mt-4 space-y-1">{draft.map(line => { const product = data.products.find(item => item.id === line.productId); return <div key={line.productId} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-slate-800 py-2.5"><div className="min-w-0"><strong className="block truncate text-sm">{product?.name}</strong><span className="block text-xs text-slate-400">{money((product?.price || 0) * line.quantity)}</span></div><div className="flex items-center gap-2"><button aria-label={`Quitar ${product?.name}`} onClick={() => update(line.productId, -1)} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-800"><Minus size={14} /></button><b className="w-4 text-center text-sm">{line.quantity}</b><button aria-label={`Agregar ${product?.name}`} onClick={() => update(line.productId, 1)} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-800"><Plus size={14} /></button></div></div>})}{!draft.length && <p className="rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">Añade productos para preparar una nueva ronda.</p>}</div>
     <div className="mt-4 flex items-center justify-between"><span className="text-sm text-slate-400">Subtotal de ronda</span><strong className="text-xl">{money(draftTotal)}</strong></div>
     <button disabled={!draft.length || !selected || selected.status !== 'open'} onClick={() => setPaying(true)} className="mt-4 min-h-12 w-full rounded-xl bg-emerald-400 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{selected ? `COBRAR Y ENVIAR · ${money(draftTotal)}` : 'ELIGE EL DESTINO'}</button>
-    {selected && <><button onClick={() => onCourtesy(selected.id)} className="mt-2 min-h-11 w-full rounded-xl border border-purple-400 px-3 text-sm font-bold text-purple-200">Cortesía de socio · pedido separado</button><div className="mt-4 border-t border-slate-700 pt-3"><h3 className="font-bold">{selected.serviceTarget?.type === 'customer' ? 'Rondas de este pedido en barra' : 'Rondas de esta mesa'}</h3>{selected.rounds.map(round => <p key={round.id} className="mt-2 rounded-lg bg-slate-900 p-2 text-xs">#{round.sequence} · {round.authorization === 'courtesy' ? 'Cortesía autorizada' : round.authorization === 'payment' ? 'Pagado' : 'Pendiente de regularización'} · {round.status} · {money(round.items.reduce((sum, item) => sum + item.lineTotal, 0))}</p>)}</div></>}
+    {!!draft.length && <button onClick={cancelDraft} className="mt-2 w-full rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400">Cancelar borrador</button>}
+    {selected && <><button onClick={() => onCourtesy(selected.id)} className="mt-2 min-h-11 w-full rounded-xl border border-purple-400 px-3 text-sm font-bold text-purple-200">Cortesía de socio · pedido separado</button><div className="mt-4 border-t border-slate-700 pt-3"><h3 className="font-bold">{isBarAccount(selected) ? 'Rondas de este pedido en barra' : 'Rondas de esta mesa'}</h3>{selected.rounds.map(round => <p key={round.id} className="mt-2 rounded-lg bg-slate-900 p-2 text-xs">#{round.sequence} · {round.authorization === 'courtesy' ? 'Cortesía autorizada' : round.authorization === 'payment' ? 'Pagado' : 'Pendiente de regularización'} · {round.status} · {money(round.items.reduce((sum, item) => sum + item.lineTotal, 0))}</p>)}</div></>}
     {selected?.status === 'bill_requested' && <p className="mt-3 text-sm text-amber-300">Esta cuenta está por cobrar. Reábrela desde Cuentas para añadir productos.</p>}
   </section>
 

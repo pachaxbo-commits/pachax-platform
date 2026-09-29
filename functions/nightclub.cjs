@@ -45,14 +45,14 @@ async function applyCommand(context) {
   if (!activeShiftId) throw new HttpsError('failed-precondition','No hay turno activo.')
   if (['settleRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) return applyPaidRoundCommand({ ...context, activeShiftId })
   if (type === 'openAccount') {
-    const target = payload.target; if (!target || !['table','customer'].includes(target.type)) throw new HttpsError('invalid-argument','Destino inválido.')
+    const target = payload.target; if (!target || !['table','customer','bar'].includes(target.type)) throw new HttpsError('invalid-argument','Destino inválido.')
     let tableRef, table, storedTarget = target
     if (target.type === 'table') { tableRef=root.collection('nightclubTables').doc(id(target.tableId)); table=await tx.get(tableRef); if (!table.exists || table.data().activeAccountId) throw new HttpsError('aborted','La mesa ya no está disponible.') }
     else {
-      if (typeof target.displayName !== 'string' || target.displayName.trim().length > 100) throw new HttpsError('invalid-argument','Nombre de referencia inválido.')
-      storedTarget = { type: 'customer', displayName: target.displayName.trim(), ...(target.customerId ? { customerId: id(target.customerId) } : {}) }
+      if ('tableId' in target || target.displayName !== undefined && (typeof target.displayName !== 'string' || target.displayName.trim().length > 100)) throw new HttpsError('invalid-argument','Un pedido en barra no puede incluir una mesa ni un nombre inválido.')
+      storedTarget = { type: 'bar', ...(target.displayName?.trim() ? { displayName: target.displayName.trim() } : {}), ...(target.customerId ? { customerId: id(target.customerId) } : {}) }
     }
-    const accountId=`account_${operationId}`, ref=root.collection('nightclubAccounts').doc(accountId), value={ id:accountId,tenantId:actor.tenantId,branchId,shiftId:activeShiftId,serviceTarget:storedTarget,status:'open',subtotal:0,paidTotal:0,balance:0,openedAt:now,openedBy:actor.uid }
+    const accountId=`account_${operationId}`, ref=root.collection('nightclubAccounts').doc(accountId), value={ id:accountId,tenantId:actor.tenantId,branchId,shiftId:activeShiftId,serviceTarget:storedTarget,orderType:storedTarget.type==='table'?'TABLE':'BAR',status:'open',subtotal:0,paidTotal:0,balance:0,openedAt:now,openedBy:actor.uid }
     tx.create(ref,value); if (tableRef) tx.update(tableRef,{activeAccountId:accountId,status:'occupied',updatedAt:now}); return {accountId}
   }
   if (type === 'addRound') {

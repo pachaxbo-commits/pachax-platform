@@ -12,6 +12,9 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
   if (!accountSnap.exists || accountSnap.data().branchId !== branchId) fail('Cuenta no encontrada en esta sucursal.')
   const account = accountSnap.data()
   if (account.shiftId !== activeShiftId) fail('La cuenta pertenece a otro turno.')
+  const direct = account.serviceTarget?.type === 'bar' || account.serviceTarget?.type === 'customer'
+  if (direct && (account.tableId || account.serviceTarget.tableId || account.orderType && account.orderType !== 'BAR')) fail('Un pedido en barra no puede estar vinculado a una mesa.')
+  if (account.serviceTarget?.type === 'table' && account.orderType && account.orderType !== 'TABLE') fail('El tipo de pedido no coincide con la mesa.')
   if (type === 'settleRound') {
     if (account.status !== 'open' || cents(account.balance || 0) !== 0) fail('La ocupación necesita regularizar su saldo anterior antes de nuevos pedidos.')
     const shift = await tx.get(root.collection('nightclubShifts').doc(id(account.shiftId)))

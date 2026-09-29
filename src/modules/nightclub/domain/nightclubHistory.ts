@@ -1,5 +1,5 @@
 import type { NightclubAccount, NightclubDataset, NightclubPayment, NightclubRoundItem, NightclubShift } from './nightclubAccounts'
-import { nightclubAccountLabel, nightclubBalance, nightclubPaidTotal, normalizeNightclubRole } from './nightclubAccounts.ts'
+import { nightclubAccountLabel, nightclubAccountTableId, nightclubBalance, nightclubPaidTotal, normalizeNightclubRole } from './nightclubAccounts.ts'
 
 export interface NightclubHistoryFilters {
   shiftId: string
@@ -81,14 +81,14 @@ export function selectNightclubHistory(dataset: NightclubDataset, filters: Night
     if (filters.query && !lower(`${label} ${account.openedBy} ${account.waiterName || ''} ${entries.map(entry => `${entry.productName || ''} ${entry.actor} ${entry.text}`).join(' ')}`).includes(lower(filters.query))) return []
     return [{ account, label, shift, entries }]
   }).sort((a, b) => b.account.openedAt.localeCompare(a.account.openedAt))
-  const tableAccounts = accounts.filter(row => !!row.account.tableId)
+  const tableAccounts = accounts.filter(row => !!nightclubAccountTableId(row.account))
   const lines = accounts.flatMap(row => row.account.rounds.flatMap(batch => batch.items.map(item => ({ row, batch, item }))))
   const sold = lines.filter(({ item, batch }) => item.kind !== 'courtesy' && batch.authorization !== 'courtesy' && activeItem(item, batch.status))
   const courtesy = lines.filter(({ item, batch }) => (item.kind === 'courtesy' || batch.authorization === 'courtesy' || !!item.courtesyId) && activeItem(item, batch.status))
   const cancelled = lines.filter(({ item, batch }) => !activeItem(item, batch.status) && item.status !== 'returned')
   const summary = {
     salesTotal: round(accounts.reduce((sum, row) => sum + nightclubPaidTotal(row.account), 0)),
-    tablesServed: new Set(tableAccounts.map(row => row.account.tableId)).size,
+    tablesServed: new Set(tableAccounts.map(row => nightclubAccountTableId(row.account))).size,
     openTables: tableAccounts.filter(row => row.account.status !== 'closed').length,
     productsSold: sold.reduce((sum, line) => sum + line.item.quantity, 0),
     courtesyValue: round(courtesy.reduce((sum, line) => sum + (line.item.commercialValue ?? line.item.unitPrice * line.item.quantity), 0)),

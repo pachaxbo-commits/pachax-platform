@@ -7,6 +7,7 @@ export type NightclubModuleId = 'dashboard' | 'floor' | 'pos' | 'accounts' | 'ba
 export type NightclubServiceTarget =
   | { type: 'table'; tableId: string }
   | { type: 'customer'; customerId?: string; displayName: string }
+  | { type: 'bar'; customerId?: string; displayName?: string }
 
 export interface NightclubZone { id: string; name: string; sortOrder: number }
 export interface NightclubTable { id: string; name: string; zoneId: string; capacity: number; status: NightclubTableStatus; activeAccountId?: string; reservationName?: string }
@@ -30,6 +31,7 @@ export interface NightclubPayment { id?: string; operationId?: string; roundId?:
 export interface NightclubAccount {
   id: string
   serviceTarget?: NightclubServiceTarget
+  orderType?: 'TABLE' | 'BAR'
   /** Compatibilidad de lectura con fixtures v2. Usar serviceTarget para nuevas cuentas. */
   tableId?: string
   customerId?: string
@@ -82,7 +84,8 @@ const audit = (next: NightclubDataset, type: string, actor: string, at: string, 
   next.audit = [...(next.audit || []), { id: crypto.randomUUID(), type, actor, at, accountId, details }]
 }
 const accountPayments = (account: NightclubAccount) => (account.payments?.length ? account.payments : account.payment ? [account.payment] : []).filter(payment => payment.status !== 'refunded')
-const accountTableId = (account: NightclubAccount) => account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : account.tableId
+export const nightclubAccountTableId = (account: NightclubAccount) => account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : account.serviceTarget?.type === 'bar' || account.serviceTarget?.type === 'customer' || account.orderType === 'BAR' ? undefined : account.tableId
+const accountTableId = nightclubAccountTableId
 const paymentAmount = (payment: NightclubPayment) => roundMoney(payment.amount ?? payment.cashAmount + payment.qrAmount + payment.cardAmount)
 
 export const NIGHTCLUB_ROLE_MODULES: Readonly<Record<NightclubRole, readonly NightclubModuleId[]>> = {
@@ -120,9 +123,10 @@ export function nightclubAccountLabel(account: NightclubAccount, dataset: Pick<N
     const zoneName = account.zoneNameSnapshot || zone?.name
     return `${name}${zoneName ? ` · ${zoneName}` : ''}`
   }
-  const customer = dataset.customers.find(item => item.id === (account.serviceTarget?.type === 'customer' ? account.serviceTarget.customerId : account.customerId))
-  const reference = customer?.name || (account.serviceTarget?.type === 'customer' ? account.serviceTarget.displayName : account.customerDisplayName)
-  return reference ? `Pedido en barra · ${reference}` : 'Pedido en barra'
+  const directTarget = account.serviceTarget?.type === 'bar' || account.serviceTarget?.type === 'customer' ? account.serviceTarget : undefined
+  const customer = dataset.customers.find(item => item.id === (directTarget?.customerId || account.customerId))
+  const reference = customer?.name || directTarget?.displayName || account.customerDisplayName
+  return reference ? `Pedido en Barra – ${reference}` : 'Venta rápida – Barra'
 }
 
 export function nightclubProductAvailability(product: NightclubProduct, inventory: NightclubInventoryItem[]) {
@@ -174,13 +178,13 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
   const next = cloneDataset(dataset)
   if (next.shift?.status !== 'open') throw new Error('Debes abrir el turno antes de abrir una cuenta.')
   const serviceTarget: NightclubServiceTarget = typeof target === 'string' ? { type: 'table', tableId: target } : target
-  if (serviceTarget.type === 'customer') {
-    const displayName = serviceTarget.displayName.trim()
+  if (serviceTarget.type === 'customer' || serviceTarget.type === 'bar') {
+    if ('tableId' in serviceTarget) throw new Error('Un pedido en barra no puede tener mesa.')
+    const displayName = (serviceTarget.displayName || '').trim()
     const customer = serviceTarget.customerId ? next.customers.find(item => item.id === serviceTarget.customerId && item.active !== false) : undefined
-    if (next.accounts.some(account => account.status !== 'closed' && account.serviceTarget?.type === 'customer' && account.serviceTarget.customerId && account.serviceTarget.customerId === serviceTarget.customerId)) throw new Error('Ese cliente ya tiene un pedido en barra abierto.')
     const accountId = crypto.randomUUID()
-    next.accounts.push({ id: accountId, serviceTarget: { ...serviceTarget, displayName: customer?.name || displayName }, customerId: customer?.id, customerDisplayName: customer?.name || displayName || undefined, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
-    audit(next, 'account_opened', actor, now, accountId, { target: 'customer' })
+    next.accounts.push({ id: accountId, orderType: 'BAR', serviceTarget: { type: 'bar', ...(customer ? { customerId: customer.id } : {}), ...(customer?.name || displayName ? { displayName: customer?.name || displayName } : {}) }, customerId: customer?.id, customerDisplayName: customer?.name || displayName || undefined, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+    audit(next, 'account_opened', actor, now, accountId, { target: 'bar' })
     return next
   }
   const table = next.tables.find(item => item.id === serviceTarget.tableId)
@@ -188,7 +192,7 @@ export function openNightclubAccount(dataset: NightclubDataset, target: string |
   if (table.status === 'reserved') throw new Error('Confirma la llegada o libera la reserva antes de abrir la mesa.')
   if (table.status === 'occupied' || table.status === 'bill_requested' || table.activeAccountId) throw new Error('La mesa ya tiene una cuenta activa.')
   const accountId = crypto.randomUUID()
-  next.accounts.push({ id: accountId, serviceTarget, tableId: table.id, tableNameSnapshot: table.name, zoneNameSnapshot: next.zones.find(zone => zone.id === table.zoneId)?.name, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
+  next.accounts.push({ id: accountId, orderType: 'TABLE', serviceTarget, tableId: table.id, tableNameSnapshot: table.name, zoneNameSnapshot: next.zones.find(zone => zone.id === table.zoneId)?.name, shiftId: next.shift.id, openedAt: now, openedBy: actor, waiterName: actor, status: 'open', rounds: [], subtotal: 0, payments: [] })
   table.status = 'occupied'; table.activeAccountId = accountId
   audit(next, 'account_opened', actor, now, accountId, { target: 'table', tableId: table.id })
   return next
@@ -234,6 +238,10 @@ export function settleNightclubRound(dataset: NightclubDataset, accountId: strin
   if (!operationId.trim()) throw new Error('La operación necesita una clave idempotente.')
   const existing = dataset.accounts.find(item => item.id === accountId)?.rounds.find(item => item.operationId === operationId)
   if (existing) return dataset
+  const destination = dataset.accounts.find(item => item.id === accountId)
+  if (!destination) throw new Error('Cuenta no encontrada.')
+  if ((destination.serviceTarget?.type === 'bar' || destination.serviceTarget?.type === 'customer' || destination.orderType === 'BAR') && (destination.tableId || destination.orderType === 'TABLE')) throw new Error('Un pedido en barra no puede estar vinculado a una mesa.')
+  if (destination.serviceTarget?.type === 'table' && destination.orderType === 'BAR') throw new Error('El tipo de pedido no coincide con la mesa.')
   if (!drafts.length || drafts.some(item => !Number.isInteger(item.quantity) || item.quantity <= 0)) throw new Error('El pedido debe tener cantidades válidas.')
   const total = roundMoney(drafts.reduce((sum, draft) => {
     const product = dataset.products.find(item => item.id === draft.productId && item.active !== false)
