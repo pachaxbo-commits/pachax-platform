@@ -801,3 +801,11 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Barra e Historial general comparten `NightclubBarHistory` sobre las mismas cuentas, rondas, pagos, inventario y eventos de `NightclubDataset`. La fecha comercial se toma de la apertura del turno: ventas posteriores a medianoche siguen en la misma jornada. La demo incluye una jornada cerrada anterior enlazada por IDs.
 - La propuesta original incluía rondas sin pago, descuentos sobre saldo, devoluciones por línea y una tercera opción «Venta directa en barra». La integración vigente de arriba adapta el historial al cobro por ronda y a «Pedido en barra»; esas operaciones originales no están habilitadas.
 - Producción sigue bloqueada hasta conectar un repositorio seguro y la proyección histórica. El gateway de cortesías aún necesita unificarse con los documentos normalizados. No considerar localStorage como persistencia multiusuario.
+
+## Corrección de pedidos directos en Barra (29/09/2026, cambios-dario)
+
+- El destino de POS ahora es explícito: Mesa o Barra. Al alternar, se limpian cuenta, mesa y nombre temporal anteriores; una venta directa no puede heredar una mesa seleccionada.
+- Las nuevas cuentas de Barra usan `serviceTarget.type: 'bar'` y `orderType: 'BAR'`; no tienen `tableId`. Se conserva la lectura de cuentas legacy `customer` y se normalizan las nuevas escrituras.
+- El dominio y las Functions rechazan una cuenta directa que declare mesa, y rechazan el cobro si el tipo de cuenta y su destino no coinciden. Historial y Cuentas muestran `Venta directa en Barra` y nunca contabilizan esas ventas como mesa.
+- El nombre en Barra es opcional y solo vive en la cuenta de venta: no crea un cliente permanente. La cuenta conserva su propio pago, jornada, inventario y movimientos de Caja.
+- Validación: `typecheck`, Nightclub (31), plataforma (27), build de emulador y lint focal aprobaron. La suite de Functions con emuladores necesita una ejecución disponible: en esta estación quedó esperando el arranque del emulador después de generar Functions y Rules.

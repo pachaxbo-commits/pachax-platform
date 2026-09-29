@@ -68,6 +68,6 @@ test('pedido en barra pagado aparece en historial sin ocupar mesa', () => {
   data = settleNightclubRound(data, id, [{ productId: 'beer', quantity: 2 }], { method: 'cash' }, 'Mesero', saturday, 'pedido-barra')
   assert.equal(data.tables.filter(table => table.activeAccountId).length, occupiedBefore)
   const result = selectNightclubHistory(data, filters('turno-sabado'))
-  assert.ok(result.accounts.some(row => row.account.id === id && row.label === 'Pedido en barra · Lucía'))
-  assert.ok(result.productLocations.find(item => item.productId === 'beer').places.some(place => place.label === 'Pedido en barra · Lucía' && place.quantity === 2))
+  assert.ok(result.accounts.some(row => row.account.id === id && row.label === 'Pedido en Barra – Lucía'))
+  assert.ok(result.productLocations.find(item => item.productId === 'beer').places.some(place => place.label === 'Pedido en Barra – Lucía' && place.quantity === 2))
 })
