@@ -48,6 +48,14 @@ test('stock insuficiente rechaza operación completa incluso entre líneas de un
   assert.equal(stockAwareProducts([product('corona', 0)])[0].availability, 'soldout')
 })
 
+test('cortesía descuenta inventario y queda diferenciada de una venta', () => {
+  const courtesy = confirmInventoryLines(order('gift-1', 't1'), [line('l1', 'corona', 2)], [product('corona', 5)], [], at, 'Gerencia', 'courtesy')
+  assert.equal(courtesy.products[0].stockBase, 3)
+  assert.equal(courtesy.movements[0].type, 'courtesy')
+  assert.match(courtesy.movements[0].operationId, /^courtesy:/)
+  assert.equal(courtesy.movements[0].createdBy, 'Gerencia')
+})
+
 test('recetas descuentan cada ingrediente y su devolución usa la receta vendida aunque cambie después', () => {
   const ingredients = [product('pan', 10), product('carne', 1000, 'g'), product('queso', 200, 'g'), product('papa', 1000, 'g')]
   const burger = product('burger', undefined, 'unit', { restaurantType: 'prepared', recipe: [{ ingredientId: 'pan', quantityBase: 1 }, { ingredientId: 'carne', quantityBase: 180 }, { ingredientId: 'queso', quantityBase: 30 }, { ingredientId: 'papa', quantityBase: 200 }] })

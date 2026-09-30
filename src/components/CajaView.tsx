@@ -261,6 +261,8 @@ export function CajaView({
   const [tableId, setTableId] = useState('')
   const [cashReceivedInput, setCashReceivedInput] = useState('')
   const [cashSplitInput, setCashSplitInput] = useState('')
+  const [qrSplitInput, setQrSplitInput] = useState('')
+  const [cardSplitInput, setCardSplitInput] = useState('')
 
   // Fast Payment Modal State
   const [payingOrder, setPayingOrder] = useState<Order | null>(null)
@@ -410,8 +412,10 @@ export function CajaView({
   // Cash splitter calculations
   const cashReceived = clampCurrency(cashReceivedInput)
   const mixedCashAmount = Math.min(cartTotal, clampCurrency(cashSplitInput))
-  const qrAmount = paymentMethod === 'mixed' ? Math.max(0, cartTotal - mixedCashAmount) : paymentMethod === 'qr' ? cartTotal : 0
-  const cardAmount = paymentMethod === 'card' ? cartTotal : 0
+  const mixedQrAmount = Math.min(cartTotal, clampCurrency(qrSplitInput))
+  const mixedCardAmount = Math.min(cartTotal, clampCurrency(cardSplitInput))
+  const qrAmount = paymentMethod === 'mixed' ? mixedQrAmount : paymentMethod === 'qr' ? cartTotal : 0
+  const cardAmount = paymentMethod === 'mixed' ? mixedCardAmount : paymentMethod === 'card' ? cartTotal : 0
   const cashAmount = paymentMethod === 'cash' ? cartTotal : paymentMethod === 'mixed' ? mixedCashAmount : 0
   const effectiveCashReceived = cashReceivedInput.trim() === '' ? cashAmount : cashReceived
   const change = paymentMethod === 'cash' || paymentMethod === 'mixed' ? Math.max(0, effectiveCashReceived - cashAmount) : 0
@@ -424,9 +428,9 @@ export function CajaView({
         : paymentMethod === 'card'
           ? cartTotal > 0
         : paymentMethod === 'cash'
-          ? cartTotal > 0
+          ? cartTotal > 0 && effectiveCashReceived >= cartTotal
           : paymentMethod === 'mixed'
-            ? cashAmount > 0 && qrAmount > 0
+            ? cartTotal > 0 && Math.round((cashAmount + qrAmount + cardAmount + Number.EPSILON) * 100) / 100 === Math.round((cartTotal + Number.EPSILON) * 100) / 100 && (!cashAmount || effectiveCashReceived >= cashAmount) && [cashAmount, qrAmount, cardAmount].filter(amount => amount > 0).length >= 2
             : false
 
   // La direccion del delivery es opcional: muchas veces el cliente manda la ubicacion por
@@ -466,8 +470,11 @@ export function CajaView({
     change: fastChange,
   })
 
-  const canManagePayments = userRole === 'admin' || userRole === 'caja' || userRole === 'demo'
-  const canManageOrders = userRole === 'admin' || userRole === 'caja' || userRole === 'demo'
+  // Studio "Equipo" representa el equipo operativo completo y conserva las
+  // capacidades de caja/gerencia del dataset de demostración.
+  const canManagePayments = userRole === 'admin' || userRole === 'caja' || userRole === 'demo' || userRole === 'team'
+  const canManageOrders = userRole === 'admin' || userRole === 'caja' || userRole === 'demo' || userRole === 'team'
+  const canAuthorizeGift = userRole === 'admin' || userRole === 'owner' || userRole === 'manager' || userRole === 'demo' || userRole === 'team'
 
   // Filtered Orders & Badge count for delivered unpaid orders
   const pendingPaymentOrders = useMemo(() => {
@@ -691,9 +698,13 @@ export function CajaView({
     if (order.paymentStatus === 'paid' && order.payment) {
       setCashReceivedInput(String(order.payment.cashReceived || ''))
       setCashSplitInput(String(order.payment.cashAmount || ''))
+      setQrSplitInput(String(order.payment.qrAmount || ''))
+      setCardSplitInput(String(order.payment.cardAmount || ''))
     } else {
       setCashReceivedInput('')
       setCashSplitInput('')
+      setQrSplitInput('')
+      setCardSplitInput('')
     }
     setViewMode('new_order')
     setActiveTab('cart')
@@ -716,6 +727,8 @@ export function CajaView({
     setExpectedPaymentMethod(null)
     setCashReceivedInput('')
     setCashSplitInput('')
+    setQrSplitInput('')
+    setCardSplitInput('')
     setShowCheckoutModal(false)
   }
 
@@ -1969,7 +1982,7 @@ export function CajaView({
                         <button
                           key={option.id}
                           type="button"
-                          disabled={fulfillmentType === 'table' && restaurantTables.length > 0 && option.id !== 'pending'}
+                          disabled={option.id === 'gift' && !canAuthorizeGift}
                           className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition ${isActive
                             ? option.id === 'paid'
                               ? 'border-[#10b981] bg-[#10b981] text-white shadow-sm'
@@ -1992,11 +2005,11 @@ export function CajaView({
                   {paymentStatus === 'paid' ? (
                     <div className="mt-2 border-t border-dashed border-line pt-2 space-y-1.5">
                       <div className="text-[9px] font-black uppercase tracking-wider text-muted">Metodo de Pago</div>
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-4 gap-1.5">
                         {[
                           { id: 'cash', label: 'Efectivo', icon: Coins },
                           { id: 'qr', label: 'QR', icon: QrCode },
-                          ...(restaurantTables.length > 0 ? [{ id: 'card', label: 'Tarjeta', icon: CreditCard }] : []),
+                          { id: 'card', label: 'Tarjeta', icon: CreditCard },
                           { id: 'mixed', label: 'Mixto', icon: Shuffle },
                         ].map((option) => {
                           const isActive = paymentMethod === option.id
@@ -2030,7 +2043,7 @@ export function CajaView({
 
                       {paymentMethod === 'mixed' ? (
                         <div className="space-y-1.5">
-                          <div className="grid grid-cols-2 gap-1.5">
+                          <div className="grid grid-cols-3 gap-1.5">
                             <label className="block">
                               <div className="mb-1 text-[9px] font-black uppercase tracking-wider text-muted">Efectivo</div>
                               <input
@@ -2041,12 +2054,10 @@ export function CajaView({
                                 onChange={(e) => setCashSplitInput(e.target.value)}
                               />
                             </label>
-                            <div className="block">
-                              <div className="mb-1 text-[9px] font-black uppercase tracking-wider text-muted">Monto QR</div>
-                              <div className="rounded-[0.7rem] border border-line bg-panel/80 px-2 py-1.5 text-xs font-bold text-ink">{formatCurrency(qrAmount)}</div>
-                            </div>
+                            <label className="block"><div className="mb-1 text-[9px] font-black uppercase tracking-wider text-muted">QR</div><input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent" inputMode="decimal" placeholder="0" value={qrSplitInput} onChange={(e) => setQrSplitInput(e.target.value)} /></label>
+                            <label className="block"><div className="mb-1 text-[9px] font-black uppercase tracking-wider text-muted">Tarjeta</div><input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent" inputMode="decimal" placeholder="0" value={cardSplitInput} onChange={(e) => setCardSplitInput(e.target.value)} /></label>
                           </div>
-                          {cashAmount === 0 ? <span className="text-[9px] text-red-500 font-bold block px-1">Efectivo debe ser mayor a 0</span> : null}
+                          {Math.round((cashAmount + qrAmount + cardAmount + Number.EPSILON) * 100) / 100 !== Math.round((cartTotal + Number.EPSILON) * 100) / 100 ? <span className="text-[9px] text-red-500 font-bold block px-1">Los importes deben sumar exactamente {formatCurrency(cartTotal)}.</span> : null}
                           <div className="flex items-center gap-2">
                             <input
                               className="flex-1 rounded-[0.7rem] border border-line bg-canvas/35 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
@@ -2067,7 +2078,7 @@ export function CajaView({
                         </div>
                       ) : null}
                     </div>
-                  ) : (
+                  ) : paymentStatus === 'pending' ? (
                     <div className="mt-2 border-t border-dashed border-line pt-2 space-y-1.5">
                       <div className="text-[9px] font-black uppercase tracking-wider text-muted">Metodo Esperado</div>
                       <div className="grid grid-cols-3 gap-1.5">
@@ -2091,6 +2102,10 @@ export function CajaView({
                           )
                         })}
                       </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 border-t border-dashed border-line pt-2 text-xs text-violet-800">
+                      Cortesía autorizada por <strong>{userName}</strong>. No se registrará ingreso en Caja; el valor comercial y el consumo quedarán en Historial e Inventario.
                     </div>
                   )}
                 </div>
@@ -2147,9 +2162,9 @@ export function CajaView({
                     const payload = {
                       cartItems,
                       productsById,
-                      payment: fulfillmentType === 'table' && restaurantTables.length ? { method: 'cash' as const, cashAmount: 0, qrAmount: 0, cashReceived: 0, change: 0 } : buildPaymentSummary(),
-                      paymentStatus: fulfillmentType === 'table' && restaurantTables.length ? 'pending' as const : paymentStatus,
-                      paymentMethod: fulfillmentType === 'table' && restaurantTables.length ? null : paymentMethod,
+                      payment: buildPaymentSummary(),
+                      paymentStatus,
+                      paymentMethod,
                       expectedPaymentMethod,
                       orderSource,
                       fulfillmentType,
@@ -2249,6 +2264,8 @@ export function CajaView({
                       setPaymentMethod('cash')
                       setCashReceivedInput('')
                       setCashSplitInput('')
+                      setQrSplitInput('')
+                      setCardSplitInput('')
                       setFulfillmentType(userRole === 'pedidos' ? 'pickup' : 'table')
                       setOrderSource(userRole === 'pedidos' ? 'whatsapp' : 'local')
                       setTableInfo('')

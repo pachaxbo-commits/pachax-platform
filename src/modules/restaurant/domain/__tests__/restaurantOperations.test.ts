@@ -2,7 +2,7 @@
 // @ts-nocheck Node runs this domain test with its own types, outside the browser runtime.
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { cancelRestaurantOrder, completeRestaurantPayment, placeRestaurantOrder, reconcileTableOrders, selectRestaurantProducts } from '../restaurantOperations.ts'
+import { cancelRestaurantOrder, completeRestaurantGift, completeRestaurantPayment, placeRestaurantOrder, reconcileTableOrders, selectRestaurantProducts } from '../restaurantOperations.ts'
 import { consumePrintedBatch } from '../restaurantEngine.ts'
 import { INITIAL_RESTAURANT_ORDERS, INITIAL_TABLES, RESTAURANT_CATEGORIES, RESTAURANT_INVENTORY_PRODUCTS, RESTAURANT_PRODUCTS } from '../../../../demo/mocks/restaurantMock.ts'
 
@@ -32,6 +32,17 @@ test('pago libera mesa; una cuenta pagada no se cobra de nuevo', () => {
   assert.equal(paid.tables[0].status, 'available')
   assert.equal(paid.tables[0].activeOrderId, undefined)
   assert.throws(() => completeRestaurantPayment(paid.orders, paid.tables, 'o', { method: 'cash', received: 50 }, 'Caja', at))
+})
+
+test('cortesía conserva valor comercial, no genera pago y libera mesa', () => {
+  const opened = placeRestaurantOrder([], tables, order())
+  const gift = completeRestaurantGift(opened.orders, opened.tables, 'o', 'Gerencia', at)
+  assert.equal(gift.order.paymentStatus, 'gift')
+  assert.equal(gift.order.total, 40)
+  assert.equal(gift.order.payment.cashAmount, 0)
+  assert.equal(gift.order.giftedBy, 'Gerencia')
+  assert.equal(gift.tables[0].status, 'available')
+  assert.throws(() => completeRestaurantGift(gift.orders, gift.tables, 'o', 'Gerencia', at))
 })
 
 test('cancelar cuenta de mesa elimina referencia activa y conserva historial', () => {

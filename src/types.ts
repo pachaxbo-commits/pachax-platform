@@ -380,6 +380,9 @@ export interface Order extends Partial<TenantScopedEntity> {
   paymentStatus: 'paid' | 'pending' | 'gift'
   paymentMethod: PaymentMethod | null
   expectedPaymentMethod: PaymentMethod | null
+  /** Trazabilidad de una cortesía: no es un pago ni genera movimiento de Caja. */
+  giftedAt?: string
+  giftedBy?: string
   qrProofReceived?: boolean
   paymentReviewNote?: string
   suppressWhatsappDispatchNotice?: boolean

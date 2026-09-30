@@ -809,3 +809,11 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - El dominio y las Functions rechazan una cuenta directa que declare mesa, y rechazan el cobro si el tipo de cuenta y su destino no coinciden. Historial y Cuentas muestran `Venta directa en Barra` y nunca contabilizan esas ventas como mesa.
 - El nombre en Barra es opcional y solo vive en la cuenta de venta: no crea un cliente permanente. La cuenta conserva su propio pago, jornada, inventario y movimientos de Caja.
 - Validación: `typecheck`, Nightclub (31), plataforma (27), build de emulador y lint focal aprobaron. La suite de Functions con emuladores necesita una ejecución disponible: en esta estación quedó esperando el arranque del emulador después de generar Functions y Rules.
+
+## Estados de pago funcionales en POS Restaurante (30/09/2026, cambios-dario)
+
+- En el POS canónico, Studio con Dataset Completo y demo comparten los tres estados reales: pagado, pendiente y cortesía. Mesas ya no fuerzan PENDIENTE ni bloquean PAGADO/REGALO.
+- Un pago inmediato se inserta una sola vez como cuenta pendiente y se liquida de forma atómica con efectivo, QR, tarjeta o un pago mixto cuyos importes deben sumar el total exacto. El efectivo valida recibido y calcula cambio; Caja toma los pagos normalizados.
+- Pendiente conserva la cuenta abierta y no registra ingreso en Caja. Una cortesía queda cerrada, no crea pagos ni ingresos, conserva valor comercial, autorizador y timestamp, libera la mesa y descuenta existencias como movimiento `courtesy` separado de una venta.
+- Historial muestra responsable y valor comercial de la cortesía. En Studio, el rol Equipo conserva capacidades de caja y autorización de cortesías del dataset completo; los demás roles siguen limitados por sus capacidades.
+- Validación: `typecheck` y `test:restaurant` (27) aprobaron; build de emulador en ejecución antes de integrar.
