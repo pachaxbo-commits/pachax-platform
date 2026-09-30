@@ -278,7 +278,7 @@ export function DemoRuntime({
       )}
 
       {/* Contenedor principal de la demo */}
-      <main className={`flex-1 w-full ${templateId === 'nightclub' ? 'max-w-none p-0' : `max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}`}>
+      <main className={`flex-1 w-full ${templateId === 'nightclub' ? 'max-w-none p-0' : templateId === 'restaurant' ? 'max-w-none p-0' : `max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}`}>
         {templateId === 'restaurant' && (
           <RestaurantDemo
             key={`restaurant:${currentDatasetMode}:${resetKey}`}

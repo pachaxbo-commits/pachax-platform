@@ -226,6 +226,7 @@ export function RestaurantDemo({
   themeColors: studioThemeColors,
   datasetMode = 'full',
   resetKey = 0,
+  initialModule,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
@@ -235,7 +236,10 @@ export function RestaurantDemo({
   themeColors?: RestaurantThemeColors
   datasetMode?: DemoDatasetMode
   resetKey?: number
+  initialModule?: import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId
 }) {
+  const urlModule = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('module') as import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId | null) : null
+  const effectiveInitialModule = initialModule || urlModule || undefined
   const [initial] = useState(() => loadInitialState(datasetMode))
   const [themeColors, setThemeColors] = useState<RestaurantThemeColors>(() => {
     const saved = readSaved<RestaurantThemeColors>(THEME_KEY, DEFAULT_RESTAURANT_THEME)
@@ -985,6 +989,7 @@ export function RestaurantDemo({
 
   return (
     <RestaurantExperience
+      initialModule={effectiveInitialModule}
       session={session}
       logoUrl={logoUrl}
       companyName={companyName}

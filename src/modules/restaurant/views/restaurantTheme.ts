@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { hexToRgb, readableForeground } from '../../../lib/tenantTheme'
+import { hexToRgb, readableForeground } from '../../../lib/tenantTheme.ts'
 
 export interface RestaurantThemeColors { primary: string; accent: string }
 
