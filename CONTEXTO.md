@@ -1,5 +1,14 @@
 # Continuidad del proyecto PACHAX
 
+## Rama de revisión: Restaurante kiosk/POS (30/09/2026)
+
+- `feat/restaurant-kiosk-redesign` se creó en un worktree independiente desde `origin/main` `e20dd98`. No hay merge, push ni despliegue. La instalación original en G: no se tocó.
+- `RestaurantExperience` sigue siendo el renderer único de Restaurante para app autenticada, demo y Studio. Se retiró el sidebar y la barra inferior; el menú superior se abre por hover o botón en escritorio y el menú móvil muestra solo módulos permitidos. El POS usa tarjetas de producto con imagen, dos columnas en teléfonos, búsqueda, carrito derecho reservado y barra móvil «Ver pedido». Las operaciones, IDs, acciones, permisos y contratos anteriores permanecen.
+- Configuración incorporó «Apariencia / Tema» con presets, colores editables, vista previa y contraste derivado. Producción guarda `primaryColor` y `accentColor` mediante `updateRestaurantBranding`/`tenantGateway` del tenant activo; demo usa almacenamiento local aislado. Studio transmite su branding al mismo renderer. El preview de Studio ahora admite pantalla completa; se corrigió un fallo previo que hacía que «Simular rol» mostrara el menú de equipo.
+- QA manual en demo local, puerto 5193: navegación por los 14 módulos, POS con tarjeta y botón +, pedido local enviado a cocina, carrito móvil, Cocina, Historial, tema guardado y conservado al recargar, roles Caja y Cocina en Studio, tamaños 360/390/430/768/1024/1280/1440/1920 sin overflow horizontal ni salto del ancho del catálogo al agregar productos. Fullscreen de Studio ocupa el viewport completo.
+- `npm run typecheck`, `npm run test:restaurant` (25/25), `npm run test:platform` (27/27), `npm run build:emulator` y ESLint focal de shell/tema/demo pasan. `npm run build` productivo se detiene en la validación existente de seis variables Firebase ausentes; no se usaron credenciales ficticias. ESLint de archivos compartidos preexistentes conserva avisos anteriores de pureza/`any`.
+- Pendiente para producción: configurar el nuevo proyecto Firebase y conectar el proveedor operacional real de Restaurante. La app autenticada sigue usando el adaptador fail-closed preexistente para órdenes; la pantalla «Impresoras» continúa siendo un simulador de hardware. Conviene validar impresión y táctil en dispositivos físicos antes de publicar.
+
 ## Integración a main: Nightclub premium config (27/09/2026)
 
 - `main` avanzó por fast-forward desde `23e17e7` hasta el trabajo aprobado `1ce8467` de `codex/nightclub-premium-config`, sin conflictos ni reescritura de historial. La rama incorpora el shell premium, dashboard Operación nocturna, Configuración funcional, branding local de demo, zonas/mesas y reservas sobre la experiencia canónica compartida por Demo y Studio.

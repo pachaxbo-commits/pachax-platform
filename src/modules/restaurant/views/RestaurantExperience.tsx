@@ -15,9 +15,8 @@ import {
   Settings,
   Printer,
   LogOut,
-  Grid3x3,
+  Menu,
 } from 'lucide-react'
-import { BottomNav, type BottomNavItem } from '../../../components/ui/BottomNav'
 import { Modal } from '../../../components/ui/Modal'
 import { useBackButtonBridge } from '../../../hooks/useBackHandler'
 import { RestaurantDashboard } from '../../../demo/restaurant/RestaurantDashboard'
@@ -47,6 +46,8 @@ import {
   type RestaurantTable,
 } from '../../../demo/mocks/restaurantMock'
 import type { Order, OrderStatus, Product } from '../../../types'
+import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
+import './restaurantKiosk.css'
 
 export type RestaurantModuleId =
   | 'dashboard'
@@ -137,6 +138,8 @@ export interface RestaurantExperienceProps {
   onOpenPrinterSettings?: () => void
   initialModule?: RestaurantModuleId
   onModuleChange?: (module: RestaurantModuleId) => void
+  themeColors?: RestaurantThemeColors
+  onSaveTheme?: (colors: RestaurantThemeColors) => Promise<void> | void
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -203,12 +206,15 @@ export function RestaurantExperience({
   onOpenPrinterSettings,
   initialModule,
   onModuleChange,
+  themeColors = DEFAULT_RESTAURANT_THEME,
+  onSaveTheme,
 }: RestaurantExperienceProps) {
   const [currentModule, setCurrentModule] = useState<RestaurantModuleId>(
     initialModule ?? 'dashboard'
   )
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
+  const [isDesktopNavOpen, setIsDesktopNavOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
   const saleProducts = useMemo(() => stockAwareProducts(products), [products])
 
@@ -235,38 +241,9 @@ export function RestaurantExperience({
     return false
   })
 
-  // Prioridad de 4 accesos de la barra inferior móvil según rol de trabajo
-  const navPriority: RestaurantModuleId[] = useMemo(() => {
-    const role = session.role || 'admin'
-    if (role === 'waiter') {
-      return ['tables', 'pos', 'orders', 'customers']
-    }
-    if (role === 'kitchen') {
-      return ['kitchen', 'orders', 'inventory']
-    }
-    if (role === 'inventory') {
-      return ['inventory', 'products', 'kitchen']
-    }
-    if (role === 'cashier') {
-      return ['dashboard', 'pos', 'tables', 'cash']
-    }
-    // Admin / Dueño / Equipo
-    return ['dashboard', 'tables', 'pos', 'cash']
-  }, [session.role])
-
-  const navItems: BottomNavItem<RestaurantModuleId>[] = navPriority
-    .map((id) => visibleModules.find((m) => m.id === id))
-    .filter((m): m is NonNullable<typeof m> => Boolean(m))
-    .map((m) => ({
-      id: m.id,
-      label: m.label,
-      icon: m.icon,
-    }))
-
-  const overflowModules = visibleModules.filter((m) => !navItems.some((item) => item.id === m.id))
-
   const selectModule = (id: RestaurantModuleId) => {
     setIsMoreOpen(false)
+    setIsDesktopNavOpen(false)
     if (id === 'printers' && onOpenPrinterSettings) {
       onOpenPrinterSettings()
       return
@@ -296,114 +273,54 @@ export function RestaurantExperience({
   return (
     <div
       className="restaurant-shell flex min-h-[100dvh] w-full min-w-0 flex-col"
-      style={{ backgroundColor: 'var(--background)' }}
+      style={restaurantThemeStyle(themeColors)}
     >
-      {/* Cabecera Canónica de Restaurante */}
-      <header
-        className="restaurant-header sticky top-0 z-30 w-full border-b border-slate-200 bg-white px-3 pb-2.5"
-        style={{ borderBottomColor: 'var(--primary-soft)' }}
-      >
-        <div className="mx-auto grid w-full max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+      <header className="restaurant-header">
+        <div className="restaurant-nav-hotspot" onMouseEnter={() => setIsDesktopNavOpen(true)} aria-hidden="true" />
+        <div className="restaurant-header-inner">
           <div className="flex min-w-0 items-center gap-2.5">
             <img
               src={logoUrl || '/brand/pachax-logo.png'}
               alt={displayName}
-              className="h-10 w-12 shrink-0 object-contain rounded-md"
+              className="h-9 w-11 shrink-0 object-contain rounded-md"
             />
             <div className="min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <h1 className="truncate text-sm font-extrabold leading-tight tracking-tight text-slate-900 sm:text-base">
                   {displayName}
                 </h1>
-                <span
-                  className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    shift
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : 'bg-amber-50 text-amber-700 border border-amber-200'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      shift ? 'bg-emerald-500' : 'bg-amber-500'
-                    }`}
-                  />
-                  {shift ? 'Turno abierto' : 'Turno cerrado'}
-                </span>
               </div>
               <p className="mt-0.5 truncate text-[10px] font-semibold leading-tight text-slate-500 sm:text-[11px]">
                 {roleLabel} · {session.userName}
               </p>
             </div>
           </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            <span
-              className={`sm:hidden inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                shift
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'bg-amber-50 text-amber-700 border border-amber-200'
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${shift ? 'bg-emerald-500' : 'bg-amber-500'}`}
-              />
-              {shift ? 'Abierto' : 'Cerrado'}
+          <div className="restaurant-header-actions">
+            <span className={`restaurant-shift-status ${shift ? 'is-open' : 'is-closed'}`}>
+              {shift ? 'Turno abierto' : 'Turno cerrado'}
             </span>
-            {onSignOut && (
-              <button
-                type="button"
-                onClick={() => setIsSignOutOpen(true)}
-                aria-label="Cerrar sesión"
-                className="hidden h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 sm:flex"
-              >
-                <LogOut size={16} />
-              </button>
-            )}
+            <button type="button" className="restaurant-menu-toggle" aria-label="Abrir menú" aria-expanded={isDesktopNavOpen || isMoreOpen} onClick={() => { if (window.matchMedia('(min-width: 1024px)').matches) setIsDesktopNavOpen(value => !value); else setIsMoreOpen(true) }}>
+              <Menu size={19} /><span>Menú</span>
+            </button>
           </div>
         </div>
-      </header>
-
-      {/* Contenedor Principal: Sidebar en desktop + Vista activa */}
-      <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-1 gap-4 px-3 py-4">
-        {/* Navegación lateral en pantallas amplias (>= 768px activa md) */}
         <nav
-          className="hidden w-56 shrink-0 flex-col gap-1 lg:flex"
-          style={{ backgroundColor: 'var(--sidebar, transparent)' }}
+          aria-label="Secciones de Restaurante"
+          className={`restaurant-top-navigation ${isDesktopNavOpen ? 'is-open' : ''}`}
+          onMouseEnter={() => setIsDesktopNavOpen(true)}
+          onMouseLeave={(event) => { if (!event.currentTarget.contains(document.activeElement)) setIsDesktopNavOpen(false) }}
+          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDesktopNavOpen(false) }}
+          onKeyDown={(event) => { if (event.key === 'Escape') { setIsDesktopNavOpen(false); document.querySelector<HTMLButtonElement>('.restaurant-menu-toggle')?.focus() } }}
         >
-          {visibleModules.map((m) => {
-            const Icon = m.icon
-            const isActive = m.id === activeModule
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => selectModule(m.id)}
-                className={`flex min-h-[44px] items-center gap-2.5 rounded-2xl px-3 text-left text-sm font-bold transition ${
-                  isActive ? 'shadow-xs' : 'text-slate-600 hover:bg-white'
-                }`}
-                style={isActive ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' } : undefined}
-              >
-                <Icon size={17} />
-                <span className="min-w-0 break-words text-xs leading-tight">{m.label}</span>
-              </button>
-            )
+          {visibleModules.map((module) => {
+            const Icon = module.icon
+            return <button key={module.id} type="button" tabIndex={isDesktopNavOpen ? 0 : -1} aria-current={module.id === activeModule ? 'page' : undefined} onClick={() => selectModule(module.id)} className={module.id === activeModule ? 'is-active' : ''}><Icon size={18} /><span>{module.label}</span></button>
           })}
-          {onSignOut && (
-            <button
-              type="button"
-              onClick={() => setIsSignOutOpen(true)}
-              className="mt-2 flex min-h-[44px] items-center gap-2.5 rounded-2xl px-3 text-left text-sm font-bold text-rose-600 hover:bg-rose-50"
-            >
-              <LogOut size={17} /> Cerrar sesión
-            </button>
-          )}
-          <div className="mt-auto pt-6 px-3 text-[10px] font-semibold text-slate-400">
-            Powered by PACHAX
-          </div>
+          {onSignOut && <button type="button" tabIndex={isDesktopNavOpen ? 0 : -1} onClick={() => { setIsDesktopNavOpen(false); setIsSignOutOpen(true) }}><LogOut size={18} /><span>Salir</span></button>}
         </nav>
-
-        {/* Contenido del Módulo Activo */}
-        <main className="min-w-0 flex-1 pb-bottom-nav">
+      </header>
+      <div className="restaurant-workspace">
+        <main className="restaurant-main" id="restaurant-main-content">
           {activeModule === 'dashboard' && (
             <RestaurantDashboard
               orders={orders}
@@ -498,30 +415,10 @@ export function RestaurantExperience({
             <RestaurantUsers currentRole={session.role} onSelectRole={onSelectRole} />
           )}
           {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
-          {activeModule === 'settings' && <RestaurantSettings onResetDemo={onResetDemo} />}
+          {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} />}
           {activeModule === 'printers' && <RestaurantPrinters />}
         </main>
       </div>
-
-      {/* Navegación Inferior Móvil (activa solo en pantallas < 768px via md:hidden) */}
-      <BottomNav
-        tabletVisible
-        items={[
-          ...navItems,
-          ...(overflowModules.length > 0
-            ? [{ id: '__more' as RestaurantModuleId, label: 'Más', icon: Grid3x3 }]
-            : []),
-        ]}
-        currentId={
-          overflowModules.some((m) => m.id === activeModule)
-            ? ('__more' as RestaurantModuleId)
-            : activeModule
-        }
-        onSelect={(id) => {
-          if (id === ('__more' as RestaurantModuleId)) setIsMoreOpen(true)
-          else selectModule(id)
-        }}
-      />
 
       {/* Modal de Cerrar sesión */}
       {onSignOut && (
@@ -558,10 +455,9 @@ export function RestaurantExperience({
         </Modal>
       )}
 
-      {/* Modal Más opciones en Móvil */}
-      <Modal isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} title="Más opciones">
-        <div className="grid grid-cols-2 gap-2">
-          {overflowModules.map((m) => {
+      <Modal isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} title="Menú del restaurante" subtitle={`${displayName} · ${roleLabel} · ${session.userName}`}>
+        <div className="restaurant-mobile-menu-grid">
+          {visibleModules.map((m) => {
             const Icon = m.icon
             const isActive = m.id === activeModule
             return (

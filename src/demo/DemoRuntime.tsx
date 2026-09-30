@@ -154,6 +154,7 @@ export function DemoRuntime({
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
           />
@@ -286,6 +287,7 @@ export function DemoRuntime({
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
           />

@@ -11,6 +11,8 @@ import {
   Store,
   Utensils,
   ShoppingBag,
+  ShoppingCart,
+  Search,
   Truck,
   Coins,
   CreditCard,
@@ -24,7 +26,7 @@ import {
   PlayCircle,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency } from '../lib/format'
 import type { CartItem, CatalogCategory, PaymentMethod, PaymentSummary, Product, Order, OrderStatus, FulfillmentType, ProductExtra } from '../types'
@@ -90,21 +92,29 @@ function simplifyModifierLabel(label: string) {
 
 function ProductVisual({ image, alt, badge }: { image: string; alt: string; badge?: string }) {
   return (
-    <div className="relative h-24 sm:h-26 overflow-hidden">
+    <div className="restaurant-product-visual">
       {isImageUrl(image) ? (
-        <img alt={alt} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" src={image} />
+        <img alt={alt} className="h-full w-full object-cover" src={image} loading="lazy" decoding="async" />
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(135deg,#fff1e8,#f7d7c8)] text-5xl">{image}</div>
+        <div className="restaurant-product-placeholder">{image || <CookingPot size={36} />}</div>
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/5 to-transparent" />
       {badge ? (
-        <div className="absolute bottom-2 right-2 rounded-full bg-accent px-2 py-1 text-[10px] font-bold text-white shadow-md">
+        <div className="restaurant-product-badge">
           {badge}
         </div>
       ) : null}
     </div>
   )
 }
+
+const KioskProductCard = memo(function KioskProductCard({ product, disabled, onAdd }: { product: Product; disabled: boolean; onAdd: (product: Product) => void }) {
+  return <article className="restaurant-product-card">
+    <ProductVisual alt={product.name} badge={product.badge} image={product.image} />
+    <div className="restaurant-product-details"><h3 title={product.name}>{product.name}</h3><strong>{formatCurrency(product.price)}</strong></div>
+    <button type="button" className="restaurant-product-hit" disabled={disabled} aria-label={`Agregar ${product.name} al pedido`} onClick={() => onAdd(product)} />
+    <button type="button" className="restaurant-product-plus" disabled={disabled} aria-label={`Agregar ${product.name} con el botón más`} onClick={(event) => { event.stopPropagation(); onAdd(product) }}><Plus size={19} /></button>
+  </article>
+})
 
 export function CajaView({
   nextOrderNumber,
@@ -242,7 +252,7 @@ export function CajaView({
     [categories],
   )
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState<'catalog' | 'cart'>('catalog')
+  const [productSearch, setProductSearch] = useState('')
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -390,7 +400,17 @@ export function CajaView({
     ? selectedCategoryId
     : 'all'
 
-  const visibleProducts = useMemo(() => selectRestaurantProducts(products, categories, activeCategory), [activeCategory, categories, products])
+  const visibleProducts = useMemo(() => {
+    const selected = selectRestaurantProducts(products, categories, activeCategory)
+    const term = productSearch.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+    return term ? selected.filter(product => product.name.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().includes(term)) : selected
+  }, [activeCategory, categories, products, productSearch])
+
+  const addCatalogProduct = useCallback((product: Product) => {
+    const nextItem = buildCartItem(product)
+    setCartItems(currentItems => [...currentItems, nextItem])
+    setExpandedLineId(nextItem.lineId)
+  }, [])
 
   const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products])
 
@@ -696,7 +716,6 @@ export function CajaView({
       setCashSplitInput('')
     }
     setViewMode('new_order')
-    setActiveTab('cart')
     setShowCheckoutModal(true)
   }
 
@@ -790,10 +809,10 @@ export function CajaView({
   ) : null
 
   return (
-    <div className={`space-y-4 ${showCheckoutModal && viewMode === 'new_order' ? 'lg:pr-[430px]' : ''}`}>
+    <div className={`restaurant-pos-kiosk ${viewMode === 'new_order' ? 'is-catalog-view' : 'is-orders-view'}`}>
       {portalElement ? createPortal(controlsContent, portalElement) : null}
       {/* Top View Mode Switcher */}
-      <div className="flex flex-wrap justify-between items-center gap-4 border-b border-line pb-4">
+      <div className="restaurant-pos-toolbar flex flex-wrap justify-between items-center gap-3">
         <div className="flex gap-2 bg-white/60 p-1.5 rounded-2xl border border-white/80 shadow-insetSoft">
           <button
             type="button"
@@ -842,43 +861,14 @@ export function CajaView({
         </div>
       </div>
 
-      {/* Responsive layout selector for mobile */}
-      <div className="flex gap-2 rounded-2xl bg-white/70 p-1.5 shadow-insetSoft border border-white/80 lg:hidden">
-        <button
-          className={`flex-1 rounded-[1.15rem] py-3 text-center text-sm font-bold transition ${
-            activeTab === 'catalog'
-              ? 'bg-ink text-white shadow-card'
-              : 'text-muted hover:text-ink'
-          }`}
-          onClick={() => setActiveTab('catalog')}
-        >
-          Productos
-        </button>
-        <button
-          className={`flex-1 rounded-[1.15rem] py-3 text-center text-sm font-bold transition flex items-center justify-center gap-2 ${
-            activeTab === 'cart'
-              ? 'bg-ink text-white shadow-card'
-              : 'text-muted hover:text-ink'
-          }`}
-          onClick={() => setActiveTab('cart')}
-        >
-          <span>Carrito</span>
-          {cartItems.length > 0 ? (
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-black text-white">
-              {cartItems.reduce((sum, item) => sum + item.quantity, 0)}
-            </span>
-          ) : null}
-        </button>
-      </div>
-
-      <div className="w-full space-y-5">
+      <div className="restaurant-pos-workspace w-full space-y-5">
         {operationMessage && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{operationMessage}</p>}
         {/* Main Panel Section */}
         <section className="w-full space-y-5">
           {viewMode === 'new_order' ? (
             <>
               {/* POS Categories & Catalog */}
-              <div className="flex flex-wrap gap-2 pb-2 overflow-x-auto no-scrollbar">
+              <div className="restaurant-pos-categories no-scrollbar">
                 {[{ id: 'all', name: 'Todos', emoji: '', sortOrder: -1, isActive: true, isVisible: true }, ...visibleCategories].map((category) => {
                   const isActive = category.id === activeCategory
 
@@ -899,42 +889,10 @@ export function CajaView({
                 })}
               </div>
 
-              <div className="grid gap-2.5 grid-cols-2 md:grid-cols-3 lg:grid-cols-2 2xl:grid-cols-3 min-[1850px]:grid-cols-4">
+              <label className="restaurant-product-search"><Search size={18} aria-hidden="true" /><span className="sr-only">Buscar productos</span><input type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Buscar productos..." /></label>
+              <div className="restaurant-product-grid">
                 {visibleProducts.map((product) => (
-                  <Panel
-                    key={product.id}
-                    className="group overflow-hidden border-slate-800 bg-[#1e1e2d] text-white transition duration-200 hover:-translate-y-0.5 hover:shadow-float flex flex-col justify-between rounded-xl"
-                  >
-                    <ProductVisual alt={product.name} badge={product.badge} image={product.image} />
-
-                    <div className="p-2.5 flex-1 flex flex-col justify-between gap-2">
-                      <div>
-                        <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate" title={product.name}>
-                          {product.name}
-                        </h3>
-                      </div>
-                      
-                      <Button
-                        className="w-full px-2.5 py-1.5 h-8 text-[11px] font-black rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-95 flex items-center justify-between shadow-sm shrink-0"
-                        disabled={operationsDisabled}
-                        onClick={() => {
-                          const nextItem = buildCartItem(product)
-                          setCartItems((currentItems) => [...currentItems, nextItem])
-                          setExpandedLineId(nextItem.lineId)
-                          setActiveTab('cart')
-                          setShowCheckoutModal(true)
-                        }}
-                      >
-                        <span className="flex items-center gap-1">
-                          <Plus size={12} />
-                          Agregar
-                        </span>
-                        <span className="bg-black/35 border border-white/15 text-white px-2 py-0.5 rounded-md text-[10px] font-black tracking-tight">
-                          {formatCurrency(product.price)}
-                        </span>
-                      </Button>
-                    </div>
-                  </Panel>
+                  <KioskProductCard key={product.id} product={product} disabled={operationsDisabled} onAdd={addCatalogProduct} />
                 ))}
 
                 {visibleProducts.length === 0 ? (
@@ -1585,23 +1543,21 @@ export function CajaView({
         </section>
       </div>
 
-      {/* Boton flotante para reabrir el carrito cuando hay productos y el modal esta cerrado */}
-      {cartItems.length > 0 && !showCheckoutModal && (
+      {viewMode === 'new_order' && !showCheckoutModal && (
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-40 bg-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-95 font-black px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 transition transform hover:scale-105 active:scale-95 border border-white/20"
-          disabled={operationsDisabled}
-          onClick={() => { if (operationsDisabled) { setOperationMessage('Debes iniciar un turno antes de realizar operaciones.'); return } setShowCheckoutModal(true) }}
+          className="restaurant-mobile-cart-bar"
+          onClick={() => setShowCheckoutModal(true)}
         >
-          <ShoppingBag size={18} />
-          <span>VER CARRITO / COBRAR ({cartItems.reduce((sum, item) => sum + item.quantity, 0)})</span>
+          <ShoppingCart size={23} /><span className="restaurant-mobile-cart-count">{totalUnits}</span>
+          <span className="restaurant-mobile-cart-label">Ver pedido</span>
+          <strong>{formatCurrency(cartTotal)}</strong>
         </button>
       )}
 
-      {/* Modal emergente de checkout de doble columna (horizontal y vertical grande) */}
-      {showCheckoutModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm lg:pointer-events-none lg:left-auto lg:right-4 lg:top-5 lg:bottom-5 lg:w-[400px] xl:w-[420px] lg:items-stretch lg:justify-end lg:bg-transparent lg:p-0 lg:backdrop-blur-0">
-          <Panel className="w-full max-w-xl h-[92vh] bg-[#fffdfb] rounded-[1.5rem] shadow-float overflow-hidden flex flex-col border border-line lg:pointer-events-auto lg:h-full lg:max-w-none lg:rounded-[1.5rem]">
+      {viewMode === 'new_order' && (
+        <div className={`restaurant-cart-layer ${showCheckoutModal ? 'is-open' : ''}`}>
+          <Panel className="restaurant-cart-panel w-full overflow-hidden flex flex-col border border-line">
 
             {/* Header compacto */}
             <div className="border-b border-line px-3 py-1.5 flex items-center justify-between bg-white shrink-0">
@@ -1617,6 +1573,8 @@ export function CajaView({
                 type="button"
                 className="rounded-full p-1.5 text-muted hover:bg-line transition"
                 onClick={() => setShowCheckoutModal(false)}
+                aria-label="Cerrar pedido"
+                data-cart-close
               >
                 <X size={16} />
               </button>
@@ -2259,7 +2217,6 @@ export function CajaView({
                       setDeliveryAddress('')
                       setExpectedPaymentMethod(null)
                       setEditingOrderId(null)
-                      setActiveTab('catalog')
                       setShowCheckoutModal(false)
                     }
 

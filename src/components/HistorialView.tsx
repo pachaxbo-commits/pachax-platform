@@ -445,7 +445,7 @@ export function HistorialView({
           )}
 
           {/* Grid de Métricas y Estadísticas */}
-          <div className="grid gap-3.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 border-t border-dashed border-line pt-4">
+          <div className="restaurant-history-metrics grid gap-3.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 border-t border-dashed border-line pt-4">
             <div className="rounded-[1.4rem] border border-white/80 bg-panel/95 p-4 shadow-insetSoft">
               <div className="text-[10px] font-black uppercase tracking-wider text-muted">Ventas registradas</div>
               <div className="mt-2 text-xl font-black text-ink">{formatCurrency(summary.totalSales)}</div>
