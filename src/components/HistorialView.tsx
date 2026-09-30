@@ -287,6 +287,7 @@ export function HistorialView({
 
     const orderRows = csvOrders.map((order) => {
       const isPaid = order.paymentStatus === 'paid'
+      const isGift = order.paymentStatus === 'gift'
       return [
         order.displayNumber,
         order.orderSource || 'local',
@@ -299,8 +300,8 @@ export function HistorialView({
         order.customerName ?? '',
         order.customerPhone ?? '',
         order.deliveryAddress ?? '',
-        isPaid ? 'Pagado' : 'Pendiente',
-        isPaid && order.paymentMethod ? formatPaymentMethod(order.paymentMethod) : 'Pendiente',
+        isPaid ? 'Pagado' : isGift ? 'Cortesía' : 'Pendiente',
+        isPaid && order.paymentMethod ? formatPaymentMethod(order.paymentMethod) : isGift ? 'Sin cobro' : 'Pendiente',
         isPaid ? order.payment.cashAmount : 0,
         isPaid ? order.payment.qrAmount : 0,
         isPaid ? order.payment.cashReceived : 0,
@@ -635,6 +636,7 @@ export function HistorialView({
                       {order.status !== 'cancelled' && <PaymentBadge paymentStatus={order.paymentStatus} paymentMethod={order.paymentMethod} />}
                       <StatusPill status={order.status} />
                     </div>
+                    {order.paymentStatus === 'gift' ? <div className="text-[11px] text-violet-800">Cortesía autorizada por <strong>{order.giftedBy || order.createdBy || 'Sin responsable'}</strong></div> : null}
                   </div>
 
                   <div className="border-t border-dashed border-line pt-2.5 text-xs text-ink/90 space-y-1 max-h-[120px] overflow-y-auto pr-1">
@@ -647,7 +649,7 @@ export function HistorialView({
                   </div>
 
                   <div className="border-t border-line pt-2.5 flex justify-between items-center">
-                    <span className="text-xs font-black text-ink">Total: {formatCurrency(getOrderSaleAmount(order))}</span>
+                    <span className="text-xs font-black text-ink">{order.paymentStatus === 'gift' ? 'Valor comercial' : 'Total'}: {formatCurrency(order.paymentStatus === 'gift' ? order.total : getOrderSaleAmount(order))}</span>
                     <div className="flex gap-2">
                       {order.status !== 'delivered' && order.status !== 'cancelled' ? (
                         <>

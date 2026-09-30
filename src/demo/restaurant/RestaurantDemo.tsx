@@ -13,7 +13,7 @@ import type { Order, OrderStatus, Product } from '../../types'
 import type { RestaurantStockMovement } from '../../modules/restaurant/domain/restaurantEngine'
 import { confirmInventoryLines, returnInventoryLine, changeInventoryStock, openingInventorySnapshot, inventoryShiftRows, reconcileInventoryLedger, type InventoryCount, type InventoryMovementType } from '../../modules/restaurant/domain/inventoryEngine'
 import { calculateCashShiftSummary, type CashMovement } from '../../modules/restaurant/domain/cashEngine'
-import { cancelRestaurantOrder, completeRestaurantPayment, placeRestaurantOrder, reconcileTableOrders, resolveOrderTable } from '../../modules/restaurant/domain/restaurantOperations'
+import { cancelRestaurantOrder, completeRestaurantGift, completeRestaurantPayment, placeRestaurantOrder, reconcileTableOrders, resolveOrderTable } from '../../modules/restaurant/domain/restaurantOperations'
 import { applyRestaurantFloorAction, migrateRestaurantFloor, type FloorAction } from '../../modules/restaurant/domain/restaurantFloor'
 import {
   RestaurantExperience,
@@ -772,6 +772,11 @@ export function RestaurantDemo({
     submissionLock.current = true
     try {
       const timestamp = new Date().toISOString()
+      const requestedPaymentStatus = order.paymentStatus
+      const table = order.fulfillmentType === 'table' ? resolveOrderTable(order, tables) : undefined
+      if (requestedPaymentStatus !== 'pending' && table?.activeOrderId) {
+        throw new Error('Esta mesa ya tiene una cuenta abierta. Cobra o registra la cortesía desde el detalle de la cuenta.')
+      }
       const ticketItems = (order.items || []).map((item) => ({
         ...item,
         createdAt: item.createdAt || timestamp,
@@ -784,26 +789,39 @@ export function RestaurantDemo({
         shiftId: shift.id,
         createdBy: cashierName,
         status: 'pending' as const,
-        paymentStatus: order.fulfillmentType === 'table' ? 'pending' as const : order.paymentStatus,
-        paymentMethod: order.fulfillmentType === 'table' ? null : order.paymentMethod,
+        // Siempre se inserta como pendiente y se liquida abajo en una única operación.
+        // Así una venta inmediata no deja una mesa ocupada ni registra pagos duplicados.
+        paymentStatus: 'pending' as const,
+        paymentMethod: null,
+        payment: { method: 'cash', cashAmount: 0, qrAmount: 0, cardAmount: 0, cashReceived: 0, change: 0 },
         items: ticketItems,
         createdAt: timestamp,
-        paidAt: order.fulfillmentType !== 'table' && order.paymentStatus === 'paid' ? timestamp : undefined,
-        paidBy: order.fulfillmentType !== 'table' && order.paymentStatus === 'paid' ? cashierName : undefined,
         submittedBatches: [],
       }
       const placed = placeRestaurantOrder(orders, tables, candidate)
-      const consumption = confirmInventoryLines(placed.order, ticketItems, inventoryRef.current.products, inventoryRef.current.movements, timestamp, cashierName)
+      const consumption = confirmInventoryLines(placed.order, ticketItems, inventoryRef.current.products, inventoryRef.current.movements, timestamp, cashierName, requestedPaymentStatus === 'gift' ? 'courtesy' : 'sale')
+      const settled = requestedPaymentStatus === 'paid'
+        ? completeRestaurantPayment(placed.orders, placed.tables, placed.order.id, {
+            method: order.paymentMethod === 'mixed' ? 'mixed' : order.paymentMethod === 'qr' ? 'qr' : order.paymentMethod === 'card' ? 'card' : 'cash',
+            received: order.payment.cashReceived,
+            cashAmount: order.payment.cashAmount,
+            qrAmount: order.payment.qrAmount,
+            cardAmount: order.payment.cardAmount,
+          }, cashierName, timestamp)
+        : requestedPaymentStatus === 'gift'
+          ? completeRestaurantGift(placed.orders, placed.tables, placed.order.id, cashierName, timestamp)
+          : { orders: placed.orders, tables: placed.tables, order: placed.order }
       saveInventory(consumption.products, consumption.movements)
-      updateOrders(() => placed.orders)
-      updateTables(() => placed.tables)
+      updateOrders(() => settled.orders)
+      updateTables(() => settled.tables)
       record({
-        type: placed.added ? 'product_added' : 'order_created',
-        orderId: placed.order.id,
-        tableId: placed.order.tableId,
-        details: { total: placed.order.total, itemIds: ticketItems.map(item => item.id) },
+        type: placed.added ? 'product_added' : requestedPaymentStatus === 'gift' ? 'order_gifted' : 'order_created',
+        orderId: settled.order.id,
+        tableId: settled.order.tableId,
+        details: { total: settled.order.total, paymentStatus: requestedPaymentStatus, itemIds: ticketItems.map(item => item.id) },
       })
-      if (consumption.appended.length) record({ type: 'inventory_sale', orderId: placed.order.id, tableId: placed.order.tableId, details: { movementIds: consumption.appended.map(item => item.id) } })
+      if (requestedPaymentStatus === 'paid') record({ type: 'payment_confirmed', orderId: settled.order.id, tableId: settled.order.tableId, details: { total: settled.order.total, method: order.paymentMethod, change: settled.order.payment.change } })
+      if (consumption.appended.length) record({ type: requestedPaymentStatus === 'gift' ? 'inventory_courtesy' : 'inventory_sale', orderId: settled.order.id, tableId: settled.order.tableId, details: { movementIds: consumption.appended.map(item => item.id) } })
       return true
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'No se pudo crear el pedido.')

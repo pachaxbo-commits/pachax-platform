@@ -2,7 +2,7 @@ import type { CatalogCategory, Order, OrderItem, Product } from '../../../types'
 import type { RestaurantTable } from '../../../demo/mocks/restaurantMock'
 import { settlePayments } from './restaurantEngine.ts'
 
-const active = (order: Order) => order.paymentStatus !== 'paid' && order.status !== 'cancelled'
+const active = (order: Order) => order.paymentStatus === 'pending' && order.status !== 'cancelled'
 
 export function resolveOrderTable(order: Order, tables: RestaurantTable[]): RestaurantTable | undefined {
   if (order.tableId) return tables.find(table => table.id === order.tableId)
@@ -83,6 +83,23 @@ export function completeRestaurantPayment(orders: Order[], tables: RestaurantTab
   const change = payments.reduce((sum, item) => sum + (item.change || 0), 0)
   const paid: Order = { ...order, paymentStatus: 'paid', paymentMethod: input.method, payment: { method: input.method, cashAmount, qrAmount, cardAmount, cashReceived: received, change }, payments, paidAt: at, paidBy: actor, closedAt: at, accountStatus: 'closed' }
   return { orders: orders.map(item => item.id === orderId ? paid : item), tables: releasePaidTable(tables, order), order: paid }
+}
+
+export function completeRestaurantGift(orders: Order[], tables: RestaurantTable[], orderId: string, actor: string, at: string) {
+  const order = orders.find(item => item.id === orderId)
+  if (!order || order.paymentStatus !== 'pending' || order.status === 'cancelled') throw new Error('La cuenta no está disponible para registrar como cortesía.')
+  const gifted: Order = {
+    ...order,
+    paymentStatus: 'gift',
+    paymentMethod: null,
+    payment: { method: 'cash', cashAmount: 0, qrAmount: 0, cardAmount: 0, cashReceived: 0, change: 0 },
+    payments: [],
+    giftedAt: at,
+    giftedBy: actor,
+    closedAt: at,
+    accountStatus: 'closed',
+  }
+  return { orders: orders.map(item => item.id === orderId ? gifted : item), tables: releasePaidTable(tables, order), order: gifted }
 }
 
 export function selectRestaurantProducts(products: Product[], categories: CatalogCategory[], selectedCategoryId: string): Product[] {

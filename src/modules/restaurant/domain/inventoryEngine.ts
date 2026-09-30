@@ -82,19 +82,19 @@ export function canConfirmInventory(lines: OrderItem[], products: Product[], mov
   }
 }
 
-export function confirmInventoryLines(order: Order, lines: OrderItem[], products: Product[], movements: InventoryMovement[], at: string, actor: string) {
+export function confirmInventoryLines(order: Order, lines: OrderItem[], products: Product[], movements: InventoryMovement[], at: string, actor: string, kind: 'sale' | 'courtesy' = 'sale') {
   canConfirmInventory(lines, products, movements, order.id)
   const stock = new Map(products.filter(product => product.stockBase !== undefined).map(product => [product.id, product.stockBase!]))
   const appended: InventoryMovement[] = []
   const seen = new Set<string>()
   for (const line of lines) for (const component of inventoryRequirements(line, products)) {
-    const operationId = `sale:${order.id}:${line.id}:${component.productId}`
+    const operationId = `${kind}:${order.id}:${line.id}:${component.productId}`
     if (seen.has(operationId) || movements.some(movement => movement.operationId === operationId)) continue
     seen.add(operationId)
     const previousStock = round(stock.get(component.productId)!)
     const newStock = round(previousStock - component.quantityBase)
     stock.set(component.productId, newStock)
-    appended.push({ id: crypto.randomUUID(), operationId, productId: component.productId, productName: component.productName, quantityBase: -component.quantityBase, soldQuantity: line.quantity, previousStock, newStock, type: 'sale', reason: 'Pedido confirmado', createdAt: at, createdBy: actor, orderId: order.id, orderItemId: line.id, tableId: order.tableId, shiftId: order.shiftId })
+    appended.push({ id: crypto.randomUUID(), operationId, productId: component.productId, productName: component.productName, quantityBase: -component.quantityBase, soldQuantity: line.quantity, previousStock, newStock, type: kind, reason: kind === 'courtesy' ? 'Cortesía autorizada' : 'Pedido confirmado', createdAt: at, createdBy: actor, orderId: order.id, orderItemId: line.id, tableId: order.tableId, shiftId: order.shiftId })
   }
   return { products: products.map(product => stock.has(product.id) ? { ...product, stockBase: stock.get(product.id) } : product), movements: [...movements, ...appended], appended }
 }
@@ -103,10 +103,10 @@ export function returnInventoryLine(order: Order, line: OrderItem, quantity: num
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > line.quantity) throw new Error('Cantidad de cancelación inválida.')
   const stock = new Map(products.filter(product => product.stockBase !== undefined).map(product => [product.id, product.stockBase!]))
   const appended: InventoryMovement[] = []
-  const saleMovements = movements.filter(movement => movement.type === 'sale' && movement.orderId === order.id && movement.orderItemId === line.id)
+  const saleMovements = movements.filter(movement => (movement.type === 'sale' || movement.type === 'courtesy') && movement.orderId === order.id && movement.orderItemId === line.id)
   const components = saleMovements.length ? saleMovements.map(movement => ({ productId: movement.productId, productName: movement.productName, quantityBase: round(-movement.quantityBase * quantity / (movement.soldQuantity || line.quantity)) })) : inventoryRequirements({ ...line, quantity }, products)
   for (const component of components) {
-    const soldMovement = movements.find(movement => movement.operationId === `sale:${order.id}:${line.id}:${component.productId}`)
+    const soldMovement = movements.find(movement => movement.operationId === `sale:${order.id}:${line.id}:${component.productId}` || movement.operationId === `courtesy:${order.id}:${line.id}:${component.productId}`)
     const legacyBatch = order.submittedBatches?.find(batch => batch.itemIds.includes(line.id) && movements.some(movement => movement.operationId === `command:${order.id}:${batch.id}` && movement.productId === component.productId))
     if (!soldMovement && !legacyBatch) continue
     const operationId = `return:${order.id}:${line.id}:${cancellationId}:${component.productId}`
