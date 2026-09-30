@@ -528,6 +528,7 @@ export function CajaView({
   const canManagePayments = userRole === 'admin' || userRole === 'caja' || userRole === 'demo' || userRole === 'team'
   const canManageOrders = userRole === 'admin' || userRole === 'caja' || userRole === 'demo' || userRole === 'team'
   const canAuthorizeGift = userRole === 'admin' || userRole === 'owner' || userRole === 'manager' || userRole === 'demo' || userRole === 'team'
+  void canAuthorizeGift
 
   // Filtered Orders & Badge count for delivered unpaid orders
   const pendingPaymentOrders = useMemo(() => {
@@ -2210,6 +2211,7 @@ export function CajaView({
                         })}
                       </div>
                     </div>
+                  ) : (
                     <div className="mt-2 border-t border-dashed border-border/60 pt-2 text-xs text-violet-800">
                       Cortesía autorizada por <strong>{userName}</strong>. No se registrará ingreso en Caja; el valor comercial y el consumo quedarán en Historial e Inventario.
                     </div>
