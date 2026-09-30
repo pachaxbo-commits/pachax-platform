@@ -11,6 +11,8 @@ import {
   Store,
   Utensils,
   ShoppingBag,
+  ShoppingCart,
+  Search,
   Truck,
   Coins,
   CreditCard,
@@ -23,8 +25,19 @@ import {
   PauseCircle,
   PlayCircle,
   X,
+  LayoutGrid,
+  Salad,
+  Soup,
+  GlassWater,
+  Coffee,
+  CakeSlice,
+  Pizza,
+  Sandwich,
+  Tag,
+  Wine,
+  ArrowRight,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency } from '../lib/format'
 import type { CartItem, CatalogCategory, PaymentMethod, PaymentSummary, Product, Order, OrderStatus, FulfillmentType, ProductExtra } from '../types'
@@ -88,23 +101,53 @@ function simplifyModifierLabel(label: string) {
   return label
 }
 
+function getCategoryIcon(categoryId?: string, categoryName?: string) {
+  const norm = `${categoryId || ''} ${categoryName || ''}`.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  if (categoryId === 'all') return LayoutGrid
+  if (norm.includes('entrada') || norm.includes('ensalada') || norm.includes('salad') || norm.includes('appetizer')) return Salad
+  if (norm.includes('sopa') || norm.includes('soup') || norm.includes('caldo')) return Soup
+  if (norm.includes('bebida') || norm.includes('trago') || norm.includes('jugo') || norm.includes('drink') || norm.includes('refresco') || norm.includes('agua')) return GlassWater
+  if (norm.includes('cafe') || norm.includes('coffee') || norm.includes('te')) return Coffee
+  if (norm.includes('vino') || norm.includes('cerveza') || norm.includes('licor') || norm.includes('bar')) return Wine
+  if (norm.includes('postre') || norm.includes('dulce') || norm.includes('cake') || norm.includes('helado')) return CakeSlice
+  if (norm.includes('burger') || norm.includes('hamburguesa') || norm.includes('sandwich') || norm.includes('lomito')) return Sandwich
+  if (norm.includes('pizza')) return Pizza
+  if (norm.includes('fuerte') || norm.includes('plato') || norm.includes('carne') || norm.includes('pasta') || norm.includes('pollo')) return Utensils
+  return Tag
+}
+
 function ProductVisual({ image, alt, badge }: { image: string; alt: string; badge?: string }) {
   return (
-    <div className="relative h-24 sm:h-26 overflow-hidden">
+    <div className="restaurant-product-visual">
       {isImageUrl(image) ? (
-        <img alt={alt} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" src={image} />
+        <img alt={alt} className="h-full w-full object-cover" src={image} loading="lazy" decoding="async" />
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(135deg,#fff1e8,#f7d7c8)] text-5xl">{image}</div>
+        <div className="restaurant-product-placeholder">{image || <CookingPot size={36} />}</div>
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/5 to-transparent" />
       {badge ? (
-        <div className="absolute bottom-2 right-2 rounded-full bg-accent px-2 py-1 text-[10px] font-bold text-white shadow-md">
+        <div className="restaurant-product-badge">
           {badge}
         </div>
       ) : null}
     </div>
   )
 }
+
+const KioskProductCard = memo(function KioskProductCard({ product, disabled, onAdd }: { product: Product; disabled: boolean; onAdd: (product: Product) => void }) {
+  return (
+    <article className="restaurant-product-card">
+      <ProductVisual alt={product.name} badge={product.badge} image={product.image} />
+      <div className="restaurant-product-details">
+        <h3 title={product.name}>{product.name}</h3>
+        <strong>{formatCurrency(product.price)}</strong>
+      </div>
+      <button type="button" className="restaurant-product-hit" disabled={disabled} aria-label={`Agregar ${product.name} al pedido`} onClick={() => onAdd(product)} />
+      <button type="button" className="restaurant-product-plus" disabled={disabled} aria-label={`Agregar ${product.name} con el botón más`} onClick={(event) => { event.stopPropagation(); onAdd(product) }}>
+        <Plus size={18} strokeWidth={2.5} />
+      </button>
+    </article>
+  )
+})
 
 export function CajaView({
   nextOrderNumber,
@@ -242,7 +285,7 @@ export function CajaView({
     [categories],
   )
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState<'catalog' | 'cart'>('catalog')
+  const [productSearch, setProductSearch] = useState('')
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -392,7 +435,17 @@ export function CajaView({
     ? selectedCategoryId
     : 'all'
 
-  const visibleProducts = useMemo(() => selectRestaurantProducts(products, categories, activeCategory), [activeCategory, categories, products])
+  const visibleProducts = useMemo(() => {
+    const selected = selectRestaurantProducts(products, categories, activeCategory)
+    const term = productSearch.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+    return term ? selected.filter(product => product.name.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().includes(term)) : selected
+  }, [activeCategory, categories, products, productSearch])
+
+  const addCatalogProduct = useCallback((product: Product) => {
+    const nextItem = buildCartItem(product)
+    setCartItems(currentItems => [...currentItems, nextItem])
+    setExpandedLineId(nextItem.lineId)
+  }, [])
 
   const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products])
 
@@ -707,7 +760,6 @@ export function CajaView({
       setCardSplitInput('')
     }
     setViewMode('new_order')
-    setActiveTab('cart')
     setShowCheckoutModal(true)
   }
 
@@ -803,10 +855,10 @@ export function CajaView({
   ) : null
 
   return (
-    <div className={`space-y-4 ${showCheckoutModal && viewMode === 'new_order' ? 'lg:pr-[430px]' : ''}`}>
+    <div className={`restaurant-pos-kiosk ${viewMode === 'new_order' ? 'is-catalog-view' : 'is-orders-view'}`}>
       {portalElement ? createPortal(controlsContent, portalElement) : null}
       {/* Top View Mode Switcher */}
-      <div className="flex flex-wrap justify-between items-center gap-4 border-b border-line pb-4">
+      <div className="restaurant-pos-toolbar flex flex-wrap justify-between items-center gap-3">
         <div className="flex gap-2 bg-white/60 p-1.5 rounded-2xl border border-white/80 shadow-insetSoft">
           <button
             type="button"
@@ -855,99 +907,40 @@ export function CajaView({
         </div>
       </div>
 
-      {/* Responsive layout selector for mobile */}
-      <div className="flex gap-2 rounded-2xl bg-white/70 p-1.5 shadow-insetSoft border border-white/80 lg:hidden">
-        <button
-          className={`flex-1 rounded-[1.15rem] py-3 text-center text-sm font-bold transition ${
-            activeTab === 'catalog'
-              ? 'bg-ink text-white shadow-card'
-              : 'text-muted hover:text-ink'
-          }`}
-          onClick={() => setActiveTab('catalog')}
-        >
-          Productos
-        </button>
-        <button
-          className={`flex-1 rounded-[1.15rem] py-3 text-center text-sm font-bold transition flex items-center justify-center gap-2 ${
-            activeTab === 'cart'
-              ? 'bg-ink text-white shadow-card'
-              : 'text-muted hover:text-ink'
-          }`}
-          onClick={() => setActiveTab('cart')}
-        >
-          <span>Carrito</span>
-          {cartItems.length > 0 ? (
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-black text-white">
-              {cartItems.reduce((sum, item) => sum + item.quantity, 0)}
-            </span>
-          ) : null}
-        </button>
-      </div>
-
-      <div className="w-full space-y-5">
+      <div className="restaurant-pos-workspace w-full space-y-5">
         {operationMessage && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{operationMessage}</p>}
         {/* Main Panel Section */}
         <section className="w-full space-y-5">
           {viewMode === 'new_order' ? (
             <>
               {/* POS Categories & Catalog */}
-              <div className="flex flex-wrap gap-2 pb-2 overflow-x-auto no-scrollbar">
+              <div className="restaurant-pos-categories no-scrollbar">
                 {[{ id: 'all', name: 'Todos', emoji: '', sortOrder: -1, isActive: true, isVisible: true }, ...visibleCategories].map((category) => {
                   const isActive = category.id === activeCategory
+                  const CategoryIcon = getCategoryIcon(category.id, category.name)
 
                   return (
                     <button
                       key={category.id}
-                      className={`px-4 py-2 rounded-full text-xs font-black tracking-wider transition shrink-0 shadow-sm ${
+                      type="button"
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold tracking-normal transition shrink-0 ${
                         isActive
-                          ? 'bg-[var(--primary)] text-[var(--primary-foreground)]'
-                          : 'bg-white border border-line text-ink hover:bg-panel'
+                          ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                          : 'bg-white border border-border text-slate-700 hover:bg-slate-50'
                       }`}
                       onClick={() => setSelectedCategoryId(category.id)}
                     >
-                      <span className="mr-1">{category.emoji}</span>
-                      {category.name.toUpperCase()}
+                      <CategoryIcon size={15} strokeWidth={2.2} aria-hidden="true" />
+                      <span>{category.name}</span>
                     </button>
                   )
                 })}
               </div>
 
-              <div className="grid gap-2.5 grid-cols-2 md:grid-cols-3 lg:grid-cols-2 2xl:grid-cols-3 min-[1850px]:grid-cols-4">
+              <label className="restaurant-product-search"><Search size={18} aria-hidden="true" /><span className="sr-only">Buscar productos</span><input type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Buscar productos..." /></label>
+              <div className="restaurant-product-grid">
                 {visibleProducts.map((product) => (
-                  <Panel
-                    key={product.id}
-                    className="group overflow-hidden border-slate-800 bg-[#1e1e2d] text-white transition duration-200 hover:-translate-y-0.5 hover:shadow-float flex flex-col justify-between rounded-xl"
-                  >
-                    <ProductVisual alt={product.name} badge={product.badge} image={product.image} />
-
-                    <div className="p-2.5 flex-1 flex flex-col justify-between gap-2">
-                      <div>
-                        <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate" title={product.name}>
-                          {product.name}
-                        </h3>
-                      </div>
-                      
-                      <Button
-                        className="w-full px-2.5 py-1.5 h-8 text-[11px] font-black rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-95 flex items-center justify-between shadow-sm shrink-0"
-                        disabled={operationsDisabled}
-                        onClick={() => {
-                          const nextItem = buildCartItem(product)
-                          setCartItems((currentItems) => [...currentItems, nextItem])
-                          setExpandedLineId(nextItem.lineId)
-                          setActiveTab('cart')
-                          setShowCheckoutModal(true)
-                        }}
-                      >
-                        <span className="flex items-center gap-1">
-                          <Plus size={12} />
-                          Agregar
-                        </span>
-                        <span className="bg-black/35 border border-white/15 text-white px-2 py-0.5 rounded-md text-[10px] font-black tracking-tight">
-                          {formatCurrency(product.price)}
-                        </span>
-                      </Button>
-                    </div>
-                  </Panel>
+                  <KioskProductCard key={product.id} product={product} disabled={operationsDisabled} onAdd={addCatalogProduct} />
                 ))}
 
                 {visibleProducts.length === 0 ? (
@@ -1598,270 +1591,291 @@ export function CajaView({
         </section>
       </div>
 
-      {/* Boton flotante para reabrir el carrito cuando hay productos y el modal esta cerrado */}
-      {cartItems.length > 0 && !showCheckoutModal && (
+      {viewMode === 'new_order' && !showCheckoutModal && (
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-40 bg-[var(--accent)] text-[var(--accent-foreground)] hover:brightness-95 font-black px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 transition transform hover:scale-105 active:scale-95 border border-white/20"
-          disabled={operationsDisabled}
-          onClick={() => { if (operationsDisabled) { setOperationMessage('Debes iniciar un turno antes de realizar operaciones.'); return } setShowCheckoutModal(true) }}
+          className="restaurant-mobile-cart-bar"
+          onClick={() => setShowCheckoutModal(true)}
         >
-          <ShoppingBag size={18} />
-          <span>VER CARRITO / COBRAR ({cartItems.reduce((sum, item) => sum + item.quantity, 0)})</span>
+          <ShoppingCart size={23} /><span className="restaurant-mobile-cart-count">{totalUnits}</span>
+          <span className="restaurant-mobile-cart-label">Ver pedido</span>
+          <strong>{formatCurrency(cartTotal)}</strong>
         </button>
       )}
 
-      {/* Modal emergente de checkout de doble columna (horizontal y vertical grande) */}
-      {showCheckoutModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm lg:pointer-events-none lg:left-auto lg:right-4 lg:top-5 lg:bottom-5 lg:w-[400px] xl:w-[420px] lg:items-stretch lg:justify-end lg:bg-transparent lg:p-0 lg:backdrop-blur-0">
-          <Panel className="w-full max-w-xl h-[92vh] bg-[#fffdfb] rounded-[1.5rem] shadow-float overflow-hidden flex flex-col border border-line lg:pointer-events-auto lg:h-full lg:max-w-none lg:rounded-[1.5rem]">
+      {viewMode === 'new_order' && (
+        <div className={`restaurant-cart-layer ${showCheckoutModal ? 'is-open' : ''}`}>
+          <Panel className="restaurant-cart-panel w-full overflow-hidden flex flex-col border border-line">
 
-            {/* Header compacto */}
-            <div className="border-b border-line px-3 py-1.5 flex items-center justify-between bg-white shrink-0">
-              <div className="flex items-center gap-2.5">
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-accent">CONFIRMAR PEDIDO</p>
-                <div className="rounded-md border border-line bg-accentWash px-2 py-0.5 flex items-center gap-1 shadow-insetSoft">
-                  <span className="text-[8px] font-bold uppercase tracking-wider text-muted">TICKET</span>
-                  <span className="text-xs font-black text-ink">{nextOrderNumber}</span>
+            {/* Header Premium */}
+            <div className="border-b border-border/80 px-4 py-3 flex items-center justify-between bg-white/80 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-[var(--primary-soft)] text-[var(--primary)] flex items-center justify-center shrink-0">
+                  <ShoppingCart size={17} strokeWidth={2.2} />
                 </div>
-                {editingOrderId ? <span className="text-[9px] bg-orange-100 text-orange-900 px-2 py-0.5 rounded-full font-black">EDITANDO</span> : null}
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-extrabold text-slate-900">Tu Pedido</h2>
+                  <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-[var(--primary)] text-white text-[10px] font-bold">
+                    {totalUnits}
+                  </span>
+                </div>
+                <div className="rounded-md border border-border/80 bg-slate-50 px-2 py-0.5 flex items-center gap-1">
+                  <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Ticket</span>
+                  <span className="text-xs font-bold text-slate-800">#{nextOrderNumber}</span>
+                </div>
+                {editingOrderId ? <span className="text-[9px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">EDITANDO</span> : null}
               </div>
-              <button
-                type="button"
-                className="rounded-full p-1.5 text-muted hover:bg-line transition"
-                onClick={() => setShowCheckoutModal(false)}
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1">
+                {cartItems.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold text-slate-500 hover:text-red-600 transition px-2 py-1 rounded-lg hover:bg-red-50"
+                    onClick={() => setCartItems([])}
+                    title="Vaciar pedido"
+                  >
+                    Limpiar
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="rounded-full p-1.5 text-muted hover:bg-slate-100 transition"
+                  onClick={() => setShowCheckoutModal(false)}
+                  aria-label="Cerrar pedido"
+                  data-cart-close
+                >
+                  <X size={17} />
+                </button>
+              </div>
             </div>
 
             {/* Cuerpo scrollable — cart items + checkout form todo junto */}
             <div className="flex-1 overflow-y-auto min-h-0">
 
               {/* Items del carrito */}
-              <div className="p-2 space-y-2">
+              <div className="p-3">
                 {cartItems.length === 0 ? (
-                  <div className="rounded-[1.4rem] border border-dashed border-lineStrong bg-canvas/60 p-5 text-center">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-accent shadow-insetSoft">
-                      <CookingPot size={22} />
+                  <div className="rounded-2xl border border-dashed border-border/80 bg-slate-50/50 p-6 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)]">
+                      <CookingPot size={24} />
                     </div>
-                    <h3 className="mt-3 text-sm font-bold text-ink">Sin productos</h3>
-                    <p className="mt-1 text-xs text-muted">Agrega productos para armar el pedido.</p>
+                    <h3 className="mt-3 text-sm font-bold text-slate-800">Sin productos</h3>
+                    <p className="mt-1 text-xs text-slate-500">Selecciona productos del catálogo para armar el pedido.</p>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="divide-y divide-border/60">
+                    {cartItems.map((item) => {
+                      const product = productsById.get(item.productId)
+                      if (!product) return null
 
-                {cartItems.map((item) => {
-                  const product = productsById.get(item.productId)
-                  if (!product) return null
+                      const selectedExtras = item.modifiers.extras
+                      const selectedOptions = item.modifiers.options
+                      const extrasTotal = selectedExtras.reduce((sum, extra) => sum + extra.price, 0)
+                      const lineTotal = (product.price + extrasTotal) * item.quantity
+                      const isExpanded = expandedLineId === item.lineId
+                      const hasModifiers = selectedExtras.length > 0 || selectedOptions.length > 0 || Boolean(item.modifiers.note)
 
-                  const selectedExtras = item.modifiers.extras
-                  const selectedOptions = item.modifiers.options
-                  const extrasTotal = selectedExtras.reduce((sum, extra) => sum + extra.price, 0)
-                  const lineTotal = (product.price + extrasTotal) * item.quantity
-                  const isExpanded = expandedLineId === item.lineId
-                  const hasModifiers = selectedExtras.length > 0 || selectedOptions.length > 0 || Boolean(item.modifiers.note)
+                      return (
+                        <div key={item.lineId} className="py-2.5 first:pt-0 last:pb-1">
+                          <div className="flex items-start gap-2.5">
+                            {isImageUrl(product.image) ? (
+                              <img alt={product.name} className="h-11 w-11 rounded-xl object-cover shrink-0 border border-border/60" src={product.image} />
+                            ) : (
+                              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)] text-sm font-black shrink-0">
+                                {product.name.charAt(0)}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <h3 className="text-xs font-bold text-slate-900 truncate">{product.name}</h3>
+                                  <p className="mt-0.5 text-[11px] text-slate-500 font-medium">{formatCurrency(product.price)}</p>
+                                </div>
+                                <span className="text-xs font-black text-slate-900 shrink-0">
+                                  {formatCurrency(lineTotal)}
+                                </span>
+                              </div>
 
-                  return (
-                    <article
-                      key={item.lineId}
-                      className={`rounded-[0.9rem] border bg-white p-2 transition duration-150 ${isExpanded ? 'border-accent/20 shadow-card' : 'border-line'}`}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        {isImageUrl(product.image) ? (
-                          <img alt={product.name} className="h-10 w-10 rounded-lg object-cover shrink-0" src={product.image} />
-                        ) : (
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accentWash text-xl shrink-0">{product.image}</div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <h3 className="text-[11px] font-bold text-ink truncate">{product.name}</h3>
-                              <p className="mt-0.5 text-[11px] text-muted">{formatCurrency(product.price)}</p>
-                            </div>
-                            <button
-                              type="button"
-                              className="rounded-full p-1.5 text-muted transition hover:bg-accentWash hover:text-accent shrink-0"
-                              onClick={() => removeItem(item.lineId)}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
+                              <div className="mt-1.5 flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    className="flex h-6 w-6 items-center justify-center rounded-lg border border-border bg-slate-50 text-slate-700 transition hover:bg-slate-100 hover:border-slate-300 active:scale-95 disabled:opacity-40"
+                                    disabled={operationsDisabled || Boolean(editingOrderId && orders.find((order) => order.id === editingOrderId)?.submittedBatches?.some((batch) => batch.itemIds.includes(item.lineId)))}
+                                    onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, quantity: Math.max(1, cur.quantity - 1) }))}
+                                    aria-label="Disminuir cantidad"
+                                  >
+                                    <Minus size={11} strokeWidth={2.5} />
+                                  </button>
+                                  <span className="w-5 text-center text-xs font-bold text-slate-800">{item.quantity}</span>
+                                  <button
+                                    type="button"
+                                    className="flex h-6 w-6 items-center justify-center rounded-lg border border-border bg-slate-50 text-slate-700 transition hover:bg-slate-100 hover:border-slate-300 active:scale-95"
+                                    onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, quantity: cur.quantity + 1 }))}
+                                    aria-label="Aumentar cantidad"
+                                  >
+                                    <Plus size={11} strokeWidth={2.5} />
+                                  </button>
+                                </div>
 
-                          <div className="mt-1.5 flex items-center justify-between border-t border-line pt-1.5">
-          <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                className="flex h-6 w-6 items-center justify-center rounded-lg border border-line bg-panel text-ink transition hover:bg-line active:scale-95"
-                              disabled={operationsDisabled || Boolean(editingOrderId && orders.find((order) => order.id === editingOrderId)?.submittedBatches?.some((batch) => batch.itemIds.includes(item.lineId)))}
-                              onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, quantity: Math.max(1, cur.quantity - 1) }))}
-                              >
-                                <Minus size={11} />
-                              </button>
-                              <span className="w-6 text-center text-xs font-semibold text-ink">{item.quantity}</span>
-                              <button
-                                type="button"
-                                className="flex h-6 w-6 items-center justify-center rounded-lg border border-line bg-panel text-ink transition hover:bg-line active:scale-95"
-                                onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, quantity: cur.quantity + 1 }))}
-                              >
-                                <Plus size={11} />
-                              </button>
-                            </div>
-                            <span className="text-xs font-bold text-ink">{formatCurrency(lineTotal)}</span>
-                          </div>
-
-                          {/* Toggle modificadores — solo para hamburguesas */}
-                          {product.categoryId === 'hamburguesas' ? (
-                            <div className="mt-1 flex justify-between items-center border-t border-dashed border-line pt-1">
-                              <button
-                                type="button"
-                                className={`flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-bold transition ${isExpanded ? 'bg-accentWash text-accent' : 'bg-panel text-muted hover:text-ink'}`}
-                                onClick={() => setExpandedLineId(isExpanded ? null : item.lineId)}
-                              >
-                                <span>Modificadores</span>
-                                <ChevronDown size={11} className={`transform transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                              </button>
-                              {hasModifiers && !isExpanded ? (
-                                <span className="text-[9px] text-accent font-black bg-accentWash px-2 py-0.5 rounded-md">Configurado</span>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      {/* Panel expandido — solo para hamburguesas */}
-                      {isExpanded && product.categoryId === 'hamburguesas' ? (
-                        <div className="mt-2 space-y-2.5 border-t border-line pt-2">
-                          {product.options?.length ? (
-                            <div>
-                              <p className="mb-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-muted">Modificadores</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {product.options.map((option) => {
-                                  const label = simplifyModifierLabel(option.label)
-                                  if (!label) return null
-                                  const isSelected = selectedOptions.includes(label)
-                                  return (
+                                <div className="flex items-center gap-1.5">
+                                  {product.categoryId === 'hamburguesas' ? (
                                     <button
-                                      key={option.id}
                                       type="button"
-                                      className={`rounded-full px-2 py-0.5 text-[11px] transition font-semibold ${isSelected ? 'bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm' : 'bg-canvas text-ink hover:bg-accentSoft'}`}
-                                      onClick={() =>
-                                        updateItem(item.lineId, (cur) => ({
-                                          ...cur,
-                                          modifiers: {
-                                            ...cur.modifiers,
-                                            options: cur.modifiers.options.includes(label)
-                                              ? cur.modifiers.options.filter((o) => o !== label)
-                                              : [...cur.modifiers.options, label],
-                                          },
-                                        }))
-                                      }
+                                      className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold transition ${isExpanded ? 'bg-[var(--primary-soft)] text-[var(--primary)]' : 'text-slate-500 hover:text-slate-900'}`}
+                                      onClick={() => setExpandedLineId(isExpanded ? null : item.lineId)}
                                     >
-                                      {label}
+                                      <span>Opciones</span>
+                                      <ChevronDown size={11} className={`transform transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                                     </button>
+                                  ) : null}
+                                  {hasModifiers && !isExpanded ? (
+                                    <span className="text-[9px] text-[var(--primary)] font-bold bg-[var(--primary-soft)] px-1.5 py-0.5 rounded">Personalizado</span>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="p-1 text-slate-400 transition hover:text-red-600 rounded-md hover:bg-red-50 shrink-0"
+                                    onClick={() => removeItem(item.lineId)}
+                                    title="Eliminar producto"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Panel expandido — solo para hamburguesas */}
+                          {isExpanded && product.categoryId === 'hamburguesas' ? (
+                            <div className="mt-2.5 ml-13 space-y-2 border-t border-border/50 pt-2">
+                              {product.options?.length ? (
+                                <div>
+                                  <p className="mb-1 text-[9px] font-black uppercase tracking-wider text-slate-500">Modificadores</p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {product.options.map((option) => {
+                                      const label = simplifyModifierLabel(option.label)
+                                      if (!label) return null
+                                      const isSelected = selectedOptions.includes(label)
+                                      return (
+                                        <button
+                                          key={option.id}
+                                          type="button"
+                                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold transition ${isSelected ? 'bg-[var(--primary)] text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                                          onClick={() =>
+                                            updateItem(item.lineId, (cur) => ({
+                                              ...cur,
+                                              modifiers: {
+                                                ...cur.modifiers,
+                                                options: cur.modifiers.options.includes(label)
+                                                  ? cur.modifiers.options.filter((o) => o !== label)
+                                                  : [...cur.modifiers.options, label],
+                                              },
+                                            }))
+                                          }
+                                        >
+                                          {label}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {/* Extras Rápidos */}
+                              <div className="space-y-1">
+                                <p className="text-[9px] font-black uppercase tracking-wider text-slate-500">Adicionales / Extras</p>
+                                {(() => {
+                                  const uniqueExtras: ProductExtra[] = []
+                                  const seenIds = new Set<string>()
+                                  ;[...(product.extras || []), ...quickExtras].forEach((extra) => {
+                                    if (!seenIds.has(extra.id)) {
+                                      seenIds.add(extra.id)
+                                      uniqueExtras.push(extra)
+                                    }
+                                  })
+                                  if (uniqueExtras.length === 0) {
+                                    return <div className="text-[10px] text-muted italic">Sin extras disponibles</div>
+                                  }
+                                  return (
+                                    <div className="grid gap-1 sm:grid-cols-2">
+                                      {uniqueExtras.map((extra) => {
+                                        const count = selectedExtras.filter((x) => x.id === extra.id).length
+                                        return (
+                                          <div key={extra.id} className="flex items-center justify-between bg-slate-50 px-2 py-1 rounded-lg border border-border/60">
+                                            <div className="flex flex-col min-w-0">
+                                              <span className="text-[10px] font-semibold text-slate-800 truncate">{extra.name}</span>
+                                              <span className="text-[9px] text-slate-500 font-bold">{formatCurrency(extra.price)}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                              {count > 0 ? (
+                                                <>
+                                                  <button
+                                                    type="button"
+                                                    className="flex h-5 w-5 items-center justify-center rounded border border-border bg-white text-slate-700 hover:bg-slate-100 transition"
+                                                    onClick={() => updateItem(item.lineId, (cur) => {
+                                                      const idx = cur.modifiers.extras.findIndex((x) => x.id === extra.id)
+                                                      if (idx === -1) return cur
+                                                      const next = [...cur.modifiers.extras]
+                                                      next.splice(idx, 1)
+                                                      return { ...cur, modifiers: { ...cur.modifiers, extras: next } }
+                                                    })}
+                                                  >
+                                                    <Minus size={9} />
+                                                  </button>
+                                                  <span className="w-3 text-center text-[10px] font-bold text-slate-800">{count}</span>
+                                                  <button
+                                                    type="button"
+                                                    className="flex h-5 w-5 items-center justify-center rounded border border-border bg-white text-slate-700 hover:bg-slate-100 transition"
+                                                    onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, modifiers: { ...cur.modifiers, extras: [...cur.modifiers.extras, extra] } }))}
+                                                  >
+                                                    <Plus size={9} />
+                                                  </button>
+                                                </>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  className="flex h-5 px-1.5 items-center justify-center rounded border border-[var(--primary)] bg-[var(--primary-soft)] text-[9px] font-bold text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition"
+                                                  onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, modifiers: { ...cur.modifiers, extras: [...cur.modifiers.extras, extra] } }))}
+                                                >
+                                                  <Plus size={9} className="mr-0.5" />
+                                                  Agregar
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
                                   )
-                                })}
+                                })()}
+                              </div>
+
+                              <div>
+                                <textarea
+                                  className="min-h-8 w-full rounded-lg border border-border/80 bg-slate-50/50 px-2.5 py-1.5 text-xs text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[var(--primary)]"
+                                  placeholder="Nota para cocina (ej. sin cebolla)..."
+                                  value={item.modifiers.note}
+                                  onChange={(e) => updateItem(item.lineId, (cur) => ({ ...cur, modifiers: { ...cur.modifiers, note: e.target.value } }))}
+                                />
                               </div>
                             </div>
                           ) : null}
-
-                          {/* Extras Rápidos */}
-                          <div className="space-y-1.5">
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted">Adicionales / Extras</p>
-                            {(() => {
-                              const uniqueExtras: ProductExtra[] = []
-                              const seenIds = new Set<string>()
-                              ;[...(product.extras || []), ...quickExtras].forEach((extra) => {
-                                if (!seenIds.has(extra.id)) {
-                                  seenIds.add(extra.id)
-                                  uniqueExtras.push(extra)
-                                }
-                              })
-                              if (uniqueExtras.length === 0) {
-                                return <div className="text-[10px] text-muted italic">Sin extras disponibles</div>
-                              }
-                              return (
-                                <div className="grid gap-1.5 sm:grid-cols-2">
-                                  {uniqueExtras.map((extra) => {
-                                    const count = selectedExtras.filter((x) => x.id === extra.id).length
-                                    return (
-                                      <div key={extra.id} className="flex items-center justify-between bg-canvas/30 px-2 py-1 rounded-xl border border-line">
-                                        <div className="flex flex-col min-w-0">
-                                          <span className="text-[11px] font-semibold text-ink truncate">{extra.name}</span>
-                                          <span className="text-[9px] text-muted font-bold">{formatCurrency(extra.price)}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                          {count > 0 ? (
-                                            <>
-                                              <button
-                                                type="button"
-                                                className="flex h-5 w-5 items-center justify-center rounded-md border border-line bg-panel text-ink hover:bg-line transition active:scale-90"
-                                                onClick={() => updateItem(item.lineId, (cur) => {
-                                                  const idx = cur.modifiers.extras.findIndex((x) => x.id === extra.id)
-                                                  if (idx === -1) return cur
-                                                  const next = [...cur.modifiers.extras]
-                                                  next.splice(idx, 1)
-                                                  return { ...cur, modifiers: { ...cur.modifiers, extras: next } }
-                                                })}
-                                              >
-                                                <Minus size={10} />
-                                              </button>
-                                              <span className="w-3 text-center text-[11px] font-black text-ink">{count}</span>
-                                              <button
-                                                type="button"
-                                                className="flex h-5 w-5 items-center justify-center rounded-md border border-line bg-panel text-ink hover:bg-line transition active:scale-90"
-                                                onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, modifiers: { ...cur.modifiers, extras: [...cur.modifiers.extras, extra] } }))}
-                                              >
-                                                <Plus size={10} />
-                                              </button>
-                                            </>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              className="flex h-5 px-2 items-center justify-center rounded-md border border-accent bg-accentWash text-[10px] font-black text-accent hover:bg-accent hover:text-white transition active:scale-95"
-                                              onClick={() => updateItem(item.lineId, (cur) => ({ ...cur, modifiers: { ...cur.modifiers, extras: [...cur.modifiers.extras, extra] } }))}
-                                            >
-                                              <Plus size={10} className="mr-0.5" />
-                                              Agregar
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              )
-                            })()}
-                          </div>
-
-                          <div>
-                            <label className="mb-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-muted">
-                              <MessageSquareText size={11} />
-                              Observacion para cocina
-                            </label>
-                            <textarea
-                              className="min-h-10 w-full rounded-xl border border-line bg-canvas/35 px-3 py-2 text-xs text-ink outline-none transition placeholder:text-muted focus:border-accent"
-                              placeholder="Ej. salsa aparte, sin cebolla..."
-                              value={item.modifiers.note}
-                              onChange={(e) => updateItem(item.lineId, (cur) => ({ ...cur, modifiers: { ...cur.modifiers, note: e.target.value } }))}
-                            />
-                          </div>
                         </div>
-                      ) : null}
-                    </article>
-                  )
-                })}
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Separador */}
-              <div className="mx-3 my-1 border-t border-dashed border-line" />
+              <div className="mx-3 my-1 border-t border-dashed border-border/80" />
 
               {/* Formulario de checkout embebido */}
-              <div className="px-3 pb-3 space-y-2">
+              <div className="px-3 pb-3 space-y-2.5">
 
                 {/* Origen */}
                 {userRole !== 'pedidos' ? (
-                  <div className="rounded-[0.9rem] border border-line bg-white p-2 shadow-sm">
-                    <div className="text-[9px] font-black uppercase tracking-wider text-muted mb-1.5">Origen</div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Canal</div>
                     <div className="grid grid-cols-2 gap-1.5">
                       {[
                         { id: 'local', label: 'Local', icon: Store },
@@ -1873,19 +1887,21 @@ export function CajaView({
                           <button
                             key={option.id}
                             type="button"
-                            className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition flex items-center justify-center gap-1.5 ${isActive
-                              ? option.id === 'local'
-                                ? 'border-[#3b82f6] bg-[#3b82f6] text-white shadow-sm'
-                                : 'border-[#10b981] bg-[#10b981] text-white shadow-sm'
-                              : 'border-line bg-panel/80 text-ink hover:bg-panel'}`}
+                            className={`rounded-xl border py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                              isActive
+                                ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                                : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                            }`}
                             onClick={() => {
                               setOrderSource(option.id as 'local' | 'whatsapp')
                               setFulfillmentType(option.id === 'local' ? 'table' : 'pickup')
                               setPaymentStatus(option.id === 'whatsapp' ? 'pending' : 'paid')
+                              if (option.id === 'whatsapp') setPaymentMethod(null)
+                              else setPaymentMethod('cash')
                             }}
                           >
-                            <Icon size={13} />
-                            {option.label.toUpperCase()}
+                            <Icon size={14} />
+                            <span>{option.label}</span>
                           </button>
                         )
                       })}
@@ -1894,34 +1910,38 @@ export function CajaView({
                 ) : null}
 
                 {/* Entrega */}
-                <div className="rounded-[0.9rem] border border-line bg-white p-2 shadow-sm">
-                  <div className="text-[9px] font-black uppercase tracking-wider text-muted mb-1.5">Entrega</div>
-                  <div className="grid grid-cols-2 gap-1.5">
+                <div className="space-y-1 pt-1.5 border-t border-border/50">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Entrega</div>
+                  <div className="grid grid-cols-3 gap-1.5">
                     {(() => {
                       const options: Array<{ id: FulfillmentType; label: string; icon: typeof Utensils; disabled?: boolean }> = [
                         { id: 'table', label: 'Mesa', icon: Utensils, disabled: userRole === 'pedidos' || orderSource === 'whatsapp' },
                         { id: 'pickup', label: 'Retiro', icon: ShoppingBag },
-                        // Faltaba: un pedido de WhatsApp cargado a mano (bot apagado o corrigiendo
-                        // algo) solo se podia guardar como retiro, aunque fuera para envio.
                         { id: 'delivery', label: 'Delivery', icon: Truck },
                       ]
                       return options.map((option) => {
                         if (option.disabled) return null
                         const isActive = fulfillmentType === option.id
                         const Icon = option.icon
-                        let activeStyles = 'border-ink bg-ink text-white shadow-sm'
-                        if (option.id === 'table') activeStyles = 'border-[#6366f1] bg-[#6366f1] text-white shadow-sm'
-                        else if (option.id === 'pickup') activeStyles = 'border-[#d97706] bg-[#d97706] text-white shadow-sm'
-                        else if (option.id === 'delivery') activeStyles = 'border-[#0ea5e9] bg-[#0ea5e9] text-white shadow-sm'
                         return (
                           <button
                             key={option.id}
                             type="button"
-                            className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition flex items-center justify-center gap-1.5 ${isActive ? activeStyles : 'border-line bg-panel/80 text-ink hover:bg-panel'}`}
-                            onClick={() => { setFulfillmentType(option.id); if (option.id === 'table' && restaurantTables.length) { setPaymentStatus('pending'); setPaymentMethod(null) } }}
+                            className={`rounded-xl border py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                              isActive
+                                ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                                : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                            }`}
+                            onClick={() => {
+                              setFulfillmentType(option.id)
+                              if (option.id === 'table' && restaurantTables.length) {
+                                setPaymentStatus('pending')
+                                setPaymentMethod(null)
+                              }
+                            }}
                           >
                             <Icon size={13} />
-                            {option.label.toUpperCase()}
+                            <span>{option.label}</span>
                           </button>
                         )
                       })
@@ -1929,71 +1949,121 @@ export function CajaView({
                   </div>
                   {fulfillmentType === 'table' ? (
                     <div className="mt-1.5">
-                      {restaurantTables.length ? <select
-                        className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
-                        value={tableId}
-                        onChange={(e) => { const selected = restaurantTables.find(table => table.id === e.target.value); setTableId(selected?.id || ''); setTableInfo(selected?.name || '') }}
-                      ><option value="">Seleccionar mesa</option>{restaurantTables.filter(table => !table.archivedAt && table.active !== false).map(table => <option key={table.id} value={table.id} disabled={table.status === 'bill_requested' || table.status === 'reserved'}>{table.name} — {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse · reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}</option>)}</select> : <input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink" placeholder="Mesa" value={tableInfo} onChange={e => setTableInfo(e.target.value)} />}
+                      {restaurantTables.length ? (
+                        <select
+                          className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                          value={tableId}
+                          onChange={(e) => {
+                            const selected = restaurantTables.find((table) => table.id === e.target.value)
+                            setTableId(selected?.id || '')
+                            setTableInfo(selected?.name || '')
+                          }}
+                        >
+                          <option value="">Seleccionar mesa</option>
+                          {restaurantTables
+                            .filter((table) => !table.archivedAt && table.active !== false)
+                            .map((table) => (
+                              <option key={table.id} value={table.id} disabled={table.status === 'bill_requested' || table.status === 'reserved'}>
+                                {table.name} — {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse · reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900"
+                          placeholder="Número o referencia de mesa"
+                          value={tableInfo}
+                          onChange={(e) => setTableInfo(e.target.value)}
+                        />
+                      )}
                     </div>
                   ) : null}
                 </div>
 
                 {/* Contacto */}
-                <div className="rounded-[0.9rem] border border-line bg-white p-2 shadow-sm space-y-1.5">
-                  <div className="text-[9px] font-black uppercase tracking-wider text-muted">Datos de Contacto</div>
-                  {!!restaurantCustomers.length && <select aria-label="Cliente registrado" value={customerId} onChange={event => { const selected = restaurantCustomers.find(item => item.id === event.target.value); setCustomerId(selected?.id || ''); if (selected) { setCustomerName([selected.firstName, selected.lastName].filter(Boolean).join(' ')); setCustomerPhone(selected.normalizedPhone) } }} className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink"><option value="">Sin cliente registrado</option>{restaurantCustomers.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{[item.firstName, item.lastName].filter(Boolean).join(' ')} · +{item.normalizedPhone}</option>)}</select>}
+                <div className="space-y-1.5 pt-1.5 border-t border-border/50">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Datos de Contacto</div>
+                  {!!restaurantCustomers.length && (
+                    <select
+                      aria-label="Cliente registrado"
+                      value={customerId}
+                      onChange={(event) => {
+                        const selected = restaurantCustomers.find((item) => item.id === event.target.value)
+                        setCustomerId(selected?.id || '')
+                        if (selected) {
+                          setCustomerName([selected.firstName, selected.lastName].filter(Boolean).join(' '))
+                          setCustomerPhone(selected.normalizedPhone)
+                        }
+                      }}
+                      className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                    >
+                      <option value="">Sin cliente registrado</option>
+                      {restaurantCustomers
+                        .filter((item) => item.active)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {[item.firstName, item.lastName].filter(Boolean).join(' ')} · +{item.normalizedPhone}
+                          </option>
+                        ))}
+                    </select>
+                  )}
                   <input
-                    className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
+                    className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
                     placeholder="Nombre del Cliente (opcional)"
                     value={customerName}
-                    onChange={(e) => { setCustomerName(e.target.value); setCustomerId('') }}
+                    onChange={(e) => {
+                      setCustomerName(e.target.value)
+                      setCustomerId('')
+                    }}
                   />
                   {(orderSource === 'whatsapp' || fulfillmentType === 'delivery') ? (
                     <input
-                      className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
-                      placeholder="Telefono (opcional)"
+                      className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                      placeholder="Teléfono (opcional)"
                       value={customerPhone}
-                      onChange={(e) => { setCustomerPhone(e.target.value); setCustomerId('') }}
+                      onChange={(e) => {
+                        setCustomerPhone(e.target.value)
+                        setCustomerId('')
+                      }}
                     />
                   ) : null}
                   {fulfillmentType === 'delivery' ? (
-                    <>
-                      <textarea
-                        className="w-full min-h-[42px] rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
-                        placeholder="Direccion o link de ubicacion (opcional)"
-                        value={deliveryAddress}
-                        onChange={(e) => setDeliveryAddress(e.target.value)}
-                      />
-                    </>
+                    <textarea
+                      className="w-full min-h-[42px] rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                      placeholder="Dirección o referencia de entrega (opcional)"
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                    />
                   ) : null}
                 </div>
 
-                {/* Estado de pago */}
-                <div className="rounded-[0.9rem] border border-line bg-white p-2 shadow-sm">
-                  <div className="text-[9px] font-black uppercase tracking-wider text-muted mb-1.5">Estado de Pago</div>
-                  <div className="grid grid-cols-3 gap-1.5">
+                {/* Estado de pago — Libre conmutación Pagado/Pendiente, sin Regalo */}
+                <div className="space-y-1.5 pt-1.5 border-t border-border/50">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Estado de Pago</div>
+                  <div className="grid grid-cols-2 gap-1.5">
                     {[
                       { id: 'paid', label: 'Pagado' },
                       { id: 'pending', label: 'Pendiente' },
-                      { id: 'gift', label: 'Regalo' },
                     ].map((option) => {
                       const isActive = paymentStatus === option.id
                       return (
                         <button
                           key={option.id}
                           type="button"
-                          disabled={option.id === 'gift' && !canAuthorizeGift}
-                          className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition ${isActive
-                            ? option.id === 'paid'
-                              ? 'border-[#10b981] bg-[#10b981] text-white shadow-sm'
-                              : option.id === 'pending'
-                                ? 'border-[#ef4444] bg-[#ef4444] text-white shadow-sm'
-                                : 'border-[#8b5cf6] bg-[#8b5cf6] text-white shadow-sm'
-                            : 'border-line bg-panel/80 text-ink hover:bg-panel'}`}
+                          className={`rounded-xl border py-2 text-xs font-extrabold transition flex items-center justify-center gap-1.5 ${
+                            isActive
+                              ? option.id === 'paid'
+                                ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm'
+                                : 'border-amber-600 bg-amber-600 text-white shadow-sm'
+                              : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                          }`}
                           onClick={() => {
-                            setPaymentStatus(option.id as 'paid' | 'pending' | 'gift')
-                            if (option.id === 'pending' || option.id === 'gift') setPaymentMethod(null)
-                            else setPaymentMethod('cash')
+                            setPaymentStatus(option.id as 'paid' | 'pending')
+                            if (option.id === 'pending') {
+                              setPaymentMethod(null)
+                            } else {
+                              setPaymentMethod('cash')
+                            }
                           }}
                         >
                           {option.label.toUpperCase()}
@@ -2003,8 +2073,8 @@ export function CajaView({
                   </div>
 
                   {paymentStatus === 'paid' ? (
-                    <div className="mt-2 border-t border-dashed border-line pt-2 space-y-1.5">
-                      <div className="text-[9px] font-black uppercase tracking-wider text-muted">Metodo de Pago</div>
+                    <div className="mt-2 border-t border-dashed border-border/60 pt-2 space-y-1.5">
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Método de Pago</div>
                       <div className="grid grid-cols-4 gap-1.5">
                         {[
                           { id: 'cash', label: 'Efectivo', icon: Coins },
@@ -2018,69 +2088,102 @@ export function CajaView({
                             <button
                               key={option.id}
                               type="button"
-                              className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition flex items-center justify-center gap-1 ${isActive ? 'border-[#10b981] bg-[#10b981] text-white shadow-sm' : 'border-line bg-panel/80 text-ink hover:bg-panel'}`}
+                              className={`rounded-xl border py-1.5 text-[11px] font-bold transition flex items-center justify-center gap-1 ${
+                                isActive
+                                  ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                                  : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                              }`}
                               onClick={() => setPaymentMethod(option.id as PaymentMethod)}
                             >
                               <Icon size={12} />
-                              {option.label.toUpperCase()}
+                              <span>{option.label}</span>
                             </button>
                           )
                         })}
                       </div>
 
                       {paymentMethod === 'cash' ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 pt-1">
                           <input
-                            className="flex-1 rounded-[0.7rem] border border-line bg-canvas/35 px-3 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
+                            className="flex-1 rounded-xl border border-border/80 bg-slate-50/70 px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
                             inputMode="decimal"
                             placeholder="Efectivo recibido (opcional)"
                             value={cashReceivedInput}
                             onChange={(e) => setCashReceivedInput(e.target.value)}
                           />
-                          <div className="text-xs font-black text-ink shrink-0">Cambio: {formatCurrency(change)}</div>
+                          <div className="text-xs font-bold text-slate-800 shrink-0">Cambio: {formatCurrency(change)}</div>
                         </div>
                       ) : null}
 
                       {paymentMethod === 'mixed' ? (
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 pt-1">
                           <div className="grid grid-cols-3 gap-1.5">
                             <label className="block">
-                              <div className="mb-1 text-[9px] font-black uppercase tracking-wider text-muted">Efectivo</div>
+                              <div className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">Efectivo</div>
                               <input
-                                className={`w-full rounded-[0.7rem] border bg-canvas/35 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent ${cashAmount === 0 ? 'border-red-300' : 'border-line'}`}
+                                className={`w-full rounded-xl border bg-slate-50/70 px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)] ${cashAmount === 0 ? 'border-red-300' : 'border-border/80'}`}
                                 inputMode="decimal"
                                 placeholder="0"
                                 value={cashSplitInput}
                                 onChange={(e) => setCashSplitInput(e.target.value)}
                               />
                             </label>
-                            <label className="block"><div className="mb-1 text-[9px] font-black uppercase tracking-wider text-muted">QR</div><input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent" inputMode="decimal" placeholder="0" value={qrSplitInput} onChange={(e) => setQrSplitInput(e.target.value)} /></label>
-                            <label className="block"><div className="mb-1 text-[9px] font-black uppercase tracking-wider text-muted">Tarjeta</div><input className="w-full rounded-[0.7rem] border border-line bg-canvas/35 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent" inputMode="decimal" placeholder="0" value={cardSplitInput} onChange={(e) => setCardSplitInput(e.target.value)} /></label>
+                            <label className="block">
+                              <div className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">QR</div>
+                              <input
+                                className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                                inputMode="decimal"
+                                placeholder="0"
+                                value={qrSplitInput}
+                                onChange={(e) => setQrSplitInput(e.target.value)}
+                              />
+                            </label>
+                            <label className="block">
+                              <div className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">Tarjeta</div>
+                              <input
+                                className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                                inputMode="decimal"
+                                placeholder="0"
+                                value={cardSplitInput}
+                                onChange={(e) => setCardSplitInput(e.target.value)}
+                              />
+                            </label>
                           </div>
-                          {Math.round((cashAmount + qrAmount + cardAmount + Number.EPSILON) * 100) / 100 !== Math.round((cartTotal + Number.EPSILON) * 100) / 100 ? <span className="text-[9px] text-red-500 font-bold block px-1">Los importes deben sumar exactamente {formatCurrency(cartTotal)}.</span> : null}
+                          {Math.round((cashAmount + qrAmount + cardAmount + Number.EPSILON) * 100) / 100 !== Math.round((cartTotal + Number.EPSILON) * 100) / 100 ? (
+                            <span className="text-[9px] text-red-500 font-bold block px-1">
+                              Los importes deben sumar exactamente {formatCurrency(cartTotal)}.
+                            </span>
+                          ) : null}
                           <div className="flex items-center gap-2">
                             <input
-                              className="flex-1 rounded-[0.7rem] border border-line bg-canvas/35 px-2.5 py-1.5 text-xs text-ink outline-none transition focus:border-accent"
+                              className="flex-1 rounded-xl border border-border/80 bg-slate-50/70 px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
                               inputMode="decimal"
                               placeholder="Efectivo recibido (opcional)"
                               value={cashReceivedInput}
                               onChange={(e) => setCashReceivedInput(e.target.value)}
                             />
-                            <div className="text-xs font-black text-ink shrink-0">Cambio: {formatCurrency(change)}</div>
+                            <div className="text-xs font-bold text-slate-800 shrink-0">Cambio: {formatCurrency(change)}</div>
                           </div>
                         </div>
                       ) : null}
 
                       {paymentMethod === 'qr' ? (
-                        <div className="rounded-[0.7rem] bg-panel/80 px-3 py-1.5 text-xs flex justify-between items-center">
-                          <span className="text-muted font-semibold">Monto por QR</span>
-                          <span className="font-black text-ink">{formatCurrency(cartTotal)}</span>
+                        <div className="rounded-xl bg-slate-50 border border-border/80 px-3 py-1.5 text-xs flex justify-between items-center mt-1">
+                          <span className="text-slate-500 font-semibold">Monto por QR</span>
+                          <span className="font-extrabold text-slate-900">{formatCurrency(cartTotal)}</span>
+                        </div>
+                      ) : null}
+
+                      {paymentMethod === 'card' ? (
+                        <div className="rounded-xl bg-slate-50 border border-border/80 px-3 py-1.5 text-xs flex justify-between items-center mt-1">
+                          <span className="text-slate-500 font-semibold">Monto por Tarjeta</span>
+                          <span className="font-extrabold text-slate-900">{formatCurrency(cartTotal)}</span>
                         </div>
                       ) : null}
                     </div>
                   ) : paymentStatus === 'pending' ? (
-                    <div className="mt-2 border-t border-dashed border-line pt-2 space-y-1.5">
-                      <div className="text-[9px] font-black uppercase tracking-wider text-muted">Metodo Esperado</div>
+                    <div className="mt-2 border-t border-dashed border-border/60 pt-2 space-y-1.5">
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Método Esperado</div>
                       <div className="grid grid-cols-3 gap-1.5">
                         {[
                           { id: 'cash', label: 'Efectivo', icon: Coins },
@@ -2093,18 +2196,21 @@ export function CajaView({
                             <button
                               key={option.id}
                               type="button"
-                              className={`rounded-[0.7rem] border py-1.5 text-[11px] font-black transition flex items-center justify-center gap-1 ${isActive ? 'border-[#10b981] bg-[#10b981] text-white shadow-sm' : 'border-line bg-panel/80 text-ink hover:bg-panel'}`}
+                              className={`rounded-xl border py-1.5 text-[11px] font-bold transition flex items-center justify-center gap-1 ${
+                                isActive
+                                  ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                                  : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                              }`}
                               onClick={() => setExpectedPaymentMethod(option.id as PaymentMethod)}
                             >
                               <Icon size={12} />
-                              {option.label.toUpperCase()}
+                              <span>{option.label}</span>
                             </button>
                           )
                         })}
                       </div>
                     </div>
-                  ) : (
-                    <div className="mt-2 border-t border-dashed border-line pt-2 text-xs text-violet-800">
+                    <div className="mt-2 border-t border-dashed border-border/60 pt-2 text-xs text-violet-800">
                       Cortesía autorizada por <strong>{userName}</strong>. No se registrará ingreso en Caja; el valor comercial y el consumo quedarán en Historial e Inventario.
                     </div>
                   )}
@@ -2112,73 +2218,58 @@ export function CajaView({
               </div>
             </div>
 
-            {/* Footer fijo compacto: total + enviar */}
-            <div className="border-t border-line bg-white px-3 py-2 shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <div className="text-[9px] font-black uppercase text-muted tracking-wider">Productos</div>
-                      <div className="text-xs font-black text-ink">{totalUnits} uds</div>
-                    </div>
-                    <div>
-                      <div className="text-[9px] font-black uppercase text-muted tracking-wider">Total</div>
-                      <div className="text-sm font-black text-accent">{formatCurrency(cartTotal)}</div>
-                    </div>
-                  </div>
+            {/* Footer fijo del carrito con total prominente en var(--primary) y botón de acción */}
+            <div className="border-t border-border/80 bg-white/95 backdrop-blur-md px-4 py-3 shrink-0 space-y-2.5">
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-xs text-slate-500 font-medium">
+                  <span>Subtotal ({totalUnits} {totalUnits === 1 ? 'ítem' : 'ítems'})</span>
+                  <span className="font-semibold text-slate-700">{formatCurrency(cartTotal)}</span>
                 </div>
+                <div className="flex justify-between items-center pt-1 border-t border-border/40">
+                  <span className="text-sm font-extrabold text-slate-900 tracking-tight">Total</span>
+                  <span className="text-xl font-black text-[var(--primary)]">{formatCurrency(cartTotal)}</span>
+                </div>
+              </div>
 
-                {editingOrderId && (
-                  <button
-                    type="button"
-                    className="px-3 py-2 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 transition text-xs font-bold text-orange-950 shrink-0"
-                    onClick={handleDiscardEdit}
-                  >
-                    Descartar
-                  </button>
-                )}
+              <button
+                type="button"
+                className="w-full h-12 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] font-extrabold text-sm flex items-center justify-center gap-2 shadow-md shadow-[var(--primary)]/20 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && restaurantTables.length > 0 && !tableId) || submitOrderRef.current}
+                onClick={async () => {
+                  if (operationsDisabled || submitOrderRef.current) {
+                    setOperationMessage('Debes iniciar un turno antes de realizar operaciones.')
+                    return
+                  }
+                  submitOrderRef.current = true
+                  setIsSubmitting(true)
+                  const necesitaDatosDeContacto = fulfillmentType === 'delivery' || orderSource === 'whatsapp'
+                  const nombreFinal = customerName.trim() || (necesitaDatosDeContacto ? 'Cliente' : '')
+                  const telefonoFinal = customerPhone.trim() || (necesitaDatosDeContacto ? 'Sin telefono' : '')
+                  const direccionFinal =
+                    deliveryAddress.trim() ||
+                    (fulfillmentType === 'delivery' ? 'Sin direccion: coordinar con el cliente' : '')
 
-                <Button
-                  size="lg"
-                  className="shadow-xl shadow-accent/20 shrink-0"
-                  disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && restaurantTables.length > 0 && !tableId) || submitOrderRef.current}
-                  onClick={async () => {
-                    if (operationsDisabled || submitOrderRef.current) { setOperationMessage('Debes iniciar un turno antes de realizar operaciones.'); return }
-                    submitOrderRef.current = true
-                    setIsSubmitting(true)
-                    // Las reglas de Firestore exigen nombre, telefono y direccion NO vacios en los
-                    // pedidos de delivery, y nombre y telefono en los de WhatsApp. Si falta alguno
-                    // rechazan el pedido entero con "Missing or insufficient permissions", que no
-                    // le dice nada a quien lo esta cargando. Como se pidio que la direccion fuera
-                    // opcional, cuando no la escriben se guarda un texto claro en lugar de dejarla
-                    // vacia: el pedido entra igual y quien lo lleva ve que hay que coordinarla.
-                    const necesitaDatosDeContacto = fulfillmentType === 'delivery' || orderSource === 'whatsapp'
-                    const nombreFinal = customerName.trim() || (necesitaDatosDeContacto ? 'Cliente' : '')
-                    const telefonoFinal = customerPhone.trim() || (necesitaDatosDeContacto ? 'Sin telefono' : '')
-                    const direccionFinal =
-                      deliveryAddress.trim() ||
-                      (fulfillmentType === 'delivery' ? 'Sin direccion: coordinar con el cliente' : '')
-
-                    const payload = {
-                      cartItems,
-                      productsById,
-                      payment: buildPaymentSummary(),
-                      paymentStatus,
-                      paymentMethod,
-                      expectedPaymentMethod,
-                      orderSource,
-                      fulfillmentType,
-                      tableId: fulfillmentType === 'table' ? tableId : undefined,
-                      tableInfo: fulfillmentType === 'table' ? tableInfo.trim() : '',
-                      customerName: nombreFinal,
-                      customerPhone: telefonoFinal,
-                      customerId: customerId || undefined,
-                      deliveryAddress: direccionFinal,
-                      createdBy: userId,
-                    }
-
-                    let isSuccess = false
-                    const isEditing = Boolean(editingOrderId)
+                  const payload = {
+                    cartItems,
+                    productsById,
+                    payment: paymentStatus === 'pending'
+                      ? { method: (expectedPaymentMethod || 'cash'), cashAmount: 0, qrAmount: 0, cardAmount: 0, cashReceived: 0, change: 0 }
+                      : buildPaymentSummary(),
+                    paymentStatus,
+                    paymentMethod: paymentStatus === 'paid' ? (paymentMethod || 'cash') : null,
+                    expectedPaymentMethod: paymentStatus === 'pending' ? expectedPaymentMethod : null,
+                    orderSource,
+                    fulfillmentType,
+                    tableId: fulfillmentType === 'table' ? tableId : undefined,
+                    tableInfo: fulfillmentType === 'table' ? tableInfo.trim() : '',
+                    customerName: nombreFinal,
+                    customerPhone: telefonoFinal,
+                    customerId: customerId || undefined,
+                    deliveryAddress: direccionFinal,
+                    createdBy: userId,
+                  }
+                  let isSuccess = false
+                  const isEditing = Boolean(editingOrderId)
 
                     if (editingOrderId) {
                       try {
@@ -2276,7 +2367,6 @@ export function CajaView({
                       setDeliveryAddress('')
                       setExpectedPaymentMethod(null)
                       setEditingOrderId(null)
-                      setActiveTab('catalog')
                       setShowCheckoutModal(false)
                     }
 
@@ -2284,12 +2374,29 @@ export function CajaView({
                     submitOrderRef.current = false
                   }}
                 >
-                  {isSubmitting ? <LoaderCircle size={16} className="animate-spin" /> : <CookingPot size={16} />}
-                  {isSubmitting ? 'Guardando...' : editingOrderId ? 'Guardar' : 'Enviar a cocina'}
-                </Button>
-              </div>
-            </div>
+                  {isSubmitting ? (
+                    <>
+                      <LoaderCircle size={18} className="animate-spin" />
+                      <span>Procesando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{editingOrderId ? 'Guardar Cambios' : 'Procesar Pedido'}</span>
+                      <ArrowRight size={17} strokeWidth={2.5} />
+                    </>
+                  )}
+                </button>
 
+                {editingOrderId && (
+                  <button
+                    type="button"
+                    className="w-full py-1 text-center text-xs font-bold text-amber-700 hover:text-amber-800 transition"
+                    onClick={handleDiscardEdit}
+                  >
+                    Descartar edición
+                  </button>
+                )}
+              </div>
           </Panel>
         </div>
       )}

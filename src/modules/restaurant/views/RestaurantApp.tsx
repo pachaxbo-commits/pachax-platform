@@ -1,6 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { getBusinessTypeDefinition } from '../../../config/businessTypes'
 import { applyTenantTheme } from '../../../lib/tenantTheme'
+import { updateRestaurantBranding } from '../../../lib/firebase'
+import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeColors } from './restaurantTheme'
 import {
   RestaurantExperience,
   type RestaurantSession,
@@ -22,6 +24,8 @@ export function RestaurantApp({
   role,
   logoUrl,
   companyName,
+  primaryColor,
+  accentColor,
   onSignOut,
   onOpenPrinterSettings,
 }: {
@@ -32,10 +36,16 @@ export function RestaurantApp({
   role: string
   logoUrl?: string
   companyName?: string
+  primaryColor?: string
+  accentColor?: string
   onSignOut: () => Promise<void>
   onOpenPrinterSettings?: () => void
 }) {
   const definition = getBusinessTypeDefinition('restaurant')
+  const [themeColors, setThemeColors] = useState<RestaurantThemeColors>({
+    primary: primaryColor && validRestaurantColor(primaryColor) ? primaryColor : DEFAULT_RESTAURANT_THEME.primary,
+    accent: accentColor && validRestaurantColor(accentColor) ? accentColor : DEFAULT_RESTAURANT_THEME.accent,
+  })
 
   useEffect(() => {
     applyTenantTheme(definition.theme)
@@ -54,6 +64,11 @@ export function RestaurantApp({
       session={session}
       logoUrl={logoUrl}
       companyName={companyName || restaurantName}
+      themeColors={themeColors}
+      onSaveTheme={async (colors) => {
+        await updateRestaurantBranding(tenantId, { primaryColor: colors.primary, accentColor: colors.accent })
+        setThemeColors(colors)
+      }}
       orders={INITIAL_RESTAURANT_ORDERS}
       tables={INITIAL_TABLES}
       sectors={INITIAL_SECTORS}

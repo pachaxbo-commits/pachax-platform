@@ -1,0 +1,14 @@
+.restaurant-studio-preview:fullscreen {
+  display: flex;
+  width: 100vw;
+  height: 100dvh;
+  padding: 0 !important;
+  background: #fff;
+}
+.restaurant-studio-preview:fullscreen > div {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}

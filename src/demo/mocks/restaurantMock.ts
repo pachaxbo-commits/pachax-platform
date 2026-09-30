@@ -56,10 +56,10 @@ export interface RestaurantCustomer {
 }
 
 export const RESTAURANT_CATEGORIES: CatalogCategory[] = [
-  { id: 'cat-entradas', name: 'Entradas', emoji: '🥗', sortOrder: 1, isVisible: true, isActive: true },
-  { id: 'cat-fuertes', name: 'Platos Principales', emoji: '🥩', sortOrder: 2, isVisible: true, isActive: true },
-  { id: 'cat-bebidas', name: 'Bebidas', emoji: '🍷', sortOrder: 3, isVisible: true, isActive: true },
-  { id: 'cat-postres', name: 'Postres', emoji: '🍰', sortOrder: 4, isVisible: true, isActive: true },
+  { id: 'cat-entradas', name: 'Entradas', emoji: '', sortOrder: 1, isVisible: true, isActive: true },
+  { id: 'cat-fuertes', name: 'Platos Principales', emoji: '', sortOrder: 2, isVisible: true, isActive: true },
+  { id: 'cat-bebidas', name: 'Bebidas', emoji: '', sortOrder: 3, isVisible: true, isActive: true },
+  { id: 'cat-postres', name: 'Postres', emoji: '', sortOrder: 4, isVisible: true, isActive: true },
 ]
 
 export const RESTAURANT_PRODUCTS: Product[] = [
