@@ -7,6 +7,7 @@ import {
   Tablet,
   Laptop,
   Maximize2,
+  RotateCcw,
   Shield,
 } from 'lucide-react'
 import type { DemoTemplateId } from '../demo/demoTypes'
@@ -18,7 +19,7 @@ export type ViewportMode = 'responsive' | 'mobile_360' | 'mobile_390' | 'tablet_
 
 const VIEWPORT_CONFIGS: Record<
   ViewportMode,
-  { label: string; width: string; height: string; icon: any }
+  { label: string; width: string; height: string; icon: typeof Maximize2 }
 > = {
   responsive: { label: 'Fluido', width: '100%', height: 'calc(100vh - 135px)', icon: Maximize2 },
   mobile_360: { label: '360×800', width: '360px', height: '800px', icon: Smartphone },
@@ -42,6 +43,7 @@ export function StudioShell({
   const [viewport, setViewport] = useState<ViewportMode>('responsive')
   const [isTeamMode, setIsTeamMode] = useState(true)
   const [datasetMode, setDatasetMode] = useState<DemoDatasetMode>('full')
+  const [datasetResetKey, setDatasetResetKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const templateMeta = {
@@ -103,6 +105,7 @@ export function StudioShell({
             role: currentRole,
             branding,
             datasetMode,
+            datasetResetKey,
           },
         },
         window.location.origin
@@ -110,7 +113,7 @@ export function StudioShell({
     } catch {
       // Ignorar en contextos donde el iframe aún no esté listo
     }
-  }, [templateId, currentRole, branding, datasetMode])
+  }, [templateId, currentRole, branding, datasetMode, datasetResetKey])
 
   // Despachar sincronización cuando cambien rol, branding o datasetMode
   useEffect(() => {
@@ -222,6 +225,20 @@ export function StudioShell({
                 Completo
               </button>
             </div>
+
+            {templateId === 'nightclub' && (
+              <button
+                onClick={() => {
+                  setDatasetMode('empty')
+                  setDatasetResetKey((key) => key + 1)
+                }}
+                title="Elimina los datos locales de prueba y abre un club vacío"
+                className="flex items-center gap-1.5 rounded-xl border border-amber-400/50 bg-amber-400 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-amber-300 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Iniciar desde cero</span>
+              </button>
+            )}
           </div>
 
           {/* Lado Derecho: Viewports reales y Personalización */}

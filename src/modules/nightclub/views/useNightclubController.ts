@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { advanceNightclubRound, cancelNightclubRound, closeNightclubShift, deliverNightclubRound, finishNightclubOccupancy, nightclubProductAvailability, openNightclubAccount, openNightclubShift, recordNightclubCashMovement, recordNightclubInventoryMovement, refundNightclubRound, settleNightclubRound } from '../domain/nightclubAccounts'
+import { advanceNightclubRound, cancelNightclubRound, closeNightclubShift, deliverNightclubRound, finishNightclubOccupancy, nightclubProductAvailability, openNightclubAccount, openNightclubBottle, openNightclubShift, recordNightclubCashMovement, recordNightclubInventoryMovement, recordNightclubOpenBottleExit, refundNightclubRound, settleNightclubRound } from '../domain/nightclubAccounts'
 import type { NightclubBranding, NightclubCashMovement, NightclubCourtesyDraft, NightclubCustomer, NightclubDataset, NightclubInventoryItem, NightclubInventoryMovementType, NightclubMember, NightclubPaymentDraft, NightclubProduct, NightclubRoundDraft, NightclubServiceTarget, NightclubStaff } from '../domain/nightclubAccounts'
 import { cancelNightclubCourtesy, registerNightclubCourtesy, saveNightclubMember } from '../domain/nightclubCourtesies'
 import { arriveNightclubReservation, cancelNightclubReservation, deleteNightclubTable, deleteNightclubZone, saveNightclubBranding, saveNightclubReservation, saveNightclubTable, saveNightclubZone } from '../domain/nightclubFloor'
@@ -83,6 +83,33 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     onCloseShift: (countedCash: number) => apply(state => closeNightclubShift(state, actor, countedCash)),
     onCashMovement: (draft: Omit<NightclubCashMovement, 'id' | 'shiftId' | 'at' | 'actor'>) => apply(state => recordNightclubCashMovement(state, draft, actor)),
     onAdjustInventory: (id: string, quantity: number, type: Exclude<NightclubInventoryMovementType, 'sale' | 'reversal'> = 'adjustment', reason = 'Conteo físico') => apply(state => recordNightclubInventoryMovement(state, id, quantity, type, reason, actor)),
+    onOpenBottle: (id: string) => apply(state => openNightclubBottle(state, id, actor)),
+    onOpenBottleExit: (id: string, millilitres: number, type: 'waste' | 'courtesy' | 'internal_consumption', reason: string) => apply(state => recordNightclubOpenBottleExit(state, id, millilitres, type, reason, actor)),
+    onSaveBottleInventory: (draft: { id?: string; name: string; category: string; closedBottles: number; minimum: number; capacityMl: number; cost: number; sellBottle: boolean; bottlePrice: number; sellPour: boolean; pourMl: number; pourPrice: number }) => apply(state => {
+      if (!draft.name.trim() || !Number.isFinite(draft.closedBottles) || draft.closedBottles < 0 || !Number.isFinite(draft.capacityMl) || draft.capacityMl <= 0 || !Number.isFinite(draft.cost) || draft.cost < 0) throw new Error('Revisa nombre, stock, contenido y costo.')
+      if (!draft.sellBottle && !draft.sellPour && !draft.id) throw new Error('Selecciona una presentación o guarda solo como inventario.')
+      const next = structuredClone(state); const id = draft.id || crypto.randomUUID(); const existing = next.inventory.find(item => item.id === id)
+      const item = { id, name: draft.name.trim(), category: draft.category.trim() || 'Licores', unit: 'unit' as const, current: draft.closedBottles, minimum: draft.minimum, unitCost: draft.cost, bottleCapacityMl: draft.capacityMl, openBottleMl: existing?.openBottleMl || 0, linkedProductIds: existing?.linkedProductIds || [] }
+      const index = next.inventory.findIndex(entry => entry.id === id); if (index >= 0) next.inventory[index] = item; else next.inventory.push(item)
+      const savePresentation = (kind: 'bottle' | 'pour', active: boolean, price: number, millilitres?: number) => {
+        const key = `presentation:${id}:${kind}`
+        const product = { id: key, name: `${item.name} - ${kind === 'bottle' ? 'Botella' : item.category === 'Refrescos' ? 'Jarra' : 'Vaso'}`, category: item.category || 'Licores', price, preparationArea: 'Barra' as const, stockUnits: 0, inventoryMode: 'recipe' as const, recipe: [], active, bottlePresentation: { inventoryId: id, kind, ...(millilitres ? { millilitres } : {}) } }
+        const at = next.products.findIndex(entry => entry.id === key); if (at >= 0) next.products[at] = { ...next.products[at], ...product }; else next.products.push(product)
+        if (!item.linkedProductIds.includes(key)) item.linkedProductIds.push(key)
+      }
+      savePresentation('bottle', draft.sellBottle, draft.bottlePrice)
+      savePresentation('pour', draft.sellPour, draft.pourPrice, draft.pourMl)
+      for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
+      return next
+    }),
+    onSaveSimpleInventoryProduct: (draft: { name: string; category: string; quantity: number; minimum: number; unit: 'unit' | 'ml' | 'g'; cost: number; price: number; presentation: string; sell: boolean }) => apply(state => {
+      if (!draft.name.trim() || !Number.isFinite(draft.quantity) || draft.quantity < 0 || !Number.isFinite(draft.cost) || draft.cost < 0 || !Number.isFinite(draft.price) || draft.price < 0) throw new Error('Revisa nombre, cantidad, costo y precio.')
+      const next = structuredClone(state); const id = crypto.randomUUID(); const item = { id, name: draft.name.trim(), category: draft.category, unit: draft.unit, current: draft.quantity, minimum: draft.minimum, unitCost: draft.cost, linkedProductIds: [] as string[] }
+      next.inventory.push(item)
+      if (draft.sell) { const productId = `presentation:${id}:unit`; next.products.push({ id: productId, name: `${item.name} - ${draft.presentation}`, category: draft.category, price: draft.price, preparationArea: 'Barra', stockUnits: 0, inventoryMode: 'recipe', recipe: [{ inventoryId: id, quantity: 1 }], active: true }); item.linkedProductIds.push(productId) }
+      for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
+      return next
+    }),
     onSaveInventory: (item: NightclubInventoryItem) => apply(state => {
       if (!item.name.trim() || !Number.isFinite(item.current) || item.current < 0 || !Number.isFinite(item.minimum) || item.minimum < 0) throw new Error('Revisa los datos del insumo.')
       const next = structuredClone(state); const index = next.inventory.findIndex(entry => entry.id === item.id)

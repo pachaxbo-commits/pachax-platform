@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
-import { advanceNightclubRound, deliverNightclubRound, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubCashSummary, openNightclubAccount, refundNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
+import { advanceNightclubRound, deliverNightclubRound, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubCashSummary, openNightclubAccount, openNightclubBottle, refundNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
 import { registerNightclubCourtesy } from '../nightclubCourtesies.ts'
 
 const at = '2026-09-25T22:00:00Z'
@@ -163,4 +163,23 @@ test('reembolso antes de entrega deja auditoría y revierte pago y stock', () =>
   assert.equal(data.inventory[0].current, 10)
   assert.equal(nightclubCashSummary(data).totalSales, 0)
   assert.ok(data.audit.some(event => event.type === 'round_refunded'))
+})
+
+test('licor por vaso abre botella automáticamente y no duplica el descuento', () => {
+  const { data: initial, id } = setup()
+  initial.inventory = [{ id: 'ron-stock', name: 'Ron Abuelo', unit: 'unit', current: 30, minimum: 1, bottleCapacityMl: 750, openBottleMl: 0 }]
+  initial.products = [{ id: 'ron-vaso', name: 'Ron Abuelo - Vaso', category: 'Licores', price: 25, preparationArea: 'Barra', stockUnits: 450, inventoryMode: 'recipe', recipe: [], bottlePresentation: { inventoryId: 'ron-stock', kind: 'pour', millilitres: 50 } }]
+  const first = settleNightclubRound(initial, id, [{ productId: 'ron-vaso', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'pour-1')
+  assert.equal(first.inventory[0].current, 29)
+  assert.equal(first.inventory[0].openBottleMl, 700)
+  assert.equal(first.inventoryMovements.filter(item => item.type === 'bottle_opened').length, 1)
+  const repeated = settleNightclubRound(first, id, [{ productId: 'ron-vaso', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'pour-1')
+  assert.equal(repeated, first)
+  const low = structuredClone(first); low.inventory[0].openBottleMl = 20
+  const next = settleNightclubRound(low, id, [{ productId: 'ron-vaso', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'pour-2')
+  assert.equal(next.inventory[0].current, 28)
+  assert.equal(next.inventory[0].openBottleMl, 720)
+  const manual = openNightclubBottle(structuredClone(initial), 'ron-stock', 'Barra', at)
+  assert.equal(manual.inventory[0].current, 29)
+  assert.equal(manual.inventory[0].openBottleMl, 750)
 })

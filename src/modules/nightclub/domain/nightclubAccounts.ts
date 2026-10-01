@@ -24,8 +24,10 @@ export interface NightclubProduct {
   imageUrl?: string
   recipe?: NightclubRecipeLine[]
   active?: boolean
+  /** Presentación rápida vinculada a un artículo físico embotellado. */
+  bottlePresentation?: { inventoryId: string; kind: 'bottle' | 'pour'; millilitres?: number }
 }
-export interface NightclubRoundItem { id: string; productId: string; name: string; category?: string; quantity: number; unitPrice: number; lineTotal: number; commercialValue?: number; kind?: 'sale' | 'courtesy'; status?: 'active' | 'cancelled' | 'returned'; cancelledAt?: string; cancelledBy?: string; cancelReason?: string; stockUsage?: NightclubRecipeLine[]; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string }
+export interface NightclubRoundItem { id: string; productId: string; name: string; category?: string; quantity: number; unitPrice: number; lineTotal: number; costAtSale?: number; commercialValue?: number; kind?: 'sale' | 'courtesy'; status?: 'active' | 'cancelled' | 'returned'; cancelledAt?: string; cancelledBy?: string; cancelReason?: string; stockUsage?: NightclubRecipeLine[]; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string }
 export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentAt?: string; paidAt?: string; deliveredBy?: string; sentBy?: string; authorization?: 'payment' | 'courtesy'; paymentId?: string; courtesyId?: string; operationId?: string; cancelledBy?: string; cancellationReason?: string }
 export interface NightclubPayment { id?: string; operationId?: string; roundId?: string; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string; status?: 'confirmed' | 'refunded'; refundedAt?: string; refundedBy?: string; refundReason?: string }
 export interface NightclubAccount {
@@ -65,13 +67,14 @@ export interface NightclubBranding {
   accentColor: string
   surfaceColor: string
 }
-export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g'; current: number; minimum: number; unitCost?: number }
-export type NightclubInventoryMovementType = 'sale' | 'reversal' | 'restock' | 'withdrawal' | 'adjustment' | 'waste' | 'member_courtesy' | 'courtesy_reversal'
-export interface NightclubInventoryMovement { id: string; operationId: string; inventoryId: string; quantity: number; previous: number; current: number; type: NightclubInventoryMovementType; reason?: string; at: string; actor: string; accountId?: string; roundId?: string; courtesyId?: string; memberId?: string }
+export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g'; current: number; minimum: number; unitCost?: number; category?: string; bottleCapacityMl?: number; openBottleMl?: number; linkedProductIds?: string[] }
+export type NightclubInventoryMovementType = 'sale' | 'reversal' | 'restock' | 'withdrawal' | 'adjustment' | 'waste' | 'courtesy' | 'internal_consumption' | 'bottle_opened' | 'pour' | 'member_courtesy' | 'courtesy_reversal'
+export interface NightclubInventoryMovement { id: string; operationId: string; inventoryId: string; quantity: number; previous: number; current: number; type: NightclubInventoryMovementType; reason?: string; at: string; actor: string; accountId?: string; roundId?: string; courtesyId?: string; memberId?: string; productId?: string; openBottleMlBefore?: number; openBottleMlAfter?: number }
 export interface NightclubCourtesyPolicy { anchorAt: string; windowDays: number; repeatDays: number }
 export interface NightclubMember { id: string; name: string; active: boolean; quota: number; policy: NightclubCourtesyPolicy }
 export interface NightclubCourtesy { id: string; memberId: string; productId: string; productName: string; quantity: number; beneficiary?: string; note?: string; accountId?: string; tableId?: string; roundId?: string; actor: string; at: string; periodStart: string; periodEnd: string; status: 'active' | 'cancelled'; cancelledAt?: string; cancelledBy?: string; cost?: number }
-export interface NightclubCashMovement { id: string; shiftId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; at: string; actor: string }
+export type NightclubExpenseCategory = 'inventory_purchase' | 'payroll' | 'services' | 'rent' | 'maintenance' | 'transport' | 'advertising' | 'cleaning' | 'security' | 'administrative' | 'other'
+export interface NightclubCashMovement { id: string; shiftId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; category?: NightclubExpenseCategory; notes?: string; at: string; actor: string }
 export interface NightclubAuditEvent { id: string; type: string; at: string; actor: string; accountId?: string; details?: Record<string, string | number> }
 export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; staff?: NightclubStaff[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[]; branding?: NightclubBranding }
 export interface NightclubRoundDraft { productId: string; quantity: number }
@@ -132,6 +135,15 @@ export function nightclubAccountLabel(account: NightclubAccount, dataset: Pick<N
 export function nightclubProductAvailability(product: NightclubProduct, inventory: NightclubInventoryItem[]) {
   if (product.active === false) return 0
   if (product.inventoryMode === 'none') return Number.MAX_SAFE_INTEGER
+  const presentation = product.bottlePresentation
+  if (presentation) {
+    const stock = inventory.find(item => item.id === presentation.inventoryId)
+    if (!stock) return 0
+    if (presentation.kind === 'bottle') return Math.max(0, Math.floor(stock.current))
+    const capacity = stock.bottleCapacityMl || 0
+    const available = (stock.openBottleMl || 0) + stock.current * capacity
+    return presentation.millilitres ? Math.max(0, Math.floor(available / presentation.millilitres)) : 0
+  }
   const recipe = product.recipe || []
   if (!recipe.length) return product.stockUnits
   return Math.max(0, Math.floor(Math.min(...recipe.map(line => {
@@ -205,25 +217,57 @@ function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts:
   const account = next.accounts.find(item => item.id === accountId)
   if (next.shift?.status !== 'open' || !account || account.status !== 'open') throw new Error('La cuenta no acepta nuevas rondas.')
   const requirements = new Map<string, number>()
+  const bottleDrafts: Array<{ product: NightclubProduct; quantity: number }> = []
   const items = drafts.map(draft => {
     const product = next.products.find(item => item.id === draft.productId && item.active !== false)
     if (!product) throw new Error('Producto no encontrado o inactivo.')
+    if (product.bottlePresentation) bottleDrafts.push({ product, quantity: draft.quantity })
     const mode = product.inventoryMode || (product.recipe?.length ? 'recipe' : 'unit')
-    const recipe = mode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : [{ inventoryId: `inventory-${product.id}`, quantity: 1 }]
+    const recipe = product.bottlePresentation ? [] : mode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : [{ inventoryId: `inventory-${product.id}`, quantity: 1 }]
     for (const part of recipe) requirements.set(part.inventoryId, (requirements.get(part.inventoryId) || 0) + part.quantity * draft.quantity)
     const value = roundMoney(product.price * draft.quantity)
-    return { id: crypto.randomUUID(), productId: product.id, name: product.name, category: product.category, quantity: draft.quantity, unitPrice: product.price, lineTotal: value, commercialValue: value, kind: 'sale' as const, preparationArea: product.preparationArea }
+    const cost = product.bottlePresentation ? (() => { const stock = next.inventory.find(item => item.id === product.bottlePresentation?.inventoryId); return product.bottlePresentation?.kind === 'pour' ? (stock?.unitCost || 0) / (stock?.bottleCapacityMl || 1) * (product.bottlePresentation?.millilitres || 0) * draft.quantity : (stock?.unitCost || 0) * draft.quantity })() : recipe.reduce((sum, part) => sum + (next.inventory.find(stock => stock.id === part.inventoryId)?.unitCost || 0) * part.quantity * draft.quantity, 0)
+    return { id: crypto.randomUUID(), productId: product.id, name: product.name, category: product.category, quantity: draft.quantity, unitPrice: product.price, lineTotal: value, costAtSale: roundMoney(cost), commercialValue: value, kind: 'sale' as const, preparationArea: product.preparationArea }
   })
   for (const [inventoryId, quantity] of requirements) {
     const stock = next.inventory.find(item => item.id === inventoryId)
     if (!stock || !Number.isFinite(quantity) || quantity <= 0) throw new Error('Configura el control de inventario antes de vender.')
     if (stock.current < quantity) throw new Error(`Stock insuficiente para ${stock.name}.`)
   }
+  for (const { product, quantity } of bottleDrafts) {
+    const presentation = product.bottlePresentation!
+    const stock = next.inventory.find(item => item.id === presentation.inventoryId)
+    if (!stock?.bottleCapacityMl) throw new Error('Configura el contenido de la botella antes de vender.')
+    const needed = presentation.kind === 'bottle' ? quantity : (presentation.millilitres || 0) * quantity
+    const available = presentation.kind === 'bottle' ? stock.current : (stock.openBottleMl || 0) + stock.current * stock.bottleCapacityMl
+    if (!Number.isFinite(needed) || needed <= 0 || available < needed) throw new Error(`Stock insuficiente para ${product.name}.`)
+  }
   const roundId = crypto.randomUUID()
   for (const [inventoryId, quantity] of requirements) {
     const stock = next.inventory.find(item => item.id === inventoryId)!
     const previous = stock.current; stock.current = roundMoney(previous - quantity)
     next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${inventoryId}`, inventoryId, quantity: -quantity, previous, current: stock.current, type: 'sale', reason: 'Ronda enviada', at: now, actor, accountId, roundId }]
+  }
+  for (const { product, quantity } of bottleDrafts) {
+    const presentation = product.bottlePresentation!
+    const stock = next.inventory.find(item => item.id === presentation.inventoryId)!
+    const capacity = stock.bottleCapacityMl!
+    if (presentation.kind === 'bottle') {
+      const previous = stock.current; stock.current = roundMoney(previous - quantity)
+      next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:bottle`, inventoryId: stock.id, productId: product.id, quantity: -quantity, previous, current: stock.current, type: 'sale', reason: 'Venta de botella', at: now, actor, accountId, roundId }]
+      continue
+    }
+    let remaining = (presentation.millilitres || 0) * quantity
+    const beforeOpen = stock.openBottleMl || 0
+    while (remaining > 0) {
+      const open = stock.openBottleMl || 0
+      if (open === 0) {
+        const previous = stock.current; stock.current = roundMoney(previous - 1); stock.openBottleMl = capacity
+        next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:open:${remaining}`, inventoryId: stock.id, productId: product.id, quantity: -1, previous, current: stock.current, type: 'bottle_opened', reason: 'Apertura automática para venta por vaso', at: now, actor, accountId, roundId, openBottleMlBefore: 0, openBottleMlAfter: capacity }]
+      }
+      const used = Math.min(remaining, stock.openBottleMl || 0); stock.openBottleMl = roundMoney((stock.openBottleMl || 0) - used); remaining = roundMoney(remaining - used)
+    }
+    next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:pour`, inventoryId: stock.id, productId: product.id, quantity: -(presentation.millilitres || 0) * quantity, previous: stock.current, current: stock.current, type: 'pour', reason: 'Consumo por vaso', at: now, actor, accountId, roundId, openBottleMlBefore: beforeOpen, openBottleMlAfter: stock.openBottleMl || 0 }]
   }
   const requiresBar = items.some(item => item.preparationArea === 'Barra')
   account.rounds.push({ id: roundId, sequence: account.rounds.length + 1, createdAt: now, status: requiresBar ? 'pending' : 'ready', readyAt: requiresBar ? undefined : now, sentBy: actor, items })
@@ -406,6 +450,35 @@ export function recordNightclubInventoryMovement(dataset: NightclubDataset, inve
   for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
   audit(next, 'inventory_movement', actor, now, undefined, { inventoryId, quantity: delta, type, reason: reason.trim() })
   return next
+}
+
+export function nightclubProfitSummary(dataset: NightclubDataset, shiftId = dataset.shift?.id) {
+  const cash = nightclubCashSummary(dataset, shiftId)
+  const rounds = dataset.accounts.filter(account => account.shiftId === shiftId).flatMap(account => account.rounds.filter(round => round.authorization === 'payment' && account.payments?.some(payment => payment.id === round.paymentId && payment.status !== 'refunded')))
+  const costOfSales = roundMoney(rounds.flatMap(round => round.items).reduce((sum, item) => sum + (item.costAtSale || 0), 0))
+  const inventoryCost = (type: 'waste' | 'courtesy' | 'internal_consumption') => roundMoney((dataset.inventoryMovements || []).filter(movement => movement.type === type).reduce((sum, movement) => sum + Math.abs(movement.quantity) * (dataset.inventory.find(item => item.id === movement.inventoryId)?.unitCost || 0), 0))
+  const waste = inventoryCost('waste'); const courtesies = inventoryCost('courtesy'); const internal = inventoryCost('internal_consumption')
+  const expenses = roundMoney((dataset.cashMovements || []).filter(movement => movement.shiftId === shiftId && movement.type === 'expense' && movement.category !== 'inventory_purchase').reduce((sum, movement) => sum + movement.amount, 0))
+  const grossProfit = roundMoney(cash.totalSales - costOfSales); const totalExpenses = roundMoney(expenses + waste + courtesies + internal); const netProfit = roundMoney(grossProfit - totalExpenses)
+  return { ...cash, costOfSales, grossProfit, expenses, waste, courtesies, internal, totalExpenses, netProfit, grossMargin: cash.totalSales ? grossProfit / cash.totalSales * 100 : 0, netMargin: cash.totalSales ? netProfit / cash.totalSales * 100 : 0 }
+}
+
+export function openNightclubBottle(dataset: NightclubDataset, inventoryId: string, actor: string, now = new Date().toISOString()): NightclubDataset {
+  const next = cloneDataset(dataset); const stock = next.inventory.find(item => item.id === inventoryId)
+  if (!stock?.bottleCapacityMl || stock.current < 1) throw new Error('No hay botellas cerradas disponibles.')
+  if ((stock.openBottleMl || 0) > 0) throw new Error('Ya existe una botella abierta; registra primero su salida o consumo.')
+  const previous = stock.current; stock.current = roundMoney(previous - 1); stock.openBottleMl = stock.bottleCapacityMl
+  next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: crypto.randomUUID(), inventoryId, quantity: -1, previous, current: stock.current, type: 'bottle_opened', reason: 'Apertura manual de botella', at: now, actor, openBottleMlBefore: 0, openBottleMlAfter: stock.openBottleMl }]
+  for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
+  audit(next, 'bottle_opened', actor, now, undefined, { inventoryId }); return next
+}
+
+export function recordNightclubOpenBottleExit(dataset: NightclubDataset, inventoryId: string, millilitres: number, type: 'waste' | 'courtesy' | 'internal_consumption', reason: string, actor: string, now = new Date().toISOString()): NightclubDataset {
+  const next = cloneDataset(dataset); const stock = next.inventory.find(item => item.id === inventoryId)
+  if (!stock?.bottleCapacityMl || !Number.isFinite(millilitres) || millilitres <= 0 || (stock.openBottleMl || 0) < millilitres) throw new Error('No hay contenido abierto suficiente para registrar la salida.')
+  const before = stock.openBottleMl || 0; stock.openBottleMl = roundMoney(before - millilitres)
+  next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: crypto.randomUUID(), inventoryId, quantity: -millilitres, previous: stock.current, current: stock.current, type, reason: reason.trim() || 'Salida de botella abierta', at: now, actor, openBottleMlBefore: before, openBottleMlAfter: stock.openBottleMl }]
+  audit(next, 'bottle_exit', actor, now, undefined, { inventoryId, millilitres, type }); return next
 }
 
 export function adjustNightclubInventory(dataset: NightclubDataset, inventoryId: string, current: number, actor: string, now = new Date().toISOString()): NightclubDataset {
