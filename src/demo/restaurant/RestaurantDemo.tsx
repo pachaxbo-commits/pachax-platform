@@ -25,6 +25,7 @@ import type { RestaurantCustomer } from '../../modules/restaurant/domain/restaur
 import { customerName, legacyCustomersFromOrders, normalizeCustomerPhone } from '../../modules/restaurant/domain/restaurantCustomers'
 import type { CustomerDraft } from './RestaurantCustomerForm'
 import type { DemoDatasetMode } from '../datasets/types'
+import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeColors } from '../../modules/restaurant/views/restaurantTheme'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -40,6 +41,7 @@ type Batch = { id: string; sequence: number; createdAt: string; printedAt?: stri
 
 const STORAGE_KEY = 'pachax:restaurant-demo:operations:v2'
 const LEGACY_KEY = 'pachax:restaurant-demo:operations:v1'
+const THEME_KEY = 'pachax:restaurant-demo:theme:v1'
 
 function readSaved<T>(key: string, fallback: T): T {
   try {
@@ -221,18 +223,30 @@ export function RestaurantDemo({
   onSelectRole,
   logoUrl,
   companyName,
+  themeColors: studioThemeColors,
   datasetMode = 'full',
   resetKey = 0,
+  initialModule,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
   onSelectRole?: (roleId: string) => void
   logoUrl?: string
   companyName?: string
+  themeColors?: RestaurantThemeColors
   datasetMode?: DemoDatasetMode
   resetKey?: number
+  initialModule?: import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId
 }) {
+  const urlModule = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('module') as import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId | null) : null
+  const effectiveInitialModule = initialModule || urlModule || undefined
   const [initial] = useState(() => loadInitialState(datasetMode))
+  const [themeColors, setThemeColors] = useState<RestaurantThemeColors>(() => {
+    const saved = readSaved<RestaurantThemeColors>(THEME_KEY, DEFAULT_RESTAURANT_THEME)
+    return studioThemeColors || (validRestaurantColor(saved?.primary) && validRestaurantColor(saved?.accent) ? saved : DEFAULT_RESTAURANT_THEME)
+  })
+  const [themeEditedInDemo, setThemeEditedInDemo] = useState(false)
+  const activeThemeColors = studioThemeColors && !themeEditedInDemo ? studioThemeColors : themeColors
   const seededRef = useRef(initial.seeded)
   const [orders, setOrders] = useState<Order[]>(initial.orders)
   const [tables, setTables] = useState<RestaurantTable[]>(initial.tables)
@@ -993,9 +1007,16 @@ export function RestaurantDemo({
 
   return (
     <RestaurantExperience
+      initialModule={effectiveInitialModule}
       session={session}
       logoUrl={logoUrl}
       companyName={companyName}
+      themeColors={activeThemeColors}
+      onSaveTheme={async (colors) => {
+        localStorage.setItem(THEME_KEY, JSON.stringify(colors))
+        setThemeColors(colors)
+        setThemeEditedInDemo(true)
+      }}
       orders={orders}
       tables={tables}
       sectors={sectors}

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, type ComponentType } from 'react'
 import {
   ArrowLeft,
   Users,
@@ -14,12 +14,13 @@ import type { DemoTemplateId } from '../demo/demoTypes'
 import type { DemoDatasetMode } from '../demo/datasets/types'
 import { useStudioBranding } from './branding/BrandingContext'
 import { BrandingDrawer } from './branding/BrandingDrawer'
+import './studioRestaurantPreview.css'
 
 export type ViewportMode = 'responsive' | 'mobile_360' | 'mobile_390' | 'tablet_768' | 'laptop_1366'
 
 const VIEWPORT_CONFIGS: Record<
   ViewportMode,
-  { label: string; width: string; height: string; icon: typeof Maximize2 }
+  { label: string; width: string; height: string; icon: ComponentType<{ className?: string }> }
 > = {
   responsive: { label: 'Fluido', width: '100%', height: 'calc(100vh - 135px)', icon: Maximize2 },
   mobile_360: { label: '360×800', width: '360px', height: '800px', icon: Smartphone },
@@ -45,6 +46,7 @@ export function StudioShell({
   const [datasetMode, setDatasetMode] = useState<DemoDatasetMode>('full')
   const [datasetResetKey, setDatasetResetKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
 
   const templateMeta = {
     restaurant: {
@@ -132,7 +134,7 @@ export function StudioShell({
     return () => window.removeEventListener('message', handleMessage)
   }, [sendSync])
 
-  const iframeSrc = `/demo/${templateId}?embed=studio&role=${encodeURIComponent(currentRole)}&data=${datasetMode}`
+  const iframeSrc = `/demo/${templateId}?embed=studio&role=${encodeURIComponent(currentRole)}&data=${datasetMode}${templateId === 'restaurant' ? `&mode=${isTeamMode ? 'team' : 'simulated_role'}` : ''}`
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
@@ -243,6 +245,7 @@ export function StudioShell({
 
           {/* Lado Derecho: Viewports reales y Personalización */}
           <div className="flex items-center gap-2">
+            {templateId === 'restaurant' && <button type="button" onClick={() => { setViewport('responsive'); void previewRef.current?.requestFullscreen() }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800" title="Ampliar vista previa"><Maximize2 className="inline h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Pantalla completa</span></button>}
             {/* Viewport Toggles (dimensiones físicas del iframe) */}
             <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
               {(Object.keys(VIEWPORT_CONFIGS) as ViewportMode[]).map((key) => {
@@ -283,7 +286,7 @@ export function StudioShell({
       </div>
 
       {/* Contenedor de Previsualización Responsive Aislado */}
-      <div className="flex-1 w-full flex items-center justify-center p-2 sm:p-4 overflow-auto bg-slate-950/70">
+      <div ref={previewRef} className="restaurant-studio-preview flex-1 w-full flex items-center justify-center p-2 sm:p-4 overflow-auto bg-slate-950/70">
         <div
           style={{
             width: VIEWPORT_CONFIGS[viewport].width,

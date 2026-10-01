@@ -12,7 +12,7 @@ export function RestaurantPrinters() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="restaurant-printers space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Configuración de Impresoras Térmicas</h1>
         <p className="text-sm text-slate-500">Impresión de comandas para cocina, barra y recibos de caja</p>
@@ -42,17 +42,17 @@ export function RestaurantPrinters() {
         <div>
           <label className="text-xs font-semibold text-slate-700 block mb-2">Tipo de Conexión</label>
           <div className="grid grid-cols-3 gap-3">
-            {[
+            {([
               { id: 'tcp', label: 'Red TCP / WiFi', icon: Wifi, desc: 'Cocina & Salón (Recomendado)' },
               { id: 'bluetooth', label: 'Bluetooth SPP', icon: Bluetooth, desc: 'Impresora portátil móvil' },
               { id: 'usb', label: 'USB / Serial', icon: Usb, desc: 'Caja mostrador fija' },
-            ].map((c) => {
+            ] as const).map((c) => {
               const Icon = c.icon
               const isSelected = connType === c.id
               return (
                 <button
                   key={c.id}
-                  onClick={() => setConnType(c.id as any)}
+                  onClick={() => setConnType(c.id)}
                   className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between ${
                     isSelected
                       ? 'bg-teal-50/50 border-teal-300 ring-2 ring-teal-400/30'

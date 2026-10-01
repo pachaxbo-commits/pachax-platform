@@ -36,7 +36,7 @@ export function RestaurantDashboard({ orders, tables, shift, userName, onStartSh
   }
 
   return <div className="space-y-6">
-    <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="restaurant-dashboard-toolbar p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
       <div><span className={`inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full mb-2 ${shift ? 'text-teal-300 bg-teal-950/60' : 'text-amber-200 bg-amber-950/50'}`}>{shift ? 'Turno activo' : 'Turno cerrado'}</span><h1 className="text-2xl font-bold">Resumen de Operaciones</h1><p className="text-slate-300 text-sm mt-1">Supervisión de mesas, pedidos en cocina y caja.</p>{shift && <p className="text-slate-300 text-xs mt-2">Abierto {date(shift.openedAt)} · {shift.openedBy} · Fondo {fmt(shift.openingFloat)}</p>}</div>
       <div className="flex flex-wrap gap-2.5">{shift ? <button onClick={() => onNavigate('cash')} className="px-4 py-2 text-sm font-semibold bg-white/10 hover:bg-white/15 text-white rounded-xl transition">Arqueo y cierre</button> : <button onClick={() => { setCashier(userName); setOpening(true) }} className="px-5 py-3 text-sm font-bold bg-teal-400 hover:bg-teal-300 text-slate-950 rounded-xl transition">INICIAR TURNO</button>}<button onClick={() => onNavigate('tables')} className="px-4 py-2 text-sm font-semibold bg-white/10 hover:bg-white/15 text-white rounded-xl transition">Ver Mesas ({occupiedTables.length}/{activeTables.length})</button></div>
     </div>
