@@ -11,7 +11,7 @@ export type NightclubServiceTarget =
 
 export interface NightclubZone { id: string; name: string; sortOrder: number }
 export interface NightclubTable { id: string; name: string; zoneId: string; capacity: number; status: NightclubTableStatus; activeAccountId?: string; reservationName?: string }
-export interface NightclubRecipeLine { inventoryId: string; quantity: number }
+export interface NightclubRecipeLine { inventoryId: string; quantity: number; unit?: 'unit' | 'ml' | 'l' | 'g' | 'kg' }
 export interface NightclubProduct {
   id: string
   category: string
@@ -67,7 +67,7 @@ export interface NightclubBranding {
   accentColor: string
   surfaceColor: string
 }
-export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g'; current: number; minimum: number; unitCost?: number; category?: string; bottleCapacityMl?: number; openBottleMl?: number; linkedProductIds?: string[] }
+export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g' | 'l' | 'kg'; displayUnit?: 'unit' | 'ml' | 'g' | 'l' | 'kg'; current: number; minimum: number; unitCost?: number; category?: string; bottleCapacityMl?: number; openBottleMl?: number; linkedProductIds?: string[] }
 export type NightclubInventoryMovementType = 'sale' | 'reversal' | 'restock' | 'withdrawal' | 'adjustment' | 'waste' | 'courtesy' | 'internal_consumption' | 'bottle_opened' | 'pour' | 'member_courtesy' | 'courtesy_reversal'
 export interface NightclubInventoryMovement { id: string; operationId: string; inventoryId: string; quantity: number; previous: number; current: number; type: NightclubInventoryMovementType; reason?: string; at: string; actor: string; accountId?: string; roundId?: string; courtesyId?: string; memberId?: string; productId?: string; openBottleMlBefore?: number; openBottleMlAfter?: number }
 export interface NightclubCourtesyPolicy { anchorAt: string; windowDays: number; repeatDays: number }
@@ -217,16 +217,20 @@ function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts:
   const account = next.accounts.find(item => item.id === accountId)
   if (next.shift?.status !== 'open' || !account || account.status !== 'open') throw new Error('La cuenta no acepta nuevas rondas.')
   const requirements = new Map<string, number>()
-  const bottleDrafts: Array<{ product: NightclubProduct; quantity: number }> = []
+  const bottleDrafts: Array<{ inventoryId: string; millilitres: number; productId: string; productName: string; quantity: number; wholeBottle?: boolean }> = []
   const items = drafts.map(draft => {
     const product = next.products.find(item => item.id === draft.productId && item.active !== false)
     if (!product) throw new Error('Producto no encontrado o inactivo.')
-    if (product.bottlePresentation) bottleDrafts.push({ product, quantity: draft.quantity })
+    if (product.bottlePresentation) bottleDrafts.push({ inventoryId: product.bottlePresentation.inventoryId, millilitres: product.bottlePresentation.millilitres || 0, productId: product.id, productName: product.name, quantity: draft.quantity, wholeBottle: product.bottlePresentation.kind === 'bottle' })
     const mode = product.inventoryMode || (product.recipe?.length ? 'recipe' : 'unit')
     const recipe = product.bottlePresentation ? [] : mode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : [{ inventoryId: `inventory-${product.id}`, quantity: 1 }]
-    for (const part of recipe) requirements.set(part.inventoryId, (requirements.get(part.inventoryId) || 0) + part.quantity * draft.quantity)
+    for (const part of recipe) {
+      const stock = next.inventory.find(item => item.id === part.inventoryId)
+      if (stock?.bottleCapacityMl && (part.unit === 'ml' || part.unit === 'l')) bottleDrafts.push({ inventoryId: part.inventoryId, millilitres: part.quantity * (part.unit === 'l' ? 1000 : 1), productId: product.id, productName: product.name, quantity: draft.quantity })
+      else requirements.set(part.inventoryId, (requirements.get(part.inventoryId) || 0) + part.quantity * (part.unit === 'l' || part.unit === 'kg' ? 1000 : 1) * draft.quantity)
+    }
     const value = roundMoney(product.price * draft.quantity)
-    const cost = product.bottlePresentation ? (() => { const stock = next.inventory.find(item => item.id === product.bottlePresentation?.inventoryId); return product.bottlePresentation?.kind === 'pour' ? (stock?.unitCost || 0) / (stock?.bottleCapacityMl || 1) * (product.bottlePresentation?.millilitres || 0) * draft.quantity : (stock?.unitCost || 0) * draft.quantity })() : recipe.reduce((sum, part) => sum + (next.inventory.find(stock => stock.id === part.inventoryId)?.unitCost || 0) * part.quantity * draft.quantity, 0)
+    const cost = product.bottlePresentation ? (() => { const stock = next.inventory.find(item => item.id === product.bottlePresentation?.inventoryId); return product.bottlePresentation?.kind === 'pour' ? (stock?.unitCost || 0) / (stock?.bottleCapacityMl || 1) * (product.bottlePresentation?.millilitres || 0) * draft.quantity : (stock?.unitCost || 0) * draft.quantity })() : recipe.reduce((sum, part) => { const stock = next.inventory.find(item => item.id === part.inventoryId); const amount = part.quantity * (part.unit === 'l' ? 1000 : part.unit === 'kg' ? 1000 : 1); const unitCost = stock?.bottleCapacityMl && (part.unit === 'ml' || part.unit === 'l') ? (stock.unitCost || 0) / stock.bottleCapacityMl : stock?.unitCost || 0; return sum + unitCost * amount * draft.quantity }, 0)
     return { id: crypto.randomUUID(), productId: product.id, name: product.name, category: product.category, quantity: draft.quantity, unitPrice: product.price, lineTotal: value, costAtSale: roundMoney(cost), commercialValue: value, kind: 'sale' as const, preparationArea: product.preparationArea }
   })
   for (const [inventoryId, quantity] of requirements) {
@@ -234,13 +238,12 @@ function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts:
     if (!stock || !Number.isFinite(quantity) || quantity <= 0) throw new Error('Configura el control de inventario antes de vender.')
     if (stock.current < quantity) throw new Error(`Stock insuficiente para ${stock.name}.`)
   }
-  for (const { product, quantity } of bottleDrafts) {
-    const presentation = product.bottlePresentation!
-    const stock = next.inventory.find(item => item.id === presentation.inventoryId)
+  for (const bottle of bottleDrafts) {
+    const stock = next.inventory.find(item => item.id === bottle.inventoryId)
     if (!stock?.bottleCapacityMl) throw new Error('Configura el contenido de la botella antes de vender.')
-    const needed = presentation.kind === 'bottle' ? quantity : (presentation.millilitres || 0) * quantity
-    const available = presentation.kind === 'bottle' ? stock.current : (stock.openBottleMl || 0) + stock.current * stock.bottleCapacityMl
-    if (!Number.isFinite(needed) || needed <= 0 || available < needed) throw new Error(`Stock insuficiente para ${product.name}.`)
+    const needed = bottle.wholeBottle ? bottle.quantity : bottle.millilitres * bottle.quantity
+    const available = bottle.wholeBottle ? stock.current : (stock.openBottleMl || 0) + stock.current * stock.bottleCapacityMl
+    if (!Number.isFinite(needed) || needed <= 0 || available < needed) throw new Error(`Stock insuficiente para ${bottle.productName}.`)
   }
   const roundId = crypto.randomUUID()
   for (const [inventoryId, quantity] of requirements) {
@@ -248,26 +251,25 @@ function addNightclubRound(dataset: NightclubDataset, accountId: string, drafts:
     const previous = stock.current; stock.current = roundMoney(previous - quantity)
     next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${inventoryId}`, inventoryId, quantity: -quantity, previous, current: stock.current, type: 'sale', reason: 'Ronda enviada', at: now, actor, accountId, roundId }]
   }
-  for (const { product, quantity } of bottleDrafts) {
-    const presentation = product.bottlePresentation!
-    const stock = next.inventory.find(item => item.id === presentation.inventoryId)!
+  for (const bottle of bottleDrafts) {
+    const stock = next.inventory.find(item => item.id === bottle.inventoryId)!
     const capacity = stock.bottleCapacityMl!
-    if (presentation.kind === 'bottle') {
-      const previous = stock.current; stock.current = roundMoney(previous - quantity)
-      next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:bottle`, inventoryId: stock.id, productId: product.id, quantity: -quantity, previous, current: stock.current, type: 'sale', reason: 'Venta de botella', at: now, actor, accountId, roundId }]
+    if (bottle.wholeBottle) {
+      const previous = stock.current; stock.current = roundMoney(previous - bottle.quantity)
+      next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:bottle`, inventoryId: stock.id, productId: bottle.productId, quantity: -bottle.quantity, previous, current: stock.current, type: 'sale', reason: 'Venta de botella', at: now, actor, accountId, roundId }]
       continue
     }
-    let remaining = (presentation.millilitres || 0) * quantity
+    let remaining = bottle.millilitres * bottle.quantity
     const beforeOpen = stock.openBottleMl || 0
     while (remaining > 0) {
       const open = stock.openBottleMl || 0
       if (open === 0) {
         const previous = stock.current; stock.current = roundMoney(previous - 1); stock.openBottleMl = capacity
-        next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:open:${remaining}`, inventoryId: stock.id, productId: product.id, quantity: -1, previous, current: stock.current, type: 'bottle_opened', reason: 'Apertura automática para venta por vaso', at: now, actor, accountId, roundId, openBottleMlBefore: 0, openBottleMlAfter: capacity }]
+        next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:open:${remaining}`, inventoryId: stock.id, productId: bottle.productId, quantity: -1, previous, current: stock.current, type: 'bottle_opened', reason: 'Apertura automática para venta por receta', at: now, actor, accountId, roundId, openBottleMlBefore: 0, openBottleMlAfter: capacity }]
       }
       const used = Math.min(remaining, stock.openBottleMl || 0); stock.openBottleMl = roundMoney((stock.openBottleMl || 0) - used); remaining = roundMoney(remaining - used)
     }
-    next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:pour`, inventoryId: stock.id, productId: product.id, quantity: -(presentation.millilitres || 0) * quantity, previous: stock.current, current: stock.current, type: 'pour', reason: 'Consumo por vaso', at: now, actor, accountId, roundId, openBottleMlBefore: beforeOpen, openBottleMlAfter: stock.openBottleMl || 0 }]
+    next.inventoryMovements = [...(next.inventoryMovements || []), { id: crypto.randomUUID(), operationId: `round:${operationId}:${stock.id}:pour`, inventoryId: stock.id, productId: bottle.productId, quantity: -bottle.millilitres * bottle.quantity, previous: stock.current, current: stock.current, type: 'pour', reason: 'Consumo por receta', at: now, actor, accountId, roundId, openBottleMlBefore: beforeOpen, openBottleMlAfter: stock.openBottleMl || 0 }]
   }
   const requiresBar = items.some(item => item.preparationArea === 'Barra')
   account.rounds.push({ id: roundId, sequence: account.rounds.length + 1, createdAt: now, status: requiresBar ? 'pending' : 'ready', readyAt: requiresBar ? undefined : now, sentBy: actor, items })

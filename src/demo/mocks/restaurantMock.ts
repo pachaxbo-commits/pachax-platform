@@ -300,7 +300,7 @@ export const RESTAURANT_INGREDIENTS: RestaurantIngredient[] = [
 export const RESTAURANT_INVENTORY_PRODUCTS: Product[] = RESTAURANT_INGREDIENTS.map((ingredient, index) => {
   const unit = ingredient.unit === 'kg' ? 'g' : ingredient.unit === 'l' || ingredient.unit === 'ml' ? 'ml' : 'unit'
   const factor = ingredient.unit === 'kg' || ingredient.unit === 'l' ? 1000 : 1
-  return { id: ingredient.id, name: ingredient.name, categoryId: 'cat-insumos', description: ingredient.category, price: 0, image: '', availability: 'available', sortOrder: 100 + index, isActive: true, isVisible: false, restaurantType: 'ingredient', baseUnit: unit, stockBase: ingredient.currentStock * factor, minimumStockBase: ingredient.minStock * factor, unitCost: ingredient.unitCost / factor }
+  return { id: ingredient.id, name: ingredient.name, categoryId: 'cat-insumos', description: ingredient.category, price: 0, image: '', availability: 'available', sortOrder: 100 + index, isActive: true, isVisible: false, restaurantType: 'ingredient', baseUnit: unit, displayUnit: ingredient.unit === 'kg' ? 'kg' : ingredient.unit === 'l' ? 'l' : unit, stockBase: ingredient.currentStock * factor, minimumStockBase: ingredient.minStock * factor, unitCost: ingredient.unitCost / factor }
 })
 
 export const RESTAURANT_CUSTOMERS: RestaurantCustomer[] = [

@@ -102,9 +102,9 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
       for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
       return next
     }),
-    onSaveSimpleInventoryProduct: (draft: { name: string; category: string; quantity: number; minimum: number; unit: 'unit' | 'ml' | 'g'; cost: number; price: number; presentation: string; sell: boolean }) => apply(state => {
+    onSaveSimpleInventoryProduct: (draft: { name: string; category: string; quantity: number; minimum: number; unit: 'unit' | 'ml' | 'g' | 'l' | 'kg'; cost: number; price: number; presentation: string; sell: boolean }) => apply(state => {
       if (!draft.name.trim() || !Number.isFinite(draft.quantity) || draft.quantity < 0 || !Number.isFinite(draft.cost) || draft.cost < 0 || !Number.isFinite(draft.price) || draft.price < 0) throw new Error('Revisa nombre, cantidad, costo y precio.')
-      const next = structuredClone(state); const id = crypto.randomUUID(); const item = { id, name: draft.name.trim(), category: draft.category, unit: draft.unit, current: draft.quantity, minimum: draft.minimum, unitCost: draft.cost, linkedProductIds: [] as string[] }
+      const next = structuredClone(state); const id = crypto.randomUUID(); const scale = draft.unit === 'kg' || draft.unit === 'l' ? 1000 : 1; const baseUnit = draft.unit === 'kg' ? 'g' : draft.unit === 'l' ? 'ml' : draft.unit; const item = { id, name: draft.name.trim(), category: draft.category, unit: baseUnit, displayUnit: draft.unit, current: draft.quantity * scale, minimum: draft.minimum * scale, unitCost: draft.cost / scale, linkedProductIds: [] as string[] }
       next.inventory.push(item)
       if (draft.sell) { const productId = `presentation:${id}:unit`; next.products.push({ id: productId, name: `${item.name} - ${draft.presentation}`, category: draft.category, price: draft.price, preparationArea: 'Barra', stockUnits: 0, inventoryMode: 'recipe', recipe: [{ inventoryId: id, quantity: 1 }], active: true }); item.linkedProductIds.push(productId) }
       for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
