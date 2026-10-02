@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { RestaurantDemo } from './restaurant/RestaurantDemo'
 import { DistributionDemo } from './distribution/DistributionDemo'
 import { QuickRetailDemo } from './quick-retail/QuickRetailDemo'
@@ -48,20 +48,23 @@ export function DemoRuntime({
   })
   const [resetKey, setResetKey] = useState(0)
 
-  const clearRestaurantDemo = () => {
+  const clearTemplateDemo = useCallback(() => {
     if (templateId !== 'restaurant' && templateId !== 'nightclub') return
     try {
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
+        if (
+          key.startsWith('pachax:restaurant-demo:') ||
+          key.startsWith('pachax:nightclub-demo:')
+        ) {
+          localStorage.removeItem(key)
+        }
       }
       localStorage.removeItem('cocina-tickets-impresos')
-      localStorage.removeItem('pachax:nightclub-demo:operations:v1')
-      localStorage.removeItem('pachax:nightclub-demo:operations:v2')
     } catch { /* Private mode may disable storage. */ }
-  }
+  }, [templateId])
 
   const switchDatasetMode = (newMode: DemoDatasetMode) => {
-    clearRestaurantDemo()
+    clearTemplateDemo()
     setCurrentDatasetMode(newMode)
     setResetKey((k) => k + 1)
     if (typeof window !== 'undefined' && window.history?.replaceState) {
@@ -87,6 +90,13 @@ export function DemoRuntime({
         if (payload.datasetMode) {
           setCurrentDatasetMode(payload.datasetMode)
         }
+        if (typeof payload.datasetResetKey === 'number') {
+          setResetKey((currentKey) => {
+            if (payload.datasetResetKey === currentKey) return currentKey
+            clearTemplateDemo()
+            return payload.datasetResetKey
+          })
+        }
         if (payload.branding) {
           setBranding(payload.branding)
           applyStudioThemeTokens(document, payload.branding)
@@ -103,7 +113,7 @@ export function DemoRuntime({
     }
 
     return () => window.removeEventListener('message', handleMessage)
-  }, [isStudioEmbed])
+  }, [isStudioEmbed, clearTemplateDemo])
 
   const templateInfo = {
     restaurant: {
@@ -154,6 +164,7 @@ export function DemoRuntime({
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
           />
@@ -264,7 +275,7 @@ export function DemoRuntime({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => { clearRestaurantDemo(); setResetKey((k) => k + 1) }}
+                onClick={() => { clearTemplateDemo(); setResetKey((k) => k + 1) }}
                 title="Restaura el dataset original a su estado limpio"
                 className="text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg border border-slate-700 transition flex items-center gap-1.5 cursor-pointer"
               >
@@ -277,7 +288,7 @@ export function DemoRuntime({
       )}
 
       {/* Contenedor principal de la demo */}
-      <main className={`flex-1 w-full ${templateId === 'nightclub' ? 'max-w-none p-0' : `max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}`}>
+      <main className={`flex-1 w-full ${templateId === 'nightclub' ? 'max-w-none p-0' : templateId === 'restaurant' ? 'max-w-none p-0' : `max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}`}>
         {templateId === 'restaurant' && (
           <RestaurantDemo
             key={`restaurant:${currentDatasetMode}:${resetKey}`}
@@ -286,6 +297,7 @@ export function DemoRuntime({
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
           />

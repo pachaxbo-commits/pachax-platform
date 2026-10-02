@@ -65,7 +65,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
     onConfirmPayment(orderId, { method: input.paymentMethod === 'mixed' ? 'mixed' : input.paymentMethod === 'qr' ? 'qr' : input.paymentMethod === 'card' ? 'card' : 'cash', received: payment.cashReceived, cashAmount: payment.cashAmount, qrAmount: payment.qrAmount, cardAmount: payment.cardAmount })
   }
 
-  return <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+  return <div className="restaurant-pos-frame">
     {!enabled && <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">Debes iniciar un turno antes de realizar operaciones.</div>}
     <CajaView
       nextOrderNumber={String(nextSeq).padStart(3, '0')}

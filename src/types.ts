@@ -233,13 +233,15 @@ export interface Product extends Partial<TenantScopedEntity> {
   preparationArea?: 'Cocina' | 'Barra' | 'Otro'
   /** Datos operativos del catálogo de restaurante. Las cantidades se guardan en unidad base. */
   restaurantType?: 'prepared' | 'beverage' | 'direct' | 'ingredient'
-  baseUnit?: 'g' | 'ml' | 'unit'
+    baseUnit?: 'g' | 'ml' | 'unit'
+    /** Unidad elegida para mostrar y editar inventario; el stock sigue en la unidad base. */
+    displayUnit?: 'g' | 'kg' | 'ml' | 'l' | 'unit'
   stockUnitLabel?: string
   stockBase?: number
   minimumStockBase?: number
   unitCost?: number
   supplierId?: string
-  recipe?: Array<{ ingredientId: string; quantityBase: number }>
+    recipe?: Array<{ ingredientId: string; quantityBase: number; displayUnit?: 'g' | 'kg' | 'ml' | 'l' | 'unit' }>
 }
 
 export interface CatalogState {

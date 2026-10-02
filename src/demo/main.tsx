@@ -5,7 +5,7 @@ import { DemoGallery } from './DemoGallery'
 import { DemoRuntime } from './DemoRuntime'
 import { resolveDemoRoute } from './resolveDemoRoute'
 
-function DemoRoot() {
+export function DemoRoot() {
   const route = resolveDemoRoute(window.location.pathname, window.location.search)
 
   if (route.isGallery) {
@@ -15,6 +15,7 @@ function DemoRoot() {
   return (
     <DemoRuntime
       templateId={route.templateId}
+      mode={route.isStudioEmbed && route.templateId === 'restaurant' && new URLSearchParams(window.location.search).get('mode') === 'simulated_role' ? 'simulated_role' : 'team'}
       isPublicDemo={!route.isStudioEmbed}
       isStudioEmbed={route.isStudioEmbed}
       initialRole={route.initialRole}

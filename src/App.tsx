@@ -131,6 +131,8 @@ function App() {
         restaurantName={auth.account.name}
         companyName={activeTenant?.tenant.name || auth.account.name}
         logoUrl={activeTenant?.branding?.logoUrl || auth.account.branding?.logoUrl}
+        primaryColor={activeTenant?.branding?.primary || auth.account.branding?.primaryColor}
+        accentColor={activeTenant?.branding?.accent || auth.account.branding?.accentColor}
         uid={auth.member.uid}
         userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
         role={activeTenant?.role || auth.member.role}
