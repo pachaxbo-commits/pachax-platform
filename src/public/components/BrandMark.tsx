@@ -11,51 +11,42 @@ export interface BrandMarkProps {
 }
 
 /**
- * BrandMark - Identidad visual provisional de PACHAX.
- *
- * NOTA DE ARQUITECTURA:
- * PACHAX aún no tiene un logo ni isotipo definitivo.
- * Este componente encapsula exclusivamente el wordmark tipográfico provisional
- * para que en el futuro sea reemplazado por <PachaxLogo /> en un único punto
- * sin alterar la estructura de Header, Login, Register, Demo o Landing.
+ * BrandMark - Identidad Oficial de PACHAX Platform.
+ * 
+ * Utiliza exactamente el asset oficial de producto (Imagen 1)
+ * con object-fit: contain y conservación estricta de relación de aspecto 3:1.
+ * 
+ * Preparado arquitectónicamente para sustituir el origen del asset por SVG
+ * en el futuro sin alterar consumidores ni la estructura del Header.
  */
 export function BrandMark({
   size = 'md',
   variant = 'dark',
   href = '/',
   className = '',
-  subtitle,
-  showTagline = false,
   onClick,
 }: BrandMarkProps) {
-  const sizeClasses = {
-    sm: 'text-base tracking-[0.16em]',
-    md: 'text-xl tracking-[0.18em]',
-    lg: 'text-2xl tracking-[0.20em]',
-    xl: 'text-3xl sm:text-4xl tracking-[0.22em]',
+  // Dimensiones calculadas manteniendo el aspect ratio nativo (3.003 : 1)
+  const sizeClass = {
+    sm: 'h-6 sm:h-7 w-auto max-w-[95px] sm:max-w-[110px]',
+    md: 'h-7 sm:h-9 w-auto max-w-[115px] sm:max-w-[155px]',
+    lg: 'h-8 sm:h-10 w-auto max-w-[140px] sm:max-w-[175px]',
+    xl: 'h-10 sm:h-12 w-auto max-w-[170px] sm:max-w-[210px]',
   }[size]
 
-  const colorClass = variant === 'light' ? 'text-white' : 'text-slate-950'
+  // En fondos oscuros se aplica una ligera luminosidad si es variante 'light'
+  const filterClass = variant === 'light' ? 'brightness-0 invert' : ''
 
   const content = (
-    <div className={`inline-flex flex-col select-none ${className}`}>
-      <div className="flex items-center gap-1.5">
-        <span
-          className={`font-black uppercase ${colorClass} font-sans transition-colors ${sizeClasses}`}
-        >
-          PACHAX
-        </span>
-      </div>
-      {subtitle && (
-        <span className="text-[10px] font-medium tracking-normal text-slate-400 -mt-0.5">
-          {subtitle}
-        </span>
-      )}
-      {showTagline && !subtitle && (
-        <span className="text-[10px] font-medium tracking-wide uppercase text-slate-400 -mt-0.5">
-          Software Empresarial
-        </span>
-      )}
+    <div className={`inline-flex items-center select-none ${className}`}>
+      <img
+        src="/brand/pachax-platform-logo.png"
+        alt="PACHAX Platform"
+        className={`${sizeClass} object-contain transition-transform duration-150 ${filterClass}`}
+        style={{ aspectRatio: '1024 / 341' }}
+        loading="eager"
+        decoding="async"
+      />
     </div>
   )
 
@@ -64,8 +55,8 @@ export function BrandMark({
       <a
         href={href}
         onClick={onClick}
-        className="inline-flex items-center no-underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-900 rounded-md transition-opacity hover:opacity-90"
-        aria-label="PACHAX Inicio"
+        className="inline-flex items-center no-underline focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[#0066FF] rounded-md transition-opacity hover:opacity-95"
+        aria-label="PACHAX Platform Inicio"
       >
         {content}
       </a>

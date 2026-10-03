@@ -12,7 +12,7 @@ export function LandingHeader() {
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20)
+      setIsScrolled(window.scrollY > 15)
     }
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
@@ -27,17 +27,20 @@ export function LandingHeader() {
     }
   }
 
+  const isAuthorized = auth.status === 'authorized'
+  const companyName = auth.account?.name || 'Mi Empresa'
+
   return (
     <header
       className={`sticky top-0 z-50 w-full transition-all duration-200 ${
         isScrolled
           ? 'bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs'
-          : 'bg-white/70 backdrop-blur-xs border-b border-transparent'
+          : 'bg-white/80 backdrop-blur-xs border-b border-slate-100'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
-        {/* BrandMark provisional (reemplazable centralmente por <PachaxLogo />) */}
-        <div className="flex items-center gap-6">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
+        {/* Identidad Oficial: Logo PACHAX Platform */}
+        <div className="flex items-center shrink-0">
           <BrandMark
             size="md"
             href="/"
@@ -49,131 +52,168 @@ export function LandingHeader() {
         </div>
 
         {/* Navegación Desktop */}
-        <nav className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600">
+        <nav className="hidden md:flex items-center gap-8 text-[14px] font-medium text-slate-700">
           <button
-            onClick={() => handleNav('#producto')}
-            className="hover:text-slate-950 transition cursor-pointer"
+            type="button"
+            onClick={() => handleNav('#plantillas')}
+            className="hover:text-slate-950 transition-colors cursor-pointer"
           >
-            Producto
+            Plantillas
           </button>
           <button
-            onClick={() => handleNav('#soluciones')}
-            className="hover:text-slate-950 transition cursor-pointer"
+            type="button"
+            onClick={() => handleNav('#planes')}
+            className="hover:text-slate-950 transition-colors cursor-pointer"
           >
-            Soluciones
+            Planes
           </button>
           <button
-            onClick={() => handleNav('#personalizacion')}
-            className="hover:text-slate-950 transition cursor-pointer"
+            type="button"
+            onClick={() => handleNav('#tutoriales')}
+            className="hover:text-slate-950 transition-colors cursor-pointer"
           >
-            Personalización
+            Tutoriales
           </button>
-          <a
-            href="/demo"
-            className="hover:text-slate-950 transition inline-flex items-center gap-1.5"
-          >
-            <span>Demos</span>
-            <span className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.2 rounded-md">
-              En vivo
-            </span>
-          </a>
         </nav>
 
         {/* Acciones Desktop */}
-        <div className="hidden md:flex items-center gap-3">
-          {auth.status === 'authorized' ? (
+        <div className="hidden md:flex items-center gap-4 shrink-0">
+          {/* Separador vertical sutil */}
+          <div className="h-5 w-px bg-slate-200" aria-hidden="true" />
+
+          {isAuthorized ? (
             <button
+              type="button"
               onClick={() => navigate('/login')}
-              className="px-4 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 transition rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-2 group"
+              className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-all rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-2 group"
             >
-              <span>Ir al sistema ({auth.account?.name || 'Mi Empresa'})</span>
+              <span>Ir a mi empresa ({companyName})</span>
               <ArrowRight className="w-4 h-4 text-slate-300 group-hover:translate-x-0.5 transition-transform" />
             </button>
           ) : (
             <>
               <button
+                type="button"
                 onClick={() => navigate('/login')}
-                className="px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-950 transition cursor-pointer rounded-xl hover:bg-slate-100/80"
+                className="px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-950 transition-colors cursor-pointer"
               >
-                Ingresar
+                Iniciar sesión
               </button>
               <button
+                type="button"
                 onClick={() => navigate('/register')}
-                className="px-4 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 transition rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-2 group"
+                className="px-5 py-2.5 text-sm font-semibold text-white bg-[#0066FF] hover:bg-[#0052cc] transition-all rounded-xl shadow-xs hover:shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-98"
               >
-                <span>Crear mi empresa</span>
-                <ArrowRight className="w-4 h-4 text-slate-300 group-hover:translate-x-0.5 transition-transform" />
+                <span>Registrarse</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </>
           )}
         </div>
 
-        {/* Botón menú móvil */}
-        <button
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className="md:hidden p-2 rounded-xl text-slate-700 hover:text-slate-950 hover:bg-slate-100 transition focus:outline-hidden"
-          aria-label="Abrir menú"
-          aria-expanded={isMenuOpen}
-        >
-          {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        {/* Acciones Mobile / Tablet (Diseñadas para caber con holgura desde 360px) */}
+        <div className="flex md:hidden items-center gap-1.5 sm:gap-2 shrink-0">
+          {isAuthorized ? (
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              className="px-2.5 py-1 text-xs font-semibold text-white bg-slate-900 rounded-lg inline-flex items-center gap-1"
+            >
+              <span>Mi Empresa</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => navigate('/login')}
+                className="px-2 py-1 text-xs font-medium text-slate-700 hover:text-slate-950 whitespace-nowrap"
+              >
+                Iniciar sesión
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/register')}
+                className="px-2.5 py-1 text-xs font-semibold text-white bg-[#0066FF] hover:bg-[#0052cc] rounded-lg shadow-xs whitespace-nowrap"
+              >
+                Registrarse
+              </button>
+            </>
+          )}
+
+          {/* Botón de Menú Hamburguesa */}
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="p-1 text-slate-700 hover:text-slate-950 rounded-lg hover:bg-slate-100 transition-colors"
+            aria-label={isMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
+            aria-expanded={isMenuOpen}
+          >
+            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Menú Móvil Desplegable */}
       {isMenuOpen && (
-        <div className="md:hidden bg-white border-b border-slate-200 px-5 pt-3 pb-6 space-y-4 shadow-xl">
-          <nav className="flex flex-col space-y-3 pt-2 text-base font-semibold text-slate-700">
+        <div className="md:hidden border-t border-slate-200 bg-white/98 backdrop-blur-md px-4 pt-3 pb-6 space-y-3 animate-in fade-in slide-in-from-top-2 duration-150 shadow-lg">
+          <div className="flex flex-col space-y-2 text-sm font-medium text-slate-800">
             <button
-              onClick={() => handleNav('#producto')}
-              className="text-left py-2 hover:text-slate-950 transition cursor-pointer"
+              type="button"
+              onClick={() => handleNav('#plantillas')}
+              className="py-2 px-3 text-left rounded-lg hover:bg-slate-50 transition-colors"
             >
-              Producto
+              Plantillas
             </button>
             <button
-              onClick={() => handleNav('#soluciones')}
-              className="text-left py-2 hover:text-slate-950 transition cursor-pointer"
+              type="button"
+              onClick={() => handleNav('#planes')}
+              className="py-2 px-3 text-left rounded-lg hover:bg-slate-50 transition-colors"
             >
-              Soluciones por sector
+              Planes
             </button>
             <button
-              onClick={() => handleNav('#personalizacion')}
-              className="text-left py-2 hover:text-slate-950 transition cursor-pointer"
+              type="button"
+              onClick={() => handleNav('#tutoriales')}
+              className="py-2 px-3 text-left rounded-lg hover:bg-slate-50 transition-colors"
             >
-              Personalización de marca
+              Tutoriales
             </button>
-            <a
-              href="/demo"
-              className="py-2 hover:text-slate-950 transition flex items-center justify-between"
-            >
-              <span>Explorar Demos</span>
-              <span className="text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                Interactivas
-              </span>
-            </a>
-          </nav>
+          </div>
 
-          <div className="pt-4 border-t border-slate-100 flex flex-col gap-2.5">
-            {auth.status === 'authorized' ? (
+          <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
+            {isAuthorized ? (
               <button
-                onClick={() => handleNav('/login')}
-                className="w-full py-3 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer text-center flex items-center justify-center gap-2"
+                type="button"
+                onClick={() => {
+                  setIsMenuOpen(false)
+                  navigate('/login')
+                }}
+                className="w-full py-2.5 text-sm font-semibold text-white bg-slate-900 rounded-xl text-center"
               >
-                <span>Ir al sistema ({auth.account?.name || 'Mi Empresa'})</span>
-                <ArrowRight className="w-4 h-4" />
+                Ir a mi empresa ({companyName})
               </button>
             ) : (
               <>
                 <button
-                  onClick={() => handleNav('/login')}
-                  className="w-full py-3 text-sm font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer text-center"
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false)
+                    navigate('/login')
+                  }}
+                  className="w-full py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl text-center"
                 >
-                  Ingresar al sistema
+                  Iniciar sesión
                 </button>
                 <button
-                  onClick={() => handleNav('/register')}
-                  className="w-full py-3 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer text-center flex items-center justify-center gap-2"
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false)
+                    navigate('/register')
+                  }}
+                  className="w-full py-2.5 text-sm font-semibold text-white bg-[#0066FF] rounded-xl text-center shadow-xs"
                 >
-                  <span>Crear mi empresa</span>
+                  Registrarse
                 </button>
               </>
             )}
