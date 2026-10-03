@@ -6,7 +6,7 @@ import { useAuthStore } from '../../store/authStore'
 
 export function LandingHeader() {
   const auth = useAuthStore()
-  const { navigate, path } = usePublicRouter()
+  const { navigate } = usePublicRouter()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
 
@@ -20,11 +20,15 @@ export function LandingHeader() {
 
   const handleNav = (target: string) => {
     setIsMenuOpen(false)
-    if (path !== '/' && target.startsWith('#')) {
-      navigate('/' + target)
-    } else {
-      navigate(target)
+    if (target.startsWith('#')) {
+      const targetId = target.slice(1)
+      const el = document.getElementById(targetId)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' })
+        return
+      }
     }
+    navigate(target)
   }
 
   const isAuthorized = auth.status === 'authorized'
@@ -38,7 +42,7 @@ export function LandingHeader() {
           : 'bg-white/80 backdrop-blur-xs border-b border-slate-100'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 h-14 sm:h-20 flex items-center justify-between">
         {/* Identidad Oficial: Logo PACHAX Platform */}
         <div className="flex items-center shrink-0">
           <BrandMark
@@ -112,12 +116,12 @@ export function LandingHeader() {
         </div>
 
         {/* Acciones Mobile / Tablet (Diseñadas para caber con holgura desde 360px) */}
-        <div className="flex md:hidden items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex md:hidden items-center gap-1 sm:gap-1.5 shrink-0">
           {isAuthorized ? (
             <button
               type="button"
               onClick={() => navigate('/login')}
-              className="px-2.5 py-1 text-xs font-semibold text-white bg-slate-900 rounded-lg inline-flex items-center gap-1"
+              className="px-2 py-1 text-xs font-semibold text-white bg-slate-900 rounded-lg inline-flex items-center gap-1"
             >
               <span>Mi Empresa</span>
               <ArrowRight className="w-3 h-3" />
@@ -127,14 +131,14 @@ export function LandingHeader() {
               <button
                 type="button"
                 onClick={() => navigate('/login')}
-                className="px-2 py-1 text-xs font-medium text-slate-700 hover:text-slate-950 whitespace-nowrap"
+                className="px-1.5 py-1 text-[11px] font-medium text-slate-700 hover:text-slate-950 whitespace-nowrap cursor-pointer"
               >
                 Iniciar sesión
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/register')}
-                className="px-2.5 py-1 text-xs font-semibold text-white bg-[#0066FF] hover:bg-[#0052cc] rounded-lg shadow-xs whitespace-nowrap"
+                className="px-2.5 py-1 text-[11px] font-semibold text-white bg-[#0066FF] hover:bg-[#0052cc] rounded-lg shadow-xs whitespace-nowrap cursor-pointer"
               >
                 Registrarse
               </button>
@@ -145,7 +149,7 @@ export function LandingHeader() {
           <button
             type="button"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="p-1 text-slate-700 hover:text-slate-950 rounded-lg hover:bg-slate-100 transition-colors"
+            className="p-1 text-slate-700 hover:text-slate-950 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
             aria-label={isMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
             aria-expanded={isMenuOpen}
           >

@@ -21,7 +21,7 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
   }
 
   return (
-    <section id="plantillas" className="relative w-full pt-4 pb-6 sm:pt-10 sm:pb-12 overflow-hidden">
+    <section id="hero" className="relative w-full pt-4 pb-6 sm:pt-10 sm:pb-12 overflow-hidden">
       {/* Luz y resplandor sutil de fondo */}
       <div
         className="absolute top-0 right-0 w-[550px] h-[480px] bg-blue-100/35 blur-[120px] rounded-full pointer-events-none -z-10"

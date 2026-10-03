@@ -2,7 +2,11 @@ import { useState, useEffect } from 'react'
 import { LandingHeader } from './LandingHeader'
 import { HeroSection } from './HeroSection'
 import { ValueStrip } from './ValueStrip'
-import { ProductTrioSection } from './ProductTrioSection'
+import { FeaturedTemplatesCatalog } from './FeaturedTemplatesCatalog'
+import { TemplatePricingSection } from './TemplatePricingSection'
+import { PlatformExtrasSection } from './PlatformExtrasSection'
+import { RealOnboardingSection } from './RealOnboardingSection'
+import { GuidedTutorialsSection } from './GuidedTutorialsSection'
 import { TrustFooter } from './TrustFooter'
 import '../publicExperience.css'
 
@@ -16,7 +20,7 @@ export function PublicLanding() {
     return 0 // Restaurante
   })
 
-  // Validación de accesibilidad y ausencia de overflow horizontal
+  // Validación de accesibilidad y verificación de ausencia de scroll horizontal
   useEffect(() => {
     const updateMetrics = () => {
       const sw = document.documentElement.scrollWidth
@@ -32,7 +36,7 @@ export function PublicLanding() {
 
   return (
     <div className="w-full min-h-screen bg-[#FAF9F6] text-slate-900 font-sans flex flex-col selection:bg-[#0066FF] selection:text-white overflow-x-hidden">
-      {/* 1. Header Oficial de Producto */}
+      {/* 1. Header Oficial de Producto con logo PACHAX recortado y elementos accesibles */}
       <LandingHeader />
 
       {/* Contenido Principal */}
@@ -43,14 +47,26 @@ export function PublicLanding() {
           onChangeActiveIndex={setActiveIndex}
         />
 
-        {/* 3. Franja de Beneficios / Valores (Desktop 3 bloques, Mobile 3 badges) */}
+        {/* 3. Franja de Beneficios / Valores Clave */}
         <ValueStrip />
 
-        {/* 4. Trío de Producto: Onboarding, Tutoriales Guiados y Planes Comerciales */}
-        <ProductTrioSection />
+        {/* 4. Sección 1: Catálogo de Plantillas Destacadas (5 rubros, bullets concretos y demos) */}
+        <FeaturedTemplatesCatalog />
+
+        {/* 5. Sección 2: Planes Comerciales por Plantilla (Básico, Pro, Empresarial y A Medida) */}
+        <TemplatePricingSection />
+
+        {/* 6. Sección 3: Extras y Servicios Adicionales (Publicidad, Branding, Soporte, Automatizaciones) */}
+        <PlatformExtrasSection />
+
+        {/* 7. Sección 4: Onboarding Real de 5 Pasos */}
+        <RealOnboardingSection />
+
+        {/* 8. Sección 5: Tutoriales Guiados Interactivos en Pantalla */}
+        <GuidedTutorialsSection />
       </main>
 
-      {/* 5. Franja de Confianza y Pie Institucional */}
+      {/* 9. Franja de Confianza y Pie Institucional */}
       <TrustFooter />
     </div>
   )

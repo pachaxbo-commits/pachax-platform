@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGradDist" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#061220" />
+      <stop offset="60%" stop-color="#0b1e35" />
+      <stop offset="100%" stop-color="#040b15" />
+    </linearGradient>
+    <linearGradient id="distBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="100%" stop-color="#0066FF" />
+    </linearGradient>
+    <filter id="shadowDist" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <rect width="600" height="380" rx="16" fill="url(#bgGradDist)" />
+
+  <!-- Top Status Bar -->
+  <rect x="24" y="24" width="552" height="44" rx="8" fill="#11243d" stroke="#1e3a60" stroke-width="1" />
+  <circle cx="48" cy="46" r="6" fill="#38BDF8" />
+  <text x="64" y="51" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700">DISTRIBUIDORA</text>
+  <text x="195" y="51" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">Ventas en Ruta · Despachos · Liquidación Ciega</text>
+  <rect x="475" y="32" width="85" height="28" rx="6" fill="url(#distBlue)" />
+  <text x="517" y="50" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">CAMIÓN EN RUTA</text>
+
+  <!-- Left: Camión & Liquidación -->
+  <g filter="url(#shadowDist)">
+    <rect x="24" y="86" width="320" height="268" rx="12" fill="#0d1e33" stroke="#214068" stroke-width="1" />
+    <text x="44" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1">DESPACHO Y RETORNO FÍSICO</text>
+
+    <!-- Product 1 -->
+    <rect x="44" y="132" width="280" height="54" rx="8" fill="#152e4d" />
+    <text x="56" y="154" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Salchicha Viena (Carga: 25 kg)</text>
+    <text x="56" y="174" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Ventas: 6 kg · Retorno esperado: 19 kg</text>
+    <rect x="240" y="142" width="70" height="22" rx="4" fill="#10B981" />
+    <text x="275" y="157" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700">CUADRADO</text>
+
+    <!-- Product 2 -->
+    <rect x="44" y="194" width="280" height="54" rx="8" fill="#11243d" stroke="#1e3a60" stroke-width="1" />
+    <text x="56" y="216" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Chorizo Parrillero (10 kg)</text>
+    <text x="56" y="236" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Ventas: 3 kg · Retorno: 7 kg</text>
+    <rect x="240" y="204" width="70" height="22" rx="4" fill="#1e3a60" />
+    <text x="275" y="219" fill="#38BDF8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700">EXACTO</text>
+
+    <!-- Cash settlement -->
+    <rect x="44" y="260" width="280" height="74" rx="8" fill="#081525" border="1px solid #1e3a60" />
+    <text x="56" y="282" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">LIQUIDACIÓN DE EFECTIVO</text>
+    <text x="56" y="306" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800">Bs 368.00</text>
+    <text x="56" y="324" fill="#10B981" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600">Ventas Bs 288 + Cobranza Bs 100 - Gastos Bs 20</text>
+  </g>
+
+  <!-- Right: Clientes Mayoristas -->
+  <g filter="url(#shadowDist)">
+    <rect x="360" y="86" width="216" height="268" rx="12" fill="#0d1e33" stroke="#214068" stroke-width="1" />
+    <text x="376" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1">CLIENTES Y CARTERA</text>
+
+    <rect x="376" y="132" width="184" height="60" rx="8" fill="#152e4d" />
+    <text x="388" y="154" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">Minimarket Don Pepe</text>
+    <text x="388" y="174" fill="#10B981" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Cobrado: Bs 100 · Al día</text>
+
+    <rect x="376" y="200" width="184" height="60" rx="8" fill="#11243d" />
+    <text x="388" y="222" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">Distribuidora El Carmen</text>
+    <text x="388" y="242" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Crédito: Bs 159 · 7 días</text>
+
+    <rect x="376" y="272" width="184" height="62" rx="8" fill="#1e3a60" opacity="0.4" />
+    <text x="468" y="302" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">HOJA DE RUTA GPS</text>
+    <text x="468" y="320" fill="#94A3B8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10">8 entregas completadas</text>
+  </g>
+</svg>

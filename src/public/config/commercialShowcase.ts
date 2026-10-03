@@ -2,44 +2,30 @@
  * CATÁLOGO COMERCIAL DE PLANTILLAS DESTACADAS
  * 
  * ÚNICA FUENTE DE VERDAD para:
- * - Coverflow Desktop
- * - Coverflow Mobile
- * - Detalle de Plantilla Activa (ActiveTemplateDetail)
- * 
- * NOTA DE ARQUITECTURA:
- * 'Ventas Express' es un nombre comercial configurable mapeado internamente
- * a la plantilla canónica 'retail' y su ruta real '/demo/retail'.
- * Cambiar nombres o descripciones aquí no rompe el enrutamiento ni los contratos.
+ * - Coverflow Desktop y Mobile
+ * - Detalle de Plantilla Activa
+ * - Catálogo detallado de plantillas
+ * - Mapeo de precios por plantilla
  */
 
 export type CommercialTemplateId = 'restaurant' | 'distribution' | 'nightclub' | 'retail' | 'custom'
 
 export interface CommercialTemplateItem {
   id: CommercialTemplateId
-  /** ID de la plantilla canónica interna (null para solución a medida) */
   canonicalTemplateId: 'restaurant' | 'distribution' | 'nightclub' | 'retail' | null
-  /** Nombre comercial visible en las tarjetas y detalles */
   commercialName: string
-  /** Subtítulo corto que aparece en la tarjeta del Coverflow */
   cardSubtitle: string
-  /** Bullets descriptivos de la operación (visible en versión mobile o expandida) */
   bullets: string[]
-  /** Badge opcional (ej. '★ Más popular') */
-  badge?: string
-  /** Descripción completa para el bloque ActiveTemplateDetail */
+  badge?: string // Texto sobrio sin emojis
   detailDescription: string
-  /** Ruta canónica hacia donde dirige la acción */
   demoPath: string
-  /** Texto del botón principal */
   primaryActionLabel: string
-  /** Icono temático representativo */
+  imageSrc: string
   iconType: 'utensils' | 'truck' | 'glass' | 'shopping-bag' | 'settings'
-  /** Estilos de atmósfera y color para la tarjeta 3D */
   visualSlot: {
     accentColor: string
     glowColor: string
     gradientClass: string
-    borderHoverClass: string
     pillBgClass: string
   }
 }
@@ -50,18 +36,18 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     canonicalTemplateId: 'restaurant',
     commercialName: 'Restaurante',
     cardSubtitle: 'Gestión completa para tu restaurante',
-    bullets: ['Reservas', 'Mesas', 'Pedidos', 'Cocina', 'Facturación'],
+    bullets: ['POS y salón', 'Cocina KDS', 'Mesas en vivo', 'Pedidos', 'Clientes', 'Reportes'],
     badge: 'Más popular',
-    detailDescription: 'Gestiona mesas, pedidos, cocina, reservas y facturación. Todo lo que tu restaurante necesita en una sola plataforma.',
+    detailDescription: 'Gestiona mesas, pedidos, cocina en tiempo real, reservas y facturación. Todo lo que tu restaurante necesita en una sola plataforma operativa.',
     demoPath: '/demo/restaurant',
     primaryActionLabel: 'Usar esta plantilla',
+    imageSrc: '/brand/showcase/restaurant-showcase.svg',
     iconType: 'utensils',
     visualSlot: {
-      accentColor: '#F59E0B',
-      glowColor: 'rgba(245, 158, 11, 0.45)',
-      gradientClass: 'from-[#1c1308] via-[#2a1d0f] to-[#0c0905]',
-      borderHoverClass: 'hover:border-amber-500/80',
-      pillBgClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      accentColor: '#0066FF',
+      glowColor: 'rgba(0, 102, 255, 0.45)',
+      gradientClass: 'from-[#071322] via-[#0d2038] to-[#040b15]',
+      pillBgClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
     },
   },
   {
@@ -69,17 +55,17 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     canonicalTemplateId: 'distribution',
     commercialName: 'Distribuidora',
     cardSubtitle: 'Control de inventario y ventas mayoristas',
-    bullets: ['Inventario', 'Clientes', 'Ventas', 'Rutas'],
-    detailDescription: 'Control de inventario en almacén central, despacho de camiones en ruta, liquidación ciega y clientes mayoristas.',
+    bullets: ['Ventas por ruta', 'Stock y lotes', 'Cobranzas', 'Repartidores', 'Clientes', 'Liquidación ciega'],
+    detailDescription: 'Control de inventario en almacén central, despacho de camiones en ruta, liquidación ciega contra retorno físico y cobranza mayorista.',
     demoPath: '/demo/distribution',
     primaryActionLabel: 'Usar esta plantilla',
+    imageSrc: '/brand/showcase/distribution-showcase.svg',
     iconType: 'truck',
     visualSlot: {
-      accentColor: '#3B82F6',
-      glowColor: 'rgba(59, 130, 246, 0.45)',
-      gradientClass: 'from-[#0b192e] via-[#10243e] to-[#060c18]',
-      borderHoverClass: 'hover:border-blue-500/80',
-      pillBgClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+      accentColor: '#0284C7',
+      glowColor: 'rgba(2, 132, 199, 0.45)',
+      gradientClass: 'from-[#061424] via-[#0b223d] to-[#030c17]',
+      pillBgClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
     },
   },
   {
@@ -87,17 +73,17 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     canonicalTemplateId: 'nightclub',
     commercialName: 'Nightclub',
     cardSubtitle: 'Administración total de tu discoteca',
-    bullets: ['Mesas', 'Reservas', 'Consumo', 'Eventos'],
-    detailDescription: 'Control de barras de alta velocidad, comandas de tragos, inventario de botellas, zonas VIP y cuentas abiertas durante la noche.',
+    bullets: ['Mesas VIP', 'Reservas', 'Consumo en barra', 'Caja en turno', 'Inventario botellas', 'Control operativo'],
+    detailDescription: 'Control de barras de alta velocidad, comandas rápidas, inventario de botellas por mililitro, zonas VIP y cuentas abiertas durante la noche.',
     demoPath: '/demo/nightclub',
     primaryActionLabel: 'Usar esta plantilla',
+    imageSrc: '/brand/showcase/nightclub-showcase.svg',
     iconType: 'glass',
     visualSlot: {
-      accentColor: '#A855F7',
-      glowColor: 'rgba(168, 85, 247, 0.55)',
-      gradientClass: 'from-[#1e0e38] via-[#2d1252] to-[#0d0519]',
-      borderHoverClass: 'hover:border-purple-500/80',
-      pillBgClass: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+      accentColor: '#6366F1',
+      glowColor: 'rgba(99, 102, 241, 0.45)',
+      gradientClass: 'from-[#0a0f24] via-[#12163b] to-[#050814]',
+      pillBgClass: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
     },
   },
   {
@@ -105,17 +91,17 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     canonicalTemplateId: 'retail',
     commercialName: 'Ventas Express',
     cardSubtitle: 'Vende rápido, fácil y sin complicaciones',
-    bullets: ['Ventas rápidas', 'Control simple', 'Caja ágil'],
-    detailDescription: 'Punto de venta táctil para mostrador, ventas ágiles por unidad o peso con báscula, tickets al instante y control de caja.',
+    bullets: ['Cobro rápido', 'Catálogo simple', 'Tickets y báscula', 'Caja ágil', 'Clientes', 'Reportes'],
+    detailDescription: 'Punto de venta táctil para mostrador, ventas ágiles por unidad o peso conectadas a báscula, tickets al instante y control de caja.',
     demoPath: '/demo/retail',
     primaryActionLabel: 'Usar esta plantilla',
+    imageSrc: '/brand/showcase/retail-showcase.svg',
     iconType: 'shopping-bag',
     visualSlot: {
-      accentColor: '#10B981',
-      glowColor: 'rgba(16, 185, 129, 0.45)',
-      gradientClass: 'from-[#09231b] via-[#0d3327] to-[#04120e]',
-      borderHoverClass: 'hover:border-emerald-500/80',
-      pillBgClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      accentColor: '#0D9488',
+      glowColor: 'rgba(13, 148, 136, 0.45)',
+      gradientClass: 'from-[#05171e] via-[#0a2533] to-[#030d12]',
+      pillBgClass: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
     },
   },
   {
@@ -123,17 +109,17 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     canonicalTemplateId: null,
     commercialName: 'Solución a medida',
     cardSubtitle: 'Quiero una especializada para mi negocio',
-    bullets: ['Especializada para tu negocio', 'Desarrollo a medida', 'Mantenimiento'],
-    detailDescription: 'Diseñamos e implementamos una plantilla exclusiva para tu operación con soporte continuo y mantenimiento mensual garantizado.',
-    demoPath: '/register',
+    bullets: ['Desarrollo especializado', 'Funciones según negocio', 'Mantenimiento mensual', 'Acompañamiento técnico'],
+    detailDescription: 'Diseñamos e implementamos una plantilla exclusiva para tu operación diaria con arquitectura dedicada, soporte continuo y evolución mensual garantizada.',
+    demoPath: '/register?intent=custom',
     primaryActionLabel: 'Solicitar propuesta',
+    imageSrc: '/brand/showcase/custom-showcase.svg',
     iconType: 'settings',
     visualSlot: {
-      accentColor: '#0EA5E9',
-      glowColor: 'rgba(14, 165, 233, 0.45)',
-      gradientClass: 'from-[#0b2030] via-[#112d44] to-[#061019]',
-      borderHoverClass: 'hover:border-sky-500/80',
-      pillBgClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+      accentColor: '#0066FF',
+      glowColor: 'rgba(0, 102, 255, 0.45)',
+      gradientClass: 'from-[#071322] via-[#0d223c] to-[#040b15]',
+      pillBgClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
     },
   },
 ])

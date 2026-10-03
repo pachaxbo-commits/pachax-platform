@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGradRest" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#081320" />
+      <stop offset="60%" stop-color="#0d1f35" />
+      <stop offset="100%" stop-color="#050c15" />
+    </linearGradient>
+    <linearGradient id="blueAccent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0066FF" />
+      <stop offset="100%" stop-color="#00B4D8" />
+    </linearGradient>
+    <filter id="shadowRest" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="600" height="380" rx="16" fill="url(#bgGradRest)" />
+
+  <!-- Grid overlay -->
+  <g opacity="0.08" stroke="#ffffff" stroke-width="1">
+    <line x1="0" y1="76" x2="600" y2="76" />
+    <line x1="0" y1="152" x2="600" y2="152" />
+    <line x1="0" y1="228" x2="600" y2="228" />
+    <line x1="0" y1="304" x2="600" y2="304" />
+    <line x1="150" y1="0" x2="150" y2="380" />
+    <line x1="300" y1="0" x2="300" y2="380" />
+    <line x1="450" y1="0" x2="450" y2="380" />
+  </g>
+
+  <!-- Top Status Bar -->
+  <rect x="24" y="24" width="552" height="44" rx="8" fill="#11243d" stroke="#1e3a60" stroke-width="1" />
+  <circle cx="48" cy="46" r="6" fill="#10B981" />
+  <text x="64" y="51" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700">RESTAURANTE</text>
+  <text x="180" y="51" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">Salón · Comandas · Cocina KDS · Facturación</text>
+  <rect x="475" y="32" width="85" height="28" rx="6" fill="url(#blueAccent)" />
+  <text x="517" y="50" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">TURNO ACTIVO</text>
+
+  <!-- Left: Floor Plan / Tables -->
+  <g filter="url(#shadowRest)">
+    <rect x="24" y="86" width="310" height="268" rx="12" fill="#0d1e33" stroke="#214068" stroke-width="1" />
+    <text x="44" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1">DISTRIBUCIÓN DEL SALÓN</text>
+
+    <!-- Table 1 (Occupied) -->
+    <rect x="44" y="132" width="130" height="66" rx="8" fill="#152e4d" stroke="#0066FF" stroke-width="1.5" />
+    <text x="56" y="156" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Mesa 01</text>
+    <rect x="126" y="142" width="40" height="18" rx="4" fill="#0066FF" />
+    <text x="146" y="155" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="9" font-weight="700">ACTIVA</text>
+    <text x="56" y="182" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600">Bs 184.00 · 3 pax</text>
+
+    <!-- Table 2 (Available) -->
+    <rect x="186" y="132" width="130" height="66" rx="8" fill="#11243d" stroke="#1e3a60" stroke-width="1" />
+    <text x="198" y="156" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600">Mesa 02</text>
+    <rect x="268" y="142" width="40" height="18" rx="4" fill="#1e3a60" />
+    <text x="288" y="155" fill="#94A3B8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="9" font-weight="600">LIBRE</text>
+    <text x="198" y="182" fill="#64748B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Disponible</text>
+
+    <!-- Table 3 (Bill requested) -->
+    <rect x="44" y="210" width="130" height="66" rx="8" fill="#132842" stroke="#38BDF8" stroke-width="1" stroke-dasharray="3 3" />
+    <text x="56" y="234" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Mesa 03</text>
+    <text x="56" y="260" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">Por cobrar · Bs 92</text>
+
+    <!-- Table 4 (Available) -->
+    <rect x="186" y="210" width="130" height="66" rx="8" fill="#11243d" stroke="#1e3a60" stroke-width="1" />
+    <text x="198" y="234" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600">Mesa 04</text>
+    <text x="198" y="260" fill="#64748B" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Disponible</text>
+
+    <!-- Bottom summary -->
+    <text x="44" y="324" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600">Salón: 4 Mesas · 1 Activa · 1 En Cobro</text>
+  </g>
+
+  <!-- Right Top: KDS Comanda -->
+  <g filter="url(#shadowRest)">
+    <rect x="350" y="86" width="226" height="126" rx="12" fill="#0d1e33" stroke="#214068" stroke-width="1" />
+    <rect x="366" y="102" width="70" height="20" rx="4" fill="#0066FF" opacity="0.2" />
+    <text x="401" y="116" fill="#38BDF8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700">KDS COCINA</text>
+    <text x="450" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Ticket #104</text>
+
+    <text x="366" y="142" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600">2x Bife de Chorizo (Término medio)</text>
+    <text x="366" y="162" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">1x Ensalada Campestre</text>
+    <rect x="366" y="178" width="194" height="20" rx="4" fill="#152e4d" />
+    <text x="463" y="192" fill="#10B981" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700">EN PREPARACIÓN · 4 MIN</text>
+  </g>
+
+  <!-- Right Bottom: Cash & Closure -->
+  <g filter="url(#shadowRest)">
+    <rect x="350" y="226" width="226" height="128" rx="12" fill="#0d1e33" stroke="#214068" stroke-width="1" />
+    <text x="366" y="250" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700" letter-spacing="1">CONTROL DE CAJA</text>
+    <text x="366" y="280" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800">Bs 1,280.00</text>
+    <text x="366" y="302" fill="#10B981" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">Cierre ciego sin descuadres</text>
+    <rect x="366" y="318" width="194" height="22" rx="5" fill="#1e3a60" />
+    <text x="463" y="333" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="600">EFECTIVO + QR + TARJETA</text>
+  </g>
+</svg>

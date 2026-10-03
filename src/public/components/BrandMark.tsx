@@ -13,11 +13,9 @@ export interface BrandMarkProps {
 /**
  * BrandMark - Identidad Oficial de PACHAX Platform.
  * 
- * Utiliza exactamente el asset oficial de producto (Imagen 1)
- * con object-fit: contain y conservación estricta de relación de aspecto 3:1.
- * 
- * Preparado arquitectónicamente para sustituir el origen del asset por SVG
- * en el futuro sin alterar consumidores ni la estructura del Header.
+ * Utiliza exactamente el logotipo oficial de producto (Imagen 1)
+ * con el canvas transparente recortado para máxima nitidez y presencia.
+ * Mantiene la relación de aspecto exacta con object-fit: contain.
  */
 export function BrandMark({
   size = 'md',
@@ -26,15 +24,13 @@ export function BrandMark({
   className = '',
   onClick,
 }: BrandMarkProps) {
-  // Dimensiones calculadas manteniendo el aspect ratio nativo (3.003 : 1)
   const sizeClass = {
-    sm: 'h-6 sm:h-7 w-auto max-w-[95px] sm:max-w-[110px]',
-    md: 'h-7 sm:h-9 w-auto max-w-[115px] sm:max-w-[155px]',
-    lg: 'h-8 sm:h-10 w-auto max-w-[140px] sm:max-w-[175px]',
-    xl: 'h-10 sm:h-12 w-auto max-w-[170px] sm:max-w-[210px]',
+    sm: 'h-5 sm:h-7 w-auto max-w-[95px] sm:max-w-[120px]',
+    md: 'h-6 sm:h-8.5 w-auto max-w-[112px] sm:max-w-[175px]',
+    lg: 'h-7 sm:h-10 w-auto max-w-[130px] sm:max-w-[200px]',
+    xl: 'h-9 sm:h-12 w-auto max-w-[160px] sm:max-w-[240px]',
   }[size]
 
-  // En fondos oscuros se aplica una ligera luminosidad si es variante 'light'
   const filterClass = variant === 'light' ? 'brightness-0 invert' : ''
 
   const content = (
@@ -43,7 +39,7 @@ export function BrandMark({
         src="/brand/pachax-platform-logo.png"
         alt="PACHAX Platform"
         className={`${sizeClass} object-contain transition-transform duration-150 ${filterClass}`}
-        style={{ aspectRatio: '1024 / 341' }}
+        style={{ aspectRatio: '895 / 205' }}
         loading="eager"
         decoding="async"
       />

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGradNight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0e1c" />
+      <stop offset="60%" stop-color="#12132e" />
+      <stop offset="100%" stop-color="#060710" />
+    </linearGradient>
+    <linearGradient id="nightPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+    <filter id="shadowNight" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.5" />
+    </filter>
+  </defs>
+
+  <rect width="600" height="380" rx="16" fill="url(#bgGradNight)" />
+
+  <!-- Top Status Bar -->
+  <rect x="24" y="24" width="552" height="44" rx="8" fill="#131530" stroke="#252a55" stroke-width="1" />
+  <circle cx="48" cy="46" r="6" fill="#818CF8" />
+  <text x="64" y="51" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700">NIGHTCLUB &amp; LOUNGE</text>
+  <text x="245" y="51" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">Barras · VIP · Cuentas Abiertas · Control de Botellas</text>
+  <rect x="475" y="32" width="85" height="28" rx="6" fill="url(#nightPurple)" />
+  <text x="517" y="50" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">NOCHE EN VIVO</text>
+
+  <!-- Left: Zonas VIP & Cuentas -->
+  <g filter="url(#shadowNight)">
+    <rect x="24" y="86" width="310" height="268" rx="12" fill="#101228" stroke="#232752" stroke-width="1" />
+    <text x="44" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1">ZONAS VIP Y MESAS LOUNGE</text>
+
+    <!-- Box 1 -->
+    <rect x="44" y="132" width="270" height="58" rx="8" fill="#191c40" stroke="#6366F1" stroke-width="1" />
+    <text x="56" y="154" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Box VIP 01 · Pulsera #408</text>
+    <text x="56" y="174" fill="#818CF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Consumo abierto: Bs 850 · 1 Botella Whisky</text>
+
+    <!-- Box 2 -->
+    <rect x="44" y="200" width="270" height="58" rx="8" fill="#131530" stroke="#252a55" stroke-width="1" />
+    <text x="56" y="222" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Mesa Lounge 04</text>
+    <text x="56" y="242" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Ronda de tragos: Bs 210 · En servicio</text>
+
+    <!-- Bar tabs -->
+    <rect x="44" y="270" width="270" height="64" rx="8" fill="#0c0e1e" />
+    <text x="56" y="294" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">BARRA PRINCIPAL</text>
+    <text x="56" y="318" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="700">8 Cuentas Activas · Despacho en 15 seg</text>
+  </g>
+
+  <!-- Right: Control de Botellas -->
+  <g filter="url(#shadowNight)">
+    <rect x="350" y="86" width="226" height="268" rx="12" fill="#101228" stroke="#232752" stroke-width="1" />
+    <text x="366" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1">STOCK DE BOTELLAS</text>
+
+    <rect x="366" y="132" width="194" height="64" rx="8" fill="#191c40" />
+    <text x="378" y="154" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">Whisky Johnnie Walker</text>
+    <text x="378" y="174" fill="#818CF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">14 cerradas · 2 en barra (620ml)</text>
+
+    <rect x="366" y="206" width="194" height="64" rx="8" fill="#131530" />
+    <text x="378" y="228" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">Vodka Absolut</text>
+    <text x="378" y="248" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">8 cerradas · 1 en barra</text>
+
+    <rect x="366" y="280" width="194" height="54" rx="8" fill="#252a55" />
+    <text x="463" y="304" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">AUDITORÍA CIEGA</text>
+    <text x="463" y="322" fill="#38BDF8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10">Control de mermas y descorches</text>
+  </g>
+</svg>
