@@ -1,5 +1,27 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Cierre Landing Pública y Fundación Panel Administrativo Seguro (03/10/2026)
+
+- **Rama**: `feat/public-platform-admin-foundation`, creada a partir de `feat/public-platform-premium-v2`. `main` se mantuvo intacto sin merges ni pushes directos. Rama publicada en `origin/feat/public-platform-admin-foundation` (commit `5d9099e`).
+- **Parte A: Experiencia Pública y Cumplimiento de Regla 28**:
+  - **Coverflow 3D**: Proporciones de tarjetas ajustadas (`clamp(215px, 25vw, 275px)` por `clamp(310px, 36vw, 395px)`), ranura de imagen ampliada al 68% de la tarjeta para eliminar el recorte forzado de encuadres (salón, almacén, barra, báscula), viñeta degradada suavizada a `to-black/15` para conservar contraste y detalle fotográfico, puntos focales por asset calibrados.
+  - **Regla 28 (Diseño Anti-IA)**: Cero emojis, cero iconos de estrellitas/Sparkles, cero insignias o píldoras flotantes genéricas. Cabeceras con kickers editoriales mayúsculos y sobrios.
+  - **Catálogo de Plantillas (Sección 2)**: Reemplazo de bloques de texto empaquetados por un dossier editorial con bordes sutiles, detalles operativos y llamadas directas a las demos canónicas.
+  - **Planes Comerciales (Sección 3)**: Desacoplado 100% de JSX hardcodeado, consumiendo `useCommercialConfig()` y filtrando únicamente planes `published`. Selector dinámico de rubro y ciclo mensual/anual (-15%). Bloque destacado de cotización a medida con enlace dinámico de WhatsApp.
+  - **Sección 6 (Extras y Portafolio Estratégico)**: Rediseño asimétrico completo. Tarjeta prominente de «Desarrollo y Adaptación a Medida» (alcance técnico, SLA, integración fiscal/hardware) a la izquierda, combinada con franjas de servicios complementarios (Marketing, Branding, Soporte VIP 24/7, Automatizaciones API) a la derecha. Cero grids genéricos de 6 cajas iguales.
+- **Parte B: Fundación Administrativa Segura (/admin y /admin/login)**:
+  - Sin enlaces visibles en la barra de navegación pública.
+  - Autenticación controlada exclusiva para Platform Operators (`platform_owner` y `platform_admin`), con operador semilla verificado (`admin@pachax.com`) e integración fail-safe con Firebase Auth claims.
+  - 8 secciones operativas: Dashboard (KPIs, adopción por rubro, disponibilidad de infraestructura y aviso explícito de facturación manual), Plantillas (editor en vivo con previsualización 1:1 de tarjeta Coverflow), Planes (gestión de precios USD, límites y entitlements), Extras (gestión de servicios estratégicos), Contenido Landing (textos hero, WhatsApp oficial +591 77987776, títulos de secciones), Biblioteca Media (5 assets conceptuales fotográficos con puntos focales), Clientes/Tenants (supervisión de empresas activas con aviso de pasarela pendiente), y PACHAX Studio (previsualización embebida interactiva mediante iframe con selectores de plantilla, dataset y rol).
+- **Verificación Automatizada CDP y Tests**:
+  - `verify-landing-cdp.mjs` ejecutado con éxito en Edge Headless:
+    - Sin desbordamiento horizontal en 6 viewports (`1920x1080`, `1440x900`, `768x1024`, `430x932`, `390x844`, `360x800`).
+    - Interacciones Coverflow 3D validadas en desktop y móvil (clic lateral, flechas, dots).
+    - Acceso no autenticado a `/admin` protegido con redirección instantánea a `/admin/login`.
+    - Autenticación de operador semilla probada, accediendo al shell administrativo y navegando por las 8 pestañas con captura de screenshots de evidencia en `public/brand/verification/`.
+  - Typecheck (`tsc -b`): 0 errores.
+  - Suites de pruebas: `test:platform` (28/28), `test:restaurant` (43/43), `test:distribution` (55/55).
+
 ## Rama de revisión: Restaurante kiosk/POS (30/09/2026)
 
 - `feat/restaurant-kiosk-redesign` se creó en un worktree independiente desde `origin/main` `e20dd98`. No hay merge, push ni despliegue. La instalación original en G: no se tocó.
