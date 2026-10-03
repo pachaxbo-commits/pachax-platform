@@ -4,10 +4,11 @@ import { HeroSection } from './HeroSection'
 import { ValueStrip } from './ValueStrip'
 import { FeaturedTemplatesCatalog } from './FeaturedTemplatesCatalog'
 import { TemplatePricingSection } from './TemplatePricingSection'
-import { PlatformExtrasSection } from './PlatformExtrasSection'
 import { RealOnboardingSection } from './RealOnboardingSection'
 import { GuidedTutorialsSection } from './GuidedTutorialsSection'
+import { PlatformExtrasSection } from './PlatformExtrasSection'
 import { TrustFooter } from './TrustFooter'
+import { PachaxBrandBackground } from './PachaxBrandBackground'
 import '../publicExperience.css'
 
 export function PublicLanding() {
@@ -35,38 +36,41 @@ export function PublicLanding() {
   }, [])
 
   return (
-    <div className="w-full min-h-screen bg-[#FAF9F6] text-slate-900 font-sans flex flex-col selection:bg-[#0066FF] selection:text-white overflow-x-hidden">
-      {/* 1. Header Oficial de Producto con logo PACHAX recortado y elementos accesibles */}
+    <div className="w-full min-h-screen bg-[#FAF9F6] text-slate-900 font-sans flex flex-col selection:bg-[#0066FF] selection:text-white overflow-x-hidden relative">
+      {/* Fondo Arquitectónico Geométrico Inspirado en el Isotipo PACHAX */}
+      <PachaxBrandBackground activeIndex={activeIndex} />
+
+      {/* Header Oficial de Producto con branding, navegación anclada y accesibilidad */}
       <LandingHeader />
 
-      {/* Contenido Principal */}
-      <main className="flex-1 w-full flex flex-col overflow-x-hidden">
-        {/* 2. Hero Principal con Coverflow 3D y Detalle Activo Sincronizado */}
+      {/* Contenido Principal en Orden Canónico Riguroso */}
+      <main className="flex-1 w-full flex flex-col overflow-x-hidden relative z-10">
+        {/* SECCIÓN 1: Hero Principal con Coverflow 3D, Detalle Activo y WhatsApp CTA */}
         <HeroSection
           activeIndex={activeIndex}
           onChangeActiveIndex={setActiveIndex}
         />
 
-        {/* 3. Franja de Beneficios / Valores Clave */}
+        {/* Franja de Valor y Métricas Operacionales */}
         <ValueStrip />
 
-        {/* 4. Sección 1: Catálogo de Plantillas Destacadas (5 rubros, bullets concretos y demos) */}
+        {/* SECCIÓN 2: Plantillas en Detalle (Audiencia, Problema Resuelto, Demos Canónicas) */}
         <FeaturedTemplatesCatalog />
 
-        {/* 5. Sección 2: Planes Comerciales por Plantilla (Básico, Pro, Empresarial y A Medida) */}
+        {/* SECCIÓN 3: Planes por Plantilla (3 niveles por rubro + Desarrollo a Medida) */}
         <TemplatePricingSection />
 
-        {/* 6. Sección 3: Extras y Servicios Adicionales (Publicidad, Branding, Soporte, Automatizaciones) */}
-        <PlatformExtrasSection />
-
-        {/* 7. Sección 4: Onboarding Real de 5 Pasos */}
+        {/* SECCIÓN 4: Configura tu empresa en 5 minutos (Progresión editorial de 5 pasos) */}
         <RealOnboardingSection />
 
-        {/* 8. Sección 5: Tutoriales Guiados Interactivos en Pantalla */}
+        {/* SECCIÓN 5: Tutoriales Guiados Interactivos (Simulador de asistencia en pantalla) */}
         <GuidedTutorialsSection />
+
+        {/* SECCIÓN 6: Extras y Desarrollo a Medida (Última sección comercial con WhatsApp CTA) */}
+        <PlatformExtrasSection />
       </main>
 
-      {/* 9. Franja de Confianza y Pie Institucional */}
+      {/* Footer Institucional y Canales Verificados */}
       <TrustFooter />
     </div>
   )

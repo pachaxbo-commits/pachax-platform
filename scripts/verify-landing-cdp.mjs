@@ -21,7 +21,7 @@ const VIEWPORTS = [
 ]
 
 async function run() {
-  console.log('=== VERIFICACIÓN AUTOMATIZADA CDP (EDGE HEADLESS) ===')
+  console.log('=== VERIFICACIÓN RIGUROSA CDP (EDGE HEADLESS) ===')
   
   const profileDir = resolve('.unique_debug_profile')
   const proc = spawn(EDGE_PATH, [
@@ -90,10 +90,12 @@ async function run() {
   const results = {
     viewports: {},
     coverflowInteractions: {},
+    whatsappLinks: {},
+    demoNavigation: {},
     sectionsChecked: {},
   }
 
-  // 1. Probar cada viewport y medir getBoundingClientRect()
+  // 1. Probar cada viewport y verificar métricas de layout
   for (const vp of VIEWPORTS) {
     console.log(`\n--- Probando Viewport: ${vp.name} (${vp.width}x${vp.height}) ---`)
     
@@ -113,7 +115,6 @@ async function run() {
         const header = document.querySelector('header');
         const logo = header ? header.querySelector('img') : null;
         
-        // Elementos interactivos en el header
         const allButtons = Array.from(header ? header.querySelectorAll('button') : []);
         const loginBtn = allButtons.find(b => b.textContent.includes('Iniciar sesión') && b.offsetParent !== null);
         const regBtn = allButtons.find(b => b.textContent.includes('Registrarse') && b.offsetParent !== null);
@@ -135,7 +136,6 @@ async function run() {
           };
         };
 
-        // Identificar elementos que causan overflow horizontal si sw > iw
         let overflowingElements = [];
         if (sw > iw) {
           const all = document.querySelectorAll('*');
@@ -169,25 +169,61 @@ async function run() {
 
     const data = evalRes.result.value
     console.log(`Scroll Metrics: scrollWidth=${data.scrollWidth}, innerWidth=${data.innerWidth}, noOverflow=${data.noHorizontalOverflow}`)
-    console.log('Logo:', JSON.stringify(data.logo))
-    console.log('Login Btn:', JSON.stringify(data.loginBtn))
-    console.log('Register Btn:', JSON.stringify(data.regBtn))
-    console.log('Menu Btn:', JSON.stringify(data.menuBtn))
     if (data.overflowingElements && data.overflowingElements.length > 0) {
-      console.warn('OVERFLOW DETECTADO EN ELEMENTOS:', JSON.stringify(data.overflowingElements))
+      console.warn('OVERFLOW DETECTADO:', JSON.stringify(data.overflowingElements))
     }
 
     results.viewports[vp.name] = data
 
-    // Capturar screenshot nítido del viewport
+    // Capturar screenshot del viewport
     const shot = await send('Page.captureScreenshot', { format: 'png' })
     const shotPath = resolve(OUT_DIR, `landing-${vp.name}.png`)
     writeFileSync(shotPath, Buffer.from(shot.data, 'base64'))
     console.log(`Guardado screenshot: ${shotPath}`)
   }
 
-  // 2. Probar Interacciones del Coverflow (Flechas, Tarjetas laterales, Dots)
-  console.log('\n--- Probando Interacciones del Coverflow ---')
+  // 2. CAPTURAS FULL PAGE en viewports requeridos: 1920, 1440, 430, 390
+  console.log('\n--- Generando Full-Page Screenshots (1920, 1440, 430, 390) ---')
+  for (const fpVp of [
+    { name: '1920', width: 1920, height: 1080 },
+    { name: '1440', width: 1440, height: 900 },
+    { name: '430', width: 430, height: 932, mobile: true },
+    { name: '390', width: 390, height: 844, mobile: true },
+  ]) {
+    await send('Emulation.setDeviceMetricsOverride', {
+      width: fpVp.width,
+      height: fpVp.height,
+      deviceScaleFactor: 1,
+      mobile: fpVp.mobile || false,
+    })
+    await new Promise((r) => setTimeout(r, 400))
+
+    // Obtener altura total del documento
+    const docHeightRes = await send('Runtime.evaluate', {
+      expression: 'Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)',
+      returnByValue: true,
+    })
+    const docHeight = docHeightRes.result.value || 3000
+
+    // Capturar screenshot de página completa usando captureScreenshot con clip
+    const fullShot = await send('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: true,
+      clip: {
+        x: 0,
+        y: 0,
+        width: fpVp.width,
+        height: docHeight,
+        scale: 1,
+      },
+    })
+    const fpPath = resolve(OUT_DIR, `landing-${fpVp.name}-full.png`)
+    writeFileSync(fpPath, Buffer.from(fullShot.data, 'base64'))
+    console.log(`Guardado FULL-PAGE screenshot (${fpVp.name}px, alto ${docHeight}px): ${fpPath}`)
+  }
+
+  // 3. PROBAR INTERACCIÓN DEL COVERFLOW (Desktop 1440x900)
+  console.log('\n--- Probando Interacciones del Coverflow (1440x900) ---')
   await send('Emulation.setDeviceMetricsOverride', {
     width: 1440,
     height: 900,
@@ -196,72 +232,269 @@ async function run() {
   })
   await new Promise((r) => setTimeout(r, 400))
 
-  // Click en Flecha Derecha
-  const clickNext = await send('Runtime.evaluate', {
+  // A. Obtener estado inicial del Coverflow
+  const initialCoverflowState = await send('Runtime.evaluate', {
     expression: `(() => {
-      const btn = document.querySelector('button[aria-label="Siguiente plantilla"]');
-      if (btn) {
-        btn.click();
-        return true;
-      }
-      return false;
+      const activeCard = document.querySelector('[data-coverflow-card][data-active="true"]');
+      const activeIndex = activeCard ? activeCard.getAttribute('data-index') : null;
+      const allCards = Array.from(document.querySelectorAll('[data-coverflow-card]')).map(c => ({
+        index: c.getAttribute('data-index'),
+        active: c.getAttribute('data-active'),
+        title: c.querySelector('h3')?.textContent || ''
+      }));
+      return { activeIndex, allCards };
     })()`,
     returnByValue: true,
   })
-  await new Promise((r) => setTimeout(r, 500))
+  console.log('Coverflow estado inicial:', initialCoverflowState.result.value)
 
-  // Click en Tarjeta Lateral
-  const clickLateral = await send('Runtime.evaluate', {
+  // B. Click en tarjeta lateral (elegir una que NO esté activa)
+  const currentIdx = initialCoverflowState.result.value.activeIndex || '0'
+  const lateralTargetIndex = currentIdx === '1' ? '2' : '1'
+  await send('Runtime.evaluate', {
     expression: `(() => {
-      const cards = Array.from(document.querySelectorAll('[data-coverflow-card]'));
-      const lateral = cards.find(c => c.getAttribute('data-active') === 'false');
-      if (lateral) {
-        lateral.click();
+      const card = document.querySelector('[data-coverflow-card][data-index="${lateralTargetIndex}"]');
+      if (card) {
+        card.click();
         return true;
       }
       return false;
     })()`,
+  })
+  await new Promise((r) => setTimeout(r, 600))
+
+  const afterLateralClick = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const activeCard = document.querySelector('[data-coverflow-card][data-active="true"]');
+      return activeCard ? activeCard.getAttribute('data-index') : null;
+    })()`,
     returnByValue: true,
   })
-  await new Promise((r) => setTimeout(r, 500))
+  console.log(`Coverflow tras click en tarjeta lateral ${lateralTargetIndex}: activeIndex =`, afterLateralClick.result.value)
+
+  // C. Click en flecha Siguiente
+  await send('Runtime.evaluate', {
+    expression: `(() => {
+      const nextBtn = document.querySelector('button[aria-label="Siguiente plantilla"]');
+      if (nextBtn) nextBtn.click();
+    })()`,
+  })
+  await new Promise((r) => setTimeout(r, 600))
+
+  const afterNextArrow = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const activeCard = document.querySelector('[data-coverflow-card][data-active="true"]');
+      return activeCard ? activeCard.getAttribute('data-index') : null;
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Coverflow tras flecha Siguiente: activeIndex =', afterNextArrow.result.value)
+
+  // D. Click en dot indicador (índice 4: Solución a medida)
+  await send('Runtime.evaluate', {
+    expression: `(() => {
+      const dots = Array.from(document.querySelectorAll('button[aria-label*="Ir a plantilla"]'));
+      if (dots[4]) dots[4].click();
+    })()`,
+  })
+  await new Promise((r) => setTimeout(r, 600))
+
+  const afterDotClick = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const activeCard = document.querySelector('[data-coverflow-card][data-active="true"]');
+      return activeCard ? activeCard.getAttribute('data-index') : null;
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Coverflow tras click en dot 4: activeIndex =', afterDotClick.result.value)
 
   results.coverflowInteractions = {
-    arrowRightClicked: clickNext.result.value,
-    lateralCardClicked: clickLateral.result.value,
+    desktop: {
+      initialActiveIndex: currentIdx,
+      lateralClickTarget: lateralTargetIndex,
+      lateralClickSuccessful: afterLateralClick.result.value === lateralTargetIndex,
+      arrowNextNavigated: afterNextArrow.result.value !== afterLateralClick.result.value,
+      dotClickNavigated: afterDotClick.result.value === '4',
+    },
   }
-  console.log('Coverflow Interactions:', results.coverflowInteractions)
 
-  // 3. Capturar Screenshots de las 5 Nuevas Secciones
-  console.log('\n--- Capturando Screenshots de las 5 Nuevas Secciones ---')
+  // 3B. PROBAR INTERACCIÓN DEL COVERFLOW EN MOBILE (390x844)
+  console.log('\n--- Probando Interacciones del Coverflow en Mobile (390x844) ---')
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 1,
+    mobile: true,
+  })
+  await new Promise((r) => setTimeout(r, 400))
+
+  // Click en dot indicador 1 (Distribuidora) en mobile
+  await send('Runtime.evaluate', {
+    expression: `(() => {
+      const dots = Array.from(document.querySelectorAll('button[aria-label*="Ir a plantilla"]'));
+      if (dots[1]) dots[1].click();
+    })()`,
+  })
+  await new Promise((r) => setTimeout(r, 500))
+
+  const mobileDotClick = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const activeCard = document.querySelector('[data-coverflow-card][data-active="true"]');
+      return activeCard ? activeCard.getAttribute('data-index') : null;
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Mobile Coverflow tras click en dot 1: activeIndex =', mobileDotClick.result.value)
+
+  // Click en flecha Siguiente en mobile
+  await send('Runtime.evaluate', {
+    expression: `(() => {
+      const nextBtn = document.querySelector('button[aria-label="Siguiente plantilla"]');
+      if (nextBtn) nextBtn.click();
+    })()`,
+  })
+  await new Promise((r) => setTimeout(r, 500))
+
+  const mobileNextArrow = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const activeCard = document.querySelector('[data-coverflow-card][data-active="true"]');
+      return activeCard ? activeCard.getAttribute('data-index') : null;
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Mobile Coverflow tras flecha Siguiente: activeIndex =', mobileNextArrow.result.value)
+
+  // Click en tarjeta lateral en mobile (índice 0: Restaurante)
+  await send('Runtime.evaluate', {
+    expression: `(() => {
+      const card0 = document.querySelector('[data-coverflow-card][data-index="0"]');
+      if (card0) card0.click();
+    })()`,
+  })
+  await new Promise((r) => setTimeout(r, 500))
+
+  const mobileLateralClick = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const activeCard = document.querySelector('[data-coverflow-card][data-active="true"]');
+      return activeCard ? activeCard.getAttribute('data-index') : null;
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Mobile Coverflow tras click en tarjeta lateral 0: activeIndex =', mobileLateralClick.result.value)
+
+  results.coverflowInteractions.mobile = {
+    dotClickNavigated: mobileDotClick.result.value === '1',
+    arrowNextNavigated: mobileNextArrow.result.value === '2',
+    lateralClickNavigated: mobileLateralClick.result.value === '0',
+  }
+  console.log('Resultados Coverflow Mobile:', results.coverflowInteractions.mobile)
+
+  // Restaurar desktop para siguientes pruebas
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: 1440,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false,
+  })
+  await new Promise((r) => setTimeout(r, 300))
+
+  // 4. VERIFICAR ENLACES DE WHATSAPP (Sección 1 y Sección 6)
+  console.log('\n--- Verificando Enlaces de WhatsApp ---')
+  const waLinksCheck = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const heroWa = Array.from(document.querySelectorAll('a[href*="wa.me"]')).find(a => 
+        a.textContent.includes('desarrollo a medida') || a.textContent.includes('WhatsApp')
+      );
+      const allWaLinks = Array.from(document.querySelectorAll('a[href*="wa.me"]')).map(a => ({
+        text: a.textContent.trim(),
+        href: a.href,
+        target: a.target
+      }));
+      return { count: allWaLinks.length, links: allWaLinks };
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Enlaces WhatsApp detectados:', JSON.stringify(waLinksCheck.result.value, null, 2))
+  results.whatsappLinks = waLinksCheck.result.value
+
+  // 5. VERIFICAR NAVEGACIÓN A DEMOS Y BOTÓN "VOLVER AL INICIO"
+  console.log('\n--- Verificando Enlaces a Demos Canónicas ---')
+  const demoLinksCheck = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const catalog = document.getElementById('plantillas');
+      const demoLinks = Array.from(document.querySelectorAll('a[href*="/demo/"], button[data-demo], button[data-demo-path]')).map(el => ({
+        text: el.textContent.trim(),
+        href: el.getAttribute('href') || el.getAttribute('data-demo-path')
+      }));
+      return demoLinks;
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Demo links detectados:', demoLinksCheck.result.value)
+
+  // Probar navegación a /demo/restaurant y verificar el botón "Volver al inicio"
+  console.log('\n--- Navegando a /demo/restaurant para verificar header de retorno ---')
+  await send('Page.navigate', { url: 'http://localhost:5190/demo/restaurant' })
+  await new Promise((r) => setTimeout(r, 2000))
+
+  const demoPageCheck = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const homeLink = Array.from(document.querySelectorAll('a')).find(a => 
+        a.textContent.includes('Volver al inicio') || a.href === window.location.origin + '/'
+      );
+      const datasetModeEl = document.querySelector('[data-dataset-selector], .dataset-selector') || Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Empezar desde cero') || b.textContent.includes('Ver negocio'));
+      return {
+        url: window.location.pathname,
+        homeLinkFound: !!homeLink,
+        homeLinkHref: homeLink ? homeLink.getAttribute('href') : null,
+        homeLinkText: homeLink ? homeLink.textContent.trim() : null,
+        datasetSelectorFound: !!datasetModeEl
+      };
+    })()`,
+    returnByValue: true,
+  })
+  console.log('Estado dentro de /demo/restaurant:', demoPageCheck.result.value)
+  results.demoNavigation = demoPageCheck.result.value
+
+  // Volver a la landing page principal
+  await send('Page.navigate', { url: 'http://localhost:5190/' })
+  await new Promise((r) => setTimeout(r, 1500))
+
+  // 6. CAPTURAR SCREENSHOTS DE LAS SECCIONES INDIVIDUALES
+  console.log('\n--- Capturando Screenshots de las Secciones en Orden Canónico ---')
   const sections = [
-    { id: 'plantillas', name: 'seccion-1-plantillas' },
-    { id: 'planes', name: 'seccion-2-planes' },
-    { id: 'extras', name: 'seccion-3-extras' },
-    { id: 'onboarding', name: 'seccion-4-onboarding' },
-    { id: 'tutoriales', name: 'seccion-5-tutoriales' },
+    { id: 'plantillas', name: 'seccion-2-plantillas-detalle' },
+    { id: 'planes', name: 'seccion-3-planes-por-plantilla' },
+    { id: 'onboarding', name: 'seccion-4-configura-5-minutos' },
+    { id: 'tutoriales', name: 'seccion-5-tutoriales-guiados' },
+    { id: 'extras', name: 'seccion-6-extras-y-desarrollo' },
   ]
 
   for (const s of sections) {
     await send('Runtime.evaluate', {
       expression: `(() => {
         const el = document.getElementById('${s.id}');
-        if (el) el.scrollIntoView({ behavior: 'instant' });
+        if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
       })()`,
     })
-    await new Promise((r) => setTimeout(r, 400))
+    await new Promise((r) => setTimeout(r, 500))
 
     const secShot = await send('Page.captureScreenshot', { format: 'png' })
     const secPath = resolve(OUT_DIR, `${s.name}.png`)
     writeFileSync(secPath, Buffer.from(secShot.data, 'base64'))
-    console.log(`Guardado screenshot: ${secPath}`)
+    console.log(`Guardado screenshot de sección: ${secPath}`)
     results.sectionsChecked[s.name] = true
   }
 
-  // Cierre y reporte
+  // Guardar reporte consolidado JSON
+  const reportPath = resolve(OUT_DIR, 'verification-summary.json')
+  writeFileSync(reportPath, JSON.stringify(results, null, 2))
+  console.log(`Reporte guardado en: ${reportPath}`)
+
   ws.close()
   proc.kill()
 
-  console.log('\n=== VERIFICACIÓN COMPLETADA CON ÉXITO ===')
+  console.log('\n=== VERIFICACIÓN RIGUROSA COMPLETADA EXITOSAMENTE ===')
 }
 
 run().catch((err) => {

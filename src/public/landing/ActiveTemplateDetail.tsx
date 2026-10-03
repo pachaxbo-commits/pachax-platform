@@ -1,5 +1,6 @@
 import { ArrowRight, Eye, CheckCircle2 } from 'lucide-react'
 import type { CommercialTemplateItem } from '../config/commercialShowcase'
+import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 
 interface ActiveTemplateDetailProps {
@@ -13,30 +14,35 @@ export function ActiveTemplateDetail({ template }: ActiveTemplateDetailProps) {
     if (template.canonicalTemplateId) {
       navigate(`/register?template=${template.canonicalTemplateId}`)
     } else {
-      navigate('/register?intent=custom')
+      window.open(OFFICIAL_WHATSAPP.buildUrl(OFFICIAL_WHATSAPP.defaultCustomDevMessage), '_blank', 'noopener,noreferrer')
     }
   }
 
   const handleViewDetails = () => {
-    if (template.demoPath.startsWith('/demo/')) {
-      // Navegación de documento hacia la demo canónica
-      window.location.assign(template.demoPath)
+    if (template.demoRoute.startsWith('/demo/')) {
+      window.location.assign(template.demoRoute)
+    } else if (template.demoRoute.startsWith('http')) {
+      window.open(template.demoRoute, '_blank', 'noopener,noreferrer')
     } else {
-      navigate(template.demoPath)
+      navigate(template.demoRoute)
     }
   }
 
   return (
     <div className="w-full bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-xs transition-all duration-300">
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        {/* Ranura Visual / Miniatura Vectorial Nítida */}
+        {/* Ranura Visual / Miniatura Comercial Nítida */}
         <div className="w-full sm:w-28 h-20 sm:h-24 rounded-xl shrink-0 border border-slate-200/80 overflow-hidden bg-[#06101c] relative shadow-2xs">
-          <img
-            src={template.imageSrc}
-            alt={template.commercialName}
-            className="w-full h-full object-cover object-center"
-            loading="eager"
-          />
+          <picture>
+            <source srcSet={template.thumbnailUrl} type="image/webp" />
+            <img
+              src={template.thumbnailUrl.replace('.webp', '.jpg')}
+              alt={template.thumbnailAlt}
+              style={{ objectPosition: template.thumbnailFocalPoint }}
+              className="w-full h-full object-cover"
+              loading="eager"
+            />
+          </picture>
         </div>
 
         {/* Información y Textos de Producto */}

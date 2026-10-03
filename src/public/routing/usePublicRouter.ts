@@ -61,6 +61,12 @@ export function usePublicRouter() {
       }
     }
 
+    // Si la ruta cruza hacia el entrypoint demo.html, ejecutar navegación de documento obligatoria
+    if (to.startsWith('/demo')) {
+      window.location.assign(to)
+      return
+    }
+
     if (options?.replace) {
       window.history.replaceState({}, '', to)
     } else {

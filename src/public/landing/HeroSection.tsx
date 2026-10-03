@@ -1,8 +1,9 @@
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, MessageSquareCode } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateCoverflow } from './TemplateCoverflow'
 import { ActiveTemplateDetail } from './ActiveTemplateDetail'
-import { COMMERCIAL_TEMPLATES } from '../config/commercialShowcase'
+import { COMMERCIAL_TEMPLATES, type CommercialTemplateItem } from '../config/commercialShowcase'
+import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 
 interface HeroSectionProps {
   activeIndex: number
@@ -20,18 +21,21 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
     }
   }
 
-  return (
-    <section id="hero" className="relative w-full pt-4 pb-6 sm:pt-10 sm:pb-12 overflow-hidden">
-      {/* Luz y resplandor sutil de fondo */}
-      <div
-        className="absolute top-0 right-0 w-[550px] h-[480px] bg-blue-100/35 blur-[120px] rounded-full pointer-events-none -z-10"
-        aria-hidden="true"
-      />
-      <div
-        className="absolute top-1/2 left-0 w-[400px] h-[400px] bg-slate-100/60 blur-[90px] rounded-full pointer-events-none -z-10"
-        aria-hidden="true"
-      />
+  const handleSelectActiveCard = (template: CommercialTemplateItem) => {
+    // Si la tarjeta activa se pulsa, abrir la demo canónica correspondiente
+    if (template.demoRoute.startsWith('/demo/')) {
+      window.location.assign(template.demoRoute)
+    } else if (template.demoRoute.startsWith('http')) {
+      window.open(template.demoRoute, '_blank', 'noopener,noreferrer')
+    } else {
+      navigate(template.demoRoute)
+    }
+  }
 
+  const whatsAppUrl = OFFICIAL_WHATSAPP.buildUrl(OFFICIAL_WHATSAPP.defaultHeroMessage)
+
+  return (
+    <section id="hero" className="relative w-full pt-4 pb-8 sm:pt-10 sm:pb-14 overflow-hidden z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Layout Desktop: Split 2 Columnas / Layout Mobile: Stacked */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
@@ -57,7 +61,7 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
             </h1>
 
             {/* Párrafo Descriptivo */}
-            <p className="text-xs sm:text-base lg:text-[16px] text-slate-600 leading-relaxed max-w-xl mb-4 sm:mb-8">
+            <p className="text-xs sm:text-base lg:text-[16px] text-slate-600 leading-relaxed max-w-xl mb-5 sm:mb-8">
               <span className="hidden sm:inline">
                 Elige una plantilla, personalízala a tu medida y lleva tu negocio al siguiente nivel. Planes mensuales accesibles o desarrollo a medida con mantenimiento incluido.
               </span>
@@ -66,9 +70,10 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
               </span>
             </p>
 
-            {/* Botones de Acción Desktop (En Mobile las acciones principales residen en ActiveTemplateDetail) */}
-            <div className="hidden lg:flex flex-col items-start w-full">
-              <div className="flex items-center gap-3 mb-5">
+            {/* Acciones Hero Desktop (3 Niveles de Jerarquía) */}
+            <div className="hidden lg:flex flex-col items-start w-full space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* 1. Primario: Explorar Plantillas */}
                 <button
                   type="button"
                   onClick={handleExplore}
@@ -78,6 +83,7 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
+                {/* 2. Secundario: Comenzar Ahora */}
                 <button
                   type="button"
                   onClick={() => navigate('/register')}
@@ -87,8 +93,22 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
                 </button>
               </div>
 
+              {/* 3. Acción Especial: Solicitar desarrollo a medida (Directo a WhatsApp) */}
+              <div className="pt-1">
+                <a
+                  href={whatsAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 hover:text-[#0066FF] bg-slate-100/90 hover:bg-blue-50/80 px-3.5 py-2 rounded-lg border border-slate-200/80 hover:border-blue-200 transition-colors"
+                >
+                  <MessageSquareCode className="w-4 h-4 text-[#0066FF]" />
+                  <span>Solicitar desarrollo a medida</span>
+                  <span className="text-[11px] text-slate-400">({OFFICIAL_WHATSAPP.displayNumber})</span>
+                </a>
+              </div>
+
               {/* Acceso a Sesión para Usuarios Existentes */}
-              <p className="text-xs sm:text-sm text-slate-500">
+              <p className="text-xs sm:text-sm text-slate-500 pt-1">
                 ¿Ya tienes cuenta?{' '}
                 <button
                   type="button"
@@ -99,6 +119,19 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
                 </button>
               </p>
             </div>
+
+            {/* Acciones Hero Mobile: Compacto y no saturado */}
+            <div className="flex lg:hidden flex-col items-center gap-2.5 w-full max-w-sm">
+              <a
+                href={whatsAppUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200/90 px-3 py-1.5 rounded-full shadow-2xs"
+              >
+                <MessageSquareCode className="w-3.5 h-3.5 text-[#0066FF]" />
+                <span>Solicitar desarrollo a medida</span>
+              </a>
+            </div>
           </div>
 
           {/* Columna Derecha: Vitrina Coverflow 3D */}
@@ -107,11 +140,12 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
               activeIndex={activeIndex}
               onChangeActiveIndex={onChangeActiveIndex}
               onExploreAll={handleExplore}
+              onSelectActiveCard={handleSelectActiveCard}
             />
           </div>
         </div>
 
-        {/* Detalle de la Plantilla Activa: En Mobile y Tablet aparece inmediatamente debajo del Coverflow (Imagen 3) */}
+        {/* Detalle de la Plantilla Activa: En Mobile y Tablet aparece inmediatamente debajo del Coverflow */}
         <div className="lg:hidden mt-4 sm:mt-6 max-w-xl mx-auto">
           <ActiveTemplateDetail template={activeTemplate} />
         </div>

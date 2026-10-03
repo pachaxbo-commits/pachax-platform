@@ -211,11 +211,11 @@ export function DemoRuntime({
           <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-xs backdrop-blur-md sm:px-8 sm:py-3">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <a
-                href="/demo"
-                className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition bg-slate-100 px-2.5 py-1.5 rounded-lg"
+                href="/"
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-950 transition bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1.5 rounded-lg"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Demos PACHAX</span>
+                <span>Volver al inicio</span>
               </a>
               <div className="hidden h-4 w-px bg-slate-200 sm:block" />
               <div className="min-w-0">

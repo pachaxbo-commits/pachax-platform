@@ -16,23 +16,25 @@ interface TemplateCoverflowProps {
   activeIndex: number
   onChangeActiveIndex: (index: number) => void
   onExploreAll?: () => void
+  onSelectActiveCard?: (template: CommercialTemplateItem) => void
 }
 
 export function TemplateCoverflow({
   activeIndex,
   onChangeActiveIndex,
   onExploreAll,
+  onSelectActiveCard,
 }: TemplateCoverflowProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [dragOffset, setDragOffset] = useState(0)
   const isPointerDownRef = useRef(false)
-  const hasMovedRef = useRef(false)
   const startXRef = useRef(0)
+  const dragOccurredRef = useRef(false)
   const isTransitioningRef = useRef(false)
 
   const total = COMMERCIAL_TEMPLATES.length
 
-  const handlePrev = useCallback((e?: React.MouseEvent) => {
+  const handlePrev = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
       e.stopPropagation()
       e.preventDefault()
@@ -42,10 +44,10 @@ export function TemplateCoverflow({
     onChangeActiveIndex((activeIndex - 1 + total) % total)
     setTimeout(() => {
       isTransitioningRef.current = false
-    }, 350)
+    }, 320)
   }, [activeIndex, onChangeActiveIndex, total])
 
-  const handleNext = useCallback((e?: React.MouseEvent) => {
+  const handleNext = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
       e.stopPropagation()
       e.preventDefault()
@@ -55,10 +57,10 @@ export function TemplateCoverflow({
     onChangeActiveIndex((activeIndex + 1) % total)
     setTimeout(() => {
       isTransitioningRef.current = false
-    }, 350)
+    }, 320)
   }, [activeIndex, onChangeActiveIndex, total])
 
-  // Keyboard navigation
+  // Navegación por teclado (Flechas Izquierda / Derecha)
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') {
       e.preventDefault()
@@ -69,11 +71,11 @@ export function TemplateCoverflow({
     }
   }
 
-  // Pointer gesture handlers
+  // Gestores de Pointer / Drag (Touch & Mouse)
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     isPointerDownRef.current = true
-    hasMovedRef.current = false
+    dragOccurredRef.current = false
     startXRef.current = e.clientX
     setDragOffset(0)
   }
@@ -81,8 +83,9 @@ export function TemplateCoverflow({
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isPointerDownRef.current) return
     const diff = e.clientX - startXRef.current
-    if (Math.abs(diff) > 8) {
-      hasMovedRef.current = true
+    // Solo consideramos drag si el desplazamiento supera 14px reales
+    if (Math.abs(diff) > 14) {
+      dragOccurredRef.current = true
       setDragOffset(diff)
     }
   }
@@ -91,25 +94,29 @@ export function TemplateCoverflow({
     if (!isPointerDownRef.current) return
     isPointerDownRef.current = false
 
-    if (hasMovedRef.current) {
-      const diff = e.clientX - startXRef.current
-      if (diff > 35) {
+    const diff = e.clientX - startXRef.current
+    if (Math.abs(diff) > 40) {
+      if (diff > 40) {
         handlePrev()
-      } else if (diff < -35) {
+      } else {
         handleNext()
       }
     }
+
     setDragOffset(0)
-    hasMovedRef.current = false
+    // Dejamos un breve retardo para que el evento click no se confunda con drag
+    setTimeout(() => {
+      dragOccurredRef.current = false
+    }, 120)
   }
 
   const handlePointerCancel = () => {
     isPointerDownRef.current = false
-    hasMovedRef.current = false
+    dragOccurredRef.current = false
     setDragOffset(0)
   }
 
-  const renderIcon = (type: CommercialTemplateItem['iconType'], className = 'w-5 h-5') => {
+  const renderIcon = (type: CommercialTemplateItem['iconType'], className = 'w-4 h-4') => {
     switch (type) {
       case 'utensils':
         return <Utensils className={className} />
@@ -135,12 +142,12 @@ export function TemplateCoverflow({
       style={{
         // @ts-ignore
         '--stage-height': 'clamp(330px, 42vw, 430px)',
-        '--card-width': 'clamp(190px, 23vw, 245px)',
-        '--card-height': 'clamp(285px, 35vw, 375px)',
-        '--offset-step': 'clamp(85px, 13vw, 130px)',
+        '--card-width': 'clamp(195px, 23vw, 250px)',
+        '--card-height': 'clamp(290px, 35vw, 380px)',
+        '--offset-step': 'clamp(90px, 13vw, 135px)',
       }}
     >
-      {/* Flechas de Navegación Flotantes (Capa z-50 superior libre de pointer capture) */}
+      {/* Flechas de Navegación Flotantes (Capa z-50 superior aislada) */}
       <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between pointer-events-none z-50 px-1 sm:px-2">
         <button
           type="button"
@@ -161,7 +168,7 @@ export function TemplateCoverflow({
         </button>
       </div>
 
-      {/* Contenedor Stage 3D con perspectiva y soporte táctil */}
+      {/* Contenedor Stage 3D con perspectiva */}
       <div
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -178,7 +185,7 @@ export function TemplateCoverflow({
           const isImmediate = Math.abs(offset) === 1
           const isSecondary = Math.abs(offset) === 2
 
-          const dragInfluence = hasMovedRef.current ? dragOffset * 0.35 : 0
+          const dragInfluence = dragOccurredRef.current ? dragOffset * 0.35 : 0
 
           let transform = ''
           let zIndex = 1
@@ -186,7 +193,7 @@ export function TemplateCoverflow({
           let pointerEvents: 'auto' | 'none' = 'none'
 
           if (isActive) {
-            transform = `translateX(${dragInfluence}px) translateZ(clamp(30px, 4vw, 55px)) scale(1.06) rotateY(${dragInfluence * -0.05}deg)`
+            transform = `translateX(${dragInfluence}px) translateZ(clamp(32px, 4vw, 55px)) scale(1.06) rotateY(${dragInfluence * -0.05}deg)`
             zIndex = 30
             opacity = 1
             pointerEvents = 'auto'
@@ -219,11 +226,17 @@ export function TemplateCoverflow({
               key={template.id}
               data-coverflow-card=""
               data-active={isActive ? 'true' : 'false'}
+              data-index={index}
               data-template-id={template.id}
               onClick={(e) => {
                 e.stopPropagation()
-                if (!hasMovedRef.current) {
+                if (dragOccurredRef.current) return
+                if (!isActive) {
+                  // Click en tarjeta lateral -> Se anima y convierte en tarjeta central
                   onChangeActiveIndex(index)
+                } else if (onSelectActiveCard) {
+                  // Click en tarjeta activa -> Abre detalle o demo
+                  onSelectActiveCard(template)
                 }
               }}
               style={{
@@ -231,7 +244,7 @@ export function TemplateCoverflow({
                 zIndex,
                 opacity,
                 pointerEvents,
-                transition: hasMovedRef.current
+                transition: dragOccurredRef.current
                   ? 'none'
                   : 'transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 380ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 380ms cubic-bezier(0.22, 1, 0.36, 1)',
               }}
@@ -250,24 +263,31 @@ export function TemplateCoverflow({
                     : '0 12px 25px -5px rgba(0,0,0,0.4)',
                 }}
               >
-                {/* Ranura visual superior: Miniatura Vectorial Nítida */}
-                <div className="relative w-full h-[58%] overflow-hidden bg-[#06101c]">
-                  <img
-                    src={template.imageSrc}
-                    alt={template.commercialName}
-                    className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-103"
-                    loading="eager"
-                  />
+                {/* Ranura visual superior: Imagen Comercial Nítida del Concepto */}
+                <div className="relative w-full h-[60%] overflow-hidden bg-[#06101c]">
+                  <picture>
+                    <source srcSet={template.thumbnailUrl} type="image/webp" />
+                    <img
+                      src={template.thumbnailUrl.replace('.webp', '.jpg')}
+                      alt={template.thumbnailAlt}
+                      style={{ objectPosition: template.thumbnailFocalPoint }}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      loading="eager"
+                    />
+                  </picture>
+
+                  {/* Sutil viñeta para legibilidad */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#08101a] via-transparent to-black/30 pointer-events-none" />
 
                   {/* Insignia superior derecha de estado */}
                   {template.badge && (
-                    <span className="absolute top-2.5 right-2.5 text-[9px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-blue-600/90 text-white border border-blue-400/40 backdrop-blur-xs shadow-xs">
+                    <span className="absolute top-2.5 right-2.5 text-[9px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full bg-blue-600/95 text-white border border-blue-400/40 backdrop-blur-xs shadow-xs">
                       {template.badge}
                     </span>
                   )}
                 </div>
 
-                {/* Ranura visual inferior: Título, Subtítulo y Botón circular */}
+                {/* Ranura visual inferior: Título, Subtítulo y Botón de Acción */}
                 <div className="w-full p-3.5 bg-[#08101a]/95 backdrop-blur-xs border-t border-white/10 flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 mb-0.5">
@@ -308,9 +328,9 @@ export function TemplateCoverflow({
       </div>
 
       {/* Controles Inferiores: Dots + Indicador Móvil + Botón Explorar todas */}
-      <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-3 px-2">
-        {/* Indicador Móvil de Gesto Deslizar */}
-        <div className="flex md:hidden items-center justify-center gap-2 text-xs font-semibold text-slate-500 w-full py-1">
+      <div className="mt-2 sm:mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 px-2 sm:px-4">
+        {/* Indicador de Swipe (Solo Mobile) */}
+        <div className="flex sm:hidden items-center gap-1.5 text-[11px] font-medium text-slate-500">
           <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
           <span>Desliza para explorar plantillas</span>
           <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
@@ -339,7 +359,7 @@ export function TemplateCoverflow({
           })}
         </div>
 
-        {/* Pill Botón: Explorar todas las plantillas (Desktop) */}
+        {/* Botón de Explorar todas las plantillas (Desktop / Tablet) */}
         <div className="hidden sm:flex items-center">
           <button
             type="button"
