@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Building2, Image as ImageIcon, Palette, Store, CheckCircle, ArrowRight, Sparkles } from 'lucide-react'
+import { Building2, Image as ImageIcon, Palette, Store, CheckCircle, ArrowRight } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 
 export function RealOnboardingSection() {
@@ -55,9 +55,8 @@ export function RealOnboardingSection() {
     <section id="onboarding" className="w-full py-16 bg-white border-t border-slate-200/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mb-12">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-50 text-[#0066FF] border border-blue-200/80 text-xs font-bold uppercase tracking-wider mb-3">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>CONFIGURACIÓN INICIAL ÁGIL</span>
+          <div className="text-xs font-bold uppercase tracking-wider text-[#0066FF] mb-2">
+            CONFIGURACIÓN INICIAL ÁGIL
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
             Configura tu empresa en 5 minutos sin complicaciones

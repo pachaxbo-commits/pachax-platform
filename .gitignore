@@ -33,3 +33,4 @@ android/capacitor-cordova-android-plugins/
 tmp/
 output/
 docs/qa-*/
+.unique_debug_profile/

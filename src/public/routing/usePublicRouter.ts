@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export type PublicRoute = '/' | '/login' | '/register' | '/demo'
+export type PublicRoute = '/' | '/login' | '/register' | '/demo' | '/admin' | '/admin/login'
 
 export function usePublicRouter() {
   const [currentUrl, setCurrentUrl] = useState(() => {

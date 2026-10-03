@@ -1,45 +1,47 @@
 import { useState } from 'react'
-import { Check, ArrowRight, ShieldCheck, HelpCircle, MessageSquareCode } from 'lucide-react'
+import { Check, ArrowRight, HelpCircle } from 'lucide-react'
 import {
-  PLANS_BY_TEMPLATE,
   CUSTOM_DEVELOPMENT_CONFIG,
   type TemplateKey,
   type TemplateTierPlan,
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 
 export function TemplatePricingSection() {
   const { navigate } = usePublicRouter()
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('restaurant')
+  const { landingContent, publishedPlansByTemplate, publishedTemplates } = useCommercialConfig()
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>(
+    (publishedTemplates[0]?.templateId as TemplateKey) || 'restaurant'
+  )
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
 
-  const templateTabs: { id: TemplateKey; label: string }[] = [
-    { id: 'restaurant', label: 'Restaurante' },
-    { id: 'distribution', label: 'Distribuidora' },
-    { id: 'nightclub', label: 'Nightclub & Lounge' },
-    { id: 'retail', label: 'Ventas Express' },
-  ]
+  const templateTabs = publishedTemplates.map((t) => ({
+    id: t.templateId,
+    label: t.commercialName,
+  }))
 
-  const activePlans = PLANS_BY_TEMPLATE[selectedTemplate] || []
+  const activePlans = publishedPlansByTemplate(selectedTemplate)
 
   const handleSelectPlan = (plan: TemplateTierPlan) => {
     navigate(`/register?plan=${plan.id}&template=${selectedTemplate}&cycle=${billingCycle}`)
   }
+
+  const whatsAppLink = `https://wa.me/${landingContent.officialWhatsAppNumber}?text=${encodeURIComponent(landingContent.defaultCustomDevMessage)}`
 
   return (
     <section id="planes" className="w-full py-20 bg-white border-t border-slate-200/80 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabecera Editorial */}
         <div className="text-center max-w-3xl mx-auto mb-12">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-50 text-[#0066FF] border border-blue-200/80 text-xs font-bold uppercase tracking-wider mb-3">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>PLANES COMERCIALES TRANSPARENTES</span>
+          <div className="text-xs font-bold uppercase tracking-wider text-[#0066FF] mb-2">
+            PLANES COMERCIALES TRANSPARENTES
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
             Planes adaptados a la escala real de tu empresa
           </h2>
           <p className="text-sm sm:text-base text-slate-600 mt-2.5 leading-relaxed">
-            Sin comisiones ocultas por venta ni cargos sorpresa. Cada rubro cuenta con 3 niveles operativos diseñados para acompañar tu crecimiento desde la apertura hasta la gestión multisucursal.
+            Sin comisiones ocultas por venta ni cargos sorpresa. Cada rubro cuenta con niveles operativos diseñados para acompañar tu crecimiento desde la apertura hasta la gestión multisucursal.
           </p>
 
           {/* Selector de Plantilla por Pestañas */}
@@ -199,9 +201,8 @@ export function TemplatePricingSection() {
 
           <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             <div className="lg:col-span-7 space-y-4">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-400/20 text-xs font-bold uppercase tracking-wider">
-                <MessageSquareCode className="w-3.5 h-3.5" />
-                <span>SOLUCIÓN EXCLUSIVA DE INGENIERÍA</span>
+              <div className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-1">
+                SOLUCIÓN EXCLUSIVA DE INGENIERÍA
               </div>
               <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
                 {CUSTOM_DEVELOPMENT_CONFIG.title}
@@ -241,7 +242,7 @@ export function TemplatePricingSection() {
 
               <div className="w-full flex flex-col sm:flex-row lg:flex-col gap-3 pt-2">
                 <a
-                  href={CUSTOM_DEVELOPMENT_CONFIG.whatsAppLink}
+                  href={whatsAppLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-3 px-5 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white transition-all text-center inline-flex items-center justify-center gap-2 shadow-md cursor-pointer"

@@ -486,6 +486,140 @@ async function run() {
     results.sectionsChecked[s.name] = true
   }
 
+  async function waitForSelector(selector, timeoutMs = 8000) {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const res = await send('Runtime.evaluate', {
+        expression: `!!document.querySelector('${selector}')`,
+        returnByValue: true,
+      })
+      if (res?.result?.value) return true
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    return false
+  }
+
+  // 7. VERIFICACIÓN DEL PANEL ADMINISTRATIVO (/admin y /admin/login)
+  console.log('\n--- Verificando Portal Administrativo (/admin y /admin/login) ---')
+  results.admin = {}
+
+  // A. Probar acceso no autenticado a /admin -> Debe renderizar /admin/login
+  console.log('1. Probando guardia de seguridad unauthenticated /admin...')
+  await send('Page.navigate', { url: 'http://localhost:5190/admin' })
+  const foundLoginInput = await waitForSelector('[data-admin-login-email]', 8000)
+  console.log('Input de login encontrado:', foundLoginInput)
+
+  const redirectCheck = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const hasEmailInput = !!document.querySelector('[data-admin-login-email]');
+      const hasPasswordInput = !!document.querySelector('[data-admin-login-password]');
+      const hasRegisterLink = Array.from(document.querySelectorAll('a, button')).some(el => 
+        el.textContent.toLowerCase().includes('crear cuenta') || el.textContent.toLowerCase().includes('registrarse')
+      );
+      return {
+        path: window.location.pathname,
+        isLoginView: hasEmailInput && hasPasswordInput,
+        hasEmailInput,
+        hasPasswordInput,
+        hasRegisterLink,
+        title: document.querySelector('h1')?.textContent || ''
+      };
+    })()`,
+    returnByValue: true,
+  })
+
+  console.log('Resultado verificación /admin no autenticado:', redirectCheck.result.value)
+  results.admin.unauthenticatedAccess = redirectCheck.result.value
+
+  // Capturar screenshot de pantalla de login de admin
+  const adminLoginShot = await send('Page.captureScreenshot', { format: 'png' })
+  const adminLoginPath = resolve(OUT_DIR, 'admin-login.png')
+  writeFileSync(adminLoginPath, Buffer.from(adminLoginShot.data, 'base64'))
+  console.log(`Guardado screenshot login admin: ${adminLoginPath}`)
+
+  // B. Realizar Login con Operador Semilla Controlado (admin@pachax.com)
+  console.log('2. Ingresando credenciales del operador controlado...')
+  await send('Runtime.evaluate', {
+    expression: `(() => {
+      const emailInput = document.querySelector('[data-admin-login-email]');
+      const pwdInput = document.querySelector('[data-admin-login-password]');
+      const submitBtn = document.querySelector('[data-admin-login-submit]');
+
+      if (emailInput && pwdInput && submitBtn) {
+        // Usar native value setter para que React detecte el cambio de valor
+        const nativeEmailSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        nativeEmailSetter.call(emailInput, 'admin@pachax.com');
+        emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+        const nativePwdSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        nativePwdSetter.call(pwdInput, 'PachaxAdmin2026!');
+        pwdInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // Enviar formulario
+        submitBtn.click();
+        return true;
+      }
+      return false;
+    })()`,
+  })
+
+  // Esperar a que la autenticación monte el shell con sus pestañas
+  console.log('Esperando montaje de AdminShell post-login...')
+  const shellMounted = await waitForSelector('[data-admin-tab="dashboard"]', 8000)
+  console.log('AdminShell montado con éxito:', shellMounted)
+
+  const postLoginCheck = await send('Runtime.evaluate', {
+    expression: `(() => {
+      const path = window.location.pathname;
+      const operatorBadge = document.querySelector('[data-operator-role]') || document.body.textContent.includes('platform_owner') || document.body.textContent.includes('admin@pachax.com') || document.body.textContent.includes('Darío (Platform Owner)');
+      const navButtons = Array.from(document.querySelectorAll('[data-admin-tab]')).map(b => b.getAttribute('data-admin-tab'));
+      return {
+        path,
+        isAuthenticated: !!operatorBadge,
+        operatorBadgeFound: !!operatorBadge,
+        tabsFound: navButtons
+      };
+    })()`,
+    returnByValue: true,
+  })
+
+  console.log('Resultado post-login admin:', postLoginCheck.result.value)
+  results.admin.loginSuccess = postLoginCheck.result.value
+
+  // Capturar screenshot del Dashboard Admin
+  const adminDashShot = await send('Page.captureScreenshot', { format: 'png' })
+  const adminDashPath = resolve(OUT_DIR, 'admin-dashboard.png')
+  writeFileSync(adminDashPath, Buffer.from(adminDashShot.data, 'base64'))
+  console.log(`Guardado screenshot dashboard admin: ${adminDashPath}`)
+
+  // C. Recorrer cada una de las 8 pestañas administrativas y capturar screenshots
+  const adminTabsToTest = [
+    { id: 'templates', file: 'admin-templates.png', label: 'Plantillas' },
+    { id: 'plans', file: 'admin-plans.png', label: 'Planes' },
+    { id: 'extras', file: 'admin-extras.png', label: 'Extras' },
+    { id: 'landing', file: 'admin-content.png', label: 'Contenido Landing' },
+    { id: 'media', file: 'admin-media.png', label: 'Biblioteca Media' },
+    { id: 'clients', file: 'admin-clients.png', label: 'Clientes / Tenants' },
+    { id: 'studio', file: 'admin-studio.png', label: 'PACHAX Studio' },
+  ]
+
+  for (const tab of adminTabsToTest) {
+    console.log(`Navegando a pestaña admin: ${tab.label} (${tab.id})...`)
+    await send('Runtime.evaluate', {
+      expression: `(() => {
+        const btn = document.querySelector('[data-admin-tab="${tab.id}"]');
+        if (btn) btn.click();
+      })()`,
+    })
+    await new Promise((r) => setTimeout(r, 800))
+
+    const tabShot = await send('Page.captureScreenshot', { format: 'png' })
+    const tabPath = resolve(OUT_DIR, tab.file)
+    writeFileSync(tabPath, Buffer.from(tabShot.data, 'base64'))
+    console.log(`Guardado screenshot pestaña ${tab.label}: ${tabPath}`)
+    results.admin[tab.id] = true
+  }
+
   // Guardar reporte consolidado JSON
   const reportPath = resolve(OUT_DIR, 'verification-summary.json')
   writeFileSync(reportPath, JSON.stringify(results, null, 2))

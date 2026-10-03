@@ -2,15 +2,14 @@ import React, { useState, useRef, useCallback } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
-  ArrowRight,
   Utensils,
   Truck,
   GlassWater,
   ShoppingBag,
   Settings,
-  Sparkles,
 } from 'lucide-react'
-import { COMMERCIAL_TEMPLATES, type CommercialTemplateItem } from '../config/commercialShowcase'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import type { CommercialTemplateItem } from '../../admin/types'
 
 interface TemplateCoverflowProps {
   activeIndex: number
@@ -22,45 +21,41 @@ interface TemplateCoverflowProps {
 export function TemplateCoverflow({
   activeIndex,
   onChangeActiveIndex,
-  onExploreAll,
   onSelectActiveCard,
 }: TemplateCoverflowProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const { publishedTemplates } = useCommercialConfig()
+  const templates = publishedTemplates.length > 0 ? publishedTemplates : []
+
   const [dragOffset, setDragOffset] = useState(0)
   const isPointerDownRef = useRef(false)
   const startXRef = useRef(0)
   const dragOccurredRef = useRef(false)
-  const isTransitioningRef = useRef(false)
+  const hasMovedRef = useRef(false)
 
-  const total = COMMERCIAL_TEMPLATES.length
+  const total = templates.length
 
   const handlePrev = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
       e.stopPropagation()
       e.preventDefault()
     }
-    if (isTransitioningRef.current) return
-    isTransitioningRef.current = true
-    onChangeActiveIndex((activeIndex - 1 + total) % total)
-    setTimeout(() => {
-      isTransitioningRef.current = false
-    }, 320)
-  }, [activeIndex, onChangeActiveIndex, total])
+    if (total === 0) return
+    const nextIdx = (activeIndex - 1 + total) % total
+    onChangeActiveIndex(nextIdx)
+  }, [activeIndex, total, onChangeActiveIndex])
 
   const handleNext = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
       e.stopPropagation()
       e.preventDefault()
     }
-    if (isTransitioningRef.current) return
-    isTransitioningRef.current = true
-    onChangeActiveIndex((activeIndex + 1) % total)
-    setTimeout(() => {
-      isTransitioningRef.current = false
-    }, 320)
-  }, [activeIndex, onChangeActiveIndex, total])
+    if (total === 0) return
+    const nextIdx = (activeIndex + 1) % total
+    onChangeActiveIndex(nextIdx)
+  }, [activeIndex, total, onChangeActiveIndex])
 
-  // Navegación por teclado (Flechas Izquierda / Derecha)
+  // Navegación accesible por teclado (ArrowLeft / ArrowRight)
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') {
       e.preventDefault()
@@ -71,22 +66,22 @@ export function TemplateCoverflow({
     }
   }
 
-  // Gestores de Pointer / Drag (Touch & Mouse)
+  // Soporte de Drag / Swipe de alta precisión sin bloquear clicks involuntariamente
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 && e.pointerType === 'mouse') return
     isPointerDownRef.current = true
-    dragOccurredRef.current = false
     startXRef.current = e.clientX
-    setDragOffset(0)
+    dragOccurredRef.current = false
+    hasMovedRef.current = false
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isPointerDownRef.current) return
-    const diff = e.clientX - startXRef.current
-    // Solo consideramos drag si el desplazamiento supera 14px reales
-    if (Math.abs(diff) > 14) {
+    const delta = e.clientX - startXRef.current
+    if (Math.abs(delta) > 14) {
+      hasMovedRef.current = true
       dragOccurredRef.current = true
-      setDragOffset(diff)
+      setDragOffset(delta)
     }
   }
 
@@ -94,9 +89,10 @@ export function TemplateCoverflow({
     if (!isPointerDownRef.current) return
     isPointerDownRef.current = false
 
-    const diff = e.clientX - startXRef.current
-    if (Math.abs(diff) > 40) {
-      if (diff > 40) {
+    const delta = e.clientX - startXRef.current
+    // Swipe solo si supera los 40px
+    if (Math.abs(delta) > 40) {
+      if (delta > 0) {
         handlePrev()
       } else {
         handleNext()
@@ -104,7 +100,6 @@ export function TemplateCoverflow({
     }
 
     setDragOffset(0)
-    // Dejamos un breve retardo para que el evento click no se confunda con drag
     setTimeout(() => {
       dragOccurredRef.current = false
     }, 120)
@@ -140,11 +135,12 @@ export function TemplateCoverflow({
       onKeyDown={handleKeyDown}
       className="relative w-full max-w-full select-none outline-none focus-visible:ring-2 focus-visible:ring-[#0066FF] rounded-2xl"
       style={{
+        // Proporciones refinadas: mayor anchura y altura útil de imagen para evitar recortes
         // @ts-ignore
-        '--stage-height': 'clamp(330px, 42vw, 430px)',
-        '--card-width': 'clamp(195px, 23vw, 250px)',
-        '--card-height': 'clamp(290px, 35vw, 380px)',
-        '--offset-step': 'clamp(90px, 13vw, 135px)',
+        '--stage-height': 'clamp(350px, 45vw, 440px)',
+        '--card-width': 'clamp(215px, 25vw, 275px)',
+        '--card-height': 'clamp(310px, 36vw, 395px)',
+        '--offset-step': 'clamp(95px, 14vw, 145px)',
       }}
     >
       {/* Flechas de Navegación Flotantes (Capa z-50 superior aislada) */}
@@ -176,7 +172,7 @@ export function TemplateCoverflow({
         onPointerCancel={handlePointerCancel}
         className="relative w-full h-[var(--stage-height)] flex items-center justify-center overflow-hidden [perspective:1200px] [perspective-origin:50%_50%] cursor-default"
       >
-        {COMMERCIAL_TEMPLATES.map((template, index) => {
+        {templates.map((template, index) => {
           let offset = index - activeIndex
           if (offset > 2) offset -= total
           if (offset < -2) offset += total
@@ -193,7 +189,7 @@ export function TemplateCoverflow({
           let pointerEvents: 'auto' | 'none' = 'none'
 
           if (isActive) {
-            transform = `translateX(${dragInfluence}px) translateZ(clamp(32px, 4vw, 55px)) scale(1.06) rotateY(${dragInfluence * -0.05}deg)`
+            transform = `translateX(${dragInfluence}px) translateZ(50px) scale(1.02) rotateY(0deg)`
             zIndex = 30
             opacity = 1
             pointerEvents = 'auto'
@@ -232,7 +228,7 @@ export function TemplateCoverflow({
                 e.stopPropagation()
                 if (dragOccurredRef.current) return
                 if (!isActive) {
-                  // Click en tarjeta lateral -> Se anima y convierte en tarjeta central
+                  // Click en tarjeta lateral -> Centra de inmediato
                   onChangeActiveIndex(index)
                 } else if (onSelectActiveCard) {
                   // Click en tarjeta activa -> Abre detalle o demo
@@ -263,21 +259,21 @@ export function TemplateCoverflow({
                     : '0 12px 25px -5px rgba(0,0,0,0.4)',
                 }}
               >
-                {/* Ranura visual superior: Imagen Comercial Nítida del Concepto */}
-                <div className="relative w-full h-[60%] overflow-hidden bg-[#06101c]">
+                {/* Ranura visual superior: Imagen Comercial Nítida del Concepto (68% de altura útil para encuadre completo) */}
+                <div className="relative w-full h-[68%] overflow-hidden bg-[#06101c]">
                   <picture>
                     <source srcSet={template.thumbnailUrl} type="image/webp" />
                     <img
                       src={template.thumbnailUrl.replace('.webp', '.jpg')}
                       alt={template.thumbnailAlt}
-                      style={{ objectPosition: template.thumbnailFocalPoint }}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      style={{ objectPosition: template.thumbnailFocalPoint || '50% 38%' }}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-102 select-none"
                       loading="eager"
                     />
                   </picture>
 
-                  {/* Sutil viñeta para legibilidad */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#08101a] via-transparent to-black/30 pointer-events-none" />
+                  {/* Sutil viñeta para legibilidad sin recortar el encuadre fotográfico */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#08101a] via-transparent to-black/15 pointer-events-none" />
 
                   {/* Insignia superior derecha de estado */}
                   {template.badge && (
@@ -287,8 +283,8 @@ export function TemplateCoverflow({
                   )}
                 </div>
 
-                {/* Ranura visual inferior: Título, Subtítulo y Botón de Acción */}
-                <div className="w-full p-3.5 bg-[#08101a]/95 backdrop-blur-xs border-t border-white/10 flex items-center justify-between gap-2">
+                {/* Ranura visual inferior: Título, Subtítulo y Botón de Acción (32% de altura) */}
+                <div className="w-full h-[32%] p-3.5 bg-[#08101a]/95 backdrop-blur-xs border-t border-white/10 flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <span
@@ -318,7 +314,7 @@ export function TemplateCoverflow({
                     }`}
                     aria-hidden="true"
                   >
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </div>
                 </div>
               </div>
@@ -327,50 +323,24 @@ export function TemplateCoverflow({
         })}
       </div>
 
-      {/* Controles Inferiores: Dots + Indicador Móvil + Botón Explorar todas */}
-      <div className="mt-2 sm:mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 px-2 sm:px-4">
-        {/* Indicador de Swipe (Solo Mobile) */}
-        <div className="flex sm:hidden items-center gap-1.5 text-[11px] font-medium text-slate-500">
-          <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
-          <span>Desliza para explorar plantillas</span>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-        </div>
-
-        {/* Dots de Paginación Interactivos */}
-        <div className="flex items-center justify-center gap-1.5 mx-auto sm:mx-0">
-          {COMMERCIAL_TEMPLATES.map((t, idx) => {
-            const isDotActive = idx === activeIndex
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onChangeActiveIndex(idx)
-                }}
-                aria-label={`Ir a plantilla ${t.commercialName}`}
-                className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
-                  isDotActive
-                    ? 'w-6 bg-[#0066FF]'
-                    : 'w-2 bg-slate-300 hover:bg-slate-400'
-                }`}
-              />
-            )
-          })}
-        </div>
-
-        {/* Botón de Explorar todas las plantillas (Desktop / Tablet) */}
-        <div className="hidden sm:flex items-center">
-          <button
-            type="button"
-            onClick={onExploreAll}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-[#0066FF] px-3.5 py-1.5 rounded-full border border-slate-200 bg-white/90 hover:bg-white shadow-2xs transition-all cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#0066FF]" />
-            <span>Explorar catálogo completo</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+      {/* Paginador de Puntos (Dots) Inferior */}
+      <div className="mt-4 flex items-center justify-center gap-2">
+        {templates.map((tpl, idx) => {
+          const isCurrent = idx === activeIndex
+          return (
+            <button
+              key={tpl.id}
+              type="button"
+              onClick={() => onChangeActiveIndex(idx)}
+              aria-label={`Ir a plantilla ${tpl.commercialName} (índice ${idx + 1})`}
+              className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
+                isCurrent
+                  ? 'w-7 bg-[#0066FF] shadow-xs'
+                  : 'w-2 bg-slate-300 hover:bg-slate-400'
+              }`}
+            />
+          )
+        })}
       </div>
     </div>
   )

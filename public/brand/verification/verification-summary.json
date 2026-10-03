@@ -298,7 +298,7 @@
     }
   },
   "whatsappLinks": {
-    "count": 4,
+    "count": 3,
     "links": [
       {
         "text": "Solicitar desarrollo a medida(+591 77987776)",
@@ -312,11 +312,6 @@
       },
       {
         "text": "Solicitar asesoría técnica",
-        "href": "https://wa.me/59177987776?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20un%20desarrollo%20a%20medida%20en%20PACHAX%20Platform.",
-        "target": "_blank"
-      },
-      {
-        "text": "Contactar por WhatsApp",
         "href": "https://wa.me/59177987776?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20un%20desarrollo%20a%20medida%20en%20PACHAX%20Platform.",
         "target": "_blank"
       }
@@ -335,5 +330,37 @@
     "seccion-4-configura-5-minutos": true,
     "seccion-5-tutoriales-guiados": true,
     "seccion-6-extras-y-desarrollo": true
+  },
+  "admin": {
+    "unauthenticatedAccess": {
+      "path": "/admin",
+      "isLoginView": true,
+      "hasEmailInput": true,
+      "hasPasswordInput": true,
+      "hasRegisterLink": false,
+      "title": "Portal Administrativo"
+    },
+    "loginSuccess": {
+      "path": "/admin",
+      "isAuthenticated": true,
+      "operatorBadgeFound": true,
+      "tabsFound": [
+        "dashboard",
+        "templates",
+        "plans",
+        "extras",
+        "landing",
+        "media",
+        "clients",
+        "studio"
+      ]
+    },
+    "templates": true,
+    "plans": true,
+    "extras": true,
+    "landing": true,
+    "media": true,
+    "clients": true,
+    "studio": true
   }
 }
