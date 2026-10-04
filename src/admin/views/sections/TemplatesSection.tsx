@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { RefreshCw, Save, CheckCircle2 } from 'lucide-react'
+import { RefreshCw, Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../types'
 
@@ -7,6 +7,8 @@ export function TemplatesSection() {
   const { config, updateTemplate, mediaAssets, resetToDefaults } = useCommercialConfig()
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(config.templates[0]?.id || 'restaurant')
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const selectedTemplate = config.templates.find((t) => t.id === selectedTemplateId) || config.templates[0]
 
@@ -19,13 +21,22 @@ export function TemplatesSection() {
     if (tpl) {
       setFormData(JSON.parse(JSON.stringify(tpl)))
       setSaveFeedback(null)
+      setSaveError(null)
     }
   }
 
-  const handleSave = () => {
-    updateTemplate(formData.id, formData)
-    setSaveFeedback('¡Cambios guardados con éxito! La landing pública ya refleja esta configuración.')
-    setTimeout(() => setSaveFeedback(null), 4000)
+  const handleSave = async () => {
+    setIsProcessing(true)
+    setSaveFeedback(null)
+    setSaveError(null)
+    const res = await updateTemplate(formData.id, formData)
+    setIsProcessing(false)
+    if (res.success) {
+      setSaveFeedback('¡Cambios guardados con éxito en Firestore! La landing pública ya refleja esta configuración.')
+      setTimeout(() => setSaveFeedback(null), 4000)
+    } else {
+      setSaveError(res.error || 'No se pudo guardar la plantilla en Firestore. El formulario conserva tus cambios.')
+    }
   }
 
   const handleAddBullet = () => {
@@ -114,6 +125,13 @@ export function TemplatesSection() {
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{saveFeedback}</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <span>{saveError}</span>
         </div>
       )}
 
@@ -330,10 +348,11 @@ export function TemplatesSection() {
             <button
               type="button"
               onClick={handleSave}
-              className="px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
+              disabled={isProcessing}
+              className="px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] disabled:bg-blue-300 text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
             >
-              <Save className="w-3.5 h-3.5" />
-              <span>Guardar cambios en plantilla</span>
+              {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{isProcessing ? 'Guardando en Firestore...' : 'Guardar cambios en plantilla'}</span>
             </button>
           </div>
         </div>

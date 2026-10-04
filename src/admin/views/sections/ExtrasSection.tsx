@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Megaphone, Palette, Headphones, Zap, Code2, CheckCircle2 } from 'lucide-react'
+import { Megaphone, Palette, Headphones, Zap, Code2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { CommercialExtraService } from '../../types'
 
 export function ExtrasSection() {
   const { config, updateExtra } = useCommercialConfig()
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const renderIcon = (key: CommercialExtraService['iconKey']) => {
     switch (key) {
@@ -22,17 +23,29 @@ export function ExtrasSection() {
     }
   }
 
-  const handleToggleStatus = (extra: CommercialExtraService) => {
+  const handleToggleStatus = async (extra: CommercialExtraService) => {
     const newStatus = extra.status === 'published' ? 'draft' : 'published'
-    updateExtra(extra.id, { status: newStatus })
-    setSaveFeedback(`Servicio "${extra.title}" cambiado a ${newStatus}.`)
-    setTimeout(() => setSaveFeedback(null), 3000)
+    setSaveFeedback(null)
+    setSaveError(null)
+    const res = await updateExtra(extra.id, { status: newStatus })
+    if (res.success) {
+      setSaveFeedback(`Servicio "${extra.title}" cambiado a ${newStatus} en Firestore.`)
+      setTimeout(() => setSaveFeedback(null), 3000)
+    } else {
+      setSaveError(res.error || 'Error al cambiar estado del servicio.')
+    }
   }
 
-  const handleUpdateField = (id: string, field: keyof CommercialExtraService, value: any) => {
-    updateExtra(id, { [field]: value })
-    setSaveFeedback('Cambios guardados en tiempo real.')
-    setTimeout(() => setSaveFeedback(null), 2500)
+  const handleUpdateField = async (id: string, field: keyof CommercialExtraService, value: any) => {
+    setSaveFeedback(null)
+    setSaveError(null)
+    const res = await updateExtra(id, { [field]: value })
+    if (res.success) {
+      setSaveFeedback('Cambios guardados en Firestore.')
+      setTimeout(() => setSaveFeedback(null), 2500)
+    } else {
+      setSaveError(res.error || 'Error al guardar los cambios en Firestore.')
+    }
   }
 
   return (
@@ -53,6 +66,13 @@ export function ExtrasSection() {
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{saveFeedback}</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <span>{saveError}</span>
         </div>
       )}
 

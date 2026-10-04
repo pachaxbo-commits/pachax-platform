@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { Plus, Save, Trash2, CheckCircle2 } from 'lucide-react'
+import { Plus, Save, Trash2, CheckCircle2, AlertCircle, Globe, EyeOff, Loader2 } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { TemplateTierPlan } from '../../types'
 import type { TemplateKey } from '../../../public/config/pricingConfig'
 
 export function PlansSection() {
-  const { config, updatePlan, createPlan, deletePlan } = useCommercialConfig()
+  const { config, updatePlan, createPlan, deletePlan, togglePublishPlan } = useCommercialConfig()
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('restaurant')
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const templateTabs: { id: TemplateKey; label: string }[] = [
     { id: 'restaurant', label: 'Restaurante' },
@@ -29,16 +31,49 @@ export function PlansSection() {
     setEditingPlanId(plan.id)
     setFormData(JSON.parse(JSON.stringify(plan)))
     setSaveFeedback(null)
+    setSaveError(null)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData) return
-    updatePlan(formData.id, formData)
-    setSaveFeedback(`¡Plan "${formData.name}" guardado correctamente!`)
-    setTimeout(() => setSaveFeedback(null), 4000)
+    setIsProcessing(true)
+    setSaveFeedback(null)
+    setSaveError(null)
+    const res = await updatePlan(formData.id, formData)
+    setIsProcessing(false)
+    if (res.success) {
+      setSaveFeedback(`¡Plan "${formData.name}" guardado correctamente en Firestore!`)
+      setTimeout(() => setSaveFeedback(null), 4000)
+    } else {
+      setSaveError(res.error || 'No se pudo guardar el plan en Firestore. Los cambios se mantienen en el formulario.')
+    }
   }
 
-  const handleCreateNew = () => {
+  const handleTogglePublish = async () => {
+    if (!formData) return
+    setIsProcessing(true)
+    setSaveFeedback(null)
+    setSaveError(null)
+    const nextStatus = formData.status === 'published' ? 'draft' : 'published'
+    const res = await togglePublishPlan(formData.id, nextStatus)
+    setIsProcessing(false)
+    if (res.success) {
+      setFormData({ ...formData, status: nextStatus })
+      setSaveFeedback(
+        nextStatus === 'published'
+          ? `¡Plan "${formData.name}" publicado en la landing!`
+          : `Plan "${formData.name}" despublicado (ahora en borrador).`
+      )
+      setTimeout(() => setSaveFeedback(null), 4000)
+    } else {
+      setSaveError(res.error || 'No se pudo cambiar el estado de publicación en el servidor.')
+    }
+  }
+
+  const handleCreateNew = async () => {
+    setIsProcessing(true)
+    setSaveFeedback(null)
+    setSaveError(null)
     const newId = `${selectedTemplate}_plan_${Date.now()}`
     const newPlan: TemplateTierPlan = {
       id: newId,
@@ -57,16 +92,31 @@ export function PlansSection() {
       status: 'draft',
       order: plansForTemplate.length + 1,
     }
-    createPlan(newPlan)
-    handleSelectPlan(newPlan)
-    setSaveFeedback('Nuevo plan creado en modo borrador (draft).')
+    const res = await createPlan(newPlan)
+    setIsProcessing(false)
+    if (res.success) {
+      handleSelectPlan(newPlan)
+      setSaveFeedback('Nuevo plan creado en modo borrador (draft) en Firestore.')
+    } else {
+      setSaveError(res.error || 'Error al crear el nuevo plan en Firestore.')
+    }
   }
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('¿Eliminar este plan comercial?')) {
-      deletePlan(id)
-      setEditingPlanId(null)
-      setFormData(null)
+  const handleDelete = async (id: string) => {
+    if (window.confirm('¿Eliminar este plan comercial de Firestore?')) {
+      setIsProcessing(true)
+      setSaveFeedback(null)
+      setSaveError(null)
+      const res = await deletePlan(id)
+      setIsProcessing(false)
+      if (res.success) {
+        setEditingPlanId(null)
+        setFormData(null)
+        setSaveFeedback('Plan eliminado correctamente.')
+        setTimeout(() => setSaveFeedback(null), 3000)
+      } else {
+        setSaveError(res.error || 'No se pudo eliminar el plan en Firestore.')
+      }
     }
   }
 
@@ -109,7 +159,8 @@ export function PlansSection() {
         <button
           type="button"
           onClick={handleCreateNew}
-          className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
+          disabled={isProcessing}
+          className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[#0066FF] hover:bg-[#0052cc] disabled:bg-blue-300 text-white shadow-xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>Crear nuevo plan</span>
@@ -148,6 +199,13 @@ export function PlansSection() {
         </div>
       )}
 
+      {saveError && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      )}
+
       {/* Grilla de Planes del Rubro y Formulario */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Lista de Planes a la Izquierda */}
@@ -181,11 +239,11 @@ export function PlansSection() {
                     <span
                       className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
                         p.status === 'published'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : 'bg-amber-100 text-amber-800 border border-amber-200'
                       }`}
                     >
-                      {p.status}
+                      {p.status === 'published' ? 'Publicado' : 'Borrador'}
                     </span>
                   </div>
                 </div>
@@ -205,18 +263,57 @@ export function PlansSection() {
         <div className="lg:col-span-7 bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs">
           {formData ? (
             <div className="space-y-5">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <h3 className="text-base font-bold text-slate-900">
-                  Editar: {formData.name}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(formData.id)}
-                  className="text-xs text-red-600 hover:text-red-700 inline-flex items-center gap-1 font-semibold cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Eliminar plan</span>
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-base font-bold text-slate-900">
+                    Editar: {formData.name}
+                  </h3>
+                  <span
+                    className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                      formData.status === 'published'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {formData.status === 'published' ? '● Publicado en Landing' : '○ Borrador (Oculto)'}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTogglePublish}
+                    disabled={isProcessing}
+                    className={`text-xs px-3 py-1.5 rounded-xl font-bold inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+                      formData.status === 'published'
+                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    }`}
+                    title={formData.status === 'published' ? 'Pasar a borrador para ocultar de la landing' : 'Publicar plan para que aparezca en la landing pública'}
+                  >
+                    {formData.status === 'published' ? (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5" />
+                        <span>Despublicar a borrador</span>
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>Publicar en landing</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(formData.id)}
+                    disabled={isProcessing}
+                    className="text-xs text-red-600 hover:text-red-700 inline-flex items-center gap-1 font-semibold cursor-pointer px-2 py-1.5 rounded-lg hover:bg-red-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Eliminar</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -333,14 +430,15 @@ export function PlansSection() {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-end">
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
+                  disabled={isProcessing}
+                  className="px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] disabled:bg-blue-300 text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Guardar plan</span>
+                  {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>{isProcessing ? 'Guardando...' : 'Guardar plan'}</span>
                 </button>
               </div>
             </div>

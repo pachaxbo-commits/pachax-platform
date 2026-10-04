@@ -1,7 +1,16 @@
 const { randomUUID } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { getApps } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
+
+function resolveAdminAuth() {
+  const apps = getApps();
+  const defaultApp = apps.find(a => a.name === '[DEFAULT]');
+  if (defaultApp) return getAuth(defaultApp);
+  if (apps.length > 0) return getAuth(apps[0]);
+  return getAuth();
+}
 const { BusinessTemplateRegistry } = require('./generated/templates.js');
 const { id } = require('./authorization.cjs');
 const { settingsPatch } = require('./tenants.cjs');
@@ -226,7 +235,7 @@ async function manageOperator(db, request) {
     throw new HttpsError('invalid-argument', `Rol no válido: ${role}`);
   }
 
-  const auth = getAuth();
+  const auth = resolveAdminAuth();
   let authUser;
   if (targetUidInput) {
     try {
@@ -336,6 +345,95 @@ async function getPlatformStats(db, request) {
   };
 }
 
+async function publishPlan(db, request) {
+  const actor = await platformActor(db, request, 'plans.manage');
+  const planId = cleanText(request.data?.planId, 'ID de plan', 1, 100);
+  const status = request.data?.status === 'published' ? 'published' : 'draft';
+
+  const planRef = db.doc(`platformPlans/${planId}`);
+  const planSnap = await planRef.get();
+  if (!planSnap.exists) {
+    throw new HttpsError('not-found', 'Plan no encontrado.');
+  }
+
+  const batch = db.batch();
+  const now = FieldValue.serverTimestamp();
+  const updateData = {
+    status,
+    updatedAt: now,
+    updatedBy: actor.uid,
+  };
+  if (status === 'published') {
+    updateData.publishedAt = now;
+    updateData.publishedBy = actor.uid;
+  }
+  batch.update(planRef, updateData);
+
+  auditPlatform(db, batch, actor, status === 'published' ? 'plan.publish' : 'plan.unpublish', {
+    resource: `platformPlans/${planId}`,
+    reason: status === 'published' ? 'Publicación explícita de plan' : 'Despublicación de plan a borrador',
+    metadata: { planId, status },
+  });
+
+  await batch.commit();
+  return { success: true, planId, status };
+}
+
+async function savePlan(db, request) {
+  const actor = await platformActor(db, request, 'plans.manage');
+  const plan = request.data?.plan;
+  if (!plan || typeof plan !== 'object' || !plan.id) {
+    throw new HttpsError('invalid-argument', 'Datos de plan inválidos.');
+  }
+  const planId = cleanText(plan.id, 'ID de plan', 1, 100);
+
+  const planRef = db.doc(`platformPlans/${planId}`);
+  const planSnap = await planRef.get();
+  const now = FieldValue.serverTimestamp();
+
+  const payload = {
+    ...plan,
+    updatedAt: now,
+    updatedBy: actor.uid,
+    createdAt: planSnap.exists ? (planSnap.data().createdAt || now) : now,
+  };
+
+  const batch = db.batch();
+  batch.set(planRef, payload, { merge: true });
+
+  auditPlatform(db, batch, actor, planSnap.exists ? 'plan.update' : 'plan.create', {
+    resource: `platformPlans/${planId}`,
+    reason: 'Guardado de configuración de plan comercial',
+    metadata: { planId, name: plan.name, status: plan.status },
+  });
+
+  await batch.commit();
+  return { success: true, planId };
+}
+
+async function deletePlan(db, request) {
+  const actor = await platformActor(db, request, 'plans.manage');
+  const planId = cleanText(request.data?.planId, 'ID de plan', 1, 100);
+
+  const planRef = db.doc(`platformPlans/${planId}`);
+  const planSnap = await planRef.get();
+  if (!planSnap.exists) {
+    throw new HttpsError('not-found', 'Plan no encontrado.');
+  }
+
+  const batch = db.batch();
+  batch.delete(planRef);
+
+  auditPlatform(db, batch, actor, 'plan.delete', {
+    resource: `platformPlans/${planId}`,
+    reason: 'Eliminación de plan comercial',
+    metadata: { planId },
+  });
+
+  await batch.commit();
+  return { success: true, planId };
+}
+
 async function platformGateway(db, request) {
   switch (request.data?.action) {
     case 'validateOperator': return validateOperator(db, request);
@@ -344,6 +442,9 @@ async function platformGateway(db, request) {
     case 'listTemplates': return listTemplates(db, request);
     case 'listOperators': return listOperators(db, request);
     case 'manageOperator': return manageOperator(db, request);
+    case 'publishPlan': return publishPlan(db, request);
+    case 'savePlan': return savePlan(db, request);
+    case 'deletePlan': return deletePlan(db, request);
     case 'getPlatformStats': return getPlatformStats(db, request);
     case 'beginSupport': return beginSupport(db, request);
     case 'supportContext': return supportContext(db, request);
@@ -363,6 +464,9 @@ module.exports = {
   listTemplates,
   listOperators,
   manageOperator,
+  publishPlan,
+  savePlan,
+  deletePlan,
   getPlatformStats,
   beginSupport,
   supportContext,

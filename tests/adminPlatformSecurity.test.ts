@@ -49,10 +49,10 @@ test('4. platform_support puede leer empresas y soporte pero NO modificar planes
   assert.equal(canPlatform(support, 'finance.read'), false)
 })
 
-test('5. platform_content puede editar contenido y planes comerciales pero NO gestionar operadores ni empresas', () => {
+test('5. platform_content puede editar contenido y previsualizar plantillas pero NO gestionar planes comerciales, operadores ni empresas', () => {
   const contentOp: PlatformOperator = { uid: 'cnt_1', role: 'platform_content', active: true }
   assert.equal(canPlatform(contentOp, 'content.manage'), true)
-  assert.equal(canPlatform(contentOp, 'plans.manage'), true)
+  assert.equal(canPlatform(contentOp, 'plans.manage'), false)
   assert.equal(canPlatform(contentOp, 'templates.preview'), true)
 
   // Permisos restringidos:

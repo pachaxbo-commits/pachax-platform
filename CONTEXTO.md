@@ -1,5 +1,39 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Consistencia de Seguridad Fail-Closed, Queries Segregadas y Persistencia Real (03/10/2026)
+
+- **Rama**: `feat/public-platform-admin-foundation`. `main` permanece intacto (`8b4e832`) sin merges ni pushes.
+- **1. Admin Auth 100% Fail-Closed**:
+  - `adminAuthStore.ts`: Eliminado cualquier fallback a claims de token si `platformGateway -> validateOperator` falla.
+  - Para ingresar a `/admin`: Firebase Auth válido + `claims.platform === true` + `platformRole` válido + documento en `platformOperators/{uid}` con `active === true` validado por el backend.
+  - Si el backend falla por red, timeout o endpoint no desplegado, el acceso se deniega inmediatamente (*"No se pudo verificar tu autorización administrativa. Inténtalo nuevamente."*). Claims solos no confieren acceso.
+- **2. Segregación Estricta de Queries Firestore (Landing vs. Admin)**:
+  - Landing pública consulta estrictamente con filtro:
+    - `query(collection(db, 'platformPlans'), where('status', '==', 'published'))`
+    - `query(collection(db, 'platformTemplates'), where('status', '==', 'published'))`
+    - `query(collection(db, 'platformExtras'), where('status', '==', 'published'))`
+    - `query(collection(db, 'platformMedia'), where('status', '==', 'published'))`
+  - Admin consulta la colección completa (draft + published) mediante `syncAdminAllFromFirestore` bajo permisos de operador de plataforma.
+  - Firestore Rules evaluadas y testeadas: consultas sin filtro desde clientes no autenticados fallan con `permission-denied`, lecturas directas a borradores fallan, mientras consultas con `where('status', '==', 'published')` pasan exitosamente.
+- **3. Eliminación de Guardados Fantasma (No Fakes)**:
+  - Todas las mutaciones en `/admin` (`updatePlan`, `togglePublishPlan`, `updateTemplate`, `updateExtra`, `updateLandingContent`) guardan primero en backend/Firestore y sólo actualizan el estado local en caso de éxito.
+  - Si la escritura falla, el estado local no se altera, se muestra un banner rojo de error con `AlertCircle`, y los datos del formulario se conservan para no perder el trabajo del usuario.
+- **4. Semilla Segura sin Publicación de Placeholders**:
+  - `seedDefaultsToFirestore`: Inicializa plantillas y assets como `published`, pero planes y extras con precios como `status: 'draft'`, garantizando que montos de prueba no se publiquen automáticamente en la landing.
+  - Se añadieron botones y badges explícitos de "Publicar en landing" (`status: 'published'`) y "Despublicar a borrador" (`status: 'draft'`).
+- **5. Alineación de Permisos de `platform_content`**:
+  - `platform_content` restringido a gestión de contenido y previsualización de plantillas (`templates.preview`, `content.manage`). Removido `plans.manage` en TypeScript (`src/core/platform.ts`), Functions (`functions/platformAuthorization.cjs`), Rules (`firebase/firestore.rules`) y tests.
+- **6. Auditoría Server-Side Atómica**:
+  - `functions/platform.cjs` registra atómicamente mutaciones de planes (`publishPlan`, `savePlan`, `deletePlan`) en `platformAuditLogs`.
+- **7. Pruebas y Validación**:
+  - `npm run test:platform-security`: 30/30 comprobaciones de seguridad aprobadas en emuladores de Firebase.
+  - `npm run test:platform`: 36/36 tests aprobados.
+  - `npm run test:restaurant`: 43/43 tests aprobados.
+  - `npm run test:distribution`: 55/55 tests aprobados.
+  - `npm run typecheck`: 0 errores.
+  - `npm run build`: Compilación de producción exitosa (4.59s).
+  - Auditoría de secretos: cero credenciales hardcodeadas en código ni en `dist/`.
+
 ## Checkpoint: Fundación Administrativa Segura, Custom Claims y Persistencia Firestore (03/10/2026)
 
 - **Rama**: `feat/public-platform-admin-foundation`. `main` se mantuvo intacto (`8b4e832`) sin merges ni pushes. Commit vigente publicado en `origin/feat/public-platform-admin-foundation` (`a1050e7`).

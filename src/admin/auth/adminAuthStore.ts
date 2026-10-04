@@ -64,7 +64,15 @@ async function verifyOperator(firebaseUser: User | null): Promise<void> {
     const isPlatformClaim = idTokenResult.claims.platform === true
     const tokenRole = idTokenResult.claims.platformRole as PlatformRole | undefined
 
-    if (!isPlatformClaim) {
+    const validRoles: PlatformRole[] = [
+      'platform_owner',
+      'platform_admin',
+      'platform_support',
+      'platform_content',
+      'platform_finance',
+    ]
+
+    if (!isPlatformClaim || !tokenRole || !validRoles.includes(tokenRole)) {
       currentState = {
         status: 'denied',
         user: null,
@@ -74,52 +82,47 @@ async function verifyOperator(firebaseUser: User | null): Promise<void> {
       return
     }
 
-    // 2. Validación en backend contra platformGateway
+    // 2. Validación obligatoria en backend contra platformGateway -> validateOperator
+    // FAIL-CLOSED: Si falla la conexión, hay timeout o la función no responde,
+    // BAJO NINGUNA CIRCUNSTANCIA se permite el acceso administrativo.
     try {
       const validation = await gateway<{ uid: string; role: PlatformRole; permissions: string[] }>(
         'platformGateway',
         { action: 'validateOperator' },
       )
-      const role = validation.role || tokenRole || 'platform_admin'
+
+      if (!validation || !validation.role || !validRoles.includes(validation.role)) {
+        currentState = {
+          status: 'denied',
+          user: null,
+          error: 'Acceso denegado: rol de operador inválido o no reconocido por el sistema.',
+        }
+        notify()
+        return
+      }
+
       currentState = {
         status: 'authenticated',
         user: {
           uid: firebaseUser.uid,
           email: firebaseUser.email || '',
           displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Platform Operator',
-          role,
+          role: validation.role,
         },
         error: null,
       }
       notify()
     } catch (gateErr: any) {
-      if (gateErr?.message?.includes('denied') || gateErr?.code === 'functions/permission-denied') {
-        currentState = {
-          status: 'denied',
-          user: null,
-          error: 'Acceso denegado: operador no activo en la plataforma.',
-        }
-        notify()
-        return
-      }
-      if (tokenRole) {
-        currentState = {
-          status: 'authenticated',
-          user: {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || 'Platform Operator',
-            role: tokenRole,
-          },
-          error: null,
-        }
-        notify()
-        return
-      }
+      console.warn('Fallo de validación en platformGateway:', gateErr?.message)
+      const errorMsg =
+        gateErr?.code === 'functions/permission-denied' || gateErr?.message?.includes('denied')
+          ? 'Acceso denegado: la cuenta de operador no se encuentra activa o no existe en platformOperators.'
+          : 'No se pudo verificar tu autorización administrativa. Inténtalo nuevamente.'
+
       currentState = {
         status: 'denied',
         user: null,
-        error: 'No se pudo verificar la autorización administrativa.',
+        error: errorMsg,
       }
       notify()
     }
@@ -127,7 +130,7 @@ async function verifyOperator(firebaseUser: User | null): Promise<void> {
     currentState = {
       status: 'denied',
       user: null,
-      error: err?.message || 'Error verificando autorización.',
+      error: 'No se pudo verificar tu autorización administrativa. Inténtalo nuevamente.',
     }
     notify()
   }

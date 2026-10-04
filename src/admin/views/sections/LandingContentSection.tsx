@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Type, Save, CheckCircle2, Phone } from 'lucide-react'
+import { Type, Save, CheckCircle2, AlertCircle, Loader2, Phone } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { LandingContentConfig } from '../../types'
 
@@ -7,11 +7,21 @@ export function LandingContentSection() {
   const { config, updateLandingContent } = useCommercialConfig()
   const [formData, setFormData] = useState<LandingContentConfig>(JSON.parse(JSON.stringify(config.landingContent)))
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
 
-  const handleSave = () => {
-    updateLandingContent(formData)
-    setSaveFeedback('¡Textos y configuración de la landing guardados! Reflejados en tiempo real.')
-    setTimeout(() => setSaveFeedback(null), 4000)
+  const handleSave = async () => {
+    setIsProcessing(true)
+    setSaveFeedback(null)
+    setSaveError(null)
+    const res = await updateLandingContent(formData)
+    setIsProcessing(false)
+    if (res.success) {
+      setSaveFeedback('¡Textos y configuración de la landing guardados en Firestore!')
+      setTimeout(() => setSaveFeedback(null), 4000)
+    } else {
+      setSaveError(res.error || 'No se pudieron guardar los textos en Firestore.')
+    }
   }
 
   return (
@@ -30,10 +40,11 @@ export function LandingContentSection() {
         <button
           type="button"
           onClick={handleSave}
-          className="px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
+          disabled={isProcessing}
+          className="px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] disabled:bg-blue-300 text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
         >
-          <Save className="w-4 h-4" />
-          <span>Guardar textos</span>
+          {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          <span>{isProcessing ? 'Guardando en Firestore...' : 'Guardar textos'}</span>
         </button>
       </div>
 
@@ -41,6 +52,13 @@ export function LandingContentSection() {
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{saveFeedback}</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs font-semibold flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <span>{saveError}</span>
         </div>
       )}
 
