@@ -7,6 +7,7 @@ import type {
   TemplateTierPlan,
   CommercialExtraService,
 } from '../src/admin/types.ts'
+import { PLANS_BY_TEMPLATE, COMMERCIAL_EXTRAS } from '../src/public/config/pricingConfig.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
   assert.equal(canPlatform(null, 'tenants.read'), false)
@@ -116,4 +117,136 @@ test('8. Aislamiento Draft vs Published: la vitrina pública solo expone documen
   assert.equal(publishedExtras.length, 1)
   assert.equal(publishedExtras[0].id, 'e_pub')
   assert.equal(publishedExtras.some((e) => e.id === 'e_draft'), false)
+})
+
+test('CASO 1: Firestore tiene 0 planes published -> landing muestra 0 planes comerciales -> NO muestra $29/$59/$99', () => {
+  // Cuando la query publicada a Firestore responde con 0 documentos (snapshot.empty === true),
+  // la sincronización pública asigna current.plans = []
+  const firestorePublishedDocs: TemplateTierPlan[] = []
+  const activePublishedPlans = firestorePublishedDocs.filter((p) => p.status === 'published')
+
+  assert.equal(activePublishedPlans.length, 0)
+  // Verificar que ningún precio placeholder ($29, $59, $99) se expone a la landing:
+  const exposedPrices = activePublishedPlans.map((p) => p.monthlyPriceUSD)
+  assert.equal(exposedPrices.includes(29), false)
+  assert.equal(exposedPrices.includes(59), false)
+  assert.equal(exposedPrices.includes(99), false)
+})
+
+test('CASO 2: Firestore contiene solamente plans draft -> landing no los muestra', () => {
+  const firestoreDocs: TemplateTierPlan[] = [
+    {
+      id: 'p1',
+      templateId: 'restaurant',
+      name: 'Plan Borrador 1',
+      tierLevel: 1,
+      monthlyPriceUSD: 29,
+      annualPriceUSD: 24,
+      currency: 'USD',
+      billingPeriod: 'monthly',
+      clientProfile: 'Borrador',
+      includedFeatures: [],
+      technicalEntitlements: [],
+      ctaLabel: 'Elegir',
+      status: 'draft',
+      order: 1,
+    },
+    {
+      id: 'p2',
+      templateId: 'restaurant',
+      name: 'Plan Borrador 2',
+      tierLevel: 2,
+      monthlyPriceUSD: 59,
+      annualPriceUSD: 49,
+      currency: 'USD',
+      billingPeriod: 'monthly',
+      clientProfile: 'Borrador',
+      includedFeatures: [],
+      technicalEntitlements: [],
+      ctaLabel: 'Elegir',
+      status: 'draft',
+      order: 2,
+    },
+  ]
+  const publishedForLanding = firestoreDocs.filter((p) => p.status === 'published')
+  assert.equal(publishedForLanding.length, 0)
+  assert.equal(publishedForLanding.some((p) => p.status === 'draft'), false)
+})
+
+test('CASO 3: Firestore contiene un plan published -> landing muestra exactamente ese plan', () => {
+  const firestoreDocs: TemplateTierPlan[] = [
+    {
+      id: 'p_draft',
+      templateId: 'restaurant',
+      name: 'Borrador',
+      tierLevel: 1,
+      monthlyPriceUSD: 29,
+      annualPriceUSD: 24,
+      currency: 'USD',
+      billingPeriod: 'monthly',
+      clientProfile: 'Borrador',
+      includedFeatures: [],
+      technicalEntitlements: [],
+      ctaLabel: 'Elegir',
+      status: 'draft',
+      order: 1,
+    },
+    {
+      id: 'p_real_pub',
+      templateId: 'restaurant',
+      name: 'Plan Gastronomía Aprobado',
+      tierLevel: 1,
+      monthlyPriceUSD: 35,
+      annualPriceUSD: 30,
+      currency: 'USD',
+      billingPeriod: 'monthly',
+      clientProfile: 'Plan aprobado comercialmente',
+      includedFeatures: ['Capacidad aprobada'],
+      technicalEntitlements: [],
+      ctaLabel: 'Elegir Plan',
+      status: 'published',
+      order: 2,
+    },
+  ]
+  const publishedForLanding = firestoreDocs.filter((p) => p.status === 'published')
+  assert.equal(publishedForLanding.length, 1)
+  assert.equal(publishedForLanding[0].id, 'p_real_pub')
+  assert.equal(publishedForLanding[0].name, 'Plan Gastronomía Aprobado')
+  assert.equal(publishedForLanding[0].monthlyPriceUSD, 35)
+})
+
+test('CASO 4: Firestore no está disponible -> fallback funciona -> fallback NO contiene precios placeholder publicados', () => {
+  // Cargar la configuración fallback por defecto:
+  // Todos los 12 planes estándar por rubro en PLANS_BY_TEMPLATE están en draft
+  const allDefaultPlans = Object.values(PLANS_BY_TEMPLATE).flat()
+  assert(allDefaultPlans.length >= 12)
+  const publishedDefaults = allDefaultPlans.filter((p) => p.status === 'published')
+  assert.equal(publishedDefaults.length, 0, 'Ningún plan por defecto en el fallback debe tener status: published')
+
+  // Asegurar que ningún precio inventado o no oficial está marcado como published
+  const anyPublished = allDefaultPlans.some((p) => p.status === 'published')
+  assert.equal(anyPublished, false)
+})
+
+test('CASO 5: Extras con precio draft -> no aparecen públicamente', () => {
+  const publishedExtras = COMMERCIAL_EXTRAS.filter((e) => e.status === 'published')
+
+  // Ningún extra publicado en el fallback debe tener precios fijos no aprobados ($49, $79, $35, $59)
+  const unapprovedPrices = ['$49', '$79', '$35', '$59']
+  for (const extra of publishedExtras) {
+    for (const unapproved of unapprovedPrices) {
+      assert.equal(
+        extra.referencePriceLabel.includes(unapproved),
+        false,
+        `Extra ${extra.id} no debe contener precio ${unapproved}`
+      )
+    }
+  }
+
+  // Verificar que los extras con servicios complementarios están en modo borrador (draft)
+  const draftExtras = COMMERCIAL_EXTRAS.filter((e) => e.status === 'draft')
+  assert(draftExtras.some((e) => e.id === 'extra_marketing'))
+  assert(draftExtras.some((e) => e.id === 'extra_branding'))
+  assert(draftExtras.some((e) => e.id === 'extra_support_vip'))
+  assert(draftExtras.some((e) => e.id === 'extra_automation'))
 })

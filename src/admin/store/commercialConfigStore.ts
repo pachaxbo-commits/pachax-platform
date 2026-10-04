@@ -28,7 +28,7 @@ import {
   addDoc,
 } from 'firebase/firestore'
 
-const STORAGE_KEY = 'pachax_commercial_config_v1'
+const STORAGE_KEY = 'pachax_commercial_config_v2'
 const EVENT_NAME = 'pachax:commercial-config-updated'
 
 // 1. Assets multimedia oficiales disponibles
@@ -75,7 +75,7 @@ export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
   },
 ]
 
-// 2. Textos editoriales iniciales de la landing
+// 2. Textos editoriales iniciales de la landing (afirmaciones descriptivas sin promesas cuantitativas)
 export const DEFAULT_LANDING_CONTENT: LandingContentConfig = {
   heroTagline: 'PLATAFORMA INTEGRAL DE GESTIÓN OPERATIVA',
   heroTitle: 'El sistema operativo para negocios con flujos reales de venta',
@@ -86,17 +86,17 @@ export const DEFAULT_LANDING_CONTENT: LandingContentConfig = {
   officialWhatsAppDisplay: OFFICIAL_WHATSAPP.displayNumber,
   defaultCustomDevMessage: OFFICIAL_WHATSAPP.defaultCustomDevMessage,
   valueStripMetrics: [
-    { label: 'DISPONIBILIDAD', value: '99.9%', detail: 'Arquitectura distribuida en la nube' },
-    { label: 'COBROS', value: '< 2 seg', detail: 'Efectivo, QR instantáneo y tarjetas' },
-    { label: 'ARQUEO', value: '100% Ciego', detail: 'Cierre de caja sin descuadres en turnos' },
-    { label: 'SEGURIDAD', value: 'Aislamiento', detail: 'Datos blindados e independientes por tenant' },
+    { label: 'DISPONIBILIDAD', value: 'Operación en la nube', detail: 'Arquitectura distribuida y continua' },
+    { label: 'COBROS', value: 'Múltiples métodos', detail: 'Efectivo, QR instantáneo y tarjetas' },
+    { label: 'CONTROL', value: 'Cierre y trazabilidad', detail: 'Arqueo por turno sin descuadres' },
+    { label: 'SEGURIDAD', value: 'Aislamiento por empresa', detail: 'Datos blindados e independientes por tenant' },
   ],
   sectionTitles: {
     catalog: 'Plantillas especializadas por modelo de negocio',
     catalogSubtitle: 'Una única experiencia funcional canónica compartida entre producción, PACHAX Studio y demostración pública. Sin interfaces paralelas ni código duplicado.',
     pricing: 'Planes adaptados a la escala real de tu empresa',
     pricingSubtitle: 'Sin comisiones ocultas por venta ni letra chica. Elige la plantilla de tu rubro y selecciona el nivel operativo que necesitas para empezar.',
-    onboarding: 'Configura tu empresa en 5 minutos, sin complicaciones',
+    onboarding: 'Configura tu empresa en minutos, sin complicaciones',
     onboardingSubtitle: 'Ingresas la información básica de tu negocio y el sistema adapta automáticamente su interfaz, reportes y tickets térmicos.',
     tutorials: 'Tutoriales guiados interactivos dentro del sistema',
     tutorialsSubtitle: 'Tu personal aprenderá a usar PACHAX en minutos mediante guías paso a paso que asisten a mozos, cajeros y choferes en cada operación.',
@@ -240,28 +240,31 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
       changed = true
     }
 
-    if (templatesSnap.status === 'fulfilled' && !templatesSnap.value.empty) {
+    if (templatesSnap.status === 'fulfilled') {
       current.templates = templatesSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem,
       )
       changed = true
     }
 
-    if (plansSnap.status === 'fulfilled' && !plansSnap.value.empty) {
+    if (plansSnap.status === 'fulfilled') {
+      // Empty snapshot es un resultado válido (0 planes publicados).
+      // Se reemplaza por el arreglo de docs (vacío si no hay publicados).
       current.plans = plansSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan,
       )
       changed = true
     }
 
-    if (extrasSnap.status === 'fulfilled' && !extrasSnap.value.empty) {
+    if (extrasSnap.status === 'fulfilled') {
+      // Empty snapshot es un resultado válido (0 extras publicados).
       current.extras = extrasSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as CommercialExtraService,
       )
       changed = true
     }
 
-    if (mediaSnap.status === 'fulfilled' && !mediaSnap.value.empty) {
+    if (mediaSnap.status === 'fulfilled') {
       current.mediaAssets = mediaSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as MediaAssetItem,
       )
@@ -308,28 +311,28 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
       changed = true
     }
 
-    if (templatesSnap.status === 'fulfilled' && !templatesSnap.value.empty) {
+    if (templatesSnap.status === 'fulfilled') {
       current.templates = templatesSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem,
       )
       changed = true
     }
 
-    if (plansSnap.status === 'fulfilled' && !plansSnap.value.empty) {
+    if (plansSnap.status === 'fulfilled') {
       current.plans = plansSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan,
       )
       changed = true
     }
 
-    if (extrasSnap.status === 'fulfilled' && !extrasSnap.value.empty) {
+    if (extrasSnap.status === 'fulfilled') {
       current.extras = extrasSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as CommercialExtraService,
       )
       changed = true
     }
 
-    if (mediaSnap.status === 'fulfilled' && !mediaSnap.value.empty) {
+    if (mediaSnap.status === 'fulfilled') {
       current.mediaAssets = mediaSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as MediaAssetItem,
       )
@@ -439,8 +442,9 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
       success: true,
       message: 'Configuraciones sembradas en Firestore (Planes y Extras en estado BORRADOR / DRAFT por seguridad).',
     }
-  } catch (err: any) {
-    return { success: false, message: err?.message || 'Error sembrando datos en Firestore.' }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Error sembrando datos en Firestore.'
+    return { success: false, message }
   }
 }
 
@@ -488,9 +492,10 @@ export async function updateTemplateInStore(
       saveCommercialConfig(current)
     }
     return { success: true }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al guardar en Firestore.'
     console.error('Error persistiendo template en Firestore:', err)
-    return { success: false, error: err?.message || 'Error al guardar en Firestore.' }
+    return { success: false, error }
   }
 }
 
@@ -532,9 +537,10 @@ export async function updatePlanInStore(
       saveCommercialConfig(current)
     }
     return { success: true }
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al guardar plan en Firestore.'
     console.error('Error persistiendo plan en Firestore:', err)
-    return { success: false, error: err?.message || 'Error al guardar plan en Firestore.' }
+    return { success: false, error }
   }
 }
 
@@ -589,8 +595,9 @@ export async function togglePublishPlanInStore(
       saveCommercialConfig(current)
     }
     return { success: true }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Error al cambiar publicación del plan.' }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al cambiar publicación del plan.'
+    return { success: false, error }
   }
 }
 
@@ -622,8 +629,9 @@ export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ succe
     current.plans.push(plan)
     saveCommercialConfig(current)
     return { success: true }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Error al crear plan en Firestore.' }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al crear plan en Firestore.'
+    return { success: false, error }
   }
 }
 
@@ -646,8 +654,9 @@ export async function deletePlanInStore(id: string): Promise<{ success: boolean;
     current.plans = current.plans.filter((p) => p.id !== id)
     saveCommercialConfig(current)
     return { success: true }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Error al eliminar plan en Firestore.' }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al eliminar plan en Firestore.'
+    return { success: false, error }
   }
 }
 
@@ -680,8 +689,9 @@ export async function updateExtraInStore(
       saveCommercialConfig(current)
     }
     return { success: true }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Error al guardar extra en Firestore.' }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al guardar extra en Firestore.'
+    return { success: false, error }
   }
 }
 
@@ -709,8 +719,9 @@ export async function updateLandingContentInStore(
     current.landingContent = updatedContent
     saveCommercialConfig(current)
     return { success: true }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Error al guardar contenido en Firestore.' }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al guardar contenido en Firestore.'
+    return { success: false, error }
   }
 }
 
@@ -743,8 +754,9 @@ export async function updateMediaAssetInStore(
       saveCommercialConfig(current)
     }
     return { success: true }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Error al guardar asset en Firestore.' }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al guardar asset en Firestore.'
+    return { success: false, error }
   }
 }
 

@@ -23,7 +23,7 @@ export function GuidedTutorialsSection() {
       step: 3,
       target: 'Cierre de Caja Ciego',
       title: 'Auditoría y Arqueo Ciego',
-      desc: 'El cajero cuenta el efectivo físico sin conocer el total del sistema para una auditoría 100% transparente.',
+      desc: 'El cajero cuenta el efectivo físico sin conocer el total del sistema para una auditoría ciega y transparente.',
       highlightCoords: 'bottom-1/4 right-1/4',
     },
   ]

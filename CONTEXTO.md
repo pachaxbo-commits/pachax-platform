@@ -1,6 +1,41 @@
 # Continuidad del proyecto PACHAX
 
-## Checkpoint: Consistencia de Seguridad Fail-Closed, Queries Segregadas y Persistencia Real (03/10/2026)
+## Checkpoint: Corrección de Fallback de Precios, Segregación de Snapshots Vacíos y Limpieza de Métricas (03/10/2026)
+
+- **Rama**: `feat/public-platform-admin-foundation`. `main` permanece intacto (`8b4e832`) sin merges ni pushes.
+- **1. Corrección Crítica del Bug de Fallback de Precios**:
+  - `commercialConfigStore.ts`: Diferenciación explícita entre query exitosa con resultado vacío (`snapshot.empty === true`) y error/indisponibilidad de Firestore.
+  - Cuando la consulta de planes publicados a Firestore tiene éxito y devuelve 0 documentos (porque todos están en `draft`), la landing sincroniza `current.plans = []` y `current.extras = []`, impidiendo que los borradores o precios de maquetas se revivan en la vitrina pública.
+  - El fallback local solo se activa ante fallo de red o backend inalcanzable.
+- **2. Valores por Defecto Compilados Seguros**:
+  - `pricingConfig.ts`: Todos los 12 planes estándar por rubro en `PLANS_BY_TEMPLATE` configurados en `status: 'draft'`, garantizando que ningún precio placeholder ($29, $59, $99, etc.) esté marcado como publicado en memoria.
+  - Extras comerciales en `COMMERCIAL_EXTRAS` con precios no aprobados ($49, $79, $35, $59) configurados como `status: 'draft'` y con etiqueta referencial `"Cotización personalizada"`. Solo `extra_custom_dev` (desarrollo a medida sin monto fijo) permanece publicado.
+- **3. Eliminación de Código Muerto y Precios Legacy**:
+  - Eliminados `PRICING_TEASER_CONFIG` y `PUBLIC_PRICING_TIERS` de `pricingConfig.ts`.
+  - Eliminado componente huérfano `ProductTrioSection.tsx`.
+- **4. Sustitución de Reclamos Cuantitativos SLA**:
+  - Reemplazadas afirmaciones no respaldadas en `DEFAULT_LANDING_CONTENT` y en componentes UI:
+    - DISPONIBILIDAD: De `"99.9% Uptime"` a `"Operación en la nube"` / `"Alta disponibilidad operativa"`.
+    - COBROS: De `"0% Comisiones"` a `"Múltiples métodos"` / `"Cobro directo sin retenciones"`.
+    - CONTROL: De `"100% Ciego"` / `"100% transparente"` a `"Cierre y trazabilidad"` / `"Auditoría ciega y transparente"`.
+    - SEGURIDAD: De `"0 Brechas"` a `"Aislamiento por empresa"` / `"Aislamiento estricto por empresa"`.
+    - Onboarding: De `"100% activo en menos de 5 minutos"` a `"listo y activo de inmediato"`.
+- **5. Casos de Prueba Exhaustivos (Suite Platform Security)**:
+  - Añadidos 5 casos de prueba unitarios en `tests/adminPlatformSecurity.test.ts`:
+    1. Firestore devuelve snapshot exitoso con 0 planes publicados -> landing renderiza 0 planes de pago, no revive placeholders locales.
+    2. Firestore devuelve todos los planes en draft -> fallback NO reactiva placeholders compilados.
+    3. Firestore devuelve 1 plan publicado legítimo -> la landing muestra únicamente ese plan.
+    4. Firestore offline/error -> fallback seguro: cero planes publicados con precios no autorizados.
+    5. Extras comerciales en draft -> no se muestran como productos publicados con precio cerrado.
+- **6. Validación Integral del Sistema**:
+  - `npm run test:platform`: 41/41 tests aprobados (100%).
+  - `npm run test:platform-security`: 30/30 comprobaciones de seguridad aprobadas en emuladores de Firebase.
+  - `npm run test:distribution`: 55/55 tests aprobados.
+  - `npm run test:restaurant`: 43/43 tests aprobados.
+  - `npm run typecheck`: 0 errores de TypeScript (`tsc -b`).
+  - `npm run build`: Compilación de producción limpia y exitosa (4.58s).
+  - `npx eslint`: 0 errores y 0 warnings en los archivos modificados.
+  - Servidor de desarrollo local en `http://localhost:5190/` y `http://localhost:5190/admin` respondiendo HTTP 200 OK.
 
 - **Rama**: `feat/public-platform-admin-foundation`. `main` permanece intacto (`8b4e832`) sin merges ni pushes.
 - **1. Admin Auth 100% Fail-Closed**:

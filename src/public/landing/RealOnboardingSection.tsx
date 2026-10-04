@@ -44,8 +44,8 @@ export function RealOnboardingSection() {
       title: '¡Listo para vender!',
       subtitle: 'Catálogo precargado de prueba',
       icon: CheckCircle,
-      previewTitle: 'Entorno operativo 100% activo',
-      previewDetail: 'Emite tu primer ticket o comanda en menos de 5 minutos',
+      previewTitle: 'Entorno operativo listo y activo',
+      previewDetail: 'Emite tu primer ticket o comanda de inmediato',
     },
   ]
 
