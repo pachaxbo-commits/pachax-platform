@@ -21,6 +21,9 @@
     - Autenticación de operador semilla probada, accediendo al shell administrativo y navegando por las 8 pestañas con captura de screenshots de evidencia en `public/brand/verification/`.
   - Typecheck (`tsc -b`): 0 errores.
   - Suites de pruebas: `test:platform` (28/28), `test:restaurant` (43/43), `test:distribution` (55/55).
+- **Resolución de Deployments Vercel**:
+  - Error TS6133 en `AdminShell.tsx` resuelto eliminando el import no utilizado de `useEffect` (commit `f910ce3`).
+  - Nuevo Preview Deployment generado en Vercel (`pachax-app`): `https://pachax-1zwvkyla3-pachaxbo-8256s-projects.vercel.app` en estado **Ready** (duración 26s, HTTP 200 verificado).
 
 ## Rama de revisión: Restaurante kiosk/POS (30/09/2026)
 
