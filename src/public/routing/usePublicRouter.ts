@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export type PublicRoute = '/' | '/login' | '/register' | '/demo'
+export type PublicRoute = '/' | '/login' | '/register' | '/demo' | '/admin' | '/admin/login'
 
 export function usePublicRouter() {
   const [currentUrl, setCurrentUrl] = useState(() => {
@@ -59,6 +59,12 @@ export function usePublicRouter() {
         }
         return
       }
+    }
+
+    // Si la ruta cruza hacia el entrypoint demo.html, ejecutar navegación de documento obligatoria
+    if (to.startsWith('/demo')) {
+      window.location.assign(to)
+      return
     }
 
     if (options?.replace) {

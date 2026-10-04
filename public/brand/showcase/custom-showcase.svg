@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGradCustom" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#08101e" />
+      <stop offset="60%" stop-color="#0e1b30" />
+      <stop offset="100%" stop-color="#040912" />
+    </linearGradient>
+    <linearGradient id="customSky" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+    <filter id="shadowCustom" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <rect width="600" height="380" rx="16" fill="url(#bgGradCustom)" />
+
+  <!-- Top Status Bar -->
+  <rect x="24" y="24" width="552" height="44" rx="8" fill="#101e36" stroke="#1f385c" stroke-width="1" />
+  <circle cx="48" cy="46" r="6" fill="#38BDF8" />
+  <text x="64" y="51" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700">SOLUCIÓN A MEDIDA</text>
+  <text x="235" y="51" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">Desarrollo Especializado · Flujos Propios · Soporte Continuo</text>
+  <rect x="475" y="32" width="85" height="28" rx="6" fill="url(#customSky)" />
+  <text x="517" y="50" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">A MEDIDA</text>
+
+  <!-- Left: Arquitectura & Flujos -->
+  <g filter="url(#shadowCustom)">
+    <rect x="24" y="86" width="310" height="268" rx="12" fill="#0d1b30" stroke="#1f385c" stroke-width="1" />
+    <text x="44" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1">MÓDULOS OPERATIVOS EXCLUSIVOS</text>
+
+    <rect x="44" y="132" width="270" height="58" rx="8" fill="#152845" stroke="#0284C7" stroke-width="1" />
+    <text x="56" y="154" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Flujos de Trabajo Adaptados</text>
+    <text x="56" y="174" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Pantallas diseñadas según tu operación diaria</text>
+
+    <rect x="44" y="200" width="270" height="58" rx="8" fill="#101e36" stroke="#1f385c" stroke-width="1" />
+    <text x="56" y="222" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700">Integración con Facturación &amp; ERP</text>
+    <text x="56" y="242" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Conexión directa mediante APIs seguras</text>
+
+    <rect x="44" y="270" width="270" height="64" rx="8" fill="#091424" />
+    <text x="56" y="294" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600">INFRAESTRUCTURA TENANT DEDICADA</text>
+    <text x="56" y="318" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700">Aislamiento total y auditoría ciega</text>
+  </g>
+
+  <!-- Right: Soporte & Mantenimiento -->
+  <g filter="url(#shadowCustom)">
+    <rect x="350" y="86" width="226" height="268" rx="12" fill="#0d1b30" stroke="#1f385c" stroke-width="1" />
+    <text x="366" y="116" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1">MANTENIMIENTO INCLUIDO</text>
+
+    <rect x="366" y="132" width="194" height="64" rx="8" fill="#152845" />
+    <text x="378" y="154" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">Acompañamiento</text>
+    <text x="378" y="174" fill="#38BDF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Ingenieros asignados a tu cuenta</text>
+
+    <rect x="366" y="206" width="194" height="64" rx="8" fill="#101e36" />
+    <text x="378" y="228" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700">Actualizaciones</text>
+    <text x="378" y="248" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11">Mejoras continuas y evolución</text>
+
+    <rect x="366" y="280" width="194" height="54" rx="8" fill="#0284C7" />
+    <text x="463" y="304" fill="#FFFFFF" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="700">SOLICITAR PROPUESTA</text>
+    <text x="463" y="322" fill="#E0F2FE" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10">Respuesta en menos de 24 horas</text>
+  </g>
+</svg>

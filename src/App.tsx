@@ -7,6 +7,8 @@ import { NightclubApp } from './modules/nightclub/views/NightclubApp'
 import { PublicLanding } from './public/landing/PublicLanding'
 import { PublicLoginView } from './public/auth/PublicLoginView'
 import { PublicRegisterView } from './public/register/PublicRegisterView'
+import { AdminLoginView } from './admin/views/AdminLoginView'
+import { AdminShell } from './admin/views/AdminShell'
 import { usePublicRouter } from './public/routing/usePublicRouter'
 import { useAuthStore } from './store/authStore'
 import { getActiveTenant } from './store/activeTenant'
@@ -38,13 +40,22 @@ function App() {
   const { path } = usePublicRouter()
   const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.())
 
-  // 1. En la web pública: /register no depende de Firebase
+  // 1. Entorno Administrativo Seguro (/admin y /admin/login)
+  if (!isNative && path === '/admin/login') {
+    return <AdminLoginView />
+  }
+
+  if (!isNative && path.startsWith('/admin')) {
+    return <AdminShell />
+  }
+
+  // 2. En la web pública: /register no depende de Firebase
   if (!isNative && path === '/register') {
     return <PublicRegisterView />
   }
 
-  // 2. En la web pública: la landing / no depende de Firebase
-  if (!isNative && (path === '/' || (!path.startsWith('/login') && auth.status !== 'authorized'))) {
+  // 3. En la web pública: la landing / no depende de Firebase
+  if (!isNative && (path === '/' || (!path.startsWith('/login') && !path.startsWith('/admin') && auth.status !== 'authorized'))) {
     return <PublicLanding />
   }
 

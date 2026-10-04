@@ -1,0 +1,366 @@
+{
+  "viewports": {
+    "1920x1080": {
+      "scrollWidth": 1915,
+      "innerWidth": 1920,
+      "noHorizontalOverflow": true,
+      "logo": {
+        "name": "logo",
+        "exists": true,
+        "x": 350,
+        "y": 28,
+        "width": 105,
+        "height": 24,
+        "right": 454,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "loginBtn": {
+        "name": "loginBtn",
+        "exists": true,
+        "x": 1311,
+        "y": 22,
+        "width": 106,
+        "height": 36,
+        "right": 1417,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "regBtn": {
+        "name": "regBtn",
+        "exists": true,
+        "x": 1433,
+        "y": 20,
+        "width": 132,
+        "height": 40,
+        "right": 1566,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "menuBtn": {
+        "name": "menuBtn",
+        "exists": false,
+        "visible": false
+      },
+      "overflowingElements": []
+    },
+    "1440x900": {
+      "scrollWidth": 1435,
+      "innerWidth": 1440,
+      "noHorizontalOverflow": true,
+      "logo": {
+        "name": "logo",
+        "exists": true,
+        "x": 110,
+        "y": 28,
+        "width": 105,
+        "height": 24,
+        "right": 214,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "loginBtn": {
+        "name": "loginBtn",
+        "exists": true,
+        "x": 1071,
+        "y": 22,
+        "width": 106,
+        "height": 36,
+        "right": 1177,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "regBtn": {
+        "name": "regBtn",
+        "exists": true,
+        "x": 1193,
+        "y": 20,
+        "width": 132,
+        "height": 40,
+        "right": 1326,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "menuBtn": {
+        "name": "menuBtn",
+        "exists": false,
+        "visible": false
+      },
+      "overflowingElements": []
+    },
+    "768x1024": {
+      "scrollWidth": 763,
+      "innerWidth": 768,
+      "noHorizontalOverflow": true,
+      "logo": {
+        "name": "logo",
+        "exists": true,
+        "x": 24,
+        "y": 28,
+        "width": 105,
+        "height": 24,
+        "right": 129,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "loginBtn": {
+        "name": "loginBtn",
+        "exists": true,
+        "x": 485,
+        "y": 22,
+        "width": 106,
+        "height": 36,
+        "right": 591,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "regBtn": {
+        "name": "regBtn",
+        "exists": true,
+        "x": 607,
+        "y": 20,
+        "width": 132,
+        "height": 40,
+        "right": 739,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "menuBtn": {
+        "name": "menuBtn",
+        "exists": false,
+        "visible": false
+      },
+      "overflowingElements": []
+    },
+    "430x932": {
+      "scrollWidth": 430,
+      "innerWidth": 430,
+      "noHorizontalOverflow": true,
+      "logo": {
+        "name": "logo",
+        "exists": true,
+        "x": 10,
+        "y": 16,
+        "width": 105,
+        "height": 24,
+        "right": 115,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "loginBtn": {
+        "name": "loginBtn",
+        "exists": true,
+        "x": 232,
+        "y": 16,
+        "width": 77,
+        "height": 25,
+        "right": 309,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "regBtn": {
+        "name": "regBtn",
+        "exists": true,
+        "x": 313,
+        "y": 16,
+        "width": 75,
+        "height": 25,
+        "right": 388,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "menuBtn": {
+        "name": "menuBtn",
+        "exists": true,
+        "x": 392,
+        "y": 14,
+        "width": 28,
+        "height": 28,
+        "right": 420,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "overflowingElements": []
+    },
+    "390x844": {
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "noHorizontalOverflow": true,
+      "logo": {
+        "name": "logo",
+        "exists": true,
+        "x": 10,
+        "y": 16,
+        "width": 105,
+        "height": 24,
+        "right": 115,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "loginBtn": {
+        "name": "loginBtn",
+        "exists": true,
+        "x": 192,
+        "y": 16,
+        "width": 77,
+        "height": 25,
+        "right": 269,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "regBtn": {
+        "name": "regBtn",
+        "exists": true,
+        "x": 273,
+        "y": 16,
+        "width": 75,
+        "height": 25,
+        "right": 348,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "menuBtn": {
+        "name": "menuBtn",
+        "exists": true,
+        "x": 352,
+        "y": 14,
+        "width": 28,
+        "height": 28,
+        "right": 380,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "overflowingElements": []
+    },
+    "360x800": {
+      "scrollWidth": 360,
+      "innerWidth": 360,
+      "noHorizontalOverflow": true,
+      "logo": {
+        "name": "logo",
+        "exists": true,
+        "x": 10,
+        "y": 16,
+        "width": 105,
+        "height": 24,
+        "right": 115,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "loginBtn": {
+        "name": "loginBtn",
+        "exists": true,
+        "x": 162,
+        "y": 16,
+        "width": 77,
+        "height": 25,
+        "right": 239,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "regBtn": {
+        "name": "regBtn",
+        "exists": true,
+        "x": 243,
+        "y": 16,
+        "width": 75,
+        "height": 25,
+        "right": 318,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "menuBtn": {
+        "name": "menuBtn",
+        "exists": true,
+        "x": 322,
+        "y": 14,
+        "width": 28,
+        "height": 28,
+        "right": 350,
+        "visible": true,
+        "fitsInViewport": true
+      },
+      "overflowingElements": []
+    }
+  },
+  "coverflowInteractions": {
+    "desktop": {
+      "initialActiveIndex": "0",
+      "lateralClickTarget": "1",
+      "lateralClickSuccessful": true,
+      "arrowNextNavigated": true,
+      "dotClickNavigated": true
+    },
+    "mobile": {
+      "dotClickNavigated": true,
+      "arrowNextNavigated": true,
+      "lateralClickNavigated": true
+    }
+  },
+  "whatsappLinks": {
+    "count": 3,
+    "links": [
+      {
+        "text": "Solicitar desarrollo a medida(+591 77987776)",
+        "href": "https://wa.me/59177987776?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20un%20desarrollo%20a%20medida%20en%20PACHAX%20Platform.",
+        "target": "_blank"
+      },
+      {
+        "text": "Solicitar desarrollo a medida",
+        "href": "https://wa.me/59177987776?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20un%20desarrollo%20a%20medida%20en%20PACHAX%20Platform.",
+        "target": "_blank"
+      },
+      {
+        "text": "Solicitar asesoría técnica",
+        "href": "https://wa.me/59177987776?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20un%20desarrollo%20a%20medida%20en%20PACHAX%20Platform.",
+        "target": "_blank"
+      }
+    ]
+  },
+  "demoNavigation": {
+    "url": "/demo/restaurant",
+    "homeLinkFound": true,
+    "homeLinkHref": "/",
+    "homeLinkText": "Volver al inicio",
+    "datasetSelectorFound": true
+  },
+  "sectionsChecked": {
+    "seccion-2-plantillas-detalle": true,
+    "seccion-3-planes-por-plantilla": true,
+    "seccion-4-configura-5-minutos": true,
+    "seccion-5-tutoriales-guiados": true,
+    "seccion-6-extras-y-desarrollo": true
+  },
+  "admin": {
+    "unauthenticatedAccess": {
+      "path": "/admin",
+      "isLoginView": true,
+      "hasEmailInput": true,
+      "hasPasswordInput": true,
+      "hasRegisterLink": false,
+      "title": "Portal Administrativo"
+    },
+    "loginSuccess": {
+      "path": "/admin",
+      "isAuthenticated": true,
+      "operatorBadgeFound": true,
+      "tabsFound": [
+        "dashboard",
+        "templates",
+        "plans",
+        "extras",
+        "landing",
+        "media",
+        "clients",
+        "studio"
+      ]
+    },
+    "templates": true,
+    "plans": true,
+    "extras": true,
+    "landing": true,
+    "media": true,
+    "clients": true,
+    "studio": true
+  }
+}

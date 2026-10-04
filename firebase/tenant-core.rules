@@ -35,10 +35,65 @@
     match /tenants/{tenantId}/auditLogs/{eventId} { allow read: if tPermission(tenantId,'settings.manage','settings'); allow write: if false; }
     match /users/{uid}/tenantLinks/{tenantId} { allow read: if request.auth != null && request.auth.uid == uid; allow write: if false; }
     match /users/{uid}/onboarding/{document=**} { allow read, write: if false; }
-    match /platformOperators/{uid} { allow read, write: if false; }
+    function isPlatformOperator() {
+      return request.auth != null
+        && request.auth.token.get('platform', false) == true
+        && exists(/databases/$(database)/documents/platformOperators/$(request.auth.uid))
+        && get(/databases/$(database)/documents/platformOperators/$(request.auth.uid)).data.active == true;
+    }
+    function platformOperatorRole() {
+      return get(/databases/$(database)/documents/platformOperators/$(request.auth.uid)).data.role;
+    }
+    function isPlatformOwner() {
+      return isPlatformOperator() && (
+        request.auth.token.get('platformRole', '') == 'platform_owner' ||
+        platformOperatorRole() == 'platform_owner'
+      );
+    }
+    function isPlatformAdminOrOwner() {
+      return isPlatformOperator() && (
+        request.auth.token.get('platformRole', '') in ['platform_owner', 'platform_admin'] ||
+        platformOperatorRole() in ['platform_owner', 'platform_admin']
+      );
+    }
+    function isPlatformContentOrHigher() {
+      return isPlatformOperator() && (
+        request.auth.token.get('platformRole', '') in ['platform_owner', 'platform_admin', 'platform_content'] ||
+        platformOperatorRole() in ['platform_owner', 'platform_admin', 'platform_content']
+      );
+    }
+    match /platformOperators/{uid} {
+      allow get: if isPlatformOperator() && (request.auth.uid == uid || isPlatformOwner());
+      allow list: if isPlatformOwner();
+      allow write: if false;
+    }
     match /platformBootstrap/{document=**} { allow read, write: if false; }
     match /supportSessions/{uid} { allow read, write: if false; }
-    match /platformAuditLogs/{eventId} { allow read, write: if false; }
+    match /platformAuditLogs/{eventId} {
+      allow read: if isPlatformAdminOrOwner();
+      allow create: if isPlatformOperator() && request.resource.data.operatorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+    match /platformConfig/{configId} {
+      allow get: if resource.data.status == 'published' || isPlatformOperator();
+      allow write: if isPlatformContentOrHigher();
+    }
+    match /platformTemplates/{templateId} {
+      allow read: if resource.data.status == 'published' || isPlatformOperator();
+      allow write: if isPlatformContentOrHigher();
+    }
+    match /platformPlans/{planId} {
+      allow read: if resource.data.status == 'published' || isPlatformOperator();
+      allow write: if isPlatformAdminOrOwner();
+    }
+    match /platformExtras/{extraId} {
+      allow read: if resource.data.status == 'published' || isPlatformOperator();
+      allow write: if isPlatformContentOrHigher();
+    }
+    match /platformMedia/{assetId} {
+      allow read: if resource.data.status == 'published' || isPlatformOperator();
+      allow write: if isPlatformContentOrHigher();
+    }
     match /tenants/{tenantId}/products/{productId} {
       allow read: if tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'products.manage','inventory');
       allow write: if false;

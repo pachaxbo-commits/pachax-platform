@@ -1,5 +1,145 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Corrección de Fallback de Precios, Segregación de Snapshots Vacíos y Limpieza de Métricas (03/10/2026)
+
+- **Rama**: `feat/public-platform-admin-foundation`. `main` permanece intacto (`8b4e832`) sin merges ni pushes.
+- **1. Corrección Crítica del Bug de Fallback de Precios**:
+  - `commercialConfigStore.ts`: Diferenciación explícita entre query exitosa con resultado vacío (`snapshot.empty === true`) y error/indisponibilidad de Firestore.
+  - Cuando la consulta de planes publicados a Firestore tiene éxito y devuelve 0 documentos (porque todos están en `draft`), la landing sincroniza `current.plans = []` y `current.extras = []`, impidiendo que los borradores o precios de maquetas se revivan en la vitrina pública.
+  - El fallback local solo se activa ante fallo de red o backend inalcanzable.
+- **2. Valores por Defecto Compilados Seguros**:
+  - `pricingConfig.ts`: Todos los 12 planes estándar por rubro en `PLANS_BY_TEMPLATE` configurados en `status: 'draft'`, garantizando que ningún precio placeholder ($29, $59, $99, etc.) esté marcado como publicado en memoria.
+  - Extras comerciales en `COMMERCIAL_EXTRAS` con precios no aprobados ($49, $79, $35, $59) configurados como `status: 'draft'` y con etiqueta referencial `"Cotización personalizada"`. Solo `extra_custom_dev` (desarrollo a medida sin monto fijo) permanece publicado.
+- **3. Eliminación de Código Muerto y Precios Legacy**:
+  - Eliminados `PRICING_TEASER_CONFIG` y `PUBLIC_PRICING_TIERS` de `pricingConfig.ts`.
+  - Eliminado componente huérfano `ProductTrioSection.tsx`.
+- **4. Sustitución de Reclamos Cuantitativos SLA**:
+  - Reemplazadas afirmaciones no respaldadas en `DEFAULT_LANDING_CONTENT` y en componentes UI:
+    - DISPONIBILIDAD: De `"99.9% Uptime"` a `"Operación en la nube"` / `"Alta disponibilidad operativa"`.
+    - COBROS: De `"0% Comisiones"` a `"Múltiples métodos"` / `"Cobro directo sin retenciones"`.
+    - CONTROL: De `"100% Ciego"` / `"100% transparente"` a `"Cierre y trazabilidad"` / `"Auditoría ciega y transparente"`.
+    - SEGURIDAD: De `"0 Brechas"` a `"Aislamiento por empresa"` / `"Aislamiento estricto por empresa"`.
+    - Onboarding: De `"100% activo en menos de 5 minutos"` a `"listo y activo de inmediato"`.
+- **5. Casos de Prueba Exhaustivos (Suite Platform Security)**:
+  - Añadidos 5 casos de prueba unitarios en `tests/adminPlatformSecurity.test.ts`:
+    1. Firestore devuelve snapshot exitoso con 0 planes publicados -> landing renderiza 0 planes de pago, no revive placeholders locales.
+    2. Firestore devuelve todos los planes en draft -> fallback NO reactiva placeholders compilados.
+    3. Firestore devuelve 1 plan publicado legítimo -> la landing muestra únicamente ese plan.
+    4. Firestore offline/error -> fallback seguro: cero planes publicados con precios no autorizados.
+    5. Extras comerciales en draft -> no se muestran como productos publicados con precio cerrado.
+- **6. Validación Integral del Sistema**:
+  - `npm run test:platform`: 41/41 tests aprobados (100%).
+  - `npm run test:platform-security`: 30/30 comprobaciones de seguridad aprobadas en emuladores de Firebase.
+  - `npm run test:distribution`: 55/55 tests aprobados.
+  - `npm run test:restaurant`: 43/43 tests aprobados.
+  - `npm run typecheck`: 0 errores de TypeScript (`tsc -b`).
+  - `npm run build`: Compilación de producción limpia y exitosa (4.58s).
+  - `npx eslint`: 0 errores y 0 warnings en los archivos modificados.
+  - Servidor de desarrollo local en `http://localhost:5190/` y `http://localhost:5190/admin` respondiendo HTTP 200 OK.
+
+- **Rama**: `feat/public-platform-admin-foundation`. `main` permanece intacto (`8b4e832`) sin merges ni pushes.
+- **1. Admin Auth 100% Fail-Closed**:
+  - `adminAuthStore.ts`: Eliminado cualquier fallback a claims de token si `platformGateway -> validateOperator` falla.
+  - Para ingresar a `/admin`: Firebase Auth válido + `claims.platform === true` + `platformRole` válido + documento en `platformOperators/{uid}` con `active === true` validado por el backend.
+  - Si el backend falla por red, timeout o endpoint no desplegado, el acceso se deniega inmediatamente (*"No se pudo verificar tu autorización administrativa. Inténtalo nuevamente."*). Claims solos no confieren acceso.
+- **2. Segregación Estricta de Queries Firestore (Landing vs. Admin)**:
+  - Landing pública consulta estrictamente con filtro:
+    - `query(collection(db, 'platformPlans'), where('status', '==', 'published'))`
+    - `query(collection(db, 'platformTemplates'), where('status', '==', 'published'))`
+    - `query(collection(db, 'platformExtras'), where('status', '==', 'published'))`
+    - `query(collection(db, 'platformMedia'), where('status', '==', 'published'))`
+  - Admin consulta la colección completa (draft + published) mediante `syncAdminAllFromFirestore` bajo permisos de operador de plataforma.
+  - Firestore Rules evaluadas y testeadas: consultas sin filtro desde clientes no autenticados fallan con `permission-denied`, lecturas directas a borradores fallan, mientras consultas con `where('status', '==', 'published')` pasan exitosamente.
+- **3. Eliminación de Guardados Fantasma (No Fakes)**:
+  - Todas las mutaciones en `/admin` (`updatePlan`, `togglePublishPlan`, `updateTemplate`, `updateExtra`, `updateLandingContent`) guardan primero en backend/Firestore y sólo actualizan el estado local en caso de éxito.
+  - Si la escritura falla, el estado local no se altera, se muestra un banner rojo de error con `AlertCircle`, y los datos del formulario se conservan para no perder el trabajo del usuario.
+- **4. Semilla Segura sin Publicación de Placeholders**:
+  - `seedDefaultsToFirestore`: Inicializa plantillas y assets como `published`, pero planes y extras con precios como `status: 'draft'`, garantizando que montos de prueba no se publiquen automáticamente en la landing.
+  - Se añadieron botones y badges explícitos de "Publicar en landing" (`status: 'published'`) y "Despublicar a borrador" (`status: 'draft'`).
+- **5. Alineación de Permisos de `platform_content`**:
+  - `platform_content` restringido a gestión de contenido y previsualización de plantillas (`templates.preview`, `content.manage`). Removido `plans.manage` en TypeScript (`src/core/platform.ts`), Functions (`functions/platformAuthorization.cjs`), Rules (`firebase/firestore.rules`) y tests.
+- **6. Auditoría Server-Side Atómica**:
+  - `functions/platform.cjs` registra atómicamente mutaciones de planes (`publishPlan`, `savePlan`, `deletePlan`) en `platformAuditLogs`.
+- **7. Pruebas y Validación**:
+  - `npm run test:platform-security`: 30/30 comprobaciones de seguridad aprobadas en emuladores de Firebase.
+  - `npm run test:platform`: 36/36 tests aprobados.
+  - `npm run test:restaurant`: 43/43 tests aprobados.
+  - `npm run test:distribution`: 55/55 tests aprobados.
+  - `npm run typecheck`: 0 errores.
+  - `npm run build`: Compilación de producción exitosa (4.59s).
+  - Auditoría de secretos: cero credenciales hardcodeadas en código ni en `dist/`.
+
+## Checkpoint: Fundación Administrativa Segura, Custom Claims y Persistencia Firestore (03/10/2026)
+
+- **Rama**: `feat/public-platform-admin-foundation`. `main` se mantuvo intacto (`8b4e832`) sin merges ni pushes. Commit vigente publicado en `origin/feat/public-platform-admin-foundation` (`a1050e7`).
+- **1. Eliminación Radical de Credenciales Hardcodeadas**:
+  - `SEED_ADMIN_EMAIL` y `SEED_ADMIN_PASS` (`PachaxAdmin2026!`) eliminados por completo de `adminAuthStore.ts`, del frontend y de los scripts.
+  - Búsqueda exhaustiva con `git grep` confirma cero contraseñas o tokens hardcodeados en frontend, scripts y bundle de producción (`dist/`).
+- **2. Autenticación y Autorización Real**:
+  - `/admin/login` autentica mediante Firebase Auth SDK oficial (`signInWithEmail`).
+  - Autorización administrativa validada mediante Custom Claims criptográficos (`platform: true`, `platformRole: 'platform_owner' | 'platform_admin' | 'platform_support' | 'platform_content' | 'platform_finance'`) combinados con documento protegido en `platformOperators/{uid}` validado server-side vía `platformGateway` (`action: 'validateOperator'`).
+  - La autoridad reside exclusivamente en Firebase Auth y backend; `sessionStorage` no confiere ningún privilegio.
+  - Guardia seguro en `/admin`: visitante no autenticado es redirigido a `/admin/login`; usuario autenticado sin claim de plataforma recibe pantalla explícita de "Acceso Denegado"; operador autorizado accede a la consola. No se cargan datos antes de verificar autorización.
+- **3. Bootstrap Seguro de Platform Owner**:
+  - `scripts/bootstrap-platform-owner.cjs` y `functions/platformBootstrap.cjs` actualizados con soporte para `--email` y `--uid`.
+  - Validación estricta que rechaza proyectos ajenos y exige confirmación explícita (`--confirm "BOOTSTRAP <projectId> <targetUid>"`).
+  - Asigna Custom Claims `{ platform: true, platformRole: 'platform_owner' }`, crea documento protegido `platformOperators/{uid}` y registra log en `platformAuditLogs`. No almacena contraseñas.
+- **4. Persistencia Central en Firestore y Draft vs. Published**:
+  - `commercialConfigStore.ts` conectado a Firestore para:
+    - `platformConfig/publicLanding`: Textos Hero, métricas, títulos de sección, WhatsApp oficial (`+591 77987776`).
+    - `platformTemplates/{templateId}`: Plantillas comerciales con orden, acento, bullets y estado.
+    - `platformPlans/{planId}`: Planes comerciales por plantilla con precios, límites y características.
+    - `platformExtras/{extraId}`: Servicios y módulos complementarios.
+    - `platformMedia/{assetId}`: Assets fotográficos oficiales y puntos focales.
+    - `platformAuditLogs`: Registro de auditoría de cada mutación administrativa con UID y rol del operador.
+  - Aislamiento estricto: la landing pública solo lee documentos con `status: 'published'`. El admin visualiza y edita tanto borradores (`draft`) como publicados, estampando metadatos de auditoría (`publishedAt`, `publishedBy`, `updatedAt`, `updatedBy`).
+  - Fallback elegante: si Firestore tarda o está en modo offline, se sirve la configuración por defecto de forma instantánea sin romper la experiencia pública.
+- **5. Firestore Security Rules**:
+  - `firebase/tenant-core.rules` y `firebase/firestore.rules` actualizados con funciones de verificación (`isPlatformOperator()`, `isPlatformOwner()`, `isPlatformAdminOrOwner()`, `isPlatformContentOrHigher()`).
+  - Público y clientes normales tienen lectura restringida a documentos con `status == 'published'` y prohibición total de escritura (`write: if false`).
+  - Operadores escriben de acuerdo a su rol administrativo específico.
+- **6. Gestión de Operadores (Nueva Pestaña Administradores)**:
+  - Nueva sección `Administradores` en `/admin` visible exclusivamente para `platform_owner`.
+  - Callable `platformGateway` ampliado con acciones `listOperators` y `manageOperator` para asignar roles o habilitar/deshabilitar operadores mediante Firebase Admin SDK server-side.
+- **7. Clientes y Dashboard con Datos Reales**:
+  - `ClientsSection.tsx`: Eliminado `SYSTEM_TENANTS` y datos ficticios. Ahora consume la colección real `tenants` desde `platformGateway` / Firestore, mostrando "No disponible" ante propiedades ausentes.
+  - `DashboardSection.tsx`: Métricas calculadas con datos reales de la base de datos (tenants totales, distribución por plantilla, plantillas activas, planes publicados, extras publicados).
+  - Facturación y MRR muestran de forma explícita y transparente: «Sin integración de facturación».
+- **8. Validación y Tests**:
+  - `npm run typecheck`: 0 errores.
+  - `tests/adminPlatformSecurity.test.ts`: Nueva suite con pruebas de control de acceso para visitante, cliente normal, soporte, contenido, admin y owner, y aislamiento draft/published.
+  - `npm run test:platform`: 36/36 tests aprobados.
+  - `npm run test:restaurant`: 43/43 tests aprobados.
+  - `npm run test:distribution`: 55/55 tests aprobados.
+  - `npm run build`: Compilación de producción exitosa en 4.7s.
+  - `dist/` inspeccionado: Cero secretos.
+  - Servidor local en `http://localhost:5190/` y `http://localhost:5190/admin` responde HTTP 200.
+
+## Checkpoint: Cierre Landing Pública y Fundación Panel Administrativo Seguro (03/10/2026)
+
+- **Rama**: `feat/public-platform-admin-foundation`, creada a partir de `feat/public-platform-premium-v2`. `main` se mantuvo intacto sin merges ni pushes directos. Rama publicada en `origin/feat/public-platform-admin-foundation` (commit `5d9099e`).
+- **Parte A: Experiencia Pública y Cumplimiento de Regla 28**:
+  - **Coverflow 3D**: Proporciones de tarjetas ajustadas (`clamp(215px, 25vw, 275px)` por `clamp(310px, 36vw, 395px)`), ranura de imagen ampliada al 68% de la tarjeta para eliminar el recorte forzado de encuadres (salón, almacén, barra, báscula), viñeta degradada suavizada a `to-black/15` para conservar contraste y detalle fotográfico, puntos focales por asset calibrados.
+  - **Regla 28 (Diseño Anti-IA)**: Cero emojis, cero iconos de estrellitas/Sparkles, cero insignias o píldoras flotantes genéricas. Cabeceras con kickers editoriales mayúsculos y sobrios.
+  - **Catálogo de Plantillas (Sección 2)**: Reemplazo de bloques de texto empaquetados por un dossier editorial con bordes sutiles, detalles operativos y llamadas directas a las demos canónicas.
+  - **Planes Comerciales (Sección 3)**: Desacoplado 100% de JSX hardcodeado, consumiendo `useCommercialConfig()` y filtrando únicamente planes `published`. Selector dinámico de rubro y ciclo mensual/anual (-15%). Bloque destacado de cotización a medida con enlace dinámico de WhatsApp.
+  - **Sección 6 (Extras y Portafolio Estratégico)**: Rediseño asimétrico completo. Tarjeta prominente de «Desarrollo y Adaptación a Medida» (alcance técnico, SLA, integración fiscal/hardware) a la izquierda, combinada con franjas de servicios complementarios (Marketing, Branding, Soporte VIP 24/7, Automatizaciones API) a la derecha. Cero grids genéricos de 6 cajas iguales.
+- **Parte B: Fundación Administrativa Segura (/admin y /admin/login)**:
+  - Sin enlaces visibles en la barra de navegación pública.
+  - Autenticación controlada exclusiva para Platform Operators (`platform_owner` y `platform_admin`), con operador semilla verificado (`admin@pachax.com`) e integración fail-safe con Firebase Auth claims.
+  - 8 secciones operativas: Dashboard (KPIs, adopción por rubro, disponibilidad de infraestructura y aviso explícito de facturación manual), Plantillas (editor en vivo con previsualización 1:1 de tarjeta Coverflow), Planes (gestión de precios USD, límites y entitlements), Extras (gestión de servicios estratégicos), Contenido Landing (textos hero, WhatsApp oficial +591 77987776, títulos de secciones), Biblioteca Media (5 assets conceptuales fotográficos con puntos focales), Clientes/Tenants (supervisión de empresas activas con aviso de pasarela pendiente), y PACHAX Studio (previsualización embebida interactiva mediante iframe con selectores de plantilla, dataset y rol).
+- **Verificación Automatizada CDP y Tests**:
+  - `verify-landing-cdp.mjs` ejecutado con éxito en Edge Headless:
+    - Sin desbordamiento horizontal en 6 viewports (`1920x1080`, `1440x900`, `768x1024`, `430x932`, `390x844`, `360x800`).
+    - Interacciones Coverflow 3D validadas en desktop y móvil (clic lateral, flechas, dots).
+    - Acceso no autenticado a `/admin` protegido con redirección instantánea a `/admin/login`.
+    - Autenticación de operador semilla probada, accediendo al shell administrativo y navegando por las 8 pestañas con captura de screenshots de evidencia en `public/brand/verification/`.
+  - Typecheck (`tsc -b`): 0 errores.
+  - Suites de pruebas: `test:platform` (28/28), `test:restaurant` (43/43), `test:distribution` (55/55).
+- **Resolución de Deployments Vercel**:
+  - Error TS6133 en `AdminShell.tsx` resuelto eliminando el import no utilizado de `useEffect` (commit `f910ce3`).
+  - Nuevo Preview Deployment generado en Vercel (`pachax-app`): `https://pachax-1zwvkyla3-pachaxbo-8256s-projects.vercel.app` en estado **Ready** (duración 26s, HTTP 200 verificado).
+
 ## Rama de revisión: Restaurante kiosk/POS (30/09/2026)
 
 - `feat/restaurant-kiosk-redesign` se creó en un worktree independiente desde `origin/main` `e20dd98`. No hay merge, push ni despliegue. La instalación original en G: no se tocó.

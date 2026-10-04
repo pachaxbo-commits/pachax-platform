@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing'
-import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, setDoc, query, where } from 'firebase/firestore'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) throw new Error('Proyecto no autorizado para QA Platform.')
@@ -135,7 +135,60 @@ try {
   assert.equal(frontendRegion, PACHAX_FUNCTIONS_REGION)
   pass('cliente y Functions nuevas apuntan ambos a southamerica-west1')
 
-  assert.equal(checks, 19)
+  await assert.rejects(() => platform.manageOperator(db, request(ids.support, { action: 'manageOperator', targetUid: ids.disabled, role: 'platform_admin', active: true })), error => error.code === 'permission-denied')
+  pass('platform_support no puede gestionar operadores')
+
+  const manageRes = await platform.manageOperator(db, request(ids.owner, { action: 'manageOperator', targetUid: ids.disabled, role: 'platform_admin', active: true }))
+  assert.equal(manageRes.active, true)
+  assert.equal((await db.doc(`platformOperators/${ids.disabled}`).get()).data().active, true)
+  pass('platform_owner gestiona y reactiva operadores server-side')
+
+  const unauthenticatedClient = env.unauthenticatedContext().firestore()
+  await db.doc('platformTemplates/t_pub').set({ status: 'published', name: 'Plantilla Pública' })
+  await db.doc('platformTemplates/t_draft').set({ status: 'draft', name: 'Plantilla Borrador' })
+  assert.equal((await getDoc(doc(unauthenticatedClient, 'platformTemplates', 't_pub'))).data().name, 'Plantilla Pública')
+  pass('cliente público puede leer plantillas publicadas')
+  await assertFails(getDoc(doc(unauthenticatedClient, 'platformTemplates', 't_draft')))
+  pass('cliente público NO puede leer plantillas en borrador (draft)')
+  await assertFails(setDoc(doc(unauthenticatedClient, 'platformTemplates', 't_pub'), { name: 'Hack' }))
+  pass('cliente público NO puede escribir configuraciones de plataforma')
+  await assertFails(setDoc(doc(tenantClient, 'platformPlans', 'p_test'), { name: 'Hack' }))
+  pass('cliente tenant NO puede escribir planes de plataforma')
+
+  // Pruebas específicas de queries segregadas (public vs admin):
+  await db.doc('platformPlans/p_pub_query').set({ status: 'published', name: 'Plan Público QA' })
+  await db.doc('platformPlans/p_draft_query').set({ status: 'draft', name: 'Plan Borrador QA' })
+
+  // 1. Query pública con where('status', '==', 'published') es permitida:
+  const pubQuery = query(collection(unauthenticatedClient, 'platformPlans'), where('status', '==', 'published'))
+  const pubDocs = await getDocs(pubQuery)
+  assert(pubDocs.docs.some(d => d.id === 'p_pub_query'))
+  assert(!pubDocs.docs.some(d => d.id === 'p_draft_query'))
+  pass('query pública con where(status == published) se evalúa y resuelve exitosamente')
+
+  // 2. Query pública abierta / sin filtro a la colección entera falla con permission-denied:
+  await assertFails(getDocs(collection(unauthenticatedClient, 'platformPlans')))
+  pass('query pública sin filtro a colección completa falla con permission-denied')
+
+  // 3. Lectura directa de documento borrador por cliente no autenticado falla:
+  await assertFails(getDoc(doc(unauthenticatedClient, 'platformPlans', 'p_draft_query')))
+  pass('lectura directa de plan borrador falla con permission-denied')
+
+  // 4. Operador de plataforma autenticado sí puede consultar la colección entera:
+  const operatorClient = env.authenticatedContext(ids.owner, { platform: true }).firestore()
+  const allOperatorPlans = await getDocs(collection(operatorClient, 'platformPlans'))
+  assert(allOperatorPlans.docs.length >= 2)
+  pass('operador Platform consulta la colección completa de planes (draft + published)')
+
+  // 5. platform_content NO tiene permiso de escritura en platformPlans:
+  await auth.createUser({ uid: 'cnt_writer', email: 'cnt_writer@example.test', password: 'Emulator123!' })
+  await auth.setCustomUserClaims('cnt_writer', { platform: true, platformRole: 'platform_content' })
+  await db.doc('platformOperators/cnt_writer').set({ uid: 'cnt_writer', role: 'platform_content', active: true })
+  const contentClient = env.authenticatedContext('cnt_writer', { platform: true, platformRole: 'platform_content' }).firestore()
+  await assertFails(setDoc(doc(contentClient, 'platformPlans', 'p_content_write'), { status: 'published', name: 'Hack Content' }))
+  pass('platform_content no tiene permiso de escritura en platformPlans')
+
+  assert.equal(checks, 30)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()
