@@ -53,9 +53,10 @@ export interface Membership {
   tenantId: string; uid: string; roleId: string; status: 'active' | 'disabled'
   branchIds: readonly string[]; routeIds: readonly string[]
 }
-export type PlatformRole = 'platform_owner' | 'platform_admin' | 'platform_support' | 'platform_finance'
+export type PlatformRole = 'platform_owner' | 'platform_admin' | 'platform_support' | 'platform_finance' | 'platform_content'
 export type PlatformPermission = 'tenants.read' | 'tenants.configure' | 'support.read'
   | 'support.elevate' | 'templates.preview' | 'audit.read' | 'finance.read'
+  | 'content.manage' | 'plans.manage' | 'operators.manage'
 export interface PlatformOperator { uid: string; role: PlatformRole; active: boolean }
 export interface SupportSession {
   id: string; operatorUid: string; tenantId: string; viewedRoleId: string
@@ -64,10 +65,11 @@ export interface SupportSession {
 export const platformFlags = Object.freeze({ billingEnforcement: false, aiAssistant: false })
 
 const platformPermissions: Record<PlatformRole, readonly PlatformPermission[]> = {
-  platform_owner: ['tenants.read', 'tenants.configure', 'support.read', 'support.elevate', 'templates.preview', 'audit.read', 'finance.read'],
-  platform_admin: ['tenants.read', 'tenants.configure', 'support.read', 'templates.preview', 'audit.read'],
+  platform_owner: ['tenants.read', 'tenants.configure', 'support.read', 'support.elevate', 'templates.preview', 'audit.read', 'finance.read', 'content.manage', 'plans.manage', 'operators.manage'],
+  platform_admin: ['tenants.read', 'tenants.configure', 'support.read', 'templates.preview', 'audit.read', 'content.manage', 'plans.manage'],
   platform_support: ['tenants.read', 'support.read', 'templates.preview', 'audit.read'],
   platform_finance: ['tenants.read', 'finance.read'],
+  platform_content: ['templates.preview', 'content.manage', 'plans.manage'],
 }
 
 /** UI decision only. The server and rules must resolve the protected operator independently. */

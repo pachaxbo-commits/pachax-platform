@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth');
 const { BusinessTemplateRegistry } = require('./generated/templates.js');
 const { id } = require('./authorization.cjs');
 const { settingsPatch } = require('./tenants.cjs');
@@ -195,12 +196,155 @@ async function queryAudit(db, request) {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: doc.data().createdAt?.toDate?.().toISOString() || null }));
 }
 
+async function listOperators(db, request) {
+  await platformActor(db, request, 'operators.manage');
+  const snapshot = await db.collection('platformOperators').orderBy('createdAt', 'desc').limit(50).get();
+  return {
+    operators: snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        uid: doc.id,
+        email: data.email || null,
+        role: data.role,
+        active: Boolean(data.active),
+        createdAt: data.createdAt?.toDate?.().toISOString() || null,
+        updatedAt: data.updatedAt?.toDate?.().toISOString() || null,
+      };
+    }),
+  };
+}
+
+async function manageOperator(db, request) {
+  const actor = await platformActor(db, request, 'operators.manage');
+  const targetUidInput = request.data?.targetUid ? String(request.data.targetUid).trim() : '';
+  const role = cleanText(request.data?.role, 'Rol', 1, 50);
+  const active = Boolean(request.data?.active);
+  const emailInput = typeof request.data?.email === 'string' ? request.data.email.trim().toLowerCase() : null;
+
+  const validRoles = ['platform_owner', 'platform_admin', 'platform_support', 'platform_content', 'platform_finance'];
+  if (!validRoles.includes(role)) {
+    throw new HttpsError('invalid-argument', `Rol no válido: ${role}`);
+  }
+
+  const auth = getAuth();
+  let authUser;
+  if (targetUidInput) {
+    try {
+      authUser = await auth.getUser(targetUidInput);
+    } catch {
+      if (emailInput) {
+        try {
+          authUser = await auth.getUserByEmail(emailInput);
+        } catch {
+          throw new HttpsError('not-found', `No se encontró usuario Firebase con correo ${emailInput}.`);
+        }
+      } else {
+        throw new HttpsError('not-found', `No se encontró usuario Firebase con UID ${targetUidInput}.`);
+      }
+    }
+  } else if (emailInput) {
+    try {
+      authUser = await auth.getUserByEmail(emailInput);
+    } catch {
+      throw new HttpsError('not-found', `No se encontró usuario Firebase con correo ${emailInput}.`);
+    }
+  } else {
+    throw new HttpsError('invalid-argument', 'UID o correo de operador requerido.');
+  }
+
+  const finalUid = authUser.uid;
+
+  // Si se intenta desactivar o degradar a sí mismo, verificar que quede al menos otro owner activo
+  if (finalUid === actor.uid && (role !== 'platform_owner' || !active)) {
+    const ownersSnap = await db.collection('platformOperators')
+      .where('role', '==', 'platform_owner')
+      .where('active', '==', true)
+      .get();
+    if (ownersSnap.size <= 1) {
+      throw new HttpsError('failed-precondition', 'Debe existir al menos un platform_owner activo en la plataforma.');
+    }
+  }
+
+  const previousClaims = authUser.customClaims || {};
+
+  // Actualizar claims en Firebase Auth
+  await auth.setCustomUserClaims(finalUid, {
+    ...previousClaims,
+    platform: active,
+    platformRole: active ? role : null,
+  });
+
+  // Actualizar metadata en Firestore
+  const opRef = db.doc(`platformOperators/${finalUid}`);
+  const opSnap = await opRef.get();
+  const now = FieldValue.serverTimestamp();
+
+  await opRef.set({
+    uid: finalUid,
+    email: authUser.email || emailInput || '',
+    role,
+    active,
+    updatedAt: now,
+    updatedBy: actor.uid,
+    createdAt: opSnap.exists ? (opSnap.data().createdAt || now) : now,
+  }, { merge: true });
+
+  const batch = db.batch();
+  auditPlatform(db, batch, actor, 'operator.managed', {
+    resource: `platformOperators/${finalUid}`,
+    reason: `Configuración de operador platform: rol=${role}, activo=${active}`,
+    metadata: { targetUid: finalUid, role, active, email: authUser.email || emailInput },
+  });
+  await batch.commit();
+
+  return { success: true, uid: finalUid, email: authUser.email || emailInput, role, active };
+}
+
+async function getPlatformStats(db, request) {
+  await platformActor(db, request, 'tenants.read');
+  const tenantsSnap = await db.collection('tenants').get();
+  const totalTenants = tenantsSnap.size;
+  const tenantsByType = {
+    restaurant_pos: 0,
+    route_distribution: 0,
+    nightclub_lounge: 0,
+    gelateria_weight_cafe: 0,
+    other: 0,
+  };
+  let activeTenants = 0;
+  let trialTenants = 0;
+
+  tenantsSnap.docs.forEach(doc => {
+    const data = doc.data();
+    const bType = data.businessType;
+    if (bType && Object.prototype.hasOwnProperty.call(tenantsByType, bType)) {
+      tenantsByType[bType] = (tenantsByType[bType] || 0) + 1;
+    } else {
+      tenantsByType.other = (tenantsByType.other || 0) + 1;
+    }
+    if (data.status === 'active') activeTenants++;
+    if (data.status === 'trial') trialTenants++;
+  });
+
+  return {
+    totalTenants,
+    activeTenants,
+    trialTenants,
+    tenantsByType,
+    billingIntegrated: false,
+    billingNotice: 'Sin integración de facturación',
+  };
+}
+
 async function platformGateway(db, request) {
   switch (request.data?.action) {
     case 'validateOperator': return validateOperator(db, request);
     case 'listTenants': return listTenants(db, request);
     case 'tenantDetail': return tenantDetail(db, request);
     case 'listTemplates': return listTemplates(db, request);
+    case 'listOperators': return listOperators(db, request);
+    case 'manageOperator': return manageOperator(db, request);
+    case 'getPlatformStats': return getPlatformStats(db, request);
     case 'beginSupport': return beginSupport(db, request);
     case 'supportContext': return supportContext(db, request);
     case 'elevateSupport': return elevateSupport(db, request);
@@ -211,4 +355,19 @@ async function platformGateway(db, request) {
   }
 }
 
-module.exports = { platformGateway, validateOperator, listTenants, tenantDetail, listTemplates, beginSupport, supportContext, elevateSupport, supportUpdateSettings, endSupport, queryAudit };
+module.exports = {
+  platformGateway,
+  validateOperator,
+  listTenants,
+  tenantDetail,
+  listTemplates,
+  listOperators,
+  manageOperator,
+  getPlatformStats,
+  beginSupport,
+  supportContext,
+  elevateSupport,
+  supportUpdateSettings,
+  endSupport,
+  queryAudit,
+};

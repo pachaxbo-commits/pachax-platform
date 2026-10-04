@@ -135,7 +135,27 @@ try {
   assert.equal(frontendRegion, PACHAX_FUNCTIONS_REGION)
   pass('cliente y Functions nuevas apuntan ambos a southamerica-west1')
 
-  assert.equal(checks, 19)
+  await assert.rejects(() => platform.manageOperator(db, request(ids.support, { action: 'manageOperator', targetUid: ids.disabled, role: 'platform_admin', active: true })), error => error.code === 'permission-denied')
+  pass('platform_support no puede gestionar operadores')
+
+  const manageRes = await platform.manageOperator(db, request(ids.owner, { action: 'manageOperator', targetUid: ids.disabled, role: 'platform_admin', active: true }))
+  assert.equal(manageRes.active, true)
+  assert.equal((await db.doc(`platformOperators/${ids.disabled}`).get()).data().active, true)
+  pass('platform_owner gestiona y reactiva operadores server-side')
+
+  const unauthenticatedClient = env.unauthenticatedContext().firestore()
+  await db.doc('platformTemplates/t_pub').set({ status: 'published', name: 'Plantilla Pública' })
+  await db.doc('platformTemplates/t_draft').set({ status: 'draft', name: 'Plantilla Borrador' })
+  assert.equal((await getDoc(doc(unauthenticatedClient, 'platformTemplates', 't_pub'))).data().name, 'Plantilla Pública')
+  pass('cliente público puede leer plantillas publicadas')
+  await assertFails(getDoc(doc(unauthenticatedClient, 'platformTemplates', 't_draft')))
+  pass('cliente público NO puede leer plantillas en borrador (draft)')
+  await assertFails(setDoc(doc(unauthenticatedClient, 'platformTemplates', 't_pub'), { name: 'Hack' }))
+  pass('cliente público NO puede escribir configuraciones de plataforma')
+  await assertFails(setDoc(doc(tenantClient, 'platformPlans', 'p_test'), { name: 'Hack' }))
+  pass('cliente tenant NO puede escribir planes de plataforma')
+
+  assert.equal(checks, 26)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()

@@ -1,33 +1,145 @@
-import { Building2, Layers, CreditCard, ExternalLink, Activity, ShieldCheck } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import {
+  Building2,
+  Layers,
+  CreditCard,
+  ExternalLink,
+  Activity,
+  ShieldCheck,
+  RefreshCw,
+  Database,
+  CheckCircle2,
+} from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
+import { gateway } from '../../../services/gateway'
+import { getFirebaseContext } from '../../../lib/firebase'
+import { collection, getDocs } from 'firebase/firestore'
 
 interface DashboardSectionProps {
   onNavigateTab: (tab: string) => void
 }
 
-export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
-  const { config, publishedTemplates, publishedExtras } = useCommercialConfig()
+interface RealStats {
+  totalTenants: number
+  activeTenants: number
+  trialTenants: number
+  tenantsByType: Record<string, number>
+}
 
-  // Datos operacionales reales del sistema
+export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
+  const {
+    config,
+    publishedTemplates,
+    publishedExtras,
+    seedDefaultsToFirestore,
+  } = useCommercialConfig()
+
+  const [realStats, setRealStats] = useState<RealStats>({
+    totalTenants: 0,
+    activeTenants: 0,
+    trialTenants: 0,
+    tenantsByType: {
+      restaurant_pos: 0,
+      route_distribution: 0,
+      nightclub_lounge: 0,
+      gelateria_weight_cafe: 0,
+    },
+  })
+  const [isLoadingStats, setIsLoadingStats] = useState(true)
+  const [seedMessage, setSeedMessage] = useState<string | null>(null)
+
+  const fetchStats = async () => {
+    setIsLoadingStats(true)
+    try {
+      // 1. Intentar getPlatformStats
+      const stats = await gateway<RealStats>('platformGateway', { action: 'getPlatformStats' })
+      if (stats && typeof stats.totalTenants === 'number') {
+        setRealStats(stats)
+        setIsLoadingStats(false)
+        return
+      }
+    } catch {
+      // Continuar con fallback directo
+    }
+
+    try {
+      // 2. Fallback directo a Firestore
+      const ctx = await getFirebaseContext()
+      if (ctx) {
+        const snap = await getDocs(collection(ctx.db, 'tenants'))
+        const byType: Record<string, number> = {
+          restaurant_pos: 0,
+          route_distribution: 0,
+          nightclub_lounge: 0,
+          gelateria_weight_cafe: 0,
+        }
+        let active = 0
+        let trial = 0
+
+        snap.docs.forEach((d) => {
+          const data = d.data()
+          const bt = data.businessType
+          if (bt && byType[bt] !== undefined) {
+            byType[bt]++
+          }
+          if (data.status === 'active') active++
+          if (data.status === 'trial') trial++
+        })
+
+        setRealStats({
+          totalTenants: snap.size,
+          activeTenants: active,
+          trialTenants: trial,
+          tenantsByType: byType,
+        })
+      }
+    } catch (err) {
+      console.warn('Error calculando métricas reales:', err)
+    } finally {
+      setIsLoadingStats(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchStats()
+  }, [])
+
+  const handleSeedDefaults = async () => {
+    setSeedMessage('Sincronizando configuraciones oficiales con Firestore...')
+    const res = await seedDefaultsToFirestore()
+    setSeedMessage(res.message)
+    setTimeout(() => setSeedMessage(null), 5000)
+  }
+
   const totalTemplates = config.templates.length
   const publishedTemplatesCount = publishedTemplates.length
   const totalPlans = config.plans.length
   const publishedPlansCount = config.plans.filter((p) => p.status === 'published').length
   const totalExtras = config.extras.length
+  const publishedExtrasCount = publishedExtras.length
 
-  // Clientes y tenants de prueba/registrados en la plataforma
-  const clientSummary = {
-    totalClients: 4,
-    activeSubscriptions: 2,
-    trialAccounts: 2,
-    mostPopularTemplate: 'Restaurante',
-    distributionByTemplate: [
-      { name: 'Restaurante', count: 2, percentage: 50 },
-      { name: 'Distribuidora', count: 1, percentage: 25 },
-      { name: 'Nightclub & Lounge', count: 1, percentage: 25 },
-      { name: 'Ventas Express', count: 0, percentage: 0 },
-    ],
-  }
+  const templateDistributionList = [
+    {
+      name: 'Restaurante',
+      key: 'restaurant_pos',
+      count: realStats.tenantsByType.restaurant_pos || 0,
+    },
+    {
+      name: 'Distribuidora',
+      key: 'route_distribution',
+      count: realStats.tenantsByType.route_distribution || 0,
+    },
+    {
+      name: 'Nightclub & Lounge',
+      key: 'nightclub_lounge',
+      count: realStats.tenantsByType.nightclub_lounge || 0,
+    },
+    {
+      name: 'Ventas Express / Balanza',
+      key: 'gelateria_weight_cafe',
+      count: realStats.tenantsByType.gelateria_weight_cafe || 0,
+    },
+  ]
 
   return (
     <div className="space-y-8">
@@ -38,11 +150,29 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             Resumen de Plataforma
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Panel de supervisión comercial y operativa de PACHAX Platform.
+            Panel de supervisión y gestión centralizada con persistencia real en Firestore.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchStats}
+            disabled={isLoadingStats}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingStats ? 'animate-spin' : ''}`} />
+            <span>Recargar datos</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleSeedDefaults}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
+            title="Publica los datos oficiales por defecto a Firestore si aún no existen"
+          >
+            <Database className="w-3.5 h-3.5 text-blue-600" />
+            <span>Sembrar Firestore</span>
+          </button>
           <button
             type="button"
             onClick={() => window.open('/', '_blank')}
@@ -54,7 +184,14 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
         </div>
       </div>
 
-      {/* Tarjetas de Métricas Principales (KPIs) */}
+      {seedMessage && (
+        <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-medium flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+          <span>{seedMessage}</span>
+        </div>
+      )}
+
+      {/* Tarjetas de Métricas Principales (KPIs Reales) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 mb-3">
@@ -62,10 +199,12 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             <Building2 className="w-4 h-4 text-[#0066FF]" />
           </div>
           <div className="text-3xl font-black text-slate-950">
-            {clientSummary.totalClients}
+            {isLoadingStats ? '...' : realStats.totalTenants}
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
-            {clientSummary.activeSubscriptions} activas · {clientSummary.trialAccounts} en período de prueba
+            {realStats.totalTenants > 0
+              ? `${realStats.activeTenants} activas · ${realStats.trialTenants} en prueba`
+              : 'Base multitenant conectada'}
           </p>
         </div>
 
@@ -79,7 +218,7 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             <span className="text-xs font-normal text-slate-400 ml-1.5">/ {totalTemplates}</span>
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
-            Todas compartidas con Studio y Demos
+            Canónicas en Vitrina, Studio y Demo
           </p>
         </div>
 
@@ -93,7 +232,7 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             <span className="text-xs font-normal text-slate-400 ml-1.5">/ {totalPlans}</span>
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
-            Sin precios placeholder en producción
+            Configuración comercial persistida
           </p>
         </div>
 
@@ -103,26 +242,26 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             <ShieldCheck className="w-4 h-4 text-indigo-600" />
           </div>
           <div className="text-3xl font-black text-slate-950">
-            {publishedExtras.length}
+            {publishedExtrasCount}
             <span className="text-xs font-normal text-slate-400 ml-1.5">/ {totalExtras}</span>
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
-            Módulos y desarrollo a medida
+            Extras y desarrollo a medida
           </p>
         </div>
       </div>
 
-      {/* Grid de Estado: Distribución por Plantilla y Estado Técnico de Servicios */}
+      {/* Grid de Estado: Distribución por Plantilla y Estado Técnico */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Distribución de empresas por rubro */}
+        {/* Distribución real de empresas por rubro */}
         <div className="lg:col-span-7 bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs space-y-5">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                Adopción por Plantilla
+                Distribución por Plantilla
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Distribución de empresas activas según el modelo de negocio
+                Datos reales según los registros de empresas en la plataforma
               </p>
             </div>
             <button
@@ -135,45 +274,55 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
           </div>
 
           <div className="space-y-4 pt-1">
-            {clientSummary.distributionByTemplate.map((item, idx) => (
-              <div key={idx} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-slate-800">{item.name}</span>
-                  <span className="text-slate-500">{item.count} empresas ({item.percentage}%)</span>
+            {templateDistributionList.map((item, idx) => {
+              const percentage =
+                realStats.totalTenants > 0
+                  ? Math.round((item.count / realStats.totalTenants) * 100)
+                  : 0
+              return (
+                <div key={idx} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-800">{item.name}</span>
+                    <span className="text-slate-500">
+                      {item.count} {item.count === 1 ? 'empresa' : 'empresas'} ({percentage}%)
+                    </span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-[#0066FF] transition-all duration-500"
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-[#0066FF]"
-                    style={{ width: `${item.percentage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-100 text-xs text-blue-900 flex items-center justify-between">
-            <span>Plantilla con mayor actividad: <strong>{clientSummary.mostPopularTemplate}</strong></span>
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-700 flex items-center justify-between">
+            <span>
+              Total de registros en base de datos: <strong>{realStats.totalTenants} empresas</strong>
+            </span>
             <button
               type="button"
               onClick={() => onNavigateTab('templates')}
               className="text-[#0066FF] font-bold hover:underline cursor-pointer"
             >
-              Gestionar
+              Gestionar plantillas
             </button>
           </div>
         </div>
 
-        {/* Estado del Sistema e Infraestructura */}
+        {/* Estado del Sistema e Integraciones */}
         <div className="lg:col-span-5 bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs flex flex-col justify-between space-y-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Activity className="w-4 h-4 text-emerald-600" />
               <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                Estado de Infraestructura
+                Infraestructura y Servicios
               </h3>
             </div>
             <p className="text-xs text-slate-500">
-              Disponibilidad de servicios y conexiones de plataforma
+              Estado de conectividad y pasarelas de la plataforma
             </p>
 
             <div className="mt-4 space-y-3">
@@ -190,15 +339,15 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-slate-100 text-xs">
-                <span className="text-slate-600">Almacenamiento de Assets</span>
+                <span className="text-slate-600">Configuración Comercial</span>
                 <span className="px-2 py-0.5 rounded-md font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                  Local / Cloud
+                  Firestore / Sincronizado
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-slate-100 text-xs">
-                <span className="text-slate-600">Pasarela de Cobros / Suscripciones</span>
+                <span className="text-slate-600">Pasarela de Cobros / MRR</span>
                 <span className="px-2 py-0.5 rounded-md font-semibold text-amber-700 bg-amber-50 border border-amber-200">
-                  Pendiente integración
+                  Sin integración de facturación
                 </span>
               </div>
             </div>

@@ -13,6 +13,17 @@ import {
   OFFICIAL_WHATSAPP,
   type TemplateKey,
 } from '../../public/config/pricingConfig'
+import { getFirebaseContext } from '../../lib/firebase'
+import {
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  deleteDoc,
+  collection,
+  serverTimestamp,
+  addDoc,
+} from 'firebase/firestore'
 
 const STORAGE_KEY = 'pachax_commercial_config_v1'
 const EVENT_NAME = 'pachax:commercial-config-updated'
@@ -91,7 +102,6 @@ export const DEFAULT_LANDING_CONTENT: LandingContentConfig = {
   },
 }
 
-// Convertir los planes por plantilla a un arreglo plano
 function flattenDefaultPlans(): TemplateTierPlan[] {
   const result: TemplateTierPlan[] = []
   const keys: TemplateKey[] = ['restaurant', 'distribution', 'nightclub', 'retail']
@@ -124,14 +134,21 @@ function getDefaultConfig(): StoredCommercialConfig {
   }
 }
 
-// Cargar configuración guardada o defaults
+// Memoria activa y caché local de lectura instantánea
+let cachedConfig: StoredCommercialConfig | null = null
+
 export function loadCommercialConfig(): StoredCommercialConfig {
+  if (cachedConfig) return cachedConfig
   if (typeof window === 'undefined') return getDefaultConfig()
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return getDefaultConfig()
+    if (!raw) {
+      cachedConfig = getDefaultConfig()
+      return cachedConfig
+    }
     const parsed = JSON.parse(raw) as Partial<StoredCommercialConfig>
-    return {
+    cachedConfig = {
       templates: parsed.templates || getDefaultConfig().templates,
       plans: parsed.plans || getDefaultConfig().plans,
       extras: parsed.extras || getDefaultConfig().extras,
@@ -139,21 +156,188 @@ export function loadCommercialConfig(): StoredCommercialConfig {
       mediaAssets: parsed.mediaAssets || getDefaultConfig().mediaAssets,
       lastModified: parsed.lastModified || new Date().toISOString(),
     }
+    return cachedConfig
   } catch (err) {
     console.error('Error cargando configuración comercial:', err)
-    return getDefaultConfig()
+    cachedConfig = getDefaultConfig()
+    return cachedConfig
   }
 }
 
-// Guardar configuración y emitir evento
+function notifyUpdate() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(EVENT_NAME))
+  }
+}
+
 export function saveCommercialConfig(config: StoredCommercialConfig): void {
+  cachedConfig = config
   if (typeof window === 'undefined') return
   try {
     config.lastModified = new Date().toISOString()
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
-    window.dispatchEvent(new Event(EVENT_NAME))
+    notifyUpdate()
   } catch (err) {
-    console.error('Error guardando configuración comercial:', err)
+    console.error('Error guardando configuración comercial en almacenamiento local:', err)
+  }
+}
+
+// Registrar auditoría administrativa en Firestore
+async function logPlatformAudit(action: string, resource: string, metadata?: Record<string, unknown>) {
+  try {
+    const ctx = await getFirebaseContext()
+    const user = ctx?.auth.currentUser
+    if (ctx && user) {
+      await addDoc(collection(ctx.db, 'platformAuditLogs'), {
+        operatorUid: user.uid,
+        action,
+        resource,
+        metadata: metadata || null,
+        createdAt: serverTimestamp(),
+      })
+    }
+  } catch (err) {
+    console.warn('Auditoría platform no registrada en este entorno:', err)
+  }
+}
+
+// Sincronización transparente con Firestore
+let isSyncingWithFirestore = false
+
+export async function syncFromFirestore(): Promise<void> {
+  if (isSyncingWithFirestore || typeof window === 'undefined') return
+  isSyncingWithFirestore = true
+
+  try {
+    const ctx = await getFirebaseContext()
+    if (!ctx) return
+
+    const [landingSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap] = await Promise.allSettled([
+      getDoc(doc(ctx.db, 'platformConfig', 'publicLanding')),
+      getDocs(collection(ctx.db, 'platformTemplates')),
+      getDocs(collection(ctx.db, 'platformPlans')),
+      getDocs(collection(ctx.db, 'platformExtras')),
+      getDocs(collection(ctx.db, 'platformMedia')),
+    ])
+
+    const current = loadCommercialConfig()
+    let changed = false
+
+    if (landingSnap.status === 'fulfilled' && landingSnap.value.exists()) {
+      const data = landingSnap.value.data() as Partial<LandingContentConfig>
+      current.landingContent = { ...current.landingContent, ...data }
+      changed = true
+    }
+
+    if (templatesSnap.status === 'fulfilled' && !templatesSnap.value.empty) {
+      current.templates = templatesSnap.value.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem,
+      )
+      changed = true
+    }
+
+    if (plansSnap.status === 'fulfilled' && !plansSnap.value.empty) {
+      current.plans = plansSnap.value.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan,
+      )
+      changed = true
+    }
+
+    if (extrasSnap.status === 'fulfilled' && !extrasSnap.value.empty) {
+      current.extras = extrasSnap.value.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as CommercialExtraService,
+      )
+      changed = true
+    }
+
+    if (mediaSnap.status === 'fulfilled' && !mediaSnap.value.empty) {
+      current.mediaAssets = mediaSnap.value.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as MediaAssetItem,
+      )
+      changed = true
+    }
+
+    if (changed) {
+      saveCommercialConfig(current)
+    }
+  } catch (err) {
+    console.warn('Sincronización Firestore pendiente o sin red:', err)
+  } finally {
+    isSyncingWithFirestore = false
+  }
+}
+
+// Sembrar valores por defecto en Firestore si están vacíos
+export async function seedDefaultsToFirestore(): Promise<{ success: boolean; message: string }> {
+  try {
+    const ctx = await getFirebaseContext()
+    if (!ctx) return { success: false, message: 'Firebase no configurado.' }
+
+    const defaults = getDefaultConfig()
+    const now = new Date().toISOString()
+    const userUid = ctx.auth.currentUser?.uid || 'system_bootstrap'
+
+    // 1. Landing
+    await setDoc(
+      doc(ctx.db, 'platformConfig', 'publicLanding'),
+      {
+        ...defaults.landingContent,
+        status: 'published',
+        publishedAt: now,
+        publishedBy: userUid,
+        updatedAt: now,
+      },
+      { merge: true },
+    )
+
+    // 2. Templates
+    for (const item of defaults.templates) {
+      await setDoc(doc(ctx.db, 'platformTemplates', item.id), {
+        ...item,
+        status: 'published',
+        publishedAt: now,
+        publishedBy: userUid,
+        updatedAt: now,
+      }, { merge: true })
+    }
+
+    // 3. Plans
+    for (const item of defaults.plans) {
+      await setDoc(doc(ctx.db, 'platformPlans', item.id), {
+        ...item,
+        status: 'published',
+        publishedAt: now,
+        publishedBy: userUid,
+        updatedAt: now,
+      }, { merge: true })
+    }
+
+    // 4. Extras
+    for (const item of defaults.extras) {
+      await setDoc(doc(ctx.db, 'platformExtras', item.id), {
+        ...item,
+        status: 'published',
+        publishedAt: now,
+        publishedBy: userUid,
+        updatedAt: now,
+      }, { merge: true })
+    }
+
+    // 5. Media
+    for (const item of defaults.mediaAssets) {
+      await setDoc(doc(ctx.db, 'platformMedia', item.id), {
+        ...item,
+        status: 'published',
+        publishedAt: now,
+        publishedBy: userUid,
+        updatedAt: now,
+      }, { merge: true })
+    }
+
+    await logPlatformAudit('platform.config.seed', 'platformConfig/publicLanding', { count: defaults.templates.length })
+    return { success: true, message: 'Configuraciones sembradas en Firestore correctamente.' }
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Error sembrando datos.' }
   }
 }
 
@@ -165,49 +349,186 @@ export function resetCommercialConfigToDefaults(): StoredCommercialConfig {
 }
 
 // Actualizadores individuales para el panel de administración
-export function updateTemplateInStore(id: string, updates: Partial<CommercialTemplateItem>): void {
+export async function updateTemplateInStore(id: string, updates: Partial<CommercialTemplateItem>): Promise<void> {
   const current = loadCommercialConfig()
   const idx = current.templates.findIndex((t) => t.id === id)
   if (idx >= 0) {
-    current.templates[idx] = { ...current.templates[idx], ...updates }
+    const updated = { ...current.templates[idx], ...updates }
+    current.templates[idx] = updated
     saveCommercialConfig(current)
+
+    // Persistencia asíncrona en Firestore
+    try {
+      const ctx = await getFirebaseContext()
+      if (ctx) {
+        const payload: Record<string, unknown> = {
+          ...updated,
+          updatedAt: new Date().toISOString(),
+          updatedBy: ctx.auth.currentUser?.uid || null,
+        }
+        if (updates.status === 'published') {
+          payload.publishedAt = new Date().toISOString()
+          payload.publishedBy = ctx.auth.currentUser?.uid || null
+        }
+        await setDoc(doc(ctx.db, 'platformTemplates', id), payload, { merge: true })
+        await logPlatformAudit('template.update', `platformTemplates/${id}`, { status: updates.status })
+      }
+    } catch (err) {
+      console.warn('Error persistiendo template en Firestore:', err)
+    }
   }
 }
 
-export function updatePlanInStore(id: string, updates: Partial<TemplateTierPlan>): void {
+export async function updatePlanInStore(id: string, updates: Partial<TemplateTierPlan>): Promise<void> {
   const current = loadCommercialConfig()
   const idx = current.plans.findIndex((p) => p.id === id)
   if (idx >= 0) {
-    current.plans[idx] = { ...current.plans[idx], ...updates }
+    const updated = { ...current.plans[idx], ...updates }
+    current.plans[idx] = updated
     saveCommercialConfig(current)
+
+    try {
+      const ctx = await getFirebaseContext()
+      if (ctx) {
+        const payload: Record<string, unknown> = {
+          ...updated,
+          updatedAt: new Date().toISOString(),
+          updatedBy: ctx.auth.currentUser?.uid || null,
+        }
+        if (updates.status === 'published') {
+          payload.publishedAt = new Date().toISOString()
+          payload.publishedBy = ctx.auth.currentUser?.uid || null
+        }
+        await setDoc(doc(ctx.db, 'platformPlans', id), payload, { merge: true })
+        await logPlatformAudit('plan.update', `platformPlans/${id}`, { status: updates.status })
+      }
+    } catch (err) {
+      console.warn('Error persistiendo plan en Firestore:', err)
+    }
   }
 }
 
-export function createPlanInStore(plan: TemplateTierPlan): void {
+export async function createPlanInStore(plan: TemplateTierPlan): Promise<void> {
   const current = loadCommercialConfig()
   current.plans.push(plan)
   saveCommercialConfig(current)
-}
 
-export function deletePlanInStore(id: string): void {
-  const current = loadCommercialConfig()
-  current.plans = current.plans.filter((p) => p.id !== id)
-  saveCommercialConfig(current)
-}
-
-export function updateExtraInStore(id: string, updates: Partial<CommercialExtraService>): void {
-  const current = loadCommercialConfig()
-  const idx = current.extras.findIndex((e) => e.id === id)
-  if (idx >= 0) {
-    current.extras[idx] = { ...current.extras[idx], ...updates }
-    saveCommercialConfig(current)
+  try {
+    const ctx = await getFirebaseContext()
+    if (ctx) {
+      const payload: Record<string, unknown> = {
+        ...plan,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        updatedBy: ctx.auth.currentUser?.uid || null,
+      }
+      if (plan.status === 'published') {
+        payload.publishedAt = new Date().toISOString()
+        payload.publishedBy = ctx.auth.currentUser?.uid || null
+      }
+      await setDoc(doc(ctx.db, 'platformPlans', plan.id), payload, { merge: true })
+      await logPlatformAudit('plan.create', `platformPlans/${plan.id}`)
+    }
+  } catch (err) {
+    console.warn('Error creando plan en Firestore:', err)
   }
 }
 
-export function updateLandingContentInStore(updates: Partial<LandingContentConfig>): void {
+export async function deletePlanInStore(id: string): Promise<void> {
+  const current = loadCommercialConfig()
+  current.plans = current.plans.filter((p) => p.id !== id)
+  saveCommercialConfig(current)
+
+  try {
+    const ctx = await getFirebaseContext()
+    if (ctx) {
+      await deleteDoc(doc(ctx.db, 'platformPlans', id))
+      await logPlatformAudit('plan.delete', `platformPlans/${id}`)
+    }
+  } catch (err) {
+    console.warn('Error eliminando plan en Firestore:', err)
+  }
+}
+
+export async function updateExtraInStore(id: string, updates: Partial<CommercialExtraService>): Promise<void> {
+  const current = loadCommercialConfig()
+  const idx = current.extras.findIndex((e) => e.id === id)
+  if (idx >= 0) {
+    const updated = { ...current.extras[idx], ...updates }
+    current.extras[idx] = updated
+    saveCommercialConfig(current)
+
+    try {
+      const ctx = await getFirebaseContext()
+      if (ctx) {
+        const payload: Record<string, unknown> = {
+          ...updated,
+          updatedAt: new Date().toISOString(),
+          updatedBy: ctx.auth.currentUser?.uid || null,
+        }
+        if (updates.status === 'published') {
+          payload.publishedAt = new Date().toISOString()
+          payload.publishedBy = ctx.auth.currentUser?.uid || null
+        }
+        await setDoc(doc(ctx.db, 'platformExtras', id), payload, { merge: true })
+        await logPlatformAudit('extra.update', `platformExtras/${id}`, { status: updates.status })
+      }
+    } catch (err) {
+      console.warn('Error persistiendo servicio extra en Firestore:', err)
+    }
+  }
+}
+
+export async function updateLandingContentInStore(updates: Partial<LandingContentConfig>): Promise<void> {
   const current = loadCommercialConfig()
   current.landingContent = { ...current.landingContent, ...updates }
   saveCommercialConfig(current)
+
+  try {
+    const ctx = await getFirebaseContext()
+    if (ctx) {
+      await setDoc(
+        doc(ctx.db, 'platformConfig', 'publicLanding'),
+        {
+          ...current.landingContent,
+          updatedAt: new Date().toISOString(),
+          updatedBy: ctx.auth.currentUser?.uid || null,
+        },
+        { merge: true },
+      )
+      await logPlatformAudit('landing.update', 'platformConfig/publicLanding')
+    }
+  } catch (err) {
+    console.warn('Error persistiendo contenido web en Firestore:', err)
+  }
+}
+
+export async function updateMediaAssetInStore(id: string, updates: Partial<MediaAssetItem>): Promise<void> {
+  const current = loadCommercialConfig()
+  const idx = current.mediaAssets.findIndex((m) => m.id === id)
+  if (idx >= 0) {
+    const updated = { ...current.mediaAssets[idx], ...updates }
+    current.mediaAssets[idx] = updated
+    saveCommercialConfig(current)
+
+    try {
+      const ctx = await getFirebaseContext()
+      if (ctx) {
+        await setDoc(
+          doc(ctx.db, 'platformMedia', id),
+          {
+            ...updated,
+            updatedAt: new Date().toISOString(),
+            updatedBy: ctx.auth.currentUser?.uid || null,
+          },
+          { merge: true },
+        )
+        await logPlatformAudit('media.update', `platformMedia/${id}`)
+      }
+    } catch (err) {
+      console.warn('Error persistiendo media asset en Firestore:', err)
+    }
+  }
 }
 
 // Hook reactivo consumido por la Landing Pública y por Admin
@@ -215,6 +536,9 @@ export function useCommercialConfig() {
   const [config, setConfig] = useState<StoredCommercialConfig>(() => loadCommercialConfig())
 
   useEffect(() => {
+    // Sincronizar en segundo plano si Firestore está disponible
+    syncFromFirestore().catch(() => undefined)
+
     const handleUpdate = () => {
       setConfig(loadCommercialConfig())
     }
@@ -245,6 +569,8 @@ export function useCommercialConfig() {
     deletePlan: deletePlanInStore,
     updateExtra: updateExtraInStore,
     updateLandingContent: updateLandingContentInStore,
+    updateMediaAsset: updateMediaAssetInStore,
     resetToDefaults: resetCommercialConfigToDefaults,
+    seedDefaultsToFirestore,
   }
 }

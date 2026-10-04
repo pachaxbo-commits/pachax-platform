@@ -546,13 +546,14 @@ async function run() {
       const submitBtn = document.querySelector('[data-admin-login-submit]');
 
       if (emailInput && pwdInput && submitBtn) {
-        // Usar native value setter para que React detecte el cambio de valor
+        const emailVal = window.__TEST_ADMIN_EMAIL || 'admin@example.test';
+        const pwdVal = window.__TEST_ADMIN_PASS || 'Emulator123!';
         const nativeEmailSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        nativeEmailSetter.call(emailInput, 'admin@pachax.com');
+        nativeEmailSetter.call(emailInput, emailVal);
         emailInput.dispatchEvent(new Event('input', { bubbles: true }));
 
         const nativePwdSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        nativePwdSetter.call(pwdInput, 'PachaxAdmin2026!');
+        nativePwdSetter.call(pwdInput, pwdVal);
         pwdInput.dispatchEvent(new Event('input', { bubbles: true }));
 
         // Enviar formulario

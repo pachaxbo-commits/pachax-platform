@@ -1,5 +1,13 @@
 import { useState, useEffect } from 'react'
 import type { PlatformRole } from '../../core/platform'
+import {
+  getFirebaseContext,
+  signInWithEmail,
+  signOutUser,
+  subscribeToAuthChanges,
+} from '../../lib/firebase'
+import { gateway } from '../../services/gateway'
+import type { User } from 'firebase/auth'
 
 export interface AdminUser {
   uid: string
@@ -11,38 +19,17 @@ export interface AdminUser {
 
 export type AdminAuthStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'denied'
 
-interface AdminAuthState {
+export interface AdminAuthState {
   status: AdminAuthStatus
   user: AdminUser | null
   error: string | null
 }
 
-const SESSION_KEY = 'pachax_platform_admin_session'
 const EVENT_KEY = 'pachax:admin-auth-changed'
 
-// Credenciales de control protegidas para el primer administrador de plataforma
-// Únicamente accesibles desde el entorno seguro /admin/login, jamás expuestas en la web pública
-const SEED_ADMIN_EMAIL = 'admin@pachax.com'
-const SEED_ADMIN_PASS = 'PachaxAdmin2026!'
-
-function getStoredSession(): AdminUser | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as AdminUser
-    if (parsed && (parsed.role === 'platform_owner' || parsed.role === 'platform_admin')) {
-      return parsed
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
 let currentState: AdminAuthState = {
-  status: typeof window !== 'undefined' && getStoredSession() ? 'authenticated' : 'unauthenticated',
-  user: typeof window !== 'undefined' ? getStoredSession() : null,
+  status: 'checking',
+  user: null,
   error: null,
 }
 
@@ -55,100 +42,165 @@ function notify() {
   }
 }
 
+let initialized = false
+
+async function verifyOperator(firebaseUser: User | null): Promise<void> {
+  if (!firebaseUser) {
+    currentState = {
+      status: 'unauthenticated',
+      user: null,
+      error: null,
+    }
+    notify()
+    return
+  }
+
+  currentState = { ...currentState, status: 'checking', error: null }
+  notify()
+
+  try {
+    // 1. Obtener token con claims actualizados desde Firebase Auth
+    const idTokenResult = await firebaseUser.getIdTokenResult(true)
+    const isPlatformClaim = idTokenResult.claims.platform === true
+    const tokenRole = idTokenResult.claims.platformRole as PlatformRole | undefined
+
+    if (!isPlatformClaim) {
+      currentState = {
+        status: 'denied',
+        user: null,
+        error: 'Acceso denegado: esta cuenta no posee rol autorizado de Platform Operator.',
+      }
+      notify()
+      return
+    }
+
+    // 2. Validación en backend contra platformGateway
+    try {
+      const validation = await gateway<{ uid: string; role: PlatformRole; permissions: string[] }>(
+        'platformGateway',
+        { action: 'validateOperator' },
+      )
+      const role = validation.role || tokenRole || 'platform_admin'
+      currentState = {
+        status: 'authenticated',
+        user: {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Platform Operator',
+          role,
+        },
+        error: null,
+      }
+      notify()
+    } catch (gateErr: any) {
+      if (gateErr?.message?.includes('denied') || gateErr?.code === 'functions/permission-denied') {
+        currentState = {
+          status: 'denied',
+          user: null,
+          error: 'Acceso denegado: operador no activo en la plataforma.',
+        }
+        notify()
+        return
+      }
+      if (tokenRole) {
+        currentState = {
+          status: 'authenticated',
+          user: {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            displayName: firebaseUser.displayName || 'Platform Operator',
+            role: tokenRole,
+          },
+          error: null,
+        }
+        notify()
+        return
+      }
+      currentState = {
+        status: 'denied',
+        user: null,
+        error: 'No se pudo verificar la autorización administrativa.',
+      }
+      notify()
+    }
+  } catch (err: any) {
+    currentState = {
+      status: 'denied',
+      user: null,
+      error: err?.message || 'Error verificando autorización.',
+    }
+    notify()
+  }
+}
+
+function initAuthListener() {
+  if (initialized || typeof window === 'undefined') return
+  initialized = true
+
+  subscribeToAuthChanges((firebaseUser) => {
+    verifyOperator(firebaseUser)
+  }).catch((err) => {
+    console.error('Error suscribiendo a cambios de autenticación:', err)
+    currentState = { status: 'unauthenticated', user: null, error: null }
+    notify()
+  })
+}
+
 export const adminAuth = {
   getState(): AdminAuthState {
+    initAuthListener()
     return { ...currentState }
   },
 
   async checkAuth(): Promise<AdminAuthState> {
-    const session = getStoredSession()
-    if (session) {
-      currentState = {
-        status: 'authenticated',
-        user: session,
-        error: null,
-      }
-    } else {
-      currentState = {
-        status: 'unauthenticated',
-        user: null,
-        error: null,
-      }
-    }
-    notify()
+    initAuthListener()
+    const context = await getFirebaseContext()
+    const currentUser = context?.auth.currentUser || null
+    await verifyOperator(currentUser)
     return { ...currentState }
   },
 
   async login(email: string, pass: string): Promise<{ success: boolean; error?: string }> {
+    initAuthListener()
     currentState = { ...currentState, status: 'checking', error: null }
     notify()
 
-    // 1. Verificación contra Firebase Auth si estuviese inicializado
     try {
-      const fb = (window as any).__firebaseAuth
-      if (fb && typeof fb.signInWithEmailAndPassword === 'function') {
-        const cred = await fb.signInWithEmailAndPassword(email, pass)
-        const idTokenResult = await cred.user.getIdTokenResult?.()
-        const isPlatform = idTokenResult?.claims?.platform === true
-        const platformRole = idTokenResult?.claims?.platformRole as PlatformRole | undefined
+      const userCred = await signInWithEmail(email.trim(), pass)
+      await verifyOperator(userCred.user)
 
-        if (!isPlatform && platformRole !== 'platform_owner' && platformRole !== 'platform_admin') {
-          currentState = {
-            status: 'denied',
-            user: null,
-            error: 'Acceso denegado: esta cuenta no posee rol autorizado de Platform Operator.',
-          }
-          notify()
-          return { success: false, error: currentState.error || '' }
-        }
-
-        const adminUser: AdminUser = {
-          uid: cred.user.uid,
-          email: cred.user.email || email,
-          displayName: cred.user.displayName || 'Platform Administrator',
-          role: platformRole || 'platform_admin',
-        }
-
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify(adminUser))
-        currentState = { status: 'authenticated', user: adminUser, error: null }
-        notify()
+      if (currentState.status === 'authenticated') {
         return { success: true }
+      } else {
+        return {
+          success: false,
+          error: currentState.error || 'Acceso denegado: cuenta sin privilegios de Platform Operator.',
+        }
       }
     } catch (err: any) {
-      // Si Firebase falla o no está disponible, continuar con validación de operador seguro
-      console.warn('Firebase Auth falló o no disponible en modo actual:', err?.message)
-    }
-
-    // 2. Validación de credencial de inicialización administrativa (Seed Administrator)
-    if (email.trim().toLowerCase() === SEED_ADMIN_EMAIL.toLowerCase() && pass === SEED_ADMIN_PASS) {
-      const adminUser: AdminUser = {
-        uid: 'platform_owner_seed',
-        email: SEED_ADMIN_EMAIL,
-        displayName: 'Darío (Platform Owner)',
-        role: 'platform_owner',
+      let message = 'Error de autenticación.'
+      if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/wrong-password' || err?.code === 'auth/user-not-found') {
+        message = 'Credenciales incorrectas.'
+      } else if (err?.code === 'auth/too-many-requests') {
+        message = 'Demasiados intentos fallidos. Intenta más tarde.'
+      } else if (err?.message) {
+        message = err.message
       }
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(adminUser))
-      currentState = { status: 'authenticated', user: adminUser, error: null }
+      currentState = {
+        status: 'unauthenticated',
+        user: null,
+        error: message,
+      }
       notify()
-      return { success: true }
-    }
-
-    // 3. Si no coincide con un operador de plataforma válido
-    currentState = {
-      status: 'denied',
-      user: null,
-      error: 'Credenciales inválidas o el usuario no cuenta con privilegios de Platform Admin.',
-    }
-    notify()
-    return {
-      success: false,
-      error: 'Credenciales incorrectas o usuario sin autorización administrativa.',
+      return { success: false, error: message }
     }
   },
 
   async logout(): Promise<void> {
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem(SESSION_KEY)
+    try {
+      await signOutUser()
+    } catch (err) {
+      console.warn('Error al cerrar sesión:', err)
     }
     currentState = {
       status: 'unauthenticated',
@@ -163,6 +215,7 @@ export function useAdminAuth() {
   const [state, setState] = useState<AdminAuthState>(() => adminAuth.getState())
 
   useEffect(() => {
+    initAuthListener()
     const handleUpdate = () => {
       setState(adminAuth.getState())
     }

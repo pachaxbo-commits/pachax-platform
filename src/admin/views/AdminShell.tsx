@@ -27,6 +27,7 @@ import { LandingContentSection } from './sections/LandingContentSection'
 import { MediaSection } from './sections/MediaSection'
 import { ClientsSection } from './sections/ClientsSection'
 import { StudioAdminSection } from './sections/StudioAdminSection'
+import { AdministratorsSection } from './sections/AdministratorsSection'
 import { AdminLoginView } from './AdminLoginView'
 
 type AdminTab =
@@ -38,6 +39,7 @@ type AdminTab =
   | 'media'
   | 'clients'
   | 'studio'
+  | 'administrators'
 
 export function AdminShell() {
   const { user, isAuthenticated, logout, status } = useAdminAuth()
@@ -100,6 +102,9 @@ export function AdminShell() {
     { id: 'media', label: 'Biblioteca de media', icon: Image },
     { id: 'clients', label: 'Clientes / Tenants', icon: Users },
     { id: 'studio', label: 'PACHAX Studio', icon: MonitorPlay },
+    ...(user.role === 'platform_owner'
+      ? [{ id: 'administrators' as AdminTab, label: 'Administradores', icon: Shield }]
+      : []),
   ]
 
   const handleLogout = async () => {
@@ -226,6 +231,7 @@ export function AdminShell() {
           {activeTab === 'media' && <MediaSection />}
           {activeTab === 'clients' && <ClientsSection />}
           {activeTab === 'studio' && <StudioAdminSection />}
+          {activeTab === 'administrators' && <AdministratorsSection />}
         </div>
       </main>
     </div>

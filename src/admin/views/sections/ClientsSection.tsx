@@ -1,85 +1,123 @@
-import { useState } from 'react'
-import { Search, Clock } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Search, Clock, RefreshCw, AlertCircle, Building2 } from 'lucide-react'
+import { gateway } from '../../../services/gateway'
+import { getFirebaseContext } from '../../../lib/firebase'
+import { collection, getDocs, limit, query } from 'firebase/firestore'
 
-interface TenantRecord {
-  id: string
-  companyName: string
-  businessType: 'restaurant' | 'distribution' | 'nightclub' | 'retail'
-  businessLabel: string
-  planName: string
-  status: 'active' | 'trial' | 'suspended'
-  createdAt: string
-  contactEmail: string
-  contactPhone: string
-  ownerUid: string
-  branchCount: number
+export interface RealTenantRecord {
+  tenantId: string
+  name: string
+  businessType: string
+  status: string
+  subscriptionStatus?: string | null
+  planKey?: string | null
+  userCount?: number | null
+  branchCount?: number | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  contactEmail?: string | null
+  ownerUid?: string | null
 }
 
-const SYSTEM_TENANTS: TenantRecord[] = [
-  {
-    id: 'tenant_don_cangrejo',
-    companyName: 'Don Cangrejo Grill & Bar',
-    businessType: 'restaurant',
-    businessLabel: 'Restaurante',
-    planName: 'Restaurante Pro',
-    status: 'active',
-    createdAt: '2026-08-14',
-    contactEmail: 'admin@doncangrejo.bo',
-    contactPhone: '+591 70012345',
-    ownerUid: 'usr_cangrejo_owner',
-    branchCount: 1,
-  },
-  {
-    id: 'tenant_dist_sanjuan',
-    companyName: 'Distribuidora San Juan Mayorista',
-    businessType: 'distribution',
-    businessLabel: 'Distribuidora',
-    planName: 'Distribución Pro',
-    status: 'active',
-    createdAt: '2026-08-28',
-    contactEmail: 'logistica@distribuidorasanjuan.com',
-    contactPhone: '+591 71234567',
-    ownerUid: 'usr_sanjuan_owner',
-    branchCount: 2,
-  },
-  {
-    id: 'tenant_club_elite',
-    companyName: 'Club Élite Lounge & VIP',
-    businessType: 'nightclub',
-    businessLabel: 'Nightclub & Lounge',
-    planName: 'Lounge & VIP Pro',
-    status: 'trial',
-    createdAt: '2026-09-12',
-    contactEmail: 'gerencia@clubelitelounge.bo',
-    contactPhone: '+591 77889900',
-    ownerUid: 'usr_elite_owner',
-    branchCount: 1,
-  },
-  {
-    id: 'tenant_gelato_express',
-    companyName: 'Gelatería & Café Express',
-    businessType: 'retail',
-    businessLabel: 'Ventas Express',
-    planName: 'Comercio Balanza',
-    status: 'trial',
-    createdAt: '2026-09-29',
-    contactEmail: 'contacto@gelatoexpress.com',
-    contactPhone: '+591 76543210',
-    ownerUid: 'usr_gelato_owner',
-    branchCount: 1,
-  },
-]
-
 export function ClientsSection() {
+  const [tenants, setTenants] = useState<RealTenantRecord[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'restaurant' | 'distribution' | 'nightclub' | 'retail'>('all')
+  const [selectedFilter, setSelectedFilter] = useState<string>('all')
 
-  const filteredTenants = SYSTEM_TENANTS.filter((t) => {
+  const fetchTenants = async () => {
+    setIsLoading(true)
+    setLoadError(null)
+
+    try {
+      // 1. Intentar mediante la función canónica platformGateway
+      const result = await gateway<{ tenants: RealTenantRecord[] }>('platformGateway', {
+        action: 'listTenants',
+        limit: 50,
+      })
+      if (result && Array.isArray(result.tenants)) {
+        setTenants(result.tenants)
+        setIsLoading(false)
+        return
+      }
+    } catch (err: any) {
+      console.warn('Fallo consulta platformGateway para listTenants, probando Firestore directo:', err?.message)
+    }
+
+    try {
+      // 2. Consulta directa a Firestore como fallback
+      const ctx = await getFirebaseContext()
+      if (ctx) {
+        const q = query(collection(ctx.db, 'tenants'), limit(50))
+        const snap = await getDocs(q)
+        const loaded: RealTenantRecord[] = snap.docs.map((docSnap) => {
+          const d = docSnap.data()
+          return {
+            tenantId: docSnap.id,
+            name: d.name || 'Sin nombre',
+            businessType: d.businessType || 'No disponible',
+            status: d.status || 'active',
+            subscriptionStatus: d.subscriptionStatus ?? null,
+            planKey: d.planKey ?? null,
+            userCount: d.userCount ?? null,
+            branchCount: d.branchCount ?? null,
+            createdAt: d.createdAt ? (typeof d.createdAt === 'string' ? d.createdAt : d.createdAt?.toDate?.()?.toISOString() || null) : null,
+            updatedAt: d.updatedAt ? (typeof d.updatedAt === 'string' ? d.updatedAt : d.updatedAt?.toDate?.()?.toISOString() || null) : null,
+            contactEmail: d.contactEmail ?? null,
+            ownerUid: d.ownerUid ?? null,
+          }
+        })
+        setTenants(loaded)
+      } else {
+        setLoadError('Firebase no disponible para consultar empresas registradas.')
+      }
+    } catch (err: any) {
+      setLoadError(err?.message || 'Error cargando empresas registradas.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchTenants()
+  }, [])
+
+  const formatBusinessType = (type: string) => {
+    switch (type) {
+      case 'restaurant_pos':
+      case 'restaurant':
+        return 'Restaurante'
+      case 'route_distribution':
+      case 'distribution':
+        return 'Distribuidora'
+      case 'nightclub_lounge':
+      case 'nightclub':
+        return 'Nightclub & Lounge'
+      case 'gelateria_weight_cafe':
+      case 'retail':
+        return 'Ventas Express / Balanza'
+      default:
+        return type || 'No disponible'
+    }
+  }
+
+  const filteredTenants = tenants.filter((t) => {
+    const term = searchTerm.toLowerCase().trim()
     const matchesSearch =
-      t.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.contactEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.id.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesType = selectedFilter === 'all' || t.businessType === selectedFilter
+      !term ||
+      t.name.toLowerCase().includes(term) ||
+      t.tenantId.toLowerCase().includes(term) ||
+      (t.contactEmail && t.contactEmail.toLowerCase().includes(term))
+
+    const matchesType =
+      selectedFilter === 'all' ||
+      t.businessType === selectedFilter ||
+      (selectedFilter === 'restaurant' && (t.businessType === 'restaurant_pos' || t.businessType === 'restaurant')) ||
+      (selectedFilter === 'distribution' && (t.businessType === 'route_distribution' || t.businessType === 'distribution')) ||
+      (selectedFilter === 'nightclub' && (t.businessType === 'nightclub_lounge' || t.businessType === 'nightclub')) ||
+      (selectedFilter === 'retail' && (t.businessType === 'gelateria_weight_cafe' || t.businessType === 'retail'))
+
     return matchesSearch && matchesType
   })
 
@@ -96,11 +134,29 @@ export function ClientsSection() {
           </p>
         </div>
 
-        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-2">
-          <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>Pasarela de pagos en línea: Pendiente de integración. Facturación manual activa.</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fetchTenants}
+            disabled={isLoading}
+            className="px-3 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Actualizar</span>
+          </button>
+          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Facturación: Sin integración de pasarela. Manual activa.</span>
+          </div>
         </div>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* Barra de Filtros y Búsqueda */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
@@ -110,7 +166,7 @@ export function ClientsSection() {
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por nombre, correo o ID de tenant..."
+            placeholder="Buscar por nombre o ID de empresa..."
             className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0066FF]"
           />
         </div>
@@ -125,7 +181,7 @@ export function ClientsSection() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Todos ({SYSTEM_TENANTS.length})
+            Todos ({tenants.length})
           </button>
           <button
             type="button"
@@ -165,58 +221,81 @@ export function ClientsSection() {
 
       {/* Tabla de Tenants */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                <th className="py-3 px-4">Empresa</th>
-                <th className="py-3 px-4">Rubro / Motor</th>
-                <th className="py-3 px-4">Plan Actual</th>
-                <th className="py-3 px-4">Estado</th>
-                <th className="py-3 px-4">Fecha de Alta</th>
-                <th className="py-3 px-4">Contacto</th>
-                <th className="py-3 px-4 text-right">Sucursales</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredTenants.map((tenant) => (
-                <tr key={tenant.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="py-3.5 px-4">
-                    <div className="font-bold text-slate-900">{tenant.companyName}</div>
-                    <div className="font-mono text-[10px] text-slate-400 mt-0.5">{tenant.id}</div>
-                  </td>
-                  <td className="py-3.5 px-4 font-semibold text-slate-800">
-                    {tenant.businessLabel}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className="font-semibold text-slate-900">{tenant.planName}</span>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                        tenant.status === 'active'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}
-                    >
-                      {tenant.status === 'active' ? 'Activo' : 'Prueba'}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600 font-mono">
-                    {tenant.createdAt}
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600">
-                    <div>{tenant.contactEmail}</div>
-                    <div className="text-[11px] text-slate-400 font-mono">{tenant.contactPhone}</div>
-                  </td>
-                  <td className="py-3.5 px-4 text-right font-bold text-slate-900">
-                    {tenant.branchCount}
-                  </td>
+        {isLoading ? (
+          <div className="p-12 text-center text-slate-500 text-xs">
+            <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#0066FF]" />
+            Cargando empresas registradas desde la base de datos...
+          </div>
+        ) : filteredTenants.length === 0 ? (
+          <div className="p-12 text-center text-slate-500 text-xs">
+            <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+            <p className="font-semibold text-slate-700">No se encontraron empresas registradas</p>
+            <p className="text-slate-400 mt-1">
+              {searchTerm ? 'Prueba con otro término de búsqueda.' : 'Las nuevas empresas dadas de alta mediante onboarding aparecerán aquí en tiempo real.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-4">Empresa</th>
+                  <th className="py-3 px-4">Rubro / Plantilla</th>
+                  <th className="py-3 px-4">Plan</th>
+                  <th className="py-3 px-4">Estado</th>
+                  <th className="py-3 px-4">Fecha de Alta</th>
+                  <th className="py-3 px-4">Membresías</th>
+                  <th className="py-3 px-4">Sucursales</th>
+                  <th className="py-3 px-4 text-right">Owner / Contacto</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredTenants.map((tenant) => (
+                  <tr key={tenant.tenantId} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3.5 px-4">
+                      <div className="font-bold text-slate-900">{tenant.name}</div>
+                      <div className="font-mono text-[10px] text-slate-400 mt-0.5">{tenant.tenantId}</div>
+                    </td>
+                    <td className="py-3.5 px-4 font-semibold text-slate-800">
+                      {formatBusinessType(tenant.businessType)}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="font-semibold text-slate-700">
+                        {tenant.planKey || 'No disponible'}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          tenant.status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}
+                      >
+                        {tenant.status === 'active' ? 'Activo' : tenant.status || 'No disponible'}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px]">
+                      {tenant.createdAt ? tenant.createdAt.slice(0, 10) : 'No disponible'}
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-700 font-mono text-center">
+                      {tenant.userCount != null ? tenant.userCount : 'No disponible'}
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-700 font-mono text-center">
+                      {tenant.branchCount != null ? tenant.branchCount : 'No disponible'}
+                    </td>
+                    <td className="py-3.5 px-4 text-right text-slate-600">
+                      <div>{tenant.contactEmail || 'No disponible'}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {tenant.ownerUid ? `UID: ${tenant.ownerUid.slice(0, 8)}...` : 'No disponible'}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

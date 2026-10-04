@@ -19,7 +19,8 @@ async function reserveFirstOwner(db, uid) {
   });
 }
 
-async function finalizeFirstOwner(db, uid) {
+async function finalizeFirstOwner(db, user) {
+  const uid = user.uid;
   await db.runTransaction(async tx => {
     const markerRef = db.doc(MARKER_PATH);
     const operatorRef = db.doc(`platformOperators/${uid}`);
@@ -33,6 +34,7 @@ async function finalizeFirstOwner(db, uid) {
     if (operator.exists && (operator.data().role !== 'platform_owner' || operator.data().active !== true)) throw new HttpsError('already-exists', 'El UID ya pertenece a otro operador Platform.');
     tx.set(operatorRef, {
       uid,
+      email: user.email || '',
       role: 'platform_owner',
       active: true,
       bootstrap: true,
@@ -47,7 +49,7 @@ async function finalizeFirstOwner(db, uid) {
       tenantId: null,
       reason: 'Creación administrativa del primer propietario Platform',
       resource: `platformOperators/${uid}`,
-      metadata: { bootstrap: true },
+      metadata: { bootstrap: true, email: user.email || null },
       createdAt: FieldValue.serverTimestamp(),
     });
   });
@@ -62,9 +64,9 @@ async function bootstrapFirstOwner(db, auth, uid) {
   const user = await auth.getUser(uid);
   await reserveFirstOwner(db, uid);
   const previousClaims = user.customClaims || {};
-  await auth.setCustomUserClaims(uid, { ...previousClaims, platform: true });
-  await finalizeFirstOwner(db, uid);
-  return { uid, role: 'platform_owner', active: true };
+  await auth.setCustomUserClaims(uid, { ...previousClaims, platform: true, platformRole: 'platform_owner' });
+  await finalizeFirstOwner(db, user);
+  return { uid, email: user.email || null, role: 'platform_owner', active: true };
 }
 
 module.exports = { MARKER_PATH, bootstrapFirstOwner };

@@ -3,10 +3,11 @@ const { FieldValue } = require('firebase-admin/firestore');
 const { authenticated, id } = require('./authorization.cjs');
 
 const ROLE_PERMISSIONS = Object.freeze({
-  platform_owner: ['tenants.read', 'tenants.configure', 'support.read', 'support.elevate', 'templates.preview', 'audit.read', 'finance.read'],
-  platform_admin: ['tenants.read', 'tenants.configure', 'support.read', 'templates.preview', 'audit.read'],
+  platform_owner: ['tenants.read', 'tenants.configure', 'support.read', 'support.elevate', 'templates.preview', 'audit.read', 'finance.read', 'content.manage', 'plans.manage', 'operators.manage'],
+  platform_admin: ['tenants.read', 'tenants.configure', 'support.read', 'templates.preview', 'audit.read', 'content.manage', 'plans.manage'],
   platform_support: ['tenants.read', 'support.read', 'templates.preview', 'audit.read'],
   platform_finance: ['tenants.read', 'finance.read'],
+  platform_content: ['templates.preview', 'content.manage', 'plans.manage'],
 });
 
 function permissionsFor(role) {
