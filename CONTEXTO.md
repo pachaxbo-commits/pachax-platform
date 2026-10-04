@@ -1,5 +1,51 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Fundación Administrativa Segura, Custom Claims y Persistencia Firestore (03/10/2026)
+
+- **Rama**: `feat/public-platform-admin-foundation`. `main` se mantuvo intacto (`8b4e832`) sin merges ni pushes. Commit vigente publicado en `origin/feat/public-platform-admin-foundation` (`a1050e7`).
+- **1. Eliminación Radical de Credenciales Hardcodeadas**:
+  - `SEED_ADMIN_EMAIL` y `SEED_ADMIN_PASS` (`PachaxAdmin2026!`) eliminados por completo de `adminAuthStore.ts`, del frontend y de los scripts.
+  - Búsqueda exhaustiva con `git grep` confirma cero contraseñas o tokens hardcodeados en frontend, scripts y bundle de producción (`dist/`).
+- **2. Autenticación y Autorización Real**:
+  - `/admin/login` autentica mediante Firebase Auth SDK oficial (`signInWithEmail`).
+  - Autorización administrativa validada mediante Custom Claims criptográficos (`platform: true`, `platformRole: 'platform_owner' | 'platform_admin' | 'platform_support' | 'platform_content' | 'platform_finance'`) combinados con documento protegido en `platformOperators/{uid}` validado server-side vía `platformGateway` (`action: 'validateOperator'`).
+  - La autoridad reside exclusivamente en Firebase Auth y backend; `sessionStorage` no confiere ningún privilegio.
+  - Guardia seguro en `/admin`: visitante no autenticado es redirigido a `/admin/login`; usuario autenticado sin claim de plataforma recibe pantalla explícita de "Acceso Denegado"; operador autorizado accede a la consola. No se cargan datos antes de verificar autorización.
+- **3. Bootstrap Seguro de Platform Owner**:
+  - `scripts/bootstrap-platform-owner.cjs` y `functions/platformBootstrap.cjs` actualizados con soporte para `--email` y `--uid`.
+  - Validación estricta que rechaza proyectos ajenos y exige confirmación explícita (`--confirm "BOOTSTRAP <projectId> <targetUid>"`).
+  - Asigna Custom Claims `{ platform: true, platformRole: 'platform_owner' }`, crea documento protegido `platformOperators/{uid}` y registra log en `platformAuditLogs`. No almacena contraseñas.
+- **4. Persistencia Central en Firestore y Draft vs. Published**:
+  - `commercialConfigStore.ts` conectado a Firestore para:
+    - `platformConfig/publicLanding`: Textos Hero, métricas, títulos de sección, WhatsApp oficial (`+591 77987776`).
+    - `platformTemplates/{templateId}`: Plantillas comerciales con orden, acento, bullets y estado.
+    - `platformPlans/{planId}`: Planes comerciales por plantilla con precios, límites y características.
+    - `platformExtras/{extraId}`: Servicios y módulos complementarios.
+    - `platformMedia/{assetId}`: Assets fotográficos oficiales y puntos focales.
+    - `platformAuditLogs`: Registro de auditoría de cada mutación administrativa con UID y rol del operador.
+  - Aislamiento estricto: la landing pública solo lee documentos con `status: 'published'`. El admin visualiza y edita tanto borradores (`draft`) como publicados, estampando metadatos de auditoría (`publishedAt`, `publishedBy`, `updatedAt`, `updatedBy`).
+  - Fallback elegante: si Firestore tarda o está en modo offline, se sirve la configuración por defecto de forma instantánea sin romper la experiencia pública.
+- **5. Firestore Security Rules**:
+  - `firebase/tenant-core.rules` y `firebase/firestore.rules` actualizados con funciones de verificación (`isPlatformOperator()`, `isPlatformOwner()`, `isPlatformAdminOrOwner()`, `isPlatformContentOrHigher()`).
+  - Público y clientes normales tienen lectura restringida a documentos con `status == 'published'` y prohibición total de escritura (`write: if false`).
+  - Operadores escriben de acuerdo a su rol administrativo específico.
+- **6. Gestión de Operadores (Nueva Pestaña Administradores)**:
+  - Nueva sección `Administradores` en `/admin` visible exclusivamente para `platform_owner`.
+  - Callable `platformGateway` ampliado con acciones `listOperators` y `manageOperator` para asignar roles o habilitar/deshabilitar operadores mediante Firebase Admin SDK server-side.
+- **7. Clientes y Dashboard con Datos Reales**:
+  - `ClientsSection.tsx`: Eliminado `SYSTEM_TENANTS` y datos ficticios. Ahora consume la colección real `tenants` desde `platformGateway` / Firestore, mostrando "No disponible" ante propiedades ausentes.
+  - `DashboardSection.tsx`: Métricas calculadas con datos reales de la base de datos (tenants totales, distribución por plantilla, plantillas activas, planes publicados, extras publicados).
+  - Facturación y MRR muestran de forma explícita y transparente: «Sin integración de facturación».
+- **8. Validación y Tests**:
+  - `npm run typecheck`: 0 errores.
+  - `tests/adminPlatformSecurity.test.ts`: Nueva suite con pruebas de control de acceso para visitante, cliente normal, soporte, contenido, admin y owner, y aislamiento draft/published.
+  - `npm run test:platform`: 36/36 tests aprobados.
+  - `npm run test:restaurant`: 43/43 tests aprobados.
+  - `npm run test:distribution`: 55/55 tests aprobados.
+  - `npm run build`: Compilación de producción exitosa en 4.7s.
+  - `dist/` inspeccionado: Cero secretos.
+  - Servidor local en `http://localhost:5190/` y `http://localhost:5190/admin` responde HTTP 200.
+
 ## Checkpoint: Cierre Landing Pública y Fundación Panel Administrativo Seguro (03/10/2026)
 
 - **Rama**: `feat/public-platform-admin-foundation`, creada a partir de `feat/public-platform-premium-v2`. `main` se mantuvo intacto sin merges ni pushes directos. Rama publicada en `origin/feat/public-platform-admin-foundation` (commit `5d9099e`).
