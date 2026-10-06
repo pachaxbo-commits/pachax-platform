@@ -11,14 +11,14 @@ import {
 } from '../../mocks/restaurantMock'
 import type { Order, Product } from '../../../types'
 
-// Curated high-resolution food images for full business demo
+// Bundled assets: available on Studio, demo and Vercel without a third-party image host.
 const FOOD_IMAGES: Record<string, string> = {
-  'prod-1': 'https://images.unsplash.com/photo-1544025162-d76694265947?w=500&auto=format&fit=crop&q=80', // Lomo fino
-  'prod-2': 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80', // Hamburguesa artesanal
-  'prod-3': 'https://images.unsplash.com/photo-1572695157366-5e585ab2b69f?w=500&auto=format&fit=crop&q=80', // Bruschetta
-  'prod-4': 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=500&auto=format&fit=crop&q=80', // Limonada
-  'prod-5': 'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=500&auto=format&fit=crop&q=80', // Vino tinto
-  'prod-6': 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=500&auto=format&fit=crop&q=80', // Tiramisú
+  'prod-1': '/images/restaurant/plate.svg',
+  'prod-2': '/images/restaurant/plate.svg',
+  'prod-3': '/images/restaurant/plate.svg',
+  'prod-4': '/images/restaurant/drink.svg',
+  'prod-5': '/images/restaurant/drink.svg',
+  'prod-6': '/images/restaurant/plate.svg',
 }
 
 /**
