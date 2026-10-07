@@ -14,7 +14,10 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
   const { navigate } = usePublicRouter()
   const { publishedTemplates, landingContent } = useCommercialConfig()
 
-  const activeTemplate = publishedTemplates[activeIndex] || publishedTemplates[0]
+  const visibleIndex = publishedTemplates.length > 0
+    ? ((activeIndex % publishedTemplates.length) + publishedTemplates.length) % publishedTemplates.length
+    : 0
+  const activeTemplate = publishedTemplates[visibleIndex]
 
   const handleExplore = () => {
     const el = document.getElementById('plantillas')
@@ -140,7 +143,7 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
           {/* Columna Derecha: Vitrina Coverflow 3D */}
           <div className="lg:col-span-7 w-full flex flex-col items-center">
             <TemplateCoverflow
-              activeIndex={activeIndex}
+              activeIndex={visibleIndex}
               onChangeActiveIndex={onChangeActiveIndex}
               onExploreAll={handleExplore}
               onSelectActiveCard={handleSelectActiveCard}

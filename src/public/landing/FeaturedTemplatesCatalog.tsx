@@ -90,6 +90,7 @@ export function FeaturedTemplatesCatalog() {
           {filteredTemplates.map((template) => (
             <div
               key={template.id}
+              data-template-id={template.id}
               className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between group"
             >
               {/* Contenedor Superior: Imagen y Contenido */}
