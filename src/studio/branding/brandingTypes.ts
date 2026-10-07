@@ -7,6 +7,7 @@ export interface StudioBranding {
   backgroundColor: string
   surfaceColor: string
   styleTheme: 'warm' | 'slate' | 'clean'
+  theme?: 'dark' | 'light'
 }
 
 export const DEFAULT_RESTAURANT_BRANDING: StudioBranding = {

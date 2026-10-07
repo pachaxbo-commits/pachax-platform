@@ -35,7 +35,34 @@ export function NightclubSettings({ data, fallbackName, fallbackLogo, onSaveBran
       <div className="mt-4 grid gap-4 md:grid-cols-2"><ImagePicker label="Logo" value={branding.logoDataUrl} onPick={file => void pickImage('logoDataUrl', file)} onClear={() => setBranding({ ...branding, logoDataUrl: undefined })} /><ImagePicker label="Portada de Inicio" value={branding.heroDataUrl} wide onPick={file => void pickImage('heroDataUrl', file)} onClear={() => setBranding({ ...branding, heroDataUrl: undefined })} /></div>
       <p className="mt-3 text-xs leading-5 text-slate-500">En la demo, las imágenes se guardan únicamente en este navegador. La conexión remota de branding continúa deshabilitada hasta disponer del repositorio tenant y Storage.</p>
     </Accordion>
-    <Accordion icon={Palette} title="Apariencia" description="Acentos y superficies de la experiencia">
+    <Accordion icon={Palette} title="Apariencia" description="Tema claro/oscuro, acentos y superficies">
+      <div className="mb-4">
+        <span className="block text-xs font-semibold text-slate-300 mb-2">Tema visual (Alto contraste para proyector)</span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setBranding({ ...branding, theme: 'dark' })}
+            className={`min-h-10 px-4 rounded-xl text-xs font-bold border transition cursor-pointer ${
+              branding.theme !== 'light'
+                ? 'bg-amber-400 text-slate-950 border-amber-400 shadow-xs'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500'
+            }`}
+          >
+            🌙 Oscuro
+          </button>
+          <button
+            type="button"
+            onClick={() => setBranding({ ...branding, theme: 'light' })}
+            className={`min-h-10 px-4 rounded-xl text-xs font-bold border transition cursor-pointer ${
+              branding.theme === 'light'
+                ? 'bg-amber-400 text-slate-950 border-amber-400 shadow-xs'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500'
+            }`}
+          >
+            ☀️ Claro
+          </button>
+        </div>
+      </div>
       <div className="grid gap-4 sm:grid-cols-3"><ColorField label="Dorado principal" value={branding.primaryColor} onChange={value => setBranding({ ...branding, primaryColor: value })} /><ColorField label="Estado positivo" value={branding.accentColor} onChange={value => setBranding({ ...branding, accentColor: value })} /><ColorField label="Superficie" value={branding.surfaceColor} onChange={value => setBranding({ ...branding, surfaceColor: value })} /></div>
     </Accordion>
     <Accordion icon={TableProperties} title="Zonas y mesas" description={`${data.zones.length} zonas · ${data.tables.length} mesas`}>

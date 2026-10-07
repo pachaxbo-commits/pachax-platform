@@ -53,8 +53,63 @@ export function NightclubExperience(props: Props) {
   const moreModules = visibleModules.filter(item => !mobileModules.some(primary => primary.id === item.id))
   const currentModule = nightclubCan(normalizedRole, activeModule) ? activeModule : visibleModules[0]?.id || 'floor'
   const savedBranding = data.branding || { businessName: companyName, subtitle: 'Club nocturno / Lounge', logoDataUrl: logoUrl, primaryColor: '#d8a84e', accentColor: '#35d0a0', surfaceColor: '#0d1720' }
-  const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor } : savedBranding
-  const shellStyle = { '--night-gold': branding.primaryColor, '--night-positive': branding.accentColor, '--night-surface': branding.surfaceColor, '--night-background': props.studioBranding?.backgroundColor || '#050c13', '--night-sidebar': props.studioBranding?.sidebarColor || '#07111a' } as CSSProperties
+  const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor, theme: props.studioBranding.theme || savedBranding.theme } : savedBranding
+
+  const [localTheme, setLocalTheme] = useState<'dark' | 'light' | null>(null)
+  const effectiveTheme: 'dark' | 'light' = props.studioBranding?.theme || localTheme || branding.theme || (typeof window !== 'undefined' ? (localStorage.getItem('pachax:nightclub-theme') as 'dark' | 'light') : null) || 'dark'
+  const isLight = effectiveTheme === 'light'
+
+  const handleThemeChange = (nextTheme: 'dark' | 'light') => {
+    setLocalTheme(nextTheme)
+    const nextBranding = { ...branding, theme: nextTheme }
+    if (props.onSaveBranding) {
+      try { props.onSaveBranding(nextBranding) } catch { /* Optional in sandbox */ }
+    }
+    try { localStorage.setItem('pachax:nightclub-theme', nextTheme) } catch { /* Optional in private browser */ }
+    if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+      window.parent.postMessage(
+        {
+          type: 'PACHAX_STUDIO_BRANDING',
+          templateId: 'nightclub',
+          branding: {
+            companyName: nextBranding.businessName,
+            logoUrl: nextBranding.logoDataUrl,
+            primaryColor: nextBranding.primaryColor,
+            accentColor: nextBranding.accentColor,
+            surfaceColor: nextBranding.surfaceColor,
+            theme: nextTheme,
+          },
+        },
+        window.location.origin
+      )
+    }
+  }
+
+  const shellStyle = (isLight ? {
+    '--night-gold': '#b45309',
+    '--night-positive': '#047857',
+    '--night-surface': '#ffffff',
+    '--night-surface-secondary': '#f8fafc',
+    '--night-background': '#f1f5f9',
+    '--night-sidebar': '#e2e8f0',
+    '--night-header': '#ffffff',
+    '--night-text': '#0f172a',
+    '--night-text-secondary': '#334155',
+    '--night-muted': '#475569',
+    '--night-border': '#cbd5e1',
+  } : {
+    '--night-gold': branding.primaryColor,
+    '--night-positive': branding.accentColor,
+    '--night-surface': branding.surfaceColor,
+    '--night-surface-secondary': '#121b20',
+    '--night-background': props.studioBranding?.backgroundColor || '#050c13',
+    '--night-sidebar': props.studioBranding?.sidebarColor || '#07111a',
+    '--night-header': '#07111a',
+    '--night-text': '#f8fafc',
+    '--night-text-secondary': '#94a3b8',
+    '--night-muted': '#64748b',
+    '--night-border': 'rgba(255, 255, 255, 0.1)',
+  }) as CSSProperties
   const go = (module: NightclubModule) => { setActiveModule(module); setMoreOpen(false) }
   useEffect(() => {
     if (currentModule !== 'bar') return
@@ -62,12 +117,47 @@ export function NightclubExperience(props: Props) {
     return () => cancelAnimationFrame(frame)
   }, [currentModule])
 
-  return <div className="nightclub-shell min-h-screen w-full bg-[#050c13] text-slate-100" style={shellStyle}>
+  return <div className={`nightclub-shell min-h-screen w-full ${isLight ? 'theme-light' : 'theme-dark'}`} data-theme={isLight ? 'light' : 'dark'} style={shellStyle}>
     <div className="flex min-h-screen w-full">
-      <aside className="sticky top-0 hidden h-screen w-[232px] shrink-0 flex-col border-r border-white/10 bg-[#07111a] lg:flex"><Brand branding={branding} /><nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">{visibleModules.map(item => <button key={item.id} onClick={() => go(item.id)} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition ${currentModule === item.id ? 'border border-amber-300/35 bg-amber-300/10 font-bold text-amber-100 shadow-[inset_0_0_24px_rgba(216,168,78,.06)]' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><item.icon size={17} strokeWidth={1.7} />{item.label}</button>)}</nav><div className="border-t border-white/10 p-4 text-[10px] uppercase tracking-widest text-slate-600">PACHAX · operación segura</div></aside>
-      <div className="min-w-0 flex-1"><header className="sticky top-0 z-30 flex min-h-16 items-center justify-between border-b border-white/10 bg-[#07111a]/95 px-4 backdrop-blur md:px-6"><div className="lg:hidden"><Brand branding={branding} compact /></div><div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-3 py-2 text-xs lg:flex"><span className={`h-2 w-2 rounded-full ${data.shift?.status === 'open' ? 'bg-emerald-400 shadow-[0_0_10px_#35d0a0]' : 'bg-slate-500'}`} /><span className="text-slate-400">Turno</span><strong>{data.shift?.status === 'open' ? 'activo' : 'cerrado'}</strong></div><div className="flex items-center gap-3 text-right"><button aria-label="Notificaciones" onClick={() => readyRounds.length && go('accounts')} className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-300"><Bell size={17} />{readyRounds.length > 0 && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-amber-300" />}</button><div className="hidden sm:block"><strong className="block text-xs">{userName}</strong><span className="text-[9px] uppercase tracking-wider text-slate-500">{roleLabels[normalizedRole]}</span></div>{onSignOut && <button onClick={() => void onSignOut()} aria-label="Cerrar sesión" className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-300"><LogOut size={16} /></button>}</div></header>
+      <aside className="sticky top-0 hidden h-screen w-[232px] shrink-0 flex-col border-r border-white/10 bg-[#07111a] lg:flex"><Brand branding={branding} isLight={isLight} /><nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">{visibleModules.map(item => <button key={item.id} onClick={() => go(item.id)} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition ${currentModule === item.id ? 'border border-amber-300/35 bg-amber-300/10 font-bold text-amber-100 shadow-[inset_0_0_24px_rgba(216,168,78,.06)]' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><item.icon size={17} strokeWidth={1.7} />{item.label}</button>)}</nav><div className="border-t border-white/10 p-4 text-[10px] uppercase tracking-widest text-slate-600">PACHAX · operación segura</div></aside>
+      <div className="min-w-0 flex-1"><header className="sticky top-0 z-30 flex min-h-16 items-center justify-between border-b border-white/10 bg-[#07111a]/95 px-4 backdrop-blur md:px-6">
+        <div className="lg:hidden"><Brand branding={branding} compact isLight={isLight} /></div>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-3 py-2 text-xs lg:flex"><span className={`h-2 w-2 rounded-full ${data.shift?.status === 'open' ? 'bg-emerald-400 shadow-[0_0_10px_#35d0a0]' : 'bg-slate-500'}`} /><span className="text-slate-400">Turno</span><strong>{data.shift?.status === 'open' ? 'activo' : 'cerrado'}</strong></div>
+          <div className="flex items-center gap-1 rounded-xl border border-slate-700/60 p-1 text-xs" style={{ borderColor: 'var(--night-border, rgba(255,255,255,0.15))' }}>
+            <button
+              type="button"
+              aria-label="Modo oscuro"
+              onClick={() => handleThemeChange('dark')}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 font-semibold transition cursor-pointer ${
+                !isLight
+                  ? 'bg-amber-400/20 text-amber-200 border border-amber-300/40 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Modo oscuro estándar"
+            >
+              <span>🌙</span>
+              <span className="hidden sm:inline">Oscuro</span>
+            </button>
+            <button
+              type="button"
+              aria-label="Modo claro"
+              onClick={() => handleThemeChange('light')}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 font-semibold transition cursor-pointer ${
+                isLight
+                  ? 'bg-amber-400 text-slate-950 font-bold shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Modo claro para proyector y luz ambiente"
+            >
+              <span>☀️</span>
+              <span className="hidden sm:inline">Claro</span>
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-right"><button aria-label="Notificaciones" onClick={() => readyRounds.length && go('accounts')} className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-300"><Bell size={17} />{readyRounds.length > 0 && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-amber-300" />}</button><div className="hidden sm:block"><strong className="block text-xs">{userName}</strong><span className="text-[9px] uppercase tracking-wider text-slate-500">{roleLabels[normalizedRole]}</span></div>{onSignOut && <button onClick={() => void onSignOut()} aria-label="Cerrar sesión" className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-slate-300"><LogOut size={16} /></button>}</div></header>
         <main className="min-w-0 p-4 pb-24 sm:p-6 lg:pb-6 xl:p-7">{notice && <button onClick={() => setNotice('')} role="status" className="mb-4 w-full rounded-xl border border-amber-300/25 bg-amber-300/10 p-3 text-left text-sm text-amber-100">{notice}</button>}{canDeliver && readyRounds.length > 0 && <button onClick={() => go('accounts')} className="mb-4 flex w-full items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 p-3 text-left text-sm font-bold text-emerald-100"><Bell size={16} />{readyRounds.length} pedido(s) listo(s) para recoger <ChevronRight className="ml-auto" size={16} /></button>}
-          {currentModule === 'dashboard' && <Dashboard data={data} activeAccounts={activeAccounts} barRounds={barRounds} sales={summary.totalSales} heroUrl={branding.heroDataUrl} onGo={go} />}
+          {currentModule === 'dashboard' && <Dashboard data={data} activeAccounts={activeAccounts} barRounds={barRounds} sales={summary.totalSales} heroUrl={branding.heroDataUrl} isLight={isLight} onGo={go} />}
           {currentModule === 'floor' && <NightclubZones data={data} onOpenAccount={tableId => { try { const id = props.onOpenAccount(tableId); setNotice('Cuenta abierta.'); return id } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo abrir la cuenta.'); return '' } }} onGoToPOS={id => { setSelectedAccountId(id); go('pos') }} onFinishAccount={id => run(() => props.onFinishAccount(id), 'Mesa libre.')} onDeliverRound={(id, roundId) => run(() => props.onDeliverRound(id, roundId), 'Pedido entregado.')} onSaveReservation={value => run(() => props.onSaveReservation(value), 'Reserva guardada.')} onCancelReservation={id => run(() => props.onCancelReservation(id), 'Reserva cancelada.')} onArriveReservation={id => { try { const accountId = props.onArriveReservation(id); setNotice('Llegada confirmada y cuenta abierta.'); return accountId } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo confirmar la llegada.'); return '' } }} onAssignCustomer={(accountId, customerId) => run(() => props.onAssignCustomer(accountId, customerId), 'Cliente asignado.')} canDeliver={canDeliver} />}
           {currentModule === 'pos' && <NightclubPOS data={data} draft={draft} selectedAccountId={selectedAccountId} onSelectAccount={setSelectedAccountId} onDraftChange={setDraft} onOpenAccount={(target: NightclubServiceTarget) => { try { const id = props.onOpenAccount(target); setNotice('Cuenta abierta.'); return id } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo abrir la cuenta.'); return '' } }} onSendRound={(id, items, operationId) => run(() => props.onSendRound(id, items, operationId), 'Ronda enviada; consumo cargado a cuenta e inventario actualizado.')} onCourtesy={setCourtesyAccountId} />}
           {currentModule === 'accounts' && <NightclubAccounts data={data} canDeliver={canDeliver} canRefund={canRefund} canPay={['owner', 'admin', 'cashier'].includes(normalizedRole)} onGoToPOS={account => { setSelectedAccountId(account.id); go('pos') }} onDeliverRound={(id, roundId) => run(() => props.onDeliverRound(id, roundId), 'Pedido entregado.')} onFinishAccount={id => run(() => props.onFinishAccount(id), 'Mesa libre.')} onRefundRound={(id, roundId, reason) => run(() => props.onRefundRound(id, roundId, reason), 'Pedido reembolsado.')} onRequestBill={id => run(() => props.onRequestBill(id), 'Cuenta solicitada a Caja.')} onReopenBill={id => run(() => props.onReopenBill(id), 'Cuenta reabierta.')} onRecordPayment={(id, payment) => run(() => props.onRecordPayment(id, payment), 'Pago registrado en Caja.')} />}
@@ -80,7 +170,7 @@ export function NightclubExperience(props: Props) {
           {currentModule === 'customers' && <NightclubCustomers data={data} companyName={branding.businessName} onSave={customer => run(() => props.onSaveCustomer(customer), 'Cliente guardado.')} />}
           {currentModule === 'users' && <div className="space-y-5"><Title title="Usuarios y roles" subtitle="Equipo del club vinculado a turnos y operaciones." /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{(data.staff || []).map(person => <article key={person.id} className="rounded-xl border border-white/10 bg-[#0d1720] p-4"><strong>{person.name}</strong><p className="text-sm text-slate-400">{person.role} · {person.active ? 'Activo' : 'Inactivo'}</p><button onClick={() => run(() => props.onSaveStaff({ ...person, active: !person.active }), 'Usuario actualizado.')} className="mt-2 text-xs text-amber-300">{person.active ? 'Desactivar' : 'Activar'}</button></article>)}</div><section className="rounded-xl border border-white/10 bg-[#0d1720] p-4"><h2 className="font-bold">Añadir usuario local</h2><div className="mt-2 flex flex-wrap gap-2"><input aria-label="Nombre del usuario" placeholder="Nombre" value={staffName} onChange={event => setStaffName(event.target.value)} className="rounded-xl p-3" /><select aria-label="Rol del usuario" value={staffRole} onChange={event => setStaffRole(event.target.value as typeof staffRole)} className="rounded-xl p-3"><option value="service">Servicio</option><option value="cashier">Caja</option><option value="bar">Barra</option><option value="inventory">Inventario</option><option value="admin">Admin</option></select><button onClick={() => run(() => { if (!staffName.trim()) throw new Error('Ingresa un nombre.'); props.onSaveStaff({ id: crypto.randomUUID(), name: staffName.trim(), role: staffRole, active: true }); setStaffName('') }, 'Usuario creado.')} className="rounded-xl bg-amber-300 px-4 font-bold text-[#07111a]">Crear</button></div></section></div>}
           {currentModule === 'reports' && <div className="space-y-4"><NightclubReports data={data} companyName={branding.businessName} /><NightclubCourtesyReport data={data} /></div>}
-          {currentModule === 'settings' && <NightclubSettings key={`${branding.businessName}:${branding.primaryColor}:${branding.accentColor}:${branding.surfaceColor}`} data={{ ...data, branding }} fallbackName={companyName} fallbackLogo={logoUrl} onSaveBranding={value => run(() => props.onSaveBranding(value), 'Identidad guardada.')} onSaveZone={value => run(() => props.onSaveZone(value), 'Zona guardada.')} onSaveTable={value => run(() => props.onSaveTable(value), 'Mesa guardada.')} onDeleteZone={id => run(() => props.onDeleteZone(id), 'Zona eliminada.')} onDeleteTable={id => run(() => props.onDeleteTable(id), 'Mesa eliminada.')} />}
+          {currentModule === 'settings' && <NightclubSettings key={`${branding.businessName}:${branding.primaryColor}:${branding.accentColor}:${branding.surfaceColor}:${branding.theme}`} data={{ ...data, branding }} fallbackName={companyName} fallbackLogo={logoUrl} onSaveBranding={value => { if (value.theme) handleThemeChange(value.theme); return run(() => props.onSaveBranding(value), 'Identidad guardada.') }} onSaveZone={value => run(() => props.onSaveZone(value), 'Zona guardada.')} onSaveTable={value => run(() => props.onSaveTable(value), 'Mesa guardada.')} onDeleteZone={id => run(() => props.onDeleteZone(id), 'Zona eliminada.')} onDeleteTable={id => run(() => props.onDeleteTable(id), 'Mesa eliminada.')} />}
         </main>
       </div>
     </div>
@@ -90,12 +180,18 @@ export function NightclubExperience(props: Props) {
   </div>
 }
 
-function Brand({ branding, compact = false }: { branding: NonNullable<Props['data']['branding']>; compact?: boolean }) { return <div className={`flex items-center gap-3 ${compact ? '' : 'min-h-[94px] border-b border-white/10 px-5'}`}>{branding.logoDataUrl ? <img src={branding.logoDataUrl} alt="" className="h-10 w-10 rounded-xl object-cover" /> : <span className="grid h-10 w-10 place-items-center rounded-xl border border-amber-300/25 bg-amber-300/10 text-amber-300"><Music2 size={19} /></span>}<div className="min-w-0"><strong className={`${compact ? 'text-sm' : 'font-serif text-xl'} block truncate font-medium text-white`}>{branding.businessName}</strong><span className="block truncate text-[10px] text-slate-500">{branding.subtitle}</span></div></div> }
+function Brand({ branding, compact = false, isLight = false }: { branding: NonNullable<Props['data']['branding']>; compact?: boolean; isLight?: boolean }) { return <div className={`flex items-center gap-3 ${compact ? '' : 'min-h-[94px] border-b border-white/10 px-5'}`}>{branding.logoDataUrl ? <img src={branding.logoDataUrl} alt="" className="h-10 w-10 rounded-xl object-cover" /> : <span className={`grid h-10 w-10 place-items-center rounded-xl border ${isLight ? 'border-amber-500/30 bg-amber-100 text-amber-700' : 'border-amber-300/25 bg-amber-300/10 text-amber-300'}`}><Music2 size={19} /></span>}<div className="min-w-0"><strong className={`${compact ? 'text-sm' : 'font-serif text-xl'} block truncate font-medium ${isLight ? 'text-slate-900' : 'text-white'}`}>{branding.businessName}</strong><span className={`block truncate text-[10px] ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>{branding.subtitle}</span></div></div> }
 
-function Dashboard({ data, activeAccounts, barRounds, sales, heroUrl, onGo }: { data: Props['data']; activeAccounts: Props['data']['accounts']; barRounds: Array<{ id: string; sequence: number; status: string; table?: { name: string } }>; sales: number; heroUrl?: string; onGo: (module: NightclubModule) => void }) {
+function Dashboard({ data, activeAccounts, barRounds, sales, heroUrl, isLight = false, onGo }: { data: Props['data']; activeAccounts: Props['data']['accounts']; barRounds: Array<{ id: string; sequence: number; status: string; table?: { name: string } }>; sales: number; heroUrl?: string; isLight?: boolean; onGo: (module: NightclubModule) => void }) {
   const occupied = data.tables.filter(table => !!table.activeAccountId).length
-  const heroStyle = heroUrl ? { backgroundImage: `linear-gradient(90deg, rgba(5,12,19,.96), rgba(5,12,19,.52)), url(${JSON.stringify(heroUrl).slice(1,-1)})` } : { backgroundImage: 'radial-gradient(circle at 72% 28%, rgba(216,168,78,.18), transparent 23%), linear-gradient(120deg, #07111a 10%, #101b24 58%, #07111a 100%)' }
-  return <div className="space-y-4"><section className="relative overflow-hidden rounded-2xl border border-white/10 bg-cover bg-center px-5 py-8 sm:px-7 sm:py-10" style={heroStyle}><div className="relative max-w-2xl"><p className="text-[10px] font-bold uppercase tracking-[.24em] text-amber-300">Control del turno</p><h1 className="mt-2 font-serif text-4xl leading-none text-white sm:text-5xl">Operación nocturna</h1><p className="mt-3 text-sm text-slate-300">Salón, rondas, inventario y caja en una sola operación.</p></div><div className="absolute right-5 top-5 hidden text-right sm:block"><span className="text-xs text-slate-400">{new Intl.DateTimeFormat('es-BO', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date())}</span><strong className="block font-serif text-2xl font-normal text-amber-300">{new Intl.DateTimeFormat('es-BO', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</strong></div></section><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={ReceiptText} label="Cuentas abiertas" value={String(activeAccounts.length)} /><Metric icon={LayoutGrid} label="Mesas ocupadas" value={`${occupied} / ${data.tables.length}`} /><Metric icon={GlassWater} label="Rondas en barra" value={String(barRounds.length)} /><Metric icon={BarChart3} label="Ventas del turno" value={money(sales)} /></div><div className="grid gap-4 xl:grid-cols-[1.2fr_.85fr]"><Panel title="Zonas del local" action="Ver zonas" onAction={() => onGo('floor')}><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{data.zones.map(zone => { const tables = data.tables.filter(table => table.zoneId === zone.id); const inUse = tables.filter(table => table.status !== 'available').length; return <button key={zone.id} onClick={() => onGo('floor')} className="rounded-xl border border-white/10 bg-[#07111a] p-3 text-left transition hover:border-amber-300/30"><div className="flex items-center justify-between"><strong className="text-sm">{zone.name}</strong><span className={`h-2 w-2 rounded-full ${inUse === tables.length && tables.length ? 'bg-amber-300' : 'bg-emerald-400'}`} /></div><span className="mt-2 block text-xs text-slate-500">{inUse}/{tables.length} en uso</span></button>})}</div></Panel><Panel title="Actividad en curso" action="Ver barra" onAction={() => onGo('bar')}><div className="space-y-2">{barRounds.slice(0, 4).map(round => <button key={round.id} onClick={() => onGo('bar')} className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-[#07111a] p-3 text-left"><span className="grid h-9 w-9 place-items-center rounded-lg bg-amber-300/10 text-amber-300"><GlassWater size={17} /></span><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{round.table?.name || 'Pedido en barra'} · Ronda #{round.sequence}</strong><span className="text-xs text-slate-500">{round.status === 'pending' ? 'Pendiente' : 'En preparación'}</span></span><span className="text-[10px] font-bold text-amber-300">EN CURSO</span></button>)}{!barRounds.length && <Empty text="No hay rondas pendientes." />}</div></Panel></div><Panel title="Resumen operativo" action="Ver reportes" onAction={() => onGo('reports')}><div className="grid gap-3 sm:grid-cols-3"><Summary label="Productos activos" value={String(data.products.filter(item => item.active !== false).length)} /><Summary label="Cuentas pendientes" value={String(activeAccounts.filter(item => item.subtotal > 0).length)} /><Summary label="Reservas confirmadas" value={String(data.reservations.filter(item => item.status === 'confirmed').length)} /></div></Panel></div>
+  const heroStyle = isLight
+    ? heroUrl
+      ? { backgroundImage: `linear-gradient(90deg, rgba(255,255,255,.96), rgba(255,255,255,.70)), url(${JSON.stringify(heroUrl).slice(1,-1)})`, border: '1px solid #cbd5e1' }
+      : { backgroundImage: 'radial-gradient(circle at 75% 25%, rgba(217,119,6,.14), transparent 30%), linear-gradient(120deg, #ffffff 10%, #f1f5f9 60%, #e2e8f0 100%)', border: '1px solid #cbd5e1' }
+    : heroUrl
+      ? { backgroundImage: `linear-gradient(90deg, rgba(5,12,19,.96), rgba(5,12,19,.52)), url(${JSON.stringify(heroUrl).slice(1,-1)})` }
+      : { backgroundImage: 'radial-gradient(circle at 72% 28%, rgba(216,168,78,.18), transparent 23%), linear-gradient(120deg, #07111a 10%, #101b24 58%, #07111a 100%)' }
+  return <div className="space-y-4"><section className="relative overflow-hidden rounded-2xl border border-white/10 bg-cover bg-center px-5 py-8 sm:px-7 sm:py-10" style={heroStyle}><div className="relative max-w-2xl"><p className={`text-[10px] font-bold uppercase tracking-[.24em] ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>Control del turno</p><h1 className={`mt-2 font-serif text-4xl leading-none ${isLight ? 'text-slate-900 font-semibold' : 'text-white'} sm:text-5xl`}>Operación nocturna</h1><p className={`mt-3 text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Salón, rondas, inventario y caja en una sola operación.</p></div><div className="absolute right-5 top-5 hidden text-right sm:block"><span className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>{new Intl.DateTimeFormat('es-BO', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date())}</span><strong className={`block font-serif text-2xl font-normal ${isLight ? 'text-amber-700 font-bold' : 'text-amber-300'}`}>{new Intl.DateTimeFormat('es-BO', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</strong></div></section><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={ReceiptText} label="Cuentas abiertas" value={String(activeAccounts.length)} /><Metric icon={LayoutGrid} label="Mesas ocupadas" value={`${occupied} / ${data.tables.length}`} /><Metric icon={GlassWater} label="Rondas en barra" value={String(barRounds.length)} /><Metric icon={BarChart3} label="Ventas del turno" value={money(sales)} /></div><div className="grid gap-4 xl:grid-cols-[1.2fr_.85fr]"><Panel title="Zonas del local" action="Ver zonas" onAction={() => onGo('floor')}><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{data.zones.map(zone => { const tables = data.tables.filter(table => table.zoneId === zone.id); const inUse = tables.filter(table => table.status !== 'available').length; return <button key={zone.id} onClick={() => onGo('floor')} className="rounded-xl border border-white/10 bg-[#07111a] p-3 text-left transition hover:border-amber-300/30"><div className="flex items-center justify-between"><strong className="text-sm">{zone.name}</strong><span className={`h-2 w-2 rounded-full ${inUse === tables.length && tables.length ? 'bg-amber-300' : 'bg-emerald-400'}`} /></div><span className="mt-2 block text-xs text-slate-500">{inUse}/{tables.length} en uso</span></button>})}</div></Panel><Panel title="Actividad en curso" action="Ver barra" onAction={() => onGo('bar')}><div className="space-y-2">{barRounds.slice(0, 4).map(round => <button key={round.id} onClick={() => onGo('bar')} className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-[#07111a] p-3 text-left"><span className="grid h-9 w-9 place-items-center rounded-lg bg-amber-300/10 text-amber-300"><GlassWater size={17} /></span><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{round.table?.name || 'Pedido en barra'} · Ronda #{round.sequence}</strong><span className="text-xs text-slate-500">{round.status === 'pending' ? 'Pendiente' : 'En preparación'}</span></span><span className="text-[10px] font-bold text-amber-300">EN CURSO</span></button>)}{!barRounds.length && <Empty text="No hay rondas pendientes." />}</div></Panel></div><Panel title="Resumen operativo" action="Ver reportes" onAction={() => onGo('reports')}><div className="grid gap-3 sm:grid-cols-3"><Summary label="Productos activos" value={String(data.products.filter(item => item.active !== false).length)} /><Summary label="Cuentas pendientes" value={String(activeAccounts.filter(item => item.subtotal > 0).length)} /><Summary label="Reservas confirmadas" value={String(data.reservations.filter(item => item.status === 'confirmed').length)} /></div></Panel></div>
 }
 
 function Title({ title, subtitle }: { title: string; subtitle: string }) { return <header><h1 className="text-2xl font-semibold sm:text-3xl">{title}</h1><p className="mt-1 text-sm text-slate-400">{subtitle}</p></header> }

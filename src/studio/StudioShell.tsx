@@ -233,6 +233,36 @@ export function StudioShell({
                 <span>Iniciar desde cero</span>
               </button>
             )}
+
+            {templateId === 'nightclub' && (
+              <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
+                <span className="text-[11px] font-bold text-slate-400 px-1.5 hidden md:inline">Tema:</span>
+                <button
+                  type="button"
+                  onClick={() => setBranding({ ...branding, theme: 'dark' })}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    branding.theme !== 'light'
+                      ? 'bg-amber-400/20 text-amber-200 border border-amber-300/40 shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                  title="Modo Oscuro estándar"
+                >
+                  Oscuro
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBranding({ ...branding, theme: 'light' })}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    branding.theme === 'light'
+                      ? 'bg-amber-400 text-slate-950 font-bold shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                  title="Modo Claro de Alto Contraste para proyector"
+                >
+                  Claro
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Lado Derecho: Viewports reales y Personalización */}

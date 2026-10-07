@@ -331,6 +331,8 @@ export function DemoRuntime({
             companyName={branding?.companyName}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
+            studioBranding={branding}
+            isStudio={isStudioEmbed}
           />
         )}
       </main>

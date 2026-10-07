@@ -189,6 +189,350 @@ button {
   background: #07111a;
 }
 
+/* =========================================================================
+   NIGHTCLUB LIGHT MODE (HIGH CONTRAST FOR PROJECTORS & SUNLIGHT)
+   ========================================================================= */
+.nightclub-shell[data-theme="light"],
+.nightclub-shell.theme-light {
+  color-scheme: light !important;
+  color: #0f172a !important;
+  background-color: var(--night-background, #f1f5f9) !important;
+}
+
+/* Sidebar, Header & Navigation */
+.nightclub-shell[data-theme="light"] > div > aside,
+.nightclub-shell.theme-light > div > aside,
+.nightclub-shell[data-theme="light"] aside,
+.nightclub-shell.theme-light aside {
+  background-color: var(--night-sidebar, #e2e8f0) !important;
+  border-color: #cbd5e1 !important;
+}
+
+.nightclub-shell[data-theme="light"] header.sticky,
+.nightclub-shell.theme-light header.sticky,
+.nightclub-shell[data-theme="light"] header,
+.nightclub-shell.theme-light header {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: #cbd5e1 !important;
+}
+
+.nightclub-shell[data-theme="light"] nav.fixed,
+.nightclub-shell.theme-light nav.fixed {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+.nightclub-shell[data-theme="light"] aside nav button,
+.nightclub-shell.theme-light aside nav button {
+  color: #334155 !important;
+}
+.nightclub-shell[data-theme="light"] aside nav button:hover,
+.nightclub-shell.theme-light aside nav button:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  color: #0f172a !important;
+}
+
+.nightclub-shell[data-theme="light"] nav.fixed button,
+.nightclub-shell.theme-light nav.fixed button {
+  color: #475569 !important;
+}
+.nightclub-shell[data-theme="light"] nav.fixed button.bg-amber-300,
+.nightclub-shell.theme-light nav.fixed button.bg-amber-300 {
+  background-color: #f59e0b !important;
+  color: #0f172a !important;
+}
+
+/* Surfaces / Cards / Panels */
+.nightclub-shell[data-theme="light"] [class*="bg-[#0d1720]"],
+.nightclub-shell.theme-light [class*="bg-[#0d1720]"],
+.nightclub-shell[data-theme="light"] [class*="bg-[#121b20]"],
+.nightclub-shell.theme-light [class*="bg-[#121b20]"],
+.nightclub-shell[data-theme="light"] [class*="bg-[#101d27]"],
+.nightclub-shell.theme-light [class*="bg-[#101d27]"],
+.nightclub-shell[data-theme="light"] [class*="bg-[#10191e]"],
+.nightclub-shell.theme-light [class*="bg-[#10191e]"],
+.nightclub-shell[data-theme="light"] [class*="bg-slate-900"],
+.nightclub-shell.theme-light [class*="bg-slate-900"] {
+  background-color: #ffffff !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="bg-[#0d1519]"],
+.nightclub-shell.theme-light [class*="bg-[#0d1519]"],
+.nightclub-shell[data-theme="light"] [class*="bg-[#07111a]"],
+.nightclub-shell.theme-light [class*="bg-[#07111a]"],
+.nightclub-shell[data-theme="light"] [class*="bg-slate-950"],
+.nightclub-shell.theme-light [class*="bg-slate-950"],
+.nightclub-shell[data-theme="light"] [class*="bg-white/"],
+.nightclub-shell.theme-light [class*="bg-white/"] {
+  background-color: #f8fafc !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="bg-slate-800"],
+.nightclub-shell.theme-light [class*="bg-slate-800"] {
+  background-color: #f1f5f9 !important;
+}
+
+/* Cash summary highlight card */
+.nightclub-shell[data-theme="light"] [class*="from-amber-950"],
+.nightclub-shell.theme-light [class*="from-amber-950"] {
+  background: linear-gradient(to right, #fef3c7, #fffbeb) !important;
+  border-color: #f59e0b !important;
+}
+
+/* Borders & Dividers */
+.nightclub-shell[data-theme="light"] [class*="border-white"],
+.nightclub-shell.theme-light [class*="border-white"],
+.nightclub-shell[data-theme="light"] [class*="border-slate"],
+.nightclub-shell.theme-light [class*="border-slate"] {
+  border-color: #cbd5e1 !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="divide-white"],
+.nightclub-shell.theme-light [class*="divide-white"],
+.nightclub-shell[data-theme="light"] [class*="divide-slate"],
+.nightclub-shell.theme-light [class*="divide-slate"] {
+  border-color: #cbd5e1 !important;
+}
+
+/* High Contrast Texts for Projector / Sunlight */
+.nightclub-shell[data-theme="light"] .text-white,
+.nightclub-shell.theme-light .text-white,
+.nightclub-shell[data-theme="light"] .text-slate-100,
+.nightclub-shell.theme-light .text-slate-100,
+.nightclub-shell[data-theme="light"] .text-slate-200,
+.nightclub-shell.theme-light .text-slate-200 {
+  color: #0f172a !important;
+}
+
+.nightclub-shell[data-theme="light"] .text-slate-300,
+.nightclub-shell.theme-light .text-slate-300,
+.nightclub-shell[data-theme="light"] .text-slate-400,
+.nightclub-shell.theme-light .text-slate-400 {
+  color: #334155 !important;
+}
+
+.nightclub-shell[data-theme="light"] .text-slate-500,
+.nightclub-shell.theme-light .text-slate-500,
+.nightclub-shell[data-theme="light"] .text-slate-600,
+.nightclub-shell.theme-light .text-slate-600 {
+  color: #475569 !important;
+}
+
+/* Amber / Gold Accents */
+.nightclub-shell[data-theme="light"] .text-amber-100,
+.nightclub-shell.theme-light .text-amber-100,
+.nightclub-shell[data-theme="light"] .text-amber-200,
+.nightclub-shell.theme-light .text-amber-200,
+.nightclub-shell[data-theme="light"] .text-amber-300,
+.nightclub-shell.theme-light .text-amber-300,
+.nightclub-shell[data-theme="light"] .text-amber-400,
+.nightclub-shell.theme-light .text-amber-400 {
+  color: #92400e !important;
+}
+
+.nightclub-shell[data-theme="light"] .bg-amber-300,
+.nightclub-shell.theme-light .bg-amber-300,
+.nightclub-shell[data-theme="light"] .bg-amber-400,
+.nightclub-shell.theme-light .bg-amber-400 {
+  background-color: #f59e0b !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="bg-amber-300/"],
+.nightclub-shell.theme-light [class*="bg-amber-300/"],
+.nightclub-shell[data-theme="light"] [class*="bg-amber-400/"],
+.nightclub-shell.theme-light [class*="bg-amber-400/"] {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="border-amber"],
+.nightclub-shell.theme-light [class*="border-amber"] {
+  border-color: #f59e0b !important;
+}
+
+/* Emerald / Green Accents */
+.nightclub-shell[data-theme="light"] .text-emerald-100,
+.nightclub-shell.theme-light .text-emerald-100,
+.nightclub-shell[data-theme="light"] .text-emerald-200,
+.nightclub-shell.theme-light .text-emerald-200,
+.nightclub-shell[data-theme="light"] .text-emerald-300,
+.nightclub-shell.theme-light .text-emerald-300,
+.nightclub-shell[data-theme="light"] .text-emerald-400,
+.nightclub-shell.theme-light .text-emerald-400 {
+  color: #065f46 !important;
+}
+
+.nightclub-shell[data-theme="light"] .bg-emerald-300,
+.nightclub-shell.theme-light .bg-emerald-300,
+.nightclub-shell[data-theme="light"] .bg-emerald-400,
+.nightclub-shell.theme-light .bg-emerald-400 {
+  background-color: #059669 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="bg-emerald-300/"],
+.nightclub-shell.theme-light [class*="bg-emerald-300/"],
+.nightclub-shell[data-theme="light"] [class*="bg-emerald-400/"],
+.nightclub-shell.theme-light [class*="bg-emerald-400/"] {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="border-emerald"],
+.nightclub-shell.theme-light [class*="border-emerald"] {
+  border-color: #10b981 !important;
+}
+
+/* Rose / Red Accents */
+.nightclub-shell[data-theme="light"] .text-rose-100,
+.nightclub-shell.theme-light .text-rose-100,
+.nightclub-shell[data-theme="light"] .text-rose-200,
+.nightclub-shell.theme-light .text-rose-200,
+.nightclub-shell[data-theme="light"] .text-rose-300,
+.nightclub-shell.theme-light .text-rose-300,
+.nightclub-shell[data-theme="light"] .text-rose-400,
+.nightclub-shell.theme-light .text-rose-400,
+.nightclub-shell[data-theme="light"] .text-red-200,
+.nightclub-shell.theme-light .text-red-200,
+.nightclub-shell[data-theme="light"] .text-red-300,
+.nightclub-shell.theme-light .text-red-300,
+.nightclub-shell[data-theme="light"] .text-red-400,
+.nightclub-shell.theme-light .text-red-400 {
+  color: #9f1239 !important;
+}
+
+.nightclub-shell[data-theme="light"] .bg-rose-400,
+.nightclub-shell.theme-light .bg-rose-400,
+.nightclub-shell[data-theme="light"] .bg-rose-500,
+.nightclub-shell.theme-light .bg-rose-500 {
+  background-color: #e11d48 !important;
+  color: #ffffff !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="bg-rose-400/"],
+.nightclub-shell.theme-light [class*="bg-rose-400/"],
+.nightclub-shell[data-theme="light"] [class*="bg-red-500/"],
+.nightclub-shell.theme-light [class*="bg-red-500/"] {
+  background-color: #ffe4e6 !important;
+  color: #9f1239 !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="border-rose"],
+.nightclub-shell.theme-light [class*="border-rose"] {
+  border-color: #f43f5e !important;
+}
+
+/* Cyan / Sky Accents */
+.nightclub-shell[data-theme="light"] .text-cyan-100,
+.nightclub-shell.theme-light .text-cyan-100,
+.nightclub-shell[data-theme="light"] .text-cyan-200,
+.nightclub-shell.theme-light .text-cyan-200,
+.nightclub-shell[data-theme="light"] .text-cyan-300,
+.nightclub-shell.theme-light .text-cyan-300,
+.nightclub-shell[data-theme="light"] .text-sky-300,
+.nightclub-shell.theme-light .text-sky-300,
+.nightclub-shell[data-theme="light"] .text-sky-400,
+.nightclub-shell.theme-light .text-sky-400 {
+  color: #075985 !important;
+}
+
+.nightclub-shell[data-theme="light"] .bg-sky-300,
+.nightclub-shell.theme-light .bg-sky-300,
+.nightclub-shell[data-theme="light"] .bg-sky-400,
+.nightclub-shell.theme-light .bg-sky-400 {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="bg-cyan-300/"],
+.nightclub-shell.theme-light [class*="bg-cyan-300/"],
+.nightclub-shell[data-theme="light"] [class*="bg-sky-300/"],
+.nightclub-shell.theme-light [class*="bg-sky-300/"],
+.nightclub-shell[data-theme="light"] [class*="bg-sky-500/"],
+.nightclub-shell.theme-light [class*="bg-sky-500/"] {
+  background-color: #e0f2fe !important;
+  color: #075985 !important;
+}
+
+.nightclub-shell[data-theme="light"] [class*="border-cyan"],
+.nightclub-shell.theme-light [class*="border-cyan"] {
+  border-color: #0ea5e9 !important;
+}
+
+/* Violet / Purple Accents */
+.nightclub-shell[data-theme="light"] .text-violet-300,
+.nightclub-shell.theme-light .text-violet-300,
+.nightclub-shell[data-theme="light"] .text-purple-200,
+.nightclub-shell.theme-light .text-purple-200,
+.nightclub-shell[data-theme="light"] .text-purple-300,
+.nightclub-shell.theme-light .text-purple-300 {
+  color: #6b21a8 !important;
+}
+
+/* Form Controls in Light Mode */
+.nightclub-shell[data-theme="light"] input,
+.nightclub-shell.theme-light input,
+.nightclub-shell[data-theme="light"] select,
+.nightclub-shell.theme-light select,
+.nightclub-shell[data-theme="light"] textarea,
+.nightclub-shell.theme-light textarea {
+  color-scheme: light !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.nightclub-shell[data-theme="light"] input::placeholder,
+.nightclub-shell.theme-light input::placeholder,
+.nightclub-shell[data-theme="light"] textarea::placeholder,
+.nightclub-shell.theme-light textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Modals, Drawers & Overlays */
+.nightclub-shell[data-theme="light"] [class*="bg-black/"],
+.nightclub-shell.theme-light [class*="bg-black/"] {
+  background-color: rgba(15, 23, 42, 0.65) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.nightclub-shell[data-theme="light"] [role="dialog"],
+.nightclub-shell.theme-light [role="dialog"],
+.nightclub-shell[data-theme="light"] aside.absolute,
+.nightclub-shell.theme-light aside.absolute {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Tables & Lists */
+.nightclub-shell[data-theme="light"] table th,
+.nightclub-shell.theme-light table th {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.nightclub-shell[data-theme="light"] table td,
+.nightclub-shell.theme-light table td {
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Scrollbars in Light Mode */
+.nightclub-shell[data-theme="light"] ::-webkit-scrollbar-thumb,
+.nightclub-shell.theme-light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+.nightclub-shell[data-theme="light"] ::-webkit-scrollbar-track,
+.nightclub-shell.theme-light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
 /* Utility Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
