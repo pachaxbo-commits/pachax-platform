@@ -265,3 +265,27 @@ test('licor por vaso abre botella automáticamente y no duplica el descuento', (
   assert.equal(manual.inventory[0].current, 29)
   assert.equal(manual.inventory[0].openBottleMl, 750)
 })
+
+
+test('refresco de 2 L guarda 2000 ml y descuenta jarras y recetas en ml', () => {
+  const { data: initial, id } = setup()
+  initial.inventory = [{ id: 'coca-stock', name: 'Coca-Cola 2L', unit: 'unit', current: 100, minimum: 1, bottleCapacityMl: 2 * 1000, openBottleMl: 0 }]
+  initial.products = [
+    { id: 'coca-jarra', name: 'Coca-Cola - Jarra', category: 'Refrescos', price: 20, preparationArea: 'Barra', stockUnits: 400, inventoryMode: 'recipe', recipe: [], bottlePresentation: { inventoryId: 'coca-stock', kind: 'pour', millilitres: 500 } },
+    { id: 'coca-receta', name: 'Mezcla con Coca-Cola', category: 'Cocteles', price: 30, preparationArea: 'Barra', stockUnits: 1, inventoryMode: 'recipe', recipe: [{ inventoryId: 'coca-stock', quantity: 150, unit: 'ml' }] },
+  ]
+  const afterJar = settleNightclubRound(initial, id, [{ productId: 'coca-jarra', quantity: 1 }], { method: 'qr' }, 'Barra', at, 'coca-jarra-1')
+  assert.equal(afterJar.inventory[0].bottleCapacityMl, 2000)
+  assert.equal(afterJar.inventory[0].current, 99)
+  assert.equal(afterJar.inventory[0].openBottleMl, 1500)
+  const opened = afterJar.inventoryMovements.find(item => item.type === 'bottle_opened')
+  const poured = afterJar.inventoryMovements.find(item => item.type === 'pour')
+  assert.deepEqual([opened?.previous, opened?.current, opened?.openBottleMlBefore, opened?.openBottleMlAfter], [100, 99, 0, 2000])
+  assert.deepEqual([poured?.previous, poured?.current, poured?.openBottleMlBefore, poured?.openBottleMlAfter], [99, 99, 0, 1500])
+  const secondJar = settleNightclubRound(afterJar, id, [{ productId: 'coca-jarra', quantity: 1 }], { method: 'qr' }, 'Barra', at, 'coca-jarra-2')
+  assert.equal(secondJar.inventory[0].current, 99)
+  assert.equal(secondJar.inventory[0].openBottleMl, 1000)
+  const afterRecipe = settleNightclubRound(secondJar, id, [{ productId: 'coca-receta', quantity: 1 }], { method: 'qr' }, 'Barra', at, 'coca-receta-1')
+  assert.equal(afterRecipe.inventory[0].current, 99)
+  assert.equal(afterRecipe.inventory[0].openBottleMl, 850)
+})
