@@ -12,8 +12,7 @@ import {
 } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import { gateway } from '../../../services/gateway'
-import { getFirebaseContext } from '../../../lib/firebase'
-import { collection, getDocs } from 'firebase/firestore'
+import { useAdminAuth } from '../../auth/adminAuthStore'
 
 interface DashboardSectionProps {
   onNavigateTab: (tab: string) => void
@@ -27,10 +26,12 @@ interface RealStats {
 }
 
 export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
+  const { user } = useAdminAuth()
   const {
     config,
     publishedTemplates,
     publishedExtras,
+    templatesState,
     seedDefaultsToFirestore,
   } = useCommercialConfig()
 
@@ -46,65 +47,32 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
     },
   })
   const [isLoadingStats, setIsLoadingStats] = useState(true)
+  const [statsError, setStatsError] = useState<string | null>(null)
   const [seedMessage, setSeedMessage] = useState<string | null>(null)
 
   const fetchStats = async () => {
     setIsLoadingStats(true)
+    setStatsError(null)
     try {
-      // 1. Intentar getPlatformStats
       const stats = await gateway<RealStats>('platformGateway', { action: 'getPlatformStats' })
       if (stats && typeof stats.totalTenants === 'number') {
         setRealStats(stats)
-        setIsLoadingStats(false)
         return
       }
-    } catch {
-      // Continuar con fallback directo
-    }
-
-    try {
-      // 2. Fallback directo a Firestore
-      const ctx = await getFirebaseContext()
-      if (ctx) {
-        const snap = await getDocs(collection(ctx.db, 'tenants'))
-        const byType: Record<string, number> = {
-          restaurant_pos: 0,
-          route_distribution: 0,
-          nightclub_lounge: 0,
-          gelateria_weight_cafe: 0,
-        }
-        let active = 0
-        let trial = 0
-
-        snap.docs.forEach((d) => {
-          const data = d.data()
-          const bt = data.businessType
-          if (bt && byType[bt] !== undefined) {
-            byType[bt]++
-          }
-          if (data.status === 'active') active++
-          if (data.status === 'trial') trial++
-        })
-
-        setRealStats({
-          totalTenants: snap.size,
-          activeTenants: active,
-          trialTenants: trial,
-          tenantsByType: byType,
-        })
-      }
+      throw new Error('La pasarela no devolvió métricas válidas.')
     } catch (err) {
-      console.warn('Error calculando métricas reales:', err)
+      setStatsError(err instanceof Error ? err.message : 'No se pudieron consultar las métricas.')
     } finally {
       setIsLoadingStats(false)
     }
   }
 
   useEffect(() => {
-    fetchStats()
+    void Promise.resolve().then(fetchStats)
   }, [])
 
   const handleSeedDefaults = async () => {
+    if (!window.confirm('¿Inicializar únicamente los documentos oficiales que faltan? Las plantillas y la vitrina quedarán publicadas; planes y extras con precios quedarán en borrador. Los documentos existentes no se modificarán.')) return
     setSeedMessage('Sincronizando configuraciones oficiales con Firestore...')
     const res = await seedDefaultsToFirestore()
     setSeedMessage(res.message)
@@ -164,15 +132,15 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             <RefreshCw className={`w-3.5 h-3.5 ${isLoadingStats ? 'animate-spin' : ''}`} />
             <span>Recargar datos</span>
           </button>
-          <button
+          {(user?.role === 'platform_owner' || user?.role === 'platform_admin') && <button
             type="button"
             onClick={handleSeedDefaults}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
             title="Publica los datos oficiales por defecto a Firestore si aún no existen"
           >
             <Database className="w-3.5 h-3.5 text-blue-600" />
-            <span>Sembrar Firestore</span>
-          </button>
+            <span>Inicializar configuración oficial</span>
+          </button>}
           <button
             type="button"
             onClick={() => window.open('/', '_blank')}
@@ -190,6 +158,7 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
           <span>{seedMessage}</span>
         </div>
       )}
+      {statsError && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">Métricas no disponibles: {statsError}</div>}
 
       {/* Tarjetas de Métricas Principales (KPIs Reales) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -199,12 +168,12 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             <Building2 className="w-4 h-4 text-[#0066FF]" />
           </div>
           <div className="text-3xl font-black text-slate-950">
-            {isLoadingStats ? '...' : realStats.totalTenants}
+            {isLoadingStats ? '...' : statsError ? 'No disponible' : realStats.totalTenants}
           </div>
           <p className="text-xs text-slate-500 mt-1.5">
-            {realStats.totalTenants > 0
+            {statsError ? 'No se pudo verificar la base multitenant' : realStats.totalTenants > 0
               ? `${realStats.activeTenants} activas · ${realStats.trialTenants} en prueba`
-              : 'Base multitenant conectada'}
+              : 'Sin empresas registradas'}
           </p>
         </div>
 
@@ -284,7 +253,7 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-slate-800">{item.name}</span>
                     <span className="text-slate-500">
-                      {item.count} {item.count === 1 ? 'empresa' : 'empresas'} ({percentage}%)
+                      {statsError || isLoadingStats ? 'No disponible' : `${item.count} ${item.count === 1 ? 'empresa' : 'empresas'} (${percentage}%)`}
                     </span>
                   </div>
                   <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -300,7 +269,7 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
 
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-700 flex items-center justify-between">
             <span>
-              Total de registros en base de datos: <strong>{realStats.totalTenants} empresas</strong>
+              Total de registros en base de datos: <strong>{statsError || isLoadingStats ? 'No disponible' : `${realStats.totalTenants} empresas`}</strong>
             </span>
             <button
               type="button"
@@ -329,19 +298,19 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
               <div className="flex items-center justify-between py-2 border-b border-slate-100 text-xs">
                 <span className="text-slate-600">Autenticación (Firebase Auth)</span>
                 <span className="px-2 py-0.5 rounded-md font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                  Operativo
+                  Sesión autorizada
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-slate-100 text-xs">
                 <span className="text-slate-600">Base de Datos (Firestore Multitenant)</span>
                 <span className="px-2 py-0.5 rounded-md font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                  Operativo
+                  {statsError ? 'No disponible' : isLoadingStats ? 'Verificando' : 'Consulta verificada'}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-slate-100 text-xs">
                 <span className="text-slate-600">Configuración Comercial</span>
                 <span className="px-2 py-0.5 rounded-md font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                  Firestore / Sincronizado
+                  {templatesState === 'ready' ? 'Sincronizado' : templatesState === 'uninitialized' ? 'Sin inicializar' : templatesState === 'error' ? 'No disponible' : 'Verificando'}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-slate-100 text-xs">

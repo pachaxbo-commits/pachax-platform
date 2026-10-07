@@ -30,6 +30,7 @@
     "test:reports": "node --experimental-strip-types src/modules/distribution/domain/__tests__/reportLabels.test.ts",
     "test:platform": "node --experimental-strip-types --test tests/*.test.ts",
     "test:landing-browser": "node scripts/test-public-landing-browser.mjs",
+    "test:admin-studio-browser": "node scripts/test-admin-studio-browser.mjs",
     "test:user-management": "node scripts/validate-user-management.cjs",
     "seed:demo": "node firebase/tests/seedDemoTenant.mjs",
     "rules:load": "node firebase/tests/loadRules.mjs",

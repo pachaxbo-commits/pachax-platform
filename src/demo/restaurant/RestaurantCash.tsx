@@ -1,3 +1,4 @@
+import { restaurantStorage } from './restaurantStorage'
 import { useEffect, useState, type ComponentType } from 'react'
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, CalendarClock, ChartNoAxesColumn, CircleAlert, CreditCard, Lock, MoreHorizontal, Pencil, Plus, Printer, ReceiptText, Search, Trash2, Unlock, Wallet } from 'lucide-react'
 import { Modal } from '../../components/ui/Modal'
@@ -14,8 +15,8 @@ const STORAGE = 'pachax:restaurant-demo:cash-movements:v1'
 const money = (amount: number) => `Bs ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const label: Record<CashMovementCategory, string> = { supply_purchase: 'Compra de insumos', worker_payment: 'Pago a trabajador', supplier_payment: 'Pago a proveedor', transport: 'Transporte', maintenance: 'Mantenimiento', services: 'Servicios', additional_cash: 'Ingreso adicional de efectivo', change_replenishment: 'Reposición de cambio', other: 'Otros' }
 const categories: Record<CashMovementType, CashMovementCategory[]> = { expense: ['supply_purchase','worker_payment','supplier_payment','transport','maintenance','services','other'], income: ['additional_cash','change_replenishment','other'] }
-const readStaff = () => { try { return JSON.parse(localStorage.getItem('pachax:restaurant-demo:users:v1') || '') as typeof RESTAURANT_STAFF } catch { return RESTAURANT_STAFF } }
-const read = (): CashMovement[] => { try { return JSON.parse(localStorage.getItem(STORAGE) || '[]') as CashMovement[] } catch { return [] } }
+const readStaff = () => { try { return JSON.parse(restaurantStorage.getItem('pachax:restaurant-demo:users:v1') || '') as typeof RESTAURANT_STAFF } catch { return RESTAURANT_STAFF } }
+const read = (): CashMovement[] => { try { return JSON.parse(restaurantStorage.getItem(STORAGE) || '[]') as CashMovement[] } catch { return [] } }
 
 export function RestaurantCash({ shift, orders, tables, products, stockMovements, userName, restaurantName, onStartShift, onCloseShift, onCountInventoryItem, onViewTables }: { shift: Shift | null; orders: Order[]; tables: RestaurantTable[]; products: Product[]; stockMovements: InventoryMovement[]; userName: string; restaurantName: string; onStartShift: (amount: number, at: string, by: string) => void; onCloseShift: (countedCash?: number) => boolean; onCountInventoryItem?: (productId: string, physical: number, note?: string) => void; onViewTables?: () => void }) {
   const [opening, setOpening] = useState(''), [movements, setMovements] = useState<CashMovement[]>(read), [editing, setEditing] = useState<CashMovement | null>(null), [removing, setRemoving] = useState<CashMovement | null>(null), [menu, setMenu] = useState<string | null>(null), [closing, setClosing] = useState(false), [counted, setCounted] = useState(''), [notice, setNotice] = useState('')
@@ -25,7 +26,7 @@ export function RestaurantCash({ shift, orders, tables, products, stockMovements
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const blank = (): CashMovement => ({ id: '', shiftId: shift?.id || '', type: 'expense', category: 'supply_purchase', description: '', amount: 0, paymentMethod: 'cash', createdAt: new Date().toISOString(), createdBy: userName, note: '' })
   const [form, setForm] = useState<CashMovement>(blank)
-  const save = (next: CashMovement[]) => { setMovements(next); localStorage.setItem(STORAGE, JSON.stringify(next)) }
+  const save = (next: CashMovement[]) => { setMovements(next); restaurantStorage.setItem(STORAGE, JSON.stringify(next)) }
   const summary = shift ? calculateCashShiftSummary(shift.openingFloat, orders, shift.id, movements) : null
   const current = shift ? movements.filter(item => item.shiftId === shift.id).sort((a,b) => b.createdAt.localeCompare(a.createdAt)) : []
   const query = search.trim().toLocaleLowerCase('es-BO')
@@ -72,8 +73,8 @@ export function RestaurantCash({ shift, orders, tables, products, stockMovements
   const close = () => {
     if (!shift || !summary || difference === null || openTables.length || pendingInventory) return
     if (!onCloseShift(Number(counted))) { setNotice('Completa el arqueo físico de inventario antes de cerrar.'); return }
-    const closures = (() => { try { return JSON.parse(localStorage.getItem(`${STORAGE}:closures`) || '[]') as unknown[] } catch { return [] } })()
-    localStorage.setItem(`${STORAGE}:closures`, JSON.stringify([{ shiftId: shift.id, closedAt: new Date().toISOString(), closedBy: userName, countedCash: Number(counted), difference, status: difference === 0 ? 'balanced' : difference < 0 ? 'shortage' : 'surplus', summary }, ...closures]))
+    const closures = (() => { try { return JSON.parse(restaurantStorage.getItem(`${STORAGE}:closures`) || '[]') as unknown[] } catch { return [] } })()
+    restaurantStorage.setItem(`${STORAGE}:closures`, JSON.stringify([{ shiftId: shift.id, closedAt: new Date().toISOString(), closedBy: userName, countedCash: Number(counted), difference, status: difference === 0 ? 'balanced' : difference < 0 ? 'shortage' : 'surplus', summary }, ...closures]))
     setClosing(false)
     setNotice(difference === 0 ? 'Turno cerrado. Caja cuadrada.' : `Turno cerrado con ${difference < 0 ? 'faltante' : 'sobrante'} de ${money(Math.abs(difference))}.`)
   }

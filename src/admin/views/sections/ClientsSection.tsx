@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Search, Clock, RefreshCw, AlertCircle, Building2 } from 'lucide-react'
 import { gateway } from '../../../services/gateway'
-import { getFirebaseContext } from '../../../lib/firebase'
-import { collection, getDocs, limit, query } from 'firebase/firestore'
 
 export interface RealTenantRecord {
   tenantId: string
@@ -31,56 +29,22 @@ export function ClientsSection() {
     setLoadError(null)
 
     try {
-      // 1. Intentar mediante la función canónica platformGateway
       const result = await gateway<{ tenants: RealTenantRecord[] }>('platformGateway', {
         action: 'listTenants',
         limit: 50,
       })
-      if (result && Array.isArray(result.tenants)) {
-        setTenants(result.tenants)
-        setIsLoading(false)
-        return
-      }
-    } catch (err: any) {
-      console.warn('Fallo consulta platformGateway para listTenants, probando Firestore directo:', err?.message)
-    }
-
-    try {
-      // 2. Consulta directa a Firestore como fallback
-      const ctx = await getFirebaseContext()
-      if (ctx) {
-        const q = query(collection(ctx.db, 'tenants'), limit(50))
-        const snap = await getDocs(q)
-        const loaded: RealTenantRecord[] = snap.docs.map((docSnap) => {
-          const d = docSnap.data()
-          return {
-            tenantId: docSnap.id,
-            name: d.name || 'Sin nombre',
-            businessType: d.businessType || 'No disponible',
-            status: d.status || 'active',
-            subscriptionStatus: d.subscriptionStatus ?? null,
-            planKey: d.planKey ?? null,
-            userCount: d.userCount ?? null,
-            branchCount: d.branchCount ?? null,
-            createdAt: d.createdAt ? (typeof d.createdAt === 'string' ? d.createdAt : d.createdAt?.toDate?.()?.toISOString() || null) : null,
-            updatedAt: d.updatedAt ? (typeof d.updatedAt === 'string' ? d.updatedAt : d.updatedAt?.toDate?.()?.toISOString() || null) : null,
-            contactEmail: d.contactEmail ?? null,
-            ownerUid: d.ownerUid ?? null,
-          }
-        })
-        setTenants(loaded)
-      } else {
-        setLoadError('Firebase no disponible para consultar empresas registradas.')
-      }
-    } catch (err: any) {
-      setLoadError(err?.message || 'Error cargando empresas registradas.')
+      if (!result || !Array.isArray(result.tenants)) throw new Error('La pasarela no devolvió una lista válida de empresas.')
+      setTenants(result.tenants)
+    } catch (err: unknown) {
+      setTenants([])
+      setLoadError(err instanceof Error ? err.message : 'Error cargando empresas registradas.')
     } finally {
       setIsLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchTenants()
+    void Promise.resolve().then(fetchTenants)
   }, [])
 
   const formatBusinessType = (type: string) => {
@@ -215,6 +179,13 @@ export function ClientsSection() {
             }`}
           >
             Nightclub
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedFilter('retail')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${selectedFilter === 'retail' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+          >
+            Comercio
           </button>
         </div>
       </div>

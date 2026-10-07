@@ -7,6 +7,7 @@ import {
   Tablet,
   Laptop,
   Maximize2,
+  Minimize2,
   RotateCcw,
   Shield,
 } from 'lucide-react'
@@ -15,6 +16,8 @@ import type { DemoDatasetMode } from '../demo/datasets/types'
 import { useStudioBranding } from './branding/BrandingContext'
 import { BrandingDrawer } from './branding/BrandingDrawer'
 import './studioRestaurantPreview.css'
+import { getPublicTemplate } from '../core/publicTemplates'
+import { getTemplate } from '../core/templates'
 
 export type ViewportMode = 'responsive' | 'mobile_360' | 'mobile_390' | 'tablet_768' | 'laptop_1366'
 
@@ -40,60 +43,20 @@ export function StudioShell({
   currentRole: string
   onSelectRole: (role: string) => void
 }) {
-  const { branding, setIsDrawerOpen } = useStudioBranding()
+  const { branding, setBranding, resetBranding, setIsDrawerOpen } = useStudioBranding()
   const [viewport, setViewport] = useState<ViewportMode>('responsive')
   const [isTeamMode, setIsTeamMode] = useState(true)
-  const [datasetMode, setDatasetMode] = useState<DemoDatasetMode>('full')
+  const [datasetMode, setDatasetMode] = useState<DemoDatasetMode>(() => new URLSearchParams(window.location.search).get('data') === 'empty' ? 'empty' : 'full')
   const [datasetResetKey, setDatasetResetKey] = useState(0)
+  const [pendingDataset, setPendingDataset] = useState<DemoDatasetMode | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const shellRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
-  const templateMeta = {
-    restaurant: {
-      name: 'Restaurante',
-      defaultCompany: 'Bistró Demo',
-      roles: [
-        { id: 'owner', label: 'Dueño' },
-        { id: 'admin', label: 'Administración' },
-        { id: 'cashier', label: 'Caja' },
-        { id: 'waiter', label: 'Mesero' },
-        { id: 'kitchen', label: 'Cocina' },
-        { id: 'inventory', label: 'Inventario' },
-      ],
-    },
-    distribution: {
-      name: 'Producción y distribución',
-      defaultCompany: 'Distribuidora Demo',
-      roles: [
-        { id: 'admin', label: 'Administración' },
-        { id: 'warehouse', label: 'Almacén' },
-        { id: 'distributor', label: 'Distribuidor' },
-      ],
-    },
-    retail: {
-      name: 'Comercio / Venta rápida',
-      defaultCompany: 'Amapola Demo',
-      roles: [
-        { id: 'owner', label: 'Dueño' },
-        { id: 'admin', label: 'Administración' },
-        { id: 'cashier', label: 'Caja' },
-        { id: 'sales', label: 'Atención / Ventas' },
-        { id: 'inventory', label: 'Inventario' },
-      ],
-    },
-    nightclub: {
-      name: 'Club nocturno / Lounge',
-      defaultCompany: 'Nocturna Demo',
-      roles: [
-        { id: 'owner', label: 'Dueño' },
-        { id: 'admin', label: 'Administración' },
-        { id: 'cashier', label: 'Caja' },
-        { id: 'waiter', label: 'Servicio' },
-        { id: 'bar', label: 'Barra' },
-        { id: 'inventory', label: 'Inventario' },
-      ],
-    },
-  }[templateId]
+  const publicTemplate = getPublicTemplate(templateId)
+  const templateRoles = getTemplate(publicTemplate.businessType).roles
+  const defaultCompany = { restaurant: 'Bistró Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo' }[templateId]
 
   // Enviar mensaje de sincronización seguro al iframe
   const sendSync = useCallback(() => {
@@ -129,15 +92,35 @@ export function StudioShell({
       if (event.data?.type === 'PACHAX_PREVIEW_READY') {
         sendSync()
       }
+      if (event.data?.type === 'PACHAX_STUDIO_BRANDING' && event.source === iframeRef.current?.contentWindow && event.data.templateId === templateId) {
+        setBranding({ ...branding, ...event.data.branding })
+      }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [sendSync])
+  }, [sendSync, setBranding, branding, templateId])
 
-  const iframeSrc = `/demo/${templateId}?embed=studio&role=${encodeURIComponent(currentRole)}&data=${datasetMode}${templateId === 'restaurant' ? `&mode=${isTeamMode ? 'team' : 'simulated_role'}` : ''}`
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === shellRef.current)
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+  }, [])
+
+  const changeDataset = (next: DemoDatasetMode) => {
+    if (next !== datasetMode) setPendingDataset(next)
+  }
+  const confirmDataset = () => {
+    if (!pendingDataset) return
+    setDatasetMode(pendingDataset)
+    setDatasetResetKey(key => key + 1)
+    setPendingDataset(null)
+  }
+
+  // Stable URL: role, branding and scenario changes travel through postMessage.
+  const iframeSrc = `/demo/${templateId}?embed=studio`
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
+    <div ref={shellRef} className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
       {/* Studio Top Control Bar */}
       <header className="sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 px-3 sm:px-6 py-2.5 shadow-md">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -154,9 +137,9 @@ export function StudioShell({
             <div className="h-4 w-px bg-slate-700 hidden sm:block" />
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-white">{templateMeta.name}</span>
+              <span className="text-xs font-bold text-white">{publicTemplate.title}</span>
               <span className="text-[11px] font-semibold text-teal-400 bg-teal-950/80 px-2 py-0.5 rounded-full border border-teal-800">
-                {branding.companyName || templateMeta.defaultCompany}
+                {branding.companyName || defaultCompany}
               </span>
             </div>
           </div>
@@ -195,9 +178,9 @@ export function StudioShell({
                 onChange={(e) => onSelectRole(e.target.value)}
                 className="text-xs font-bold bg-slate-800 border border-slate-700 text-teal-300 px-2.5 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer"
               >
-                {templateMeta.roles.map((r) => (
+                {templateRoles.map((r) => (
                   <option key={r.id} value={r.id}>
-                    Rol: {r.label}
+                    Rol: {r.name}
                   </option>
                 ))}
               </select>
@@ -207,7 +190,7 @@ export function StudioShell({
             <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
               <span className="text-[11px] font-bold text-slate-400 px-1.5 hidden md:inline">Dataset:</span>
               <button
-                onClick={() => setDatasetMode('empty')}
+                onClick={() => changeDataset('empty')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   datasetMode === 'empty'
                     ? 'bg-amber-500 text-slate-950 shadow-xs'
@@ -217,7 +200,7 @@ export function StudioShell({
                 Vacío
               </button>
               <button
-                onClick={() => setDatasetMode('full')}
+                onClick={() => changeDataset('full')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   datasetMode === 'full'
                     ? 'bg-teal-500 text-slate-950 shadow-xs'
@@ -227,11 +210,20 @@ export function StudioShell({
                 Completo
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => { resetBranding(); setDatasetResetKey(key => key + 1) }}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
+              title="Restablece datos de operación e identidad del sandbox"
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Restablecer demo
+            </button>
 
             {templateId === 'nightclub' && (
               <button
                 onClick={() => {
                   setDatasetMode('empty')
+                  resetBranding()
                   setDatasetResetKey((key) => key + 1)
                 }}
                 title="Elimina los datos locales de prueba y abre un club vacío"
@@ -245,7 +237,7 @@ export function StudioShell({
 
           {/* Lado Derecho: Viewports reales y Personalización */}
           <div className="flex items-center gap-2">
-            {templateId === 'restaurant' && <button type="button" onClick={() => { setViewport('responsive'); void previewRef.current?.requestFullscreen() }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800" title="Ampliar vista previa"><Maximize2 className="inline h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Pantalla completa</span></button>}
+            <button type="button" onClick={() => { if (isFullscreen) void document.exitFullscreen(); else { setViewport('responsive'); void shellRef.current?.requestFullscreen() } }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800" title={isFullscreen ? 'Salir de pantalla completa' : 'Ampliar vista previa'}>{isFullscreen ? <Minimize2 className="inline h-4 w-4 sm:mr-1" /> : <Maximize2 className="inline h-4 w-4 sm:mr-1" />}<span className="hidden sm:inline">{isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}</span></button>
             {/* Viewport Toggles (dimensiones físicas del iframe) */}
             <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
               {(Object.keys(VIEWPORT_CONFIGS) as ViewportMode[]).map((key) => {
@@ -282,8 +274,13 @@ export function StudioShell({
 
       {/* Development Banner Indicator */}
       <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-1 text-center text-[11px] font-semibold text-amber-300">
-        ENTORNO DE DESARROLLO / PREVIEW CANÓNICO — Modo aislado sin conexión a Firebase
+        SANDBOX PACHAX STUDIO — Datos de prueba locales, sin operaciones en tenants reales
       </div>
+      {templateId === 'nightclub' && datasetMode === 'empty' && (
+        <div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-100">
+          Club nuevo: en la experiencia abre Configuración para definir identidad, zonas y mesas; después agrega productos y abre el turno en Caja.
+        </div>
+      )}
 
       {/* Contenedor de Previsualización Responsive Aislado */}
       <div ref={previewRef} className="restaurant-studio-preview flex-1 w-full flex items-center justify-center p-2 sm:p-4 overflow-auto bg-slate-950/70">
@@ -302,7 +299,7 @@ export function StudioShell({
           <iframe
             ref={iframeRef}
             src={iframeSrc}
-            title={`PACHAX Studio Preview - ${templateMeta.name}`}
+            title={`PACHAX Studio Preview - ${publicTemplate.title}`}
             className="w-full h-full border-0 bg-white"
           />
         </div>
@@ -324,6 +321,7 @@ export function StudioShell({
 
       {/* Panel de Personalización Lateral */}
       <BrandingDrawer />
+      {pendingDataset && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-4"><section role="dialog" aria-modal="true" aria-label="Cambiar escenario" className="w-full max-w-md rounded-2xl border border-amber-300/30 bg-slate-900 p-6 shadow-2xl"><h2 className="text-xl font-bold">Cambiar escenario</h2><p className="mt-2 text-sm text-slate-300">Cambiar de escenario reiniciará los datos de esta simulación.</p><div className="mt-6 flex justify-end gap-2"><button onClick={() => setPendingDataset(null)} className="rounded-xl border border-slate-600 px-4 py-2 text-sm">Cancelar</button><button onClick={confirmDataset} className="rounded-xl bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950">Cambiar escenario</button></div></section></div>}
     </div>
   )
 }
