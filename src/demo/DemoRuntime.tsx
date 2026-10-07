@@ -53,14 +53,13 @@ export function DemoRuntime({
     try {
       for (const key of Object.keys(localStorage)) {
         if (
-          key.startsWith('pachax:restaurant-demo:') ||
-          key.startsWith('pachax:nightclub-demo:') ||
-          key.startsWith('pachax:nightclub-studio:')
+          (templateId === 'restaurant' && key.startsWith('pachax:restaurant-studio:')) ||
+          (templateId === 'nightclub' && key.startsWith('pachax:nightclub-studio:'))
         ) {
           localStorage.removeItem(key)
         }
       }
-      localStorage.removeItem('cocina-tickets-impresos')
+      if (templateId === 'restaurant') localStorage.removeItem('cocina-tickets-impresos')
     } catch { /* Private mode may disable storage. */ }
   }, [templateId])
 
@@ -197,6 +196,7 @@ export function DemoRuntime({
             simulatedRole={effectiveRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}
+            studioBranding={branding}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
           />

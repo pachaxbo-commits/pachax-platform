@@ -93,7 +93,7 @@ export function AdminShell() {
     )
   }
 
-  const navItems: { id: AdminTab; label: string; icon: any }[] = [
+  const navItems: { id: AdminTab; label: string; icon: typeof LayoutDashboard }[] = [
     { id: 'dashboard', label: 'Resumen', icon: LayoutDashboard },
     { id: 'templates', label: 'Plantillas', icon: Layers },
     { id: 'plans', label: 'Planes comerciales', icon: CreditCard },
@@ -222,7 +222,7 @@ export function AdminShell() {
 
       {/* Área de Contenido Principal */}
       <main className="flex-1 w-full min-w-0 p-4 sm:p-6 lg:p-10 overflow-y-auto">
-        <div className="max-w-6xl mx-auto">
+        <div className={activeTab === 'studio' ? 'w-full' : 'max-w-6xl mx-auto'}>
           {activeTab === 'dashboard' && <DashboardSection onNavigateTab={(t) => setActiveTab(t as AdminTab)} />}
           {activeTab === 'templates' && <TemplatesSection />}
           {activeTab === 'plans' && <PlansSection />}

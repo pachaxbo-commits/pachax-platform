@@ -62,8 +62,12 @@ try {
     for (const route of routes) {
       errors.length = 0
       await send('Page.navigate', { url: new URL(route, base).href })
-      await sleep(850)
-      const result = await evalPage(`(() => { const root=document.getElementById('root'); const frame=document.querySelector('iframe'); return { text:(root?.innerText||'').slice(0,250), frameText:(frame?.contentDocument?.body?.innerText||'').slice(0,250), overflow:document.documentElement.scrollWidth-innerWidth, frame:!!frame, viteError:!!document.querySelector('vite-error-overlay') } })()`)
+      let result
+      for (let attempt = 0; attempt < 25; attempt++) {
+        await sleep(200)
+        result = await evalPage(`(() => { const root=document.getElementById('root'); const frame=document.querySelector('iframe'); return { text:(root?.innerText||'').slice(0,250), frameText:(frame?.contentDocument?.body?.innerText||'').slice(0,250), overflow:document.documentElement.scrollWidth-innerWidth, frame:!!frame, viteError:!!document.querySelector('vite-error-overlay') } })()`)
+        if (result.text.length > 20 && (!route.startsWith('/studio?') || result.frameText.length > 20)) break
+      }
       assert(result.text.length > 20, `${route} vacío en ${width}×${height}`)
       assert(!result.viteError, `${route} tiene overlay de Vite`)
       assert(!errors.length, `${route} excepción en ${width}×${height}: ${errors.join('; ')}`)
@@ -84,6 +88,19 @@ try {
   const settings = await evalPage(`(() => { const doc=document.querySelector('iframe').contentDocument; return {identity:doc.body.innerText.includes('Identidad del negocio'), floor:doc.body.innerText.includes('Zonas y mesas'), products:doc.body.innerText.includes('Productos')} })()`)
   assert(settings.identity && settings.floor, 'Nightclub vacío no ofrece identidad o creación de zonas y mesas.')
   console.log('OK Nightclub Empty → Configuración → identidad y zonas/mesas')
+  // Role changes must preserve the same iframe document and all sandbox data.
+  const roleStart = await evalPage(`(() => { const frame=document.querySelector('iframe'); window.__pachaxStudioFrame=frame; window.__pachaxStudioDocument=frame.contentDocument; return {src:frame.src, text:frame.contentDocument.body.innerText} })()`)
+  assert(roleStart.text.includes('Configuración'))
+  const roleOptions = ['waiter', 'bar', 'cashier', 'inventory', 'owner']
+  await evalPage(`(() => { document.querySelectorAll('button').forEach(button => { if (button.textContent.trim()==='Simular rol') button.click() }) })()`)
+  for (const role of roleOptions) {
+    const state = await evalPage(`(() => { const select=[...document.querySelectorAll('select')].find(item=>[...item.options].some(option=>option.value==='${role}')); if(!select)return {missing:true}; select.value='${role}'; select.dispatchEvent(new Event('change',{bubbles:true})); return {missing:false} })()`)
+    assert(!state.missing, `Falta el rol ${role}`)
+    await sleep(250)
+    const retained = await evalPage(`(() => ({ sameFrame: document.querySelector('iframe')===window.__pachaxStudioFrame, sameDocument:document.querySelector('iframe')?.contentDocument===window.__pachaxStudioDocument, src:document.querySelector('iframe')?.src }))()`)
+    assert(retained.sameFrame && retained.sameDocument && retained.src === roleStart.src, `Cambiar a ${role} recargó Nightclub`)
+  }
+  console.log('OK Nightclub Empty → cinco roles sin recargar iframe ni cambiar plantilla')
 } finally {
   socket?.close()
   browser.kill()

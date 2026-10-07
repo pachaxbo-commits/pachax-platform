@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import type { StudioBranding } from '../../../studio/branding/brandingTypes'
 import { BarChart3, Bell, Boxes, ChevronRight, CircleDollarSign, ClipboardList, Clock3, GlassWater, LayoutGrid, LogOut, Menu, Music2, ReceiptText, Settings, Star, Users, Wine } from 'lucide-react'
 import type { NightclubModuleId, NightclubRoundDraft, NightclubServiceTarget } from '../domain/nightclubAccounts'
 import { nightclubCan, nightclubCashSummary, normalizeNightclubRole } from '../domain/nightclubAccounts'
@@ -20,7 +21,7 @@ import { NightclubSettings } from './NightclubSettings'
 import { NightclubZones } from './NightclubZones'
 
 type NightclubModule = NightclubModuleId
-type Props = ReturnType<typeof useNightclubController> & { companyName: string; logoUrl?: string; userName: string; role: string; onSignOut?: () => void | Promise<void> }
+type Props = ReturnType<typeof useNightclubController> & { companyName: string; logoUrl?: string; studioBranding?: StudioBranding | null; userName: string; role: string; onSignOut?: () => void | Promise<void> }
 const allModules: Array<{ id: NightclubModule; label: string; icon: typeof Music2 }> = [
   { id: 'dashboard', label: 'Inicio', icon: BarChart3 }, { id: 'floor', label: 'Zonas', icon: LayoutGrid }, { id: 'pos', label: 'POS', icon: CircleDollarSign }, { id: 'accounts', label: 'Cuentas', icon: ReceiptText }, { id: 'bar', label: 'Barra', icon: GlassWater }, { id: 'inventory', label: 'Inventario', icon: Boxes }, { id: 'products', label: 'Productos', icon: Wine }, { id: 'cash', label: 'Caja', icon: ClipboardList }, { id: 'history', label: 'Historial', icon: Clock3 }, { id: 'customers', label: 'Clientes', icon: Users }, { id: 'members', label: 'Socios', icon: Star }, { id: 'users', label: 'Usuarios', icon: Users }, { id: 'reports', label: 'Reportes', icon: BarChart3 }, { id: 'settings', label: 'Configuración', icon: Settings },
 ]
@@ -50,8 +51,9 @@ export function NightclubExperience(props: Props) {
   const mobileModules = mobilePriority.map(id => visibleModules.find(item => item.id === id)).filter((item): item is (typeof allModules)[number] => !!item)
   const moreModules = visibleModules.filter(item => !mobileModules.some(primary => primary.id === item.id))
   const currentModule = nightclubCan(normalizedRole, activeModule) ? activeModule : visibleModules[0]?.id || 'floor'
-  const branding = data.branding || { businessName: companyName, subtitle: 'Club nocturno / Lounge', logoDataUrl: logoUrl, primaryColor: '#d8a84e', accentColor: '#35d0a0', surfaceColor: '#0d1720' }
-  const shellStyle = { '--night-gold': branding.primaryColor, '--night-positive': branding.accentColor, '--night-surface': branding.surfaceColor } as CSSProperties
+  const savedBranding = data.branding || { businessName: companyName, subtitle: 'Club nocturno / Lounge', logoDataUrl: logoUrl, primaryColor: '#d8a84e', accentColor: '#35d0a0', surfaceColor: '#0d1720' }
+  const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor } : savedBranding
+  const shellStyle = { '--night-gold': branding.primaryColor, '--night-positive': branding.accentColor, '--night-surface': branding.surfaceColor, '--night-background': props.studioBranding?.backgroundColor || '#050c13', '--night-sidebar': props.studioBranding?.sidebarColor || '#07111a' } as CSSProperties
   const go = (module: NightclubModule) => { setActiveModule(module); setMoreOpen(false) }
 
   return <div className="nightclub-shell min-h-screen w-full bg-[#050c13] text-slate-100" style={shellStyle}>
@@ -72,7 +74,7 @@ export function NightclubExperience(props: Props) {
           {currentModule === 'customers' && <NightclubCustomers data={data} companyName={branding.businessName} onSave={customer => run(() => props.onSaveCustomer(customer), 'Cliente guardado.')} />}
           {currentModule === 'users' && <div className="space-y-5"><Title title="Usuarios y roles" subtitle="Equipo del club vinculado a turnos y operaciones." /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{(data.staff || []).map(person => <article key={person.id} className="rounded-xl border border-white/10 bg-[#0d1720] p-4"><strong>{person.name}</strong><p className="text-sm text-slate-400">{person.role} · {person.active ? 'Activo' : 'Inactivo'}</p><button onClick={() => run(() => props.onSaveStaff({ ...person, active: !person.active }), 'Usuario actualizado.')} className="mt-2 text-xs text-amber-300">{person.active ? 'Desactivar' : 'Activar'}</button></article>)}</div><section className="rounded-xl border border-white/10 bg-[#0d1720] p-4"><h2 className="font-bold">Añadir usuario local</h2><div className="mt-2 flex flex-wrap gap-2"><input aria-label="Nombre del usuario" placeholder="Nombre" value={staffName} onChange={event => setStaffName(event.target.value)} className="rounded-xl p-3" /><select aria-label="Rol del usuario" value={staffRole} onChange={event => setStaffRole(event.target.value as typeof staffRole)} className="rounded-xl p-3"><option value="service">Servicio</option><option value="cashier">Caja</option><option value="bar">Barra</option><option value="inventory">Inventario</option><option value="admin">Admin</option></select><button onClick={() => run(() => { if (!staffName.trim()) throw new Error('Ingresa un nombre.'); props.onSaveStaff({ id: crypto.randomUUID(), name: staffName.trim(), role: staffRole, active: true }); setStaffName('') }, 'Usuario creado.')} className="rounded-xl bg-amber-300 px-4 font-bold text-[#07111a]">Crear</button></div></section></div>}
           {currentModule === 'reports' && <div className="space-y-4"><NightclubReports data={data} companyName={branding.businessName} /><NightclubCourtesyReport data={data} /></div>}
-          {currentModule === 'settings' && <NightclubSettings data={data} fallbackName={companyName} fallbackLogo={logoUrl} onSaveBranding={value => run(() => props.onSaveBranding(value), 'Identidad guardada.')} onSaveZone={value => run(() => props.onSaveZone(value), 'Zona guardada.')} onSaveTable={value => run(() => props.onSaveTable(value), 'Mesa guardada.')} onDeleteZone={id => run(() => props.onDeleteZone(id), 'Zona eliminada.')} onDeleteTable={id => run(() => props.onDeleteTable(id), 'Mesa eliminada.')} />}
+          {currentModule === 'settings' && <NightclubSettings key={`${branding.businessName}:${branding.primaryColor}:${branding.accentColor}:${branding.surfaceColor}`} data={{ ...data, branding }} fallbackName={companyName} fallbackLogo={logoUrl} onSaveBranding={value => run(() => props.onSaveBranding(value), 'Identidad guardada.')} onSaveZone={value => run(() => props.onSaveZone(value), 'Zona guardada.')} onSaveTable={value => run(() => props.onSaveTable(value), 'Mesa guardada.')} onDeleteZone={id => run(() => props.onDeleteZone(id), 'Zona eliminada.')} onDeleteTable={id => run(() => props.onDeleteTable(id), 'Mesa eliminada.')} />}
         </main>
       </div>
     </div>

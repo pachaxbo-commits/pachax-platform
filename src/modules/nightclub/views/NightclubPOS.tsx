@@ -25,6 +25,8 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
   const [cash, setCash] = useState('')
   const [qr, setQr] = useState('')
   const [card, setCard] = useState('')
+  const [partialAmount, setPartialAmount] = useState('')
+  const [stagedPayments, setStagedPayments] = useState<NonNullable<NightclubPaymentDraft['installments']>>([])
   const operation = useRef<string | null>(null)
   const lock = useRef(false)
   const [destinationMode, setDestinationMode] = useState<'table' | 'bar'>(() => {
@@ -54,17 +56,28 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     setCustomerId('')
     setCustomerName('')
   }
-  const cancelDraft = () => { onDraftChange([]); selectAccount(''); setPaying(false); setCustomerId(''); setCustomerName('') }
-  const cashDue = method === 'cash' ? draftTotal : method === 'mixed' ? Number(cash) : 0
-  const receivedAmount = received === '' ? cashDue : Number(received)
-  const validPayment = !!selected && selected.status === 'open' && draftTotal > 0 && (method !== 'mixed' || Math.round((Number(cash) + Number(qr) + Number(card)) * 100) === Math.round(draftTotal * 100)) && [cash, qr, card].every(value => value === '' || Number.isFinite(Number(value)) && Number(value) >= 0) && Number.isFinite(receivedAmount) && receivedAmount >= cashDue
+  const cancelDraft = () => { onDraftChange([]); selectAccount(''); setPaying(false); setStagedPayments([]); setCustomerId(''); setCustomerName('') }
+  const remaining = Math.round((draftTotal - stagedPayments.reduce((sum, payment) => sum + payment.amount, 0)) * 100) / 100
+  const currentAmount = partialAmount.trim() === '' ? remaining : Number(partialAmount)
+  const cashDue = method === 'cash' ? currentAmount : method === 'mixed' ? Number(cash) : 0
+  const receivedAmount = Number(received)
+  const validPayment = !!selected && selected.status === 'open' && draftTotal > 0 && Number.isFinite(currentAmount) && currentAmount > 0 && currentAmount <= remaining && (method !== 'mixed' || stagedPayments.length === 0 && Math.round((Number(cash) + Number(qr) + Number(card)) * 100) === Math.round(draftTotal * 100)) && [cash, qr, card].every(value => value === '' || Number.isFinite(Number(value)) && Number(value) >= 0) && (cashDue === 0 || received.trim() !== '') && Number.isFinite(receivedAmount) && receivedAmount >= cashDue
+  const closePayment = () => { setPaying(false); setStagedPayments([]); setPartialAmount(''); setReceived('') }
+  const stagePartialPayment = () => {
+    if (!validPayment || method === 'mixed' || currentAmount >= remaining) return
+    setStagedPayments(current => [...current, { method, amount: currentAmount, received: method === 'cash' ? receivedAmount : undefined }])
+    setPartialAmount('')
+    setReceived('')
+    operation.current = null
+  }
   const submitPayment = () => {
     if (!selected || !validPayment || lock.current) return
     lock.current = true
     setProcessing(true)
     const operationId = operation.current ||= crypto.randomUUID()
-    const success = onSettleRound(selected.id, draft, { method, amount: draftTotal, received: receivedAmount, cashAmount: Number(cash), qrAmount: Number(qr), cardAmount: Number(card) }, operationId)
-    if (success) { onDraftChange([]); operation.current = null; setPaying(false); setDrawerOpen(false); setReceived(''); setCash(''); setQr(''); setCard(''); if (destinationMode === 'bar') { selectAccount(''); setCustomerId(''); setCustomerName('') } }
+    const installments = stagedPayments.length ? [...stagedPayments, { method: method as 'cash' | 'qr' | 'card', amount: currentAmount, received: method === 'cash' ? receivedAmount : undefined }] : undefined
+    const success = onSettleRound(selected.id, draft, { method: installments ? 'mixed' : method, amount: draftTotal, received: receivedAmount, cashAmount: Number(cash), qrAmount: Number(qr), cardAmount: Number(card), installments }, operationId)
+    if (success) { onDraftChange([]); operation.current = null; closePayment(); setDrawerOpen(false); setCash(''); setQr(''); setCard(''); if (destinationMode === 'bar') { selectAccount(''); setCustomerId(''); setCustomerName('') } }
     lock.current = false
     setProcessing(false)
   }
@@ -127,6 +140,18 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     </div>
     <button onClick={() => setDrawerOpen(true)} className="fixed inset-x-3 bottom-16 z-30 flex min-h-14 items-center justify-between rounded-2xl bg-amber-400 px-4 font-bold text-slate-950 shadow-xl lg:hidden"><span>{selected ? nightclubAccountLabel(selected, data) : 'Elegir destino'} · {itemCount}</span><span>{money(draftTotal)}</span></button>
     {drawerOpen && <div className="fixed inset-0 z-[60] bg-black/60 lg:hidden" onClick={() => setDrawerOpen(false)}><div className="absolute inset-x-0 bottom-0 max-h-[88vh] rounded-t-3xl bg-[#121b20]" onClick={event => event.stopPropagation()}>{accountPanel(true)}</div></div>}
-    {paying && <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/85 p-4"><section role="dialog" aria-modal="true" aria-label="Cobrar ronda" className="w-full max-w-md space-y-4 rounded-2xl border border-emerald-400/40 bg-slate-900 p-5"><div className="flex justify-between"><h2 className="text-xl font-black">Cobrar esta ronda</h2><button onClick={() => setPaying(false)} aria-label="Cerrar pago">×</button></div><p className="text-sm text-slate-300">Barra recibe el pedido y el inventario se descuenta al confirmar el pago.</p><strong className="block text-3xl text-emerald-300">{money(draftTotal)}</strong><select aria-label="Método de pago" value={method} onChange={event => { setMethod(event.target.value as NightclubPaymentDraft['method']); operation.current = null }} className="w-full rounded-xl bg-slate-950 p-3"><option value="cash">Efectivo</option><option value="qr">QR</option><option value="card">Tarjeta</option><option value="mixed">Mixto</option></select>{method === 'mixed' && <div className="grid grid-cols-3 gap-2">{([['Efectivo', cash, setCash], ['QR', qr, setQr], ['Tarjeta', card, setCard]] as const).map(([label, value, setter]) => <label key={label} className="text-xs">{label}<input type="number" min="0" step="0.01" value={value} onChange={event => { setter(event.target.value); operation.current = null }} className="mt-1 w-full rounded-lg bg-slate-950 p-2" /></label>)}</div>}{cashDue > 0 && <label className="block text-sm">Efectivo recibido<input aria-label="Efectivo recibido" type="number" min="0" step="0.01" value={received} onChange={event => { setReceived(event.target.value); operation.current = null }} placeholder={String(cashDue)} className="mt-1 w-full rounded-xl bg-slate-950 p-3" /><small className="text-slate-400">Cambio: {money(Math.max(0, receivedAmount - cashDue))}</small></label>}<button disabled={!validPayment || processing} onClick={submitPayment} className="w-full rounded-xl bg-emerald-400 p-3 font-black text-slate-950 disabled:opacity-40">{processing ? 'Procesando pago...' : 'CONFIRMAR PAGO Y ENVIAR A BARRA'}</button></section></div>}
+    {paying && <div className="fixed inset-0 z-[70] grid place-items-center bg-slate-950/85 p-4">
+      <section role="dialog" aria-modal="true" aria-label="Cobrar ronda" className="w-full max-w-md space-y-4 rounded-2xl border border-emerald-400/40 bg-slate-900 p-5">
+        <div className="flex justify-between"><h2 className="text-xl font-black">Cobrar esta ronda</h2><button onClick={closePayment} aria-label="Cerrar pago">×</button></div>
+        <p className="text-sm text-slate-300">Simulación local. La ronda se registra y envía cuando el saldo queda cubierto.</p>
+        <strong className="block text-3xl text-emerald-300">{money(draftTotal)}</strong>
+        {stagedPayments.length > 0 && <div className="rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm"><p>Abonos preparados: {money(draftTotal - remaining)}</p><strong>Saldo: {money(remaining)}</strong><p className="mt-1 text-xs text-slate-400">Se registrarán juntos al completar el saldo; cancelar descarta estos abonos.</p></div>}
+        <div role="group" aria-label="Método de pago" className="grid grid-cols-2 gap-2">{([['cash', 'Efectivo'], ['qr', 'QR'], ['card', 'Tarjeta'], ['mixed', 'Mixto']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={method === value} disabled={value === 'mixed' && stagedPayments.length > 0} onClick={() => { setMethod(value); setReceived(''); operation.current = null }} className={`min-h-11 rounded-xl border px-3 text-sm font-bold disabled:opacity-40 ${method === value ? 'border-emerald-300 bg-emerald-300 text-slate-950' : 'border-slate-600 bg-slate-950 text-slate-200'}`}>{label}</button>)}</div>
+        {method !== 'mixed' && <label className="block text-sm">Monto de este abono<input aria-label="Monto de este abono" type="number" min="0.01" max={remaining} step="0.01" value={partialAmount} onChange={event => setPartialAmount(event.target.value)} placeholder={String(remaining)} className="mt-1 w-full rounded-xl bg-slate-950 p-3" /></label>}
+        {method === 'mixed' && <div className="grid grid-cols-3 gap-2">{([['Efectivo', cash, setCash], ['QR', qr, setQr], ['Tarjeta', card, setCard]] as const).map(([label, value, setter]) => <label key={label} className="text-xs">{label}<input type="number" min="0" step="0.01" value={value} onChange={event => { setter(event.target.value); operation.current = null }} className="mt-1 w-full rounded-lg bg-slate-950 p-2" /></label>)}</div>}
+        {cashDue > 0 && <label className="block text-sm">Efectivo recibido<input aria-label="Efectivo recibido" type="number" min="0" step="0.01" value={received} onChange={event => { setReceived(event.target.value); operation.current = null }} placeholder={String(cashDue)} className="mt-1 w-full rounded-xl bg-slate-950 p-3" /><small className="text-slate-400">Cambio: {money(Math.max(0, receivedAmount - cashDue))}</small></label>}
+        {currentAmount < remaining && method !== 'mixed' ? <button disabled={!validPayment || processing} onClick={stagePartialPayment} className="w-full rounded-xl bg-amber-300 p-3 font-black text-slate-950 disabled:opacity-40">PREPARAR ABONO · {money(currentAmount)}</button> : <button disabled={!validPayment || processing} onClick={submitPayment} className="w-full rounded-xl bg-emerald-400 p-3 font-black text-slate-950 disabled:opacity-40">{processing ? 'Procesando pago...' : 'CONFIRMAR PAGO Y ENVIAR A BARRA'}</button>}
+      </section>
+    </div>}
   </div>
 }

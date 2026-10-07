@@ -7,6 +7,7 @@ import {
   Tablet,
   Laptop,
   Maximize2,
+  Minimize2,
   RotateCcw,
   Shield,
 } from 'lucide-react'
@@ -42,12 +43,15 @@ export function StudioShell({
   currentRole: string
   onSelectRole: (role: string) => void
 }) {
-  const { branding, resetBranding, setIsDrawerOpen } = useStudioBranding()
+  const { branding, setBranding, resetBranding, setIsDrawerOpen } = useStudioBranding()
   const [viewport, setViewport] = useState<ViewportMode>('responsive')
   const [isTeamMode, setIsTeamMode] = useState(true)
   const [datasetMode, setDatasetMode] = useState<DemoDatasetMode>(() => new URLSearchParams(window.location.search).get('data') === 'empty' ? 'empty' : 'full')
   const [datasetResetKey, setDatasetResetKey] = useState(0)
+  const [pendingDataset, setPendingDataset] = useState<DemoDatasetMode | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const shellRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
   const publicTemplate = getPublicTemplate(templateId)
@@ -88,15 +92,35 @@ export function StudioShell({
       if (event.data?.type === 'PACHAX_PREVIEW_READY') {
         sendSync()
       }
+      if (event.data?.type === 'PACHAX_STUDIO_BRANDING' && event.source === iframeRef.current?.contentWindow && event.data.templateId === templateId) {
+        setBranding({ ...branding, ...event.data.branding })
+      }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [sendSync])
+  }, [sendSync, setBranding, branding, templateId])
 
-  const iframeSrc = `/demo/${templateId}?embed=studio&role=${encodeURIComponent(currentRole)}&data=${datasetMode}${templateId === 'restaurant' ? `&mode=${isTeamMode ? 'team' : 'simulated_role'}` : ''}`
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === shellRef.current)
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+  }, [])
+
+  const changeDataset = (next: DemoDatasetMode) => {
+    if (next !== datasetMode) setPendingDataset(next)
+  }
+  const confirmDataset = () => {
+    if (!pendingDataset) return
+    setDatasetMode(pendingDataset)
+    setDatasetResetKey(key => key + 1)
+    setPendingDataset(null)
+  }
+
+  // Stable URL: role, branding and scenario changes travel through postMessage.
+  const iframeSrc = `/demo/${templateId}?embed=studio`
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
+    <div ref={shellRef} className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
       {/* Studio Top Control Bar */}
       <header className="sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 px-3 sm:px-6 py-2.5 shadow-md">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -166,7 +190,7 @@ export function StudioShell({
             <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
               <span className="text-[11px] font-bold text-slate-400 px-1.5 hidden md:inline">Dataset:</span>
               <button
-                onClick={() => setDatasetMode('empty')}
+                onClick={() => changeDataset('empty')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   datasetMode === 'empty'
                     ? 'bg-amber-500 text-slate-950 shadow-xs'
@@ -176,7 +200,7 @@ export function StudioShell({
                 Vacío
               </button>
               <button
-                onClick={() => setDatasetMode('full')}
+                onClick={() => changeDataset('full')}
                 className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
                   datasetMode === 'full'
                     ? 'bg-teal-500 text-slate-950 shadow-xs'
@@ -213,7 +237,7 @@ export function StudioShell({
 
           {/* Lado Derecho: Viewports reales y Personalización */}
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => { setViewport('responsive'); void previewRef.current?.requestFullscreen() }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800" title="Ampliar vista previa"><Maximize2 className="inline h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Pantalla completa</span></button>
+            <button type="button" onClick={() => { if (isFullscreen) void document.exitFullscreen(); else { setViewport('responsive'); void shellRef.current?.requestFullscreen() } }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800" title={isFullscreen ? 'Salir de pantalla completa' : 'Ampliar vista previa'}>{isFullscreen ? <Minimize2 className="inline h-4 w-4 sm:mr-1" /> : <Maximize2 className="inline h-4 w-4 sm:mr-1" />}<span className="hidden sm:inline">{isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}</span></button>
             {/* Viewport Toggles (dimensiones físicas del iframe) */}
             <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
               {(Object.keys(VIEWPORT_CONFIGS) as ViewportMode[]).map((key) => {
@@ -297,6 +321,7 @@ export function StudioShell({
 
       {/* Panel de Personalización Lateral */}
       <BrandingDrawer />
+      {pendingDataset && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-4"><section role="dialog" aria-modal="true" aria-label="Cambiar escenario" className="w-full max-w-md rounded-2xl border border-amber-300/30 bg-slate-900 p-6 shadow-2xl"><h2 className="text-xl font-bold">Cambiar escenario</h2><p className="mt-2 text-sm text-slate-300">Cambiar de escenario reiniciará los datos de esta simulación.</p><div className="mt-6 flex justify-end gap-2"><button onClick={() => setPendingDataset(null)} className="rounded-xl border border-slate-600 px-4 py-2 text-sm">Cancelar</button><button onClick={confirmDataset} className="rounded-xl bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950">Cambiar escenario</button></div></section></div>}
     </div>
   )
 }

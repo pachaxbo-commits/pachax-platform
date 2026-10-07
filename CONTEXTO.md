@@ -1,5 +1,13 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: QA final de Studio y Nightclub, integración bloqueada (07/10/2026)
+
+- **Rama**: `fix/admin-studio-production-readiness`, base `origin/main` `1da75a18904dcaea52556eb7ebb6c38718273d6b`. `main` no se modificó.
+- **Studio**: Admin monta `StudioApp` directamente y conserva la protección fail-closed existente; `/studio` independiente mantiene su propia comprobación de acceso. El iframe canónico `/demo/{template}?embed=studio` tiene URL estable: los cambios de rol, branding y escenario se sincronizan por `PACHAX_STUDIO_SYNC`. El cambio de escenario requiere confirmación dentro de la app. Studio en Admin dispone del ancho completo; fullscreen incluye controles y modales de Studio.
+- **Nightclub**: branding de Studio tiene precedencia sobre el dataset sandbox y la configuración interna devuelve sus cambios al panel externo. Eliminación de zona/mesa y devoluciones usan diálogos de la app. El POS muestra botones de pago y exige importe recibido para efectivo. Se agregó pago dividido en dos abonos para una ronda; ambos se registran juntos al cubrir el importe, con prueba de Bs 40 + Bs 22 = Bs 62, stock único y devolución de ambos registros.
+- **Pruebas aprobadas**: typecheck, build, ESLint focal, `git diff --check`, Platform (46), Platform security (30), Restaurant (43), Distribution (55), Nightclub (33) y `test:admin-studio-browser` en 390×844, 768×1024, 1366×768 y 1920×1080. QA local confirmó roles sin recarga del iframe, identidad/zona/mesa persistentes, branding visible y botón de pago efectivo bloqueado sin importe recibido.
+- **Bloqueos para main/Production**: Nightclub todavía requiere cobrar antes de enviar la ronda a Barra. El recorrido solicitado es enviar → preparar → cobrar, con abonos reflejados inmediatamente en la cuenta; el pago dividido actual solo registra los abonos al completar el total. El almacenamiento de Restaurant Studio aún comparte claves `pachax:restaurant-demo:*` con la demo pública y necesita aislamiento/reset verificado. No se verificó la permanencia de fullscreen con todas las operaciones ni el flujo completo autenticado en Preview/Production. No declarar apto para presentación ni integrar a `main` hasta resolver y probar estos puntos.
+
 ## Checkpoint: reparación de Admin y Studio para producción (07/10/2026)
 
 - **Base y rama**: `origin/main` `1da75a1`, rama `fix/admin-studio-production-readiness`; no se modificó `main` durante la implementación.

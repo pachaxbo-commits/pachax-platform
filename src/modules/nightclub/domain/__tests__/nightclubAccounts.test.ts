@@ -44,6 +44,28 @@ test('segunda ronda conserva pago y pedido independientes', () => {
   assert.equal(nightclubBalance(data.accounts[0]), 0)
 })
 
+test('dos abonos en efectivo registran Bs 40 + Bs 22 sin duplicar ronda, caja ni inventario', () => {
+  const { data: initial, id } = setup()
+  initial.products.push({ id: 'water', name: 'Agua', category: 'Bebidas', price: 12, preparationArea: 'Directo', stockUnits: 10, inventoryMode: 'unit', recipe: [{ inventoryId: 'water-stock', quantity: 1 }] })
+  initial.inventory.push({ id: 'water-stock', name: 'Agua', unit: 'unit', current: 10, minimum: 0 })
+  const payment = { method: 'mixed', amount: 62, installments: [{ method: 'cash', amount: 40, received: 40 }, { method: 'cash', amount: 22, received: 22 }] }
+  const next = settleNightclubRound(initial, id, [{ productId: 'beer', quantity: 2 }, { productId: 'water', quantity: 1 }], payment, 'Caja', at, 'split-cash-62')
+  assert.equal(next.accounts[0].rounds.length, 1)
+  assert.deepEqual(next.accounts[0].payments.map(item => item.amount), [40, 22])
+  assert.equal(nightclubBalance(next.accounts[0]), 0)
+  assert.equal(nightclubCashSummary(next).cashSales, 62)
+  assert.equal(next.inventory.find(item => item.id === 'beer-stock').current, 18)
+  assert.equal(next.inventory.find(item => item.id === 'water-stock').current, 9)
+  const retry = settleNightclubRound(next, id, [{ productId: 'beer', quantity: 2 }, { productId: 'water', quantity: 1 }], payment, 'Caja', at, 'split-cash-62')
+  assert.equal(retry, next)
+  const refunded = refundNightclubRound(next, id, next.accounts[0].rounds[0].id, 'Dueño', 'Prueba reversible', at)
+  assert.equal(refunded.accounts[0].payments.filter(item => item.status === 'refunded').length, 2)
+  assert.equal(nightclubCashSummary(refunded).cashSales, 0)
+  assert.equal(refunded.inventory.find(item => item.id === 'beer-stock').current, 20)
+  assert.equal(refunded.inventory.find(item => item.id === 'water-stock').current, 10)
+  assert.throws(() => settleNightclubRound(initial, id, [{ productId: 'beer', quantity: 2 }, { productId: 'water', quantity: 1 }], { ...payment, installments: [{ method: 'cash', amount: 40, received: 40 }] }, 'Caja', at, 'incomplete'), /cubrir exactamente/)
+})
+
 test('pedido en barra sin nombre se cobra sin crear cliente; nombre opcional se conserva', () => {
   const { data: initial, id: tableAccountId } = setup()
   let data = openNightclubAccount(initial, { type: 'customer', displayName: '' }, 'Mesero', at)

@@ -157,8 +157,15 @@ button {
 /* Nightclub owns a dark, tenant-themed surface inside the global light app. */
 .nightclub-shell {
   color-scheme: dark;
-  background: #050c13;
+  background: var(--night-background, #050c13);
 }
+
+.nightclub-shell > div > aside { background: var(--night-sidebar, #07111a); }
+.nightclub-shell .bg-amber-300 { background-color: var(--night-gold, #d8a84e) !important; }
+.nightclub-shell .text-amber-300 { color: var(--night-gold, #d8a84e) !important; }
+.nightclub-shell .bg-emerald-400 { background-color: var(--night-positive, #35d0a0) !important; }
+.nightclub-shell .text-emerald-300 { color: var(--night-positive, #35d0a0) !important; }
+.nightclub-shell [class*="bg-[#0d1720]"] { background-color: var(--night-surface, #0d1720) !important; }
 
 .nightclub-shell input,
 .nightclub-shell select,

@@ -4,6 +4,7 @@ import type { NightclubDataset } from '../domain/nightclubAccounts'
 import { nightclubAccountTableId, nightclubBalance, nightclubPaidTotal, normalizeNightclubRole } from '../domain/nightclubAccounts'
 import type { NightclubHistoryFilters } from '../domain/nightclubHistory'
 import { nightclubBusinessShifts, selectNightclubHistory } from '../domain/nightclubHistory'
+import { NightclubRefundDialog } from './NightclubRefundDialog'
 
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const when = (at: string) => new Date(at).toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' })
@@ -18,6 +19,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
   const [filters, setFilters] = useState<NightclubHistoryFilters>(() => initialFilters(data.shift?.id || 'all'))
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [view, setView] = useState<'accounts' | 'products'>('accounts')
+  const [refundTarget, setRefundTarget] = useState<{ accountId: string; roundId: string } | null>(null)
   const viewerRole = normalizeNightclubRole(role)
   const canSeePayments = viewerRole !== 'bar' && viewerRole !== 'inventory'
   const canRefund = viewerRole === 'owner' || viewerRole === 'admin'
@@ -27,10 +29,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
   const productOptions = [...new Map(data.accounts.flatMap(account => account.rounds.flatMap(batch => batch.items.map(item => [item.productId, item.name] as const)))).entries()]
   const categoryOptions = [...new Set(data.accounts.flatMap(account => account.rounds.flatMap(batch => batch.items.map(item => item.category).filter((category): category is string => !!category))))]
   const setFilter = (key: keyof NightclubHistoryFilters, value: string) => setFilters(previous => ({ ...previous, [key]: value }))
-  const refund = (accountId: string, roundId: string) => {
-    const reason = window.prompt('Motivo del reembolso (mínimo 4 caracteres)')
-    if (reason) onRefundRound(accountId, roundId, reason)
-  }
+  const refund = (accountId: string, roundId: string) => setRefundTarget({ accountId, roundId })
 
   return <div className="space-y-4">
     <div className="flex flex-wrap gap-2">
@@ -66,6 +65,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
       <h3 className="mt-6 text-sm font-bold uppercase tracking-wider text-slate-300">Rondas</h3><div className="mt-2 space-y-2">{selected.account.rounds.map(batch => <div key={batch.id} className="rounded-lg bg-slate-900 p-3 text-sm"><div className="flex justify-between gap-2"><strong>#{batch.sequence} · {batch.authorization === 'courtesy' ? 'Cortesía' : batch.authorization === 'payment' ? 'Pagado' : 'Pendiente de regularización'}</strong><span>{batch.status}</span></div><p className="mt-1 text-xs text-slate-400">{batch.items.map(item => `${item.quantity}× ${item.name}`).join(' · ')}</p>{canRefund && batch.authorization === 'payment' && batch.status !== 'cancelled' && batch.status !== 'delivered' && <button onClick={() => refund(selected.account.id, batch.id)} className="mt-2 rounded-lg border border-amber-400 px-3 py-2 text-xs font-bold text-amber-200">Reembolsar ronda</button>}</div>)}</div>
       <h3 className="mt-6 text-sm font-bold uppercase tracking-wider text-slate-300">Cronología</h3><ol className="mt-3 space-y-2 border-l border-slate-700 pl-4">{selected.entries.filter(entry => canSeePayments || entry.type !== 'payment' && entry.type !== 'refund').filter(entry => viewerRole !== 'bar' || !entry.productId || entry.preparationArea === 'Barra').map(entry => <li key={entry.id} className="relative rounded-lg bg-slate-900 p-3 before:absolute before:-left-[21px] before:top-5 before:h-2 before:w-2 before:rounded-full before:bg-amber-400"><span className="text-[11px] text-slate-400">{when(entry.at)} · {entry.actor}</span><strong className="mt-1 block text-sm">{entry.text}{entry.productName ? ` · ${entry.quantity}× ${entry.productName}` : ''}</strong>{entry.reason && <p className="mt-1 text-xs text-slate-400">Motivo: {entry.reason}</p>}{entry.amount !== undefined && canSeePayments && <span className="mt-1 block text-xs text-emerald-300">{money(entry.amount)}</span>}</li>)}</ol>
     </aside></div>}
+    {refundTarget && <NightclubRefundDialog onCancel={() => setRefundTarget(null)} onConfirm={reason => { onRefundRound(refundTarget.accountId, refundTarget.roundId, reason); setRefundTarget(null) }} />}
   </div>
 }
 
