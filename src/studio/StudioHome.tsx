@@ -42,13 +42,13 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
               PACHAX Studio
             </span>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-              Dev & Preview Shell
+              Sandbox interno
             </span>
           </div>
 
           <div className="flex items-center gap-4 text-xs">
             <span className="text-slate-400 hidden sm:inline">
-              Entorno interno de desarrollo • Sin Firebase
+              Simulación local • Sin operaciones en tenants reales
             </span>
             <a
               href="/demo"
@@ -72,7 +72,7 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
           </p>
           <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-xs font-semibold text-amber-900">
             <Shield className="w-3.5 h-3.5 text-amber-600" />
-            <span>Modo Equipo predeterminado: acceso completo a todos los módulos sin login</span>
+            <span>Acceso de Platform Operator verificado; operaciones ficticias aisladas</span>
           </div>
         </div>
 
@@ -81,10 +81,11 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
           {templates.map((t) => {
             const Icon = t.icon
             return (
-              <div
+              <button
+                type="button"
                 key={t.id}
                 onClick={() => onSelectTemplate(t.id)}
-                className="bg-white rounded-2xl border border-slate-200/90 hover:border-slate-400 p-6 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between group"
+                className="bg-white rounded-2xl border border-slate-200/90 hover:border-slate-400 p-6 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between group text-left"
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
@@ -127,7 +128,7 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
                   <span>Abrir en Studio (Modo Equipo)</span>
                   <ArrowRight className="w-4 h-4 transform group-hover:translate-x-1 transition" />
                 </div>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -139,9 +140,7 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
             <span>Celular (360×800, 390×844), Tablet (768×1024), Laptop (1366×768) y Desktop.</span>
           </div>
           <div className="flex items-center gap-3 text-slate-400 font-mono text-[11px]">
-            <span>feat/pachax-studio</span>
-            <span>•</span>
-            <span>branch ready</span>
+            <span>Sandbox PACHAX</span>
           </div>
         </div>
       </main>

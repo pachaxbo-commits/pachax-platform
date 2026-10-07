@@ -25,7 +25,7 @@ async function executeNightclubCommand(db, request) {
     if (!hasPermission(tenant.data(), member.data(), permission)) throw new HttpsError('permission-denied','Permiso revocado.')
     if (!member.data().branchIds?.includes(branchId)) throw new HttpsError('permission-denied','Sucursal no autorizada.')
     if (type === 'advanceRound' && !['owner', 'admin', 'bar'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Barra puede preparar pedidos.')
-    if (type === 'deliverRound' && !['owner', 'admin', 'bar'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Barra puede entregar pedidos.')
+    if (type === 'deliverRound' && !['owner', 'admin', 'waiter', 'service'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Servicio puede entregar pedidos.')
     if (type === 'finishOccupancy' && !['owner', 'admin', 'waiter'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Servicio puede cerrar mesas.')
     if (type === 'refundRound' && !['owner', 'admin'].includes(member.data().roleId)) throw new HttpsError('permission-denied','Solo Administración puede reembolsar.')
     const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now })

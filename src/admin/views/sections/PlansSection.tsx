@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Save, Trash2, CheckCircle2, AlertCircle, Globe, EyeOff, Loader2 } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { TemplateTierPlan } from '../../types'
@@ -26,6 +26,10 @@ export function PlansSection() {
     : plansForTemplate[0]
 
   const [formData, setFormData] = useState<TemplateTierPlan | null>(activeEditingPlan || null)
+
+  useEffect(() => {
+    queueMicrotask(() => setFormData(activeEditingPlan ? JSON.parse(JSON.stringify(activeEditingPlan)) : null))
+  }, [activeEditingPlan])
 
   const handleSelectPlan = (plan: TemplateTierPlan) => {
     setEditingPlanId(plan.id)
@@ -55,6 +59,7 @@ export function PlansSection() {
     setSaveFeedback(null)
     setSaveError(null)
     const nextStatus = formData.status === 'published' ? 'draft' : 'published'
+    if (nextStatus === 'published' && !window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este plan debe mostrarse públicamente con los importes actuales?')) return
     const res = await togglePublishPlan(formData.id, nextStatus)
     setIsProcessing(false)
     if (res.success) {

@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Integración semántica de cambios de Darío sobre main canónico (07/10/2026)
+
+- `cambios-dario` integra `origin/main` `16daabf` sin reemplazar el flujo canónico de ronda cargada a cuenta, cobro posterior y pagos parciales. Se conserva el trabajo local de cierre de turno con sobrante e historial de cierres.
+- Barra avanza `pending → preparing → ready`; Servicio (`waiter`/`service`) confirma `ready → delivered`. Owner/Admin mantienen la supervisión ya permitida. El rol `bar` no puede entregar ni en la vista ni en el controlador local ni en el comando tenant. Los productos `Directo` no entran en la cola de Barra.
+- Después de integrar: Nightclub 43/43, Platform 47/47, Restaurant 44/44, prueba transaccional Nightclub contra emuladores `demo-pachax-platform`, typecheck y build de emulador aprobados. El build productivo local requiere seis variables Firebase no configuradas; lint global mantiene errores ajenos a este cambio. Sin despliegue a Firebase.
+
 ## Cierres de turno con sobrante e historial Nightclub (07/10/2026)
 
 - Sobre `cambios-dario` con `origin/main` integrado, Caja sigue impidiendo cerrar ante un faltante y ahora permite cerrar con caja cuadrada o sobrante. El sobrante se guarda como diferencia de arqueo, sin sumar ventas, entradas ni ganancia; el cálculo de efectivo esperado permanece intacto.
@@ -11,6 +17,59 @@
 - En `cambios-dario`, sincronizada por avance directo con `origin/main` `1da75a1`, Caja permite cerrar únicamente si el efectivo contado coincide con el esperado en centavos. La pantalla muestra esperado, contado, diferencia y faltante/sobrante; un campo vacío o inválido mantiene deshabilitado el cierre.
 - `closeNightclubShift` recalcula el esperado antes de cerrar y rechaza diferencias sin cambiar turno ni auditoría. El comando tenant `closeShift` calcula el efectivo esperado desde el fondo y los movimientos de efectivo del turno dentro de la transacción y aplica la misma restricción. No se alteraron ventas, movimientos, apertura ni otros módulos.
 - Pruebas Nightclub 37/37, prueba transaccional `nightclubOrders` en emuladores `demo-pachax-platform`, build de emulador, sintaxis backend y ESLint focal aprobados. El build de producción se detiene por seis variables Firebase aún no configuradas; lint global conserva errores existentes ajenos al cambio.
+## Checkpoint: Integración final de Codex, Colaboradores y QA de Producción (07/10/2026)
+
+- **Rama**: `main`, integrada desde `integrate/final-studio-team-20261007` con merge commit semántico. Se preservaron intactas las ramas remotas de colaboradores (`fix/admin-studio-production-readiness` y `cambios-dario`).
+- **Integración semántica de colaboradores**:
+  - **Codex**: Arquitectura de comanda desacoplada del pago en Nightclub (`sendNightclubRound` con autorización de cargo en cuenta, preparación y entrega en barra sin pago forzado previo, solicitud de cuenta mediante `requestNightclubBill`, pagos parciales múltiples acumulados en `account.payments`, actualización de Caja y liberación automática de mesa solo con saldo Bs 0 y rondas entregadas). Aislamiento de almacenamiento de Restaurant Studio con prefijo `pachax:restaurant-studio:` respecto a la demo pública `pachax:restaurant-demo:`. Estabilidad de Studio con iframe persistente y sincronización bidireccional por `PACHAX_STUDIO_SYNC`.
+  - **Darío**: Capacidad de botellas en litros (`L`, factor 1000 ml) y mililitros, validación de precios de venta en inventario de botellas, desglose de costos por unidad de presentación (`/unidad`, `/botella`, `/L`), desglose claro en resumen de Caja con tarjetas independientes para ventas en efectivo, QR y tarjeta.
+  - **Resolución de conflictos**: `src/modules/nightclub/views/NightclubCash.tsx` unificó el modal `NightclubAccountPayment` y la lista de cuentas por cobrar de Codex con las tarjetas y subtítulos claros de métodos de pago de Darío, sin descartar líneas operativas de ningún colaborador.
+- **QA Integral Automatizado y Manual**:
+  - `tests/nightclubFullFlowQA.test.ts`: Flujo completo validado de punta a punta:
+    1. Dataset Vacío -> Configuración (WE ON THE NIGHT QA, Zonas, Mesas VIP1, Cerveza Bs 25 Barra, Agua Bs 12 Directo).
+    2. Apertura de Turno con fondo Bs 200.
+    3. Reserva VIP1 (Cliente Demo, 4 personas).
+    4. Confirmación de llegada y apertura automática de cuenta en Mesa VIP1.
+    5. POS: Envío de ronda (2 Cervezas + 1 Agua = Bs 62) sin exigir pago previo.
+    6. Barra: Recepción exclusiva de ítems de barra (2 Cervezas); el Agua va por entrega Directa.
+    7. Descuento exacto de inventario (Cervezas: 50 -> 48; Agua: 30 -> 29).
+    8. Barra avanza: Pendiente -> Preparando -> Listo; Servicio marca Entregado.
+    9. Cuentas: Solicitud de cuenta (`bill_requested`).
+    10. Caja: Pago parcial en efectivo de Bs 40 (recibido Bs 50, cambio Bs 10, saldo restante Bs 22). Idempotencia probada sin dobles cobros.
+    11. Caja: Segundo pago por QR de Bs 22 (saldo exacto Bs 0).
+    12. Cierre automático de cuenta y liberación de Mesa VIP1 a estado disponible.
+    13. Trazabilidad completa en Historial de cuenta.
+    14. Reportes de Caja y Rentabilidad: Venta total registrada exactamente en Bs 62 (ni Bs 102 ni Bs 124), efectivo esperado Bs 240 (200 fondo + 40 ventas), ventas QR Bs 22.
+    15. Protección fail-closed contra cobros sobre cuentas cerradas.
+  - Browser QA (`scripts/test-admin-studio-browser.mjs`): Probado en 390×844, 768×1024, 1366×768 y 1920×1080. Conmutación de los 5 roles en Nightclub Empty sin parpadeos, recargas de iframe ni salida del modo fullscreen.
+- **Firebase Security & Rules Audit**:
+  - Reglas de Firestore (`scripts/build-rules.mjs` -> `firebase/firestore.rules`) y Cloud Storage (`firebase/storage.rules`) auditadas.
+  - Aislamiento multi-tenant estricto comprobado, denegación por defecto fail-closed, claims requeridos para platformOperators, colecciones borrador invisibles para clientes públicos, Storage denegado por defecto.
+  - Reglas existentes validadas al 100% (30/30 en `test:platform-security`, 42/42 en `test:tenant-core`). No se requirieron cambios en reglas, por lo que NO se realiza despliegue a Firebase conforme a los criterios de seguridad.
+- **Suites de Pruebas Ejecutadas**:
+  - `npm run typecheck`: 0 errores (`tsc -b`).
+  - `npm run build`: Éxito total en 4.79s (`dist/` generado y validado).
+  - `npm run test:nightclub`: 36/36 tests aprobados.
+  - `npm run test:restaurant`: 44/44 tests aprobados.
+  - `npm run test:platform`: 47/47 tests aprobados (incluyendo QA de ciclo de vida e idempotencia).
+  - `npm run test:platform-security`: 30/30 comprobaciones en emuladores aprobadas.
+- **Veredicto**: APTO PARA PRESENTACIÓN.
+
+## Checkpoint: QA final de Studio y Nightclub, integración bloqueada (07/10/2026)
+
+- **Rama**: `fix/admin-studio-production-readiness`, base `origin/main` `1da75a18904dcaea52556eb7ebb6c38718273d6b`. `main` no se modificó.
+- **Studio**: Admin monta `StudioApp` directamente y conserva la protección fail-closed existente; `/studio` independiente mantiene su propia comprobación de acceso. El iframe canónico `/demo/{template}?embed=studio` tiene URL estable: los cambios de rol, branding y escenario se sincronizan por `PACHAX_STUDIO_SYNC`. El cambio de escenario requiere confirmación dentro de la app. Studio en Admin dispone del ancho completo; fullscreen incluye controles y modales de Studio.
+- **Nightclub**: branding de Studio tiene precedencia sobre el dataset sandbox y la configuración interna devuelve sus cambios al panel externo. Eliminación de zona/mesa y devoluciones usan diálogos de la app. El POS muestra botones de pago y exige importe recibido para efectivo. Se agregó pago dividido en dos abonos para una ronda; ambos se registran juntos al cubrir el importe, con prueba de Bs 40 + Bs 22 = Bs 62, stock único y devolución de ambos registros.
+- **Pruebas aprobadas**: typecheck, build, ESLint focal, `git diff --check`, Platform (46), Platform security (30), Restaurant (43), Distribution (55), Nightclub (33) y `test:admin-studio-browser` en 390×844, 768×1024, 1366×768 y 1920×1080. QA local confirmó roles sin recarga del iframe, identidad/zona/mesa persistentes, branding visible y botón de pago efectivo bloqueado sin importe recibido.
+- **Bloqueos para main/Production**: Nightclub todavía requiere cobrar antes de enviar la ronda a Barra. El recorrido solicitado es enviar → preparar → cobrar, con abonos reflejados inmediatamente en la cuenta; el pago dividido actual solo registra los abonos al completar el total. El almacenamiento de Restaurant Studio aún comparte claves `pachax:restaurant-demo:*` con la demo pública y necesita aislamiento/reset verificado. No se verificó la permanencia de fullscreen con todas las operaciones ni el flujo completo autenticado en Preview/Production. No declarar apto para presentación ni integrar a `main` hasta resolver y probar estos puntos.
+
+## Checkpoint: reparación de Admin y Studio para producción (07/10/2026)
+
+- **Base y rama**: `origin/main` `1da75a1`, rama `fix/admin-studio-production-readiness`; no se modificó `main` durante la implementación.
+- **Causas**: el entrypoint de Studio bloqueaba todo build productivo por una variable de entorno; la sincronización Admin sustituía plantillas oficiales por `[]` ante una colección vacía, y el formulario asumía que siempre existía una selección. Las métricas y empresas podían usar lecturas directas a Firestore tras un error de `platformGateway`, ocultando el fallo real.
+- **Corrección**: Studio desplegado exige la misma autorización fail-closed de `/admin` (Firebase claims y `platformGateway`). Las plantillas oficiales permanecen visibles con overrides remotos; planes, extras y media muestran defaults administrativos cuando sus colecciones están vacías. En la web pública los planes y extras publicados siguen en `[]` ante snapshots vacíos. La inicialización comercial requiere confirmación, rol owner/admin y crea solo documentos faltantes mediante transacciones; precios de planes y extras quedan en draft, mientras la cotización a medida sin importe permanece publicada. Las mutaciones de planes dependen del gateway, sin fallback directo.
+- **Studio**: las cuatro opciones y roles proceden de `PUBLIC_TEMPLATES` y `BusinessTemplateRegistry`. El simulador usa experiencias canónicas de `DemoRuntime`; Nightclub Studio separa su almacenamiento local del demo público y ofrece un dataset realmente nuevo sin zonas ni mesas, además del negocio completo. Nightclub permite configurar identidad, imágenes, colores, zonas, mesas, productos y turno con el controlador local. Hay acción Restablecer demo.
+- **Verificaciones locales**: typecheck, build, `test:platform` (46), `test:nightclub` (32), `test:restaurant` (43), `test:distribution` (55) y `test:platform-security` (30) aprobados. `scripts/test-admin-studio-browser.mjs` revisó 390×844, 768×1024, 1366×768 y 1920×1080 sin blancos, excepciones ni overflow crítico; abrió Nightclub Empty → Configuración. ESLint focal y `git diff --check` aprobados. Pendiente QA autenticado de Admin y Studio en el despliegue productivo, y prueba de operación profunda de Nightclub tras despliegue.
 
 ## Checkpoint: Restauración de la vitrina pública y Coverflow (06/10/2026)
 

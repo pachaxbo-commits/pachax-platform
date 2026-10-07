@@ -35,6 +35,11 @@ export function createEmptyNightclubDataset(): NightclubDataset {
   return { zones: structuredClone(zones), tables: structuredClone(tables), products: [], accounts: [], shift: null, customers: [], reservations: [], inventory: [], inventoryMovements: [], cashMovements: [], audit: [], staff: [], branding: structuredClone(branding) }
 }
 
+/** A genuinely new club for Studio onboarding, with no preset floor plan. */
+export function createPristineNightclubDataset(): NightclubDataset {
+  return { ...createEmptyNightclubDataset(), zones: [], tables: [] }
+}
+
 export function createFullNightclubDataset(): NightclubDataset {
   const fullTables = structuredClone(tables)
   const accountOne: NightclubAccount = { id: 'night-account-vip-1', serviceTarget: { type: 'table', tableId: 'night-table-vip-1' }, tableId: 'night-table-vip-1', customerId: 'night-customer-1', openedAt: '2026-09-25T21:10:00Z', openedBy: 'Servicio Valeria', status: 'open', subtotal: 680, payments: [], rounds: [

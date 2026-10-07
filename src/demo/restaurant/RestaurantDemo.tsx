@@ -1,3 +1,4 @@
+import { restaurantStorage, restaurantStorageKey } from './restaurantStorage'
 import { useEffect, useState, useRef } from 'react'
 import {
   RESTAURANT_CATEGORIES,
@@ -45,7 +46,7 @@ const THEME_KEY = 'pachax:restaurant-demo:theme:v1'
 
 function readSaved<T>(key: string, fallback: T): T {
   try {
-    const value = localStorage.getItem(key)
+    const value = restaurantStorage.getItem(key)
     return value ? (JSON.parse(value) as T) : fallback
   } catch {
     return fallback
@@ -118,29 +119,29 @@ function migrateWineMeasurements(movements: RestaurantStockMovement[], shift: Sh
 }
 
 function loadInitialState(datasetMode: DemoDatasetMode) {
-  const savedMode = localStorage.getItem(`${STORAGE_KEY}:dataset-mode`)
+  const savedMode = restaurantStorage.getItem(`${STORAGE_KEY}:dataset-mode`)
   if ((savedMode && savedMode !== datasetMode) || (datasetMode === 'empty' && !savedMode)) {
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
+    for (const key of restaurantStorage.keys()) {
+      if (key.startsWith('pachax:restaurant-demo:')) restaurantStorage.removeItem(key)
     }
   }
-  const hasCurrent = ['2', '3', '4', '5', '6'].includes(localStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
-  const hasLegacy = localStorage.getItem(`${LEGACY_KEY}:orders`) !== null
+  const hasCurrent = ['2', '3', '4', '5', '6'].includes(restaurantStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
+  const hasLegacy = restaurantStorage.getItem(`${LEGACY_KEY}:orders`) !== null
   if (!hasCurrent && !hasLegacy) {
     const dataset = createRestaurantDataset(datasetMode)
     const linked = reconcileTableOrders(dataset.orders, dataset.tables)
     const state = { ...linked, sectors: dataset.sectors, products: dataset.products, shift: dataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
     for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
-      localStorage.setItem(`${STORAGE_KEY}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
+      restaurantStorage.setItem(`${STORAGE_KEY}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
     }
-    localStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
-    localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
-    localStorage.setItem(`${STORAGE_KEY}:seeded`, 'false')
+    restaurantStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+    restaurantStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
+    restaurantStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
+    restaurantStorage.setItem(`${STORAGE_KEY}:seeded`, 'false')
     return state
   }
   const source = hasCurrent ? STORAGE_KEY : LEGACY_KEY
-  const hadOrders = localStorage.getItem(`${source}:orders`) !== null
+  const hadOrders = restaurantStorage.getItem(`${source}:orders`) !== null
   const savedOrders = readSaved<Order[]>(`${source}:orders`, []).map(order => order.items.length > 0 && order.items.every(item => item.quantity === 0) && order.paymentStatus !== 'paid' && order.status !== 'cancelled' ? { ...order, status: 'cancelled' as const, accountStatus: 'closed' as const, cancelledReason: 'Todos los productos cancelados' } : order)
   const savedTables = hadOrders
     ? readSaved<RestaurantTable[]>(`${source}:tables`, INITIAL_TABLES)
@@ -180,21 +181,21 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
   if (!hasCurrent) {
     for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
       const storageName = key === 'stockMovements' ? 'stock-movements' : key
-      localStorage.setItem(`${STORAGE_KEY}:${storageName}`, JSON.stringify(state[key]))
+      restaurantStorage.setItem(`${STORAGE_KEY}:${storageName}`, JSON.stringify(state[key]))
     }
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
-    localStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
+    restaurantStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
+    restaurantStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
   }
   if (hasCurrent) {
-    localStorage.setItem(`${STORAGE_KEY}:orders`, JSON.stringify(state.orders))
-    localStorage.setItem(`${STORAGE_KEY}:tables`, JSON.stringify(state.tables))
-    localStorage.setItem(`${STORAGE_KEY}:sectors`, JSON.stringify(state.sectors))
-    localStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
+    restaurantStorage.setItem(`${STORAGE_KEY}:orders`, JSON.stringify(state.orders))
+    restaurantStorage.setItem(`${STORAGE_KEY}:tables`, JSON.stringify(state.tables))
+    restaurantStorage.setItem(`${STORAGE_KEY}:sectors`, JSON.stringify(state.sectors))
+    restaurantStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
   }
-  localStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
-  localStorage.setItem(`${STORAGE_KEY}:stock-movements`, JSON.stringify(state.stockMovements))
-  if (shift && (JSON.stringify(shift) !== JSON.stringify(savedShift))) localStorage.setItem(`${STORAGE_KEY}:shift`, JSON.stringify(shift))
-  localStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
+  restaurantStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+  restaurantStorage.setItem(`${STORAGE_KEY}:stock-movements`, JSON.stringify(state.stockMovements))
+  if (shift && (JSON.stringify(shift) !== JSON.stringify(savedShift))) restaurantStorage.setItem(`${STORAGE_KEY}:shift`, JSON.stringify(shift))
+  restaurantStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
   return state
 }
 
@@ -254,16 +255,16 @@ export function RestaurantDemo({
   const [products, setProducts] = useState<Product[]>(initial.products)
   const [customers, setCustomers] = useState<RestaurantCustomer[]>(() => {
     const key = `${STORAGE_KEY}:customers:v1`
-    if (localStorage.getItem(key) !== null) return readSaved<RestaurantCustomer[]>(key, [])
+    if (restaurantStorage.getItem(key) !== null) return readSaved<RestaurantCustomer[]>(key, [])
     const migrated = legacyCustomersFromOrders(initial.orders)
-    localStorage.setItem(key, JSON.stringify(migrated))
+    restaurantStorage.setItem(key, JSON.stringify(migrated))
     return migrated
   })
   const [stockMovements, setStockMovements] = useState<RestaurantStockMovement[]>(initial.stockMovements)
   const inventoryRef = useRef({ products: initial.products, movements: initial.stockMovements })
   useEffect(() => {
     const syncInventory = (event: StorageEvent) => {
-      if (event.key !== `${STORAGE_KEY}:inventory-store:v1` || !event.newValue) return
+      if (event.key !== restaurantStorageKey(`${STORAGE_KEY}:inventory-store:v1`) || !event.newValue) return
       try {
         const next = JSON.parse(event.newValue) as { products: Product[]; movements: RestaurantStockMovement[] }
         if (!Array.isArray(next.products) || !Array.isArray(next.movements)) return
@@ -287,7 +288,7 @@ export function RestaurantDemo({
 
   const persist = <T,>(key: string, value: T) => {
     try {
-      localStorage.setItem(`${STORAGE_KEY}:${key}`, JSON.stringify(value))
+      restaurantStorage.setItem(`${STORAGE_KEY}:${key}`, JSON.stringify(value))
     } catch {
       /* Private mode may disable storage. */
     }
@@ -1013,7 +1014,7 @@ export function RestaurantDemo({
       companyName={companyName}
       themeColors={activeThemeColors}
       onSaveTheme={async (colors) => {
-        localStorage.setItem(THEME_KEY, JSON.stringify(colors))
+        restaurantStorage.setItem(THEME_KEY, JSON.stringify(colors))
         setThemeColors(colors)
         setThemeEditedInDemo(true)
       }}
@@ -1053,8 +1054,8 @@ export function RestaurantDemo({
       onCountInventoryItem={handleCountInventoryItem}
       onResetDemo={() => {
         if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return
-        for (const key of Object.keys(localStorage)) if (key.startsWith('pachax:restaurant-demo:')) localStorage.removeItem(key)
-        localStorage.removeItem('cocina-tickets-impresos')
+        for (const key of restaurantStorage.keys()) if (key.startsWith('pachax:restaurant-demo:')) restaurantStorage.removeItem(key)
+        restaurantStorage.removeItem('cocina-tickets-impresos')
         window.location.reload()
       }}
       onSelectRole={onSelectRole}

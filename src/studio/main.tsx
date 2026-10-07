@@ -2,28 +2,31 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import '../index.css'
 import { StudioApp } from './StudioApp'
+import { useAdminAuth } from '../admin/auth/adminAuthStore'
 
-function StudioEntry() {
-  const isDev = import.meta.env.DEV
-  const isEnabled = import.meta.env.VITE_ENABLE_TEAM_STUDIO === 'true'
+export function StudioEntry() {
+  const { status, isAuthenticated } = useAdminAuth()
 
-  if (!isDev && !isEnabled) {
+  // Production uses the same fail-closed operator check as /admin.
+  if (!import.meta.env.DEV && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 text-center font-sans">
         <div className="max-w-md space-y-4">
           <div className="w-12 h-12 rounded-2xl bg-slate-800 text-amber-400 flex items-center justify-center mx-auto text-xl font-bold">
             !
           </div>
-          <h1 className="text-xl font-bold">PACHAX Studio No Disponible</h1>
+          <h1 className="text-xl font-bold">PACHAX Studio</h1>
           <p className="text-sm text-slate-400 leading-relaxed">
-            Esta herramienta interna está habilitada únicamente en desarrollo local y entornos de previsualización autorizados (Vercel Preview).
+            {status === 'checking' ? 'Verificando acceso de Platform Operator…' : 'Inicia sesión en el panel administrativo para usar Studio.'}
           </p>
+          {status !== 'checking' && (
           <a
-            href="/demo"
+            href="/admin/login"
             className="inline-block mt-4 px-4 py-2 text-xs font-semibold bg-teal-500 text-slate-950 rounded-xl hover:bg-teal-400 transition"
           >
-            Ir a Demostraciones Públicas (/demo) →
+            Ir a acceso administrativo →
           </a>
+          )}
         </div>
       </div>
     )

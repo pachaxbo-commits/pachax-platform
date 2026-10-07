@@ -1,18 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { RefreshCw, Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
-import { useCommercialConfig } from '../../store/commercialConfigStore'
+import { syncAdminAllFromFirestore, useCommercialConfig } from '../../store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../types'
+import { COMMERCIAL_TEMPLATES } from '../../../public/config/commercialShowcase'
 
 export function TemplatesSection() {
-  const { config, updateTemplate, mediaAssets, resetToDefaults } = useCommercialConfig()
+  const { config, templatesState, updateTemplate, mediaAssets } = useCommercialConfig()
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(config.templates[0]?.id || 'restaurant')
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
 
-  const selectedTemplate = config.templates.find((t) => t.id === selectedTemplateId) || config.templates[0]
+  const selectedTemplate = config.templates.find((t) => t.id === selectedTemplateId) || config.templates[0] || COMMERCIAL_TEMPLATES[0]
 
   const [formData, setFormData] = useState<CommercialTemplateItem>(selectedTemplate)
+
+  useEffect(() => {
+    queueMicrotask(() => setFormData(JSON.parse(JSON.stringify(selectedTemplate))))
+  }, [selectedTemplate])
 
   // Sincronizar formulario al cambiar de plantilla seleccionada
   const handleSelectTemplate = (id: string) => {
@@ -77,19 +82,25 @@ export function TemplatesSection() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm('¿Restablecer todas las plantillas a la configuración oficial?')) {
-                resetToDefaults()
-                handleSelectTemplate(selectedTemplateId)
-              }
-            }}
+            onClick={() => { void syncAdminAllFromFirestore() }}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
-            <span>Restablecer defaults</span>
+            <span>Recargar plantillas</span>
           </button>
         </div>
       </div>
+
+      {templatesState === 'uninitialized' && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          Configuración remota aún no inicializada. Se muestran las plantillas oficiales; puedes inicializar la configuración desde Resumen con confirmación explícita.
+        </div>
+      )}
+      {templatesState === 'error' && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          No se pudo consultar Firestore. Se muestran las plantillas oficiales locales; los cambios necesitan conexión y permisos para guardarse.
+        </div>
+      )}
 
       {/* Selector de Plantilla a Editar */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">

@@ -1,3 +1,4 @@
+import { restaurantStorage } from './restaurantStorage'
 import { useState } from 'react'
 import { Clock3, MoreHorizontal, Pencil, Plus, Shield, Trash2 } from 'lucide-react'
 import { Modal } from '../../components/ui/Modal'
@@ -9,7 +10,7 @@ type Staff = { id: string; name: string; email: string; role: Role; roleName: st
 type Attendance = { staffId: string; checkIn: string; checkOut?: string }
 const ROLE_LABEL: Record<Role, string> = { owner: 'Propietario', admin: 'Administrador', cashier: 'Caja', waiter: 'Mesero', kitchen: 'Cocina', inventory: 'Inventario' }
 const STORAGE = 'pachax:restaurant-demo:users:v1'
-const read = <T,>(fallback: T, key = STORAGE): T => { try { return JSON.parse(localStorage.getItem(key) || '') as T } catch { return fallback } }
+const read = <T,>(fallback: T, key = STORAGE): T => { try { return JSON.parse(restaurantStorage.getItem(key) || '') as T } catch { return fallback } }
 const time = (value?: string) => value ? new Date(value).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) : '—'
 
 export function RestaurantUsers({ currentRole, onSelectRole }: { currentRole: string; onSelectRole?: (roleId: string) => void }) {
@@ -18,8 +19,8 @@ export function RestaurantUsers({ currentRole, onSelectRole }: { currentRole: st
   const [editing, setEditing] = useState<Staff | null>(null), [removing, setRemoving] = useState<Staff | null>(null), [openMenu, setOpenMenu] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', email: '', role: 'waiter' as Role, active: true })
   const [notice, setNotice] = useState('')
-  const saveStaff = (next: Staff[]) => { setStaff(next); localStorage.setItem(STORAGE, JSON.stringify(next)) }
-  const saveAttendance = (next: Attendance[]) => { setAttendance(next); localStorage.setItem(`${STORAGE}:attendance`, JSON.stringify(next)) }
+  const saveStaff = (next: Staff[]) => { setStaff(next); restaurantStorage.setItem(STORAGE, JSON.stringify(next)) }
+  const saveAttendance = (next: Attendance[]) => { setAttendance(next); restaurantStorage.setItem(`${STORAGE}:attendance`, JSON.stringify(next)) }
   const beginCreate = () => { setForm({ name: '', email: '', role: 'waiter', active: true }); setEditing({ id: '', name: '', email: '', role: 'waiter', roleName: '', active: true }) }
   const submit = () => {
     if (!form.name.trim() || !/^\S+@\S+\.\S+$/.test(form.email)) { setNotice('Completa nombre y un correo válido.'); return }
