@@ -1,5 +1,43 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Integración final de Codex, Colaboradores y QA de Producción (07/10/2026)
+
+- **Rama**: `main`, integrada desde `integrate/final-studio-team-20261007` con merge commit semántico. Se preservaron intactas las ramas remotas de colaboradores (`fix/admin-studio-production-readiness` y `cambios-dario`).
+- **Integración semántica de colaboradores**:
+  - **Codex**: Arquitectura de comanda desacoplada del pago en Nightclub (`sendNightclubRound` con autorización de cargo en cuenta, preparación y entrega en barra sin pago forzado previo, solicitud de cuenta mediante `requestNightclubBill`, pagos parciales múltiples acumulados en `account.payments`, actualización de Caja y liberación automática de mesa solo con saldo Bs 0 y rondas entregadas). Aislamiento de almacenamiento de Restaurant Studio con prefijo `pachax:restaurant-studio:` respecto a la demo pública `pachax:restaurant-demo:`. Estabilidad de Studio con iframe persistente y sincronización bidireccional por `PACHAX_STUDIO_SYNC`.
+  - **Darío**: Capacidad de botellas en litros (`L`, factor 1000 ml) y mililitros, validación de precios de venta en inventario de botellas, desglose de costos por unidad de presentación (`/unidad`, `/botella`, `/L`), desglose claro en resumen de Caja con tarjetas independientes para ventas en efectivo, QR y tarjeta.
+  - **Resolución de conflictos**: `src/modules/nightclub/views/NightclubCash.tsx` unificó el modal `NightclubAccountPayment` y la lista de cuentas por cobrar de Codex con las tarjetas y subtítulos claros de métodos de pago de Darío, sin descartar líneas operativas de ningún colaborador.
+- **QA Integral Automatizado y Manual**:
+  - `tests/nightclubFullFlowQA.test.ts`: Flujo completo validado de punta a punta:
+    1. Dataset Vacío -> Configuración (WE ON THE NIGHT QA, Zonas, Mesas VIP1, Cerveza Bs 25 Barra, Agua Bs 12 Directo).
+    2. Apertura de Turno con fondo Bs 200.
+    3. Reserva VIP1 (Cliente Demo, 4 personas).
+    4. Confirmación de llegada y apertura automática de cuenta en Mesa VIP1.
+    5. POS: Envío de ronda (2 Cervezas + 1 Agua = Bs 62) sin exigir pago previo.
+    6. Barra: Recepción exclusiva de ítems de barra (2 Cervezas); el Agua va por entrega Directa.
+    7. Descuento exacto de inventario (Cervezas: 50 -> 48; Agua: 30 -> 29).
+    8. Barra avanza: Pendiente -> Preparando -> Listo; Servicio marca Entregado.
+    9. Cuentas: Solicitud de cuenta (`bill_requested`).
+    10. Caja: Pago parcial en efectivo de Bs 40 (recibido Bs 50, cambio Bs 10, saldo restante Bs 22). Idempotencia probada sin dobles cobros.
+    11. Caja: Segundo pago por QR de Bs 22 (saldo exacto Bs 0).
+    12. Cierre automático de cuenta y liberación de Mesa VIP1 a estado disponible.
+    13. Trazabilidad completa en Historial de cuenta.
+    14. Reportes de Caja y Rentabilidad: Venta total registrada exactamente en Bs 62 (ni Bs 102 ni Bs 124), efectivo esperado Bs 240 (200 fondo + 40 ventas), ventas QR Bs 22.
+    15. Protección fail-closed contra cobros sobre cuentas cerradas.
+  - Browser QA (`scripts/test-admin-studio-browser.mjs`): Probado en 390×844, 768×1024, 1366×768 y 1920×1080. Conmutación de los 5 roles en Nightclub Empty sin parpadeos, recargas de iframe ni salida del modo fullscreen.
+- **Firebase Security & Rules Audit**:
+  - Reglas de Firestore (`scripts/build-rules.mjs` -> `firebase/firestore.rules`) y Cloud Storage (`firebase/storage.rules`) auditadas.
+  - Aislamiento multi-tenant estricto comprobado, denegación por defecto fail-closed, claims requeridos para platformOperators, colecciones borrador invisibles para clientes públicos, Storage denegado por defecto.
+  - Reglas existentes validadas al 100% (30/30 en `test:platform-security`, 42/42 en `test:tenant-core`). No se requirieron cambios en reglas, por lo que NO se realiza despliegue a Firebase conforme a los criterios de seguridad.
+- **Suites de Pruebas Ejecutadas**:
+  - `npm run typecheck`: 0 errores (`tsc -b`).
+  - `npm run build`: Éxito total en 4.79s (`dist/` generado y validado).
+  - `npm run test:nightclub`: 36/36 tests aprobados.
+  - `npm run test:restaurant`: 44/44 tests aprobados.
+  - `npm run test:platform`: 47/47 tests aprobados (incluyendo QA de ciclo de vida e idempotencia).
+  - `npm run test:platform-security`: 30/30 comprobaciones en emuladores aprobadas.
+- **Veredicto**: APTO PARA PRESENTACIÓN.
+
 ## Checkpoint: QA final de Studio y Nightclub, integración bloqueada (07/10/2026)
 
 - **Rama**: `fix/admin-studio-production-readiness`, base `origin/main` `1da75a18904dcaea52556eb7ebb6c38718273d6b`. `main` no se modificó.
