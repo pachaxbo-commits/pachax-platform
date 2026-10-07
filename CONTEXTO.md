@@ -1,5 +1,14 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Restauración de la vitrina pública y Coverflow (06/10/2026)
+
+- **Rama de trabajo**: `cambios-dario`, actualizada por avance directo hasta `origin/main` `ad3539d` antes de modificar. `main` no fue editada.
+- **Diagnóstico reproducido antes de la corrección**: en 1440×900 el carrusel cargaba cinco tarjetas, pero tras la consulta asíncrona a una colección pública `platformTemplates` vacía, `current.templates = []` eliminaba tanto las tarjetas como las cinco entradas del catálogo. Una caché local vacía hacía que en 390×844 y 430×932 ya no aparecieran desde el primer render. El contenedor conservaba dimensiones y visibilidad; no era un fallo de CSS. El cambio de `d7970b5` aplicó a plantillas el manejo de snapshot vacío requerido para evitar publicar precios borrador en planes y extras.
+- **Corrección**: una consulta pública vacía de plantillas usa únicamente las cinco plantillas oficiales compiladas con `status: 'published'`. Los planes y extras siguen quedando vacíos cuando no tienen documentos publicados. El guardado de configuración genera una nueva referencia para notificar correctamente a React. El índice visual del Coverflow se normaliza frente a cambios en la lista. El área táctil usa `touch-action: pan-y` para permitir swipe horizontal sin bloquear el scroll vertical.
+- **Prueba automatizada de navegador**: `npm run test:landing-browser` requiere el servidor local de `scripts/start-dario.ps1`; verifica 1440×900, 390×844 y 430×932, carga asíncrona, flechas, puntos, teclado, swipe táctil, catálogo, ausencia de desbordamiento, ausencia de planes y extras publicados, y recuperación de una caché antigua vacía. Capturas en `tmp/landing-regression-evidence/`.
+- **Validación**: `npm run typecheck`, `npm run build`, `npm run test:platform` (41), `npm run test:restaurant` (43), `npm run test:distribution` (55) y 30 comprobaciones de `firebase/tests/platformSecurity.test.mjs` contra emuladores `demo-pachax-platform` aprobadas. ESLint dirigido a los archivos modificados sin errores; el lint global del repositorio sigue fallando por errores preexistentes fuera del cambio.
+- **Publicación de revisión**: el commit funcional `0712cc8` se publicó en `origin/cambios-dario`; Vercel creó automáticamente un Preview de `pachax-app` para esa rama y lo marcó `Ready`, con respuesta HTML verificada mediante acceso protegido. La rama de producción `main` permaneció en `ad3539d` y no hubo despliegue productivo. El servidor local `http://localhost:5190/` respondió HTTP 200.
+
 ## Checkpoint: Corrección de Fallback de Precios, Segregación de Snapshots Vacíos y Limpieza de Métricas (03/10/2026)
 
 - **Rama**: `feat/public-platform-admin-foundation`. `main` permanece intacto (`8b4e832`) sin merges ni pushes.

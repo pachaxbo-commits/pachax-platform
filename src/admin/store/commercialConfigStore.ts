@@ -174,11 +174,20 @@ function notifyUpdate() {
 }
 
 export function saveCommercialConfig(config: StoredCommercialConfig): void {
-  cachedConfig = config
+  // React subscribers must receive a new snapshot even when an admin editor
+  // mutated the previously cached object before calling this function.
+  cachedConfig = {
+    ...config,
+    templates: [...config.templates],
+    plans: [...config.plans],
+    extras: [...config.extras],
+    landingContent: { ...config.landingContent },
+    mediaAssets: [...config.mediaAssets],
+    lastModified: new Date().toISOString(),
+  }
   if (typeof window === 'undefined') return
   try {
-    config.lastModified = new Date().toISOString()
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cachedConfig))
     notifyUpdate()
   } catch (err) {
     console.error('Error guardando configuración comercial en almacenamiento local:', err)
@@ -241,9 +250,13 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
     }
 
     if (templatesSnap.status === 'fulfilled') {
-      current.templates = templatesSnap.value.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem,
-      )
+      // An unseeded public collection must not erase the approved base showcase.
+      // Never use cached/admin drafts as the fallback source.
+      current.templates = templatesSnap.value.empty
+        ? getDefaultConfig().templates.filter((template) => template.status === 'published')
+        : templatesSnap.value.docs.map(
+            (d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem,
+          ).filter((template) => template.status === 'published')
       changed = true
     }
 
@@ -785,7 +798,10 @@ export function useCommercialConfig() {
   }, [])
 
   // Filtros de publicación para la web pública (solo mostrar 'published')
-  const publishedTemplates = config.templates.filter((t) => t.status === 'published')
+  const isPublicPage = typeof window === 'undefined' || !window.location.pathname.startsWith('/admin')
+  const publishedTemplates = config.templates.length === 0 && isPublicPage
+    ? getDefaultConfig().templates.filter((t) => t.status === 'published')
+    : config.templates.filter((t) => t.status === 'published')
   const publishedPlansByTemplate = (templateKey: TemplateKey) =>
     config.plans.filter((p) => p.templateId === templateKey && p.status === 'published')
   const publishedExtras = config.extras.filter((e) => e.status === 'published')

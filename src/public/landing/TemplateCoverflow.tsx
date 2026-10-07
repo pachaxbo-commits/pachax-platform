@@ -25,7 +25,7 @@ export function TemplateCoverflow({
 }: TemplateCoverflowProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { publishedTemplates } = useCommercialConfig()
-  const templates = publishedTemplates.length > 0 ? publishedTemplates : []
+  const templates = publishedTemplates
 
   const [dragOffset, setDragOffset] = useState(0)
   const isPointerDownRef = useRef(false)
@@ -34,6 +34,7 @@ export function TemplateCoverflow({
   const hasMovedRef = useRef(false)
 
   const total = templates.length
+  const visibleIndex = total > 0 ? ((activeIndex % total) + total) % total : 0
 
   const handlePrev = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
@@ -41,9 +42,9 @@ export function TemplateCoverflow({
       e.preventDefault()
     }
     if (total === 0) return
-    const nextIdx = (activeIndex - 1 + total) % total
+    const nextIdx = (visibleIndex - 1 + total) % total
     onChangeActiveIndex(nextIdx)
-  }, [activeIndex, total, onChangeActiveIndex])
+  }, [visibleIndex, total, onChangeActiveIndex])
 
   const handleNext = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     if (e) {
@@ -51,9 +52,9 @@ export function TemplateCoverflow({
       e.preventDefault()
     }
     if (total === 0) return
-    const nextIdx = (activeIndex + 1) % total
+    const nextIdx = (visibleIndex + 1) % total
     onChangeActiveIndex(nextIdx)
-  }, [activeIndex, total, onChangeActiveIndex])
+  }, [visibleIndex, total, onChangeActiveIndex])
 
   // Navegación accesible por teclado (ArrowLeft / ArrowRight)
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -136,12 +137,11 @@ export function TemplateCoverflow({
       className="relative w-full max-w-full select-none outline-none focus-visible:ring-2 focus-visible:ring-[#0066FF] rounded-2xl"
       style={{
         // Proporciones refinadas: mayor anchura y altura útil de imagen para evitar recortes
-        // @ts-ignore
         '--stage-height': 'clamp(350px, 45vw, 440px)',
         '--card-width': 'clamp(215px, 25vw, 275px)',
         '--card-height': 'clamp(310px, 36vw, 395px)',
         '--offset-step': 'clamp(95px, 14vw, 145px)',
-      }}
+      } as React.CSSProperties}
     >
       {/* Flechas de Navegación Flotantes (Capa z-50 superior aislada) */}
       <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between pointer-events-none z-50 px-1 sm:px-2">
@@ -170,10 +170,11 @@ export function TemplateCoverflow({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        style={{ touchAction: 'pan-y' }}
         className="relative w-full h-[var(--stage-height)] flex items-center justify-center overflow-hidden [perspective:1200px] [perspective-origin:50%_50%] cursor-default"
       >
         {templates.map((template, index) => {
-          let offset = index - activeIndex
+          let offset = index - visibleIndex
           if (offset > 2) offset -= total
           if (offset < -2) offset += total
 
@@ -181,12 +182,12 @@ export function TemplateCoverflow({
           const isImmediate = Math.abs(offset) === 1
           const isSecondary = Math.abs(offset) === 2
 
-          const dragInfluence = dragOccurredRef.current ? dragOffset * 0.35 : 0
+          const dragInfluence = dragOffset * 0.35
 
-          let transform = ''
-          let zIndex = 1
-          let opacity = 0
-          let pointerEvents: 'auto' | 'none' = 'none'
+          let transform: string
+          let zIndex: number
+          let opacity: number
+          let pointerEvents: 'auto' | 'none'
 
           if (isActive) {
             transform = `translateX(${dragInfluence}px) translateZ(50px) scale(1.02) rotateY(0deg)`
@@ -240,7 +241,7 @@ export function TemplateCoverflow({
                 zIndex,
                 opacity,
                 pointerEvents,
-                transition: dragOccurredRef.current
+                transition: dragOffset !== 0
                   ? 'none'
                   : 'transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 380ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 380ms cubic-bezier(0.22, 1, 0.36, 1)',
               }}
@@ -326,7 +327,7 @@ export function TemplateCoverflow({
       {/* Paginador de Puntos (Dots) Inferior */}
       <div className="mt-4 flex items-center justify-center gap-2">
         {templates.map((tpl, idx) => {
-          const isCurrent = idx === activeIndex
+          const isCurrent = idx === visibleIndex
           return (
             <button
               key={tpl.id}
