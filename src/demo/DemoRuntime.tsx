@@ -54,7 +54,8 @@ export function DemoRuntime({
       for (const key of Object.keys(localStorage)) {
         if (
           key.startsWith('pachax:restaurant-demo:') ||
-          key.startsWith('pachax:nightclub-demo:')
+          key.startsWith('pachax:nightclub-demo:') ||
+          key.startsWith('pachax:nightclub-studio:')
         ) {
           localStorage.removeItem(key)
         }
@@ -192,6 +193,7 @@ export function DemoRuntime({
         {templateId === 'nightclub' && (
           <NightclubDemo
             key={`nightclub:${currentDatasetMode}:${resetKey}`}
+            isStudio
             simulatedRole={effectiveRole}
             logoUrl={branding?.logoUrl}
             companyName={branding?.companyName}

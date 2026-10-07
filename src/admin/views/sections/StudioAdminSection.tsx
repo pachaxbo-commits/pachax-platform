@@ -1,23 +1,24 @@
 import { useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import type { TemplateKey } from '../../../public/config/pricingConfig'
+import { PUBLIC_TEMPLATES } from '../../../core/publicTemplates'
+import { getTemplate } from '../../../core/templates'
 
 export function StudioAdminSection() {
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('restaurant')
   const [datasetMode, setDatasetMode] = useState<'full' | 'empty'>('full')
-  const [selectedRole, setSelectedRole] = useState<string>('cashier')
+  const [selectedRole, setSelectedRole] = useState<string>('owner')
 
-  const templates: { id: TemplateKey; label: string; roles: string[] }[] = [
-    { id: 'restaurant', label: 'Restaurante', roles: ['cashier', 'waiter', 'cook', 'host'] },
-    { id: 'distribution', label: 'Distribuidora', roles: ['driver', 'warehouse', 'collector'] },
-    { id: 'nightclub', label: 'Nightclub & Lounge', roles: ['bar', 'vip', 'cashier'] },
-    { id: 'retail', label: 'Ventas Express', roles: ['cashier', 'store'] },
-  ]
+  const templates: { id: TemplateKey; label: string; roles: readonly { id: string; name: string }[] }[] = PUBLIC_TEMPLATES.map(template => ({
+    id: template.id,
+    label: template.title,
+    roles: getTemplate(template.businessType).roles,
+  }))
 
   const activeTemplate = templates.find((t) => t.id === selectedTemplate) || templates[0]
 
-  const studioUrl = `/studio.html?template=${selectedTemplate}&data=${datasetMode}&role=${selectedRole}`
-  const standaloneStudioUrl = `/studio?template=${selectedTemplate}`
+  const studioUrl = `/studio?template=${selectedTemplate}&data=${datasetMode}&role=${selectedRole}`
+  const standaloneStudioUrl = studioUrl
 
   return (
     <div className="space-y-8">
@@ -55,7 +56,7 @@ export function StudioAdminSection() {
               type="button"
               onClick={() => {
                 setSelectedTemplate(tpl.id)
-                setSelectedRole(tpl.roles[0])
+                setSelectedRole(tpl.roles[0].id)
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 selectedTemplate === tpl.id
@@ -103,14 +104,14 @@ export function StudioAdminSection() {
           <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl gap-1">
             {activeTemplate.roles.map((r) => (
               <button
-                key={r}
+                key={r.id}
                 type="button"
-                onClick={() => setSelectedRole(r)}
+                onClick={() => setSelectedRole(r.id)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold capitalize cursor-pointer transition-all ${
-                  selectedRole === r ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'
+                  selectedRole === r.id ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'
                 }`}
               >
-                {r}
+                {r.name}
               </button>
             ))}
           </div>

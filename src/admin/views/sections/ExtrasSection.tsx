@@ -25,6 +25,7 @@ export function ExtrasSection() {
 
   const handleToggleStatus = async (extra: CommercialExtraService) => {
     const newStatus = extra.status === 'published' ? 'draft' : 'published'
+    if (newStatus === 'published' && !window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este extra debe mostrarse públicamente?')) return
     setSaveFeedback(null)
     setSaveError(null)
     const res = await updateExtra(extra.id, { status: newStatus })
@@ -36,7 +37,7 @@ export function ExtrasSection() {
     }
   }
 
-  const handleUpdateField = async (id: string, field: keyof CommercialExtraService, value: any) => {
+  const handleUpdateField = async (id: string, field: keyof CommercialExtraService, value: CommercialExtraService[keyof CommercialExtraService]) => {
     setSaveFeedback(null)
     setSaveError(null)
     const res = await updateExtra(id, { [field]: value })
