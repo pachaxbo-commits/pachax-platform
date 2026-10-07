@@ -59,7 +59,6 @@ export function DemoRuntime({
           localStorage.removeItem(key)
         }
       }
-      if (templateId === 'restaurant') localStorage.removeItem('cocina-tickets-impresos')
     } catch { /* Private mode may disable storage. */ }
   }, [templateId])
 

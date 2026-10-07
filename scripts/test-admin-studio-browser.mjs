@@ -101,6 +101,15 @@ try {
     assert(retained.sameFrame && retained.sameDocument && retained.src === roleStart.src, `Cambiar a ${role} recargó Nightclub`)
   }
   console.log('OK Nightclub Empty → cinco roles sin recargar iframe ni cambiar plantilla')
+  const fullscreenAttempt = await send('Runtime.evaluate', { expression: `(() => { const button=[...document.querySelectorAll('button')].find(item=>item.textContent.includes('Pantalla completa')); button?.click(); return {supported:document.fullscreenEnabled,button:!!button} })()`, userGesture: true, returnByValue: true })
+  assert(fullscreenAttempt.result.value.button, 'Studio no tiene botón de pantalla completa.')
+  await sleep(250)
+  const fullscreenState = await evalPage(`({ active: !!document.fullscreenElement, supported: document.fullscreenEnabled })`)
+  if (fullscreenState.active) {
+    await evalPage(`(() => { const doc=document.querySelector('iframe').contentDocument; [...doc.querySelectorAll('button')].find(item=>item.textContent.trim()==='Zonas')?.click() })()`)
+    assert((await evalPage(`!!document.fullscreenElement`)), 'Navegar a Zonas salió de fullscreen.')
+    console.log('OK fullscreen permanece al navegar a Zonas')
+  } else console.log(`LIMITACIÓN fullscreen: Chrome headless no activó Fullscreen API (supported=${fullscreenState.supported}); requiere prueba manual visible.`)
 } finally {
   socket?.close()
   browser.kill()
