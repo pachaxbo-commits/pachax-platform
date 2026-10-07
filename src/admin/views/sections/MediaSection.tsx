@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Copy } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { MediaAssetItem } from '../../types'
@@ -7,6 +7,10 @@ export function MediaSection() {
   const { mediaAssets } = useCommercialConfig()
   const [selectedAsset, setSelectedAsset] = useState<MediaAssetItem>(mediaAssets[0])
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    queueMicrotask(() => setSelectedAsset(current => mediaAssets.find(item => item.id === current?.id) || mediaAssets[0]))
+  }, [mediaAssets])
 
   const handleCopy = (url: string) => {
     navigator.clipboard?.writeText(url)

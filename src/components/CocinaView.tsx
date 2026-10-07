@@ -68,7 +68,7 @@ export function CocinaView({
   // La primera vuelta solo toma nota de lo que ya estaba en pantalla sin imprimirlo, si no al
   // abrir la tablet a mitad del turno saldrian de golpe todos los tickets del dia.
   useEffect(() => {
-    const STORAGE_KEY = 'cocina-tickets-impresos'
+    const STORAGE_KEY = new URLSearchParams(window.location.search).get('embed') === 'studio' ? 'pachax:restaurant-studio:cocina-tickets-impresos' : 'cocina-tickets-impresos'
 
     if (!autoPrintReady.current) {
       try {

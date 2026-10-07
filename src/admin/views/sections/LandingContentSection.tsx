@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Type, Save, CheckCircle2, AlertCircle, Loader2, Phone } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { LandingContentConfig } from '../../types'
@@ -9,6 +9,10 @@ export function LandingContentSection() {
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+
+  useEffect(() => {
+    queueMicrotask(() => setFormData(JSON.parse(JSON.stringify(config.landingContent))))
+  }, [config.landingContent])
 
   const handleSave = async () => {
     setIsProcessing(true)

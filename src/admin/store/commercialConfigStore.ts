@@ -7,6 +7,7 @@ import type {
   MediaAssetItem,
 } from '../types'
 import { COMMERCIAL_TEMPLATES as DEFAULT_TEMPLATES } from '../../public/config/commercialShowcase'
+import { mergeOfficialTemplates } from './templateDefaults.ts'
 import {
   PLANS_BY_TEMPLATE,
   COMMERCIAL_EXTRAS,
@@ -20,12 +21,12 @@ import {
   getDoc,
   getDocs,
   setDoc,
-  deleteDoc,
   collection,
   query,
   where,
   serverTimestamp,
   addDoc,
+  runTransaction,
 } from 'firebase/firestore'
 
 const STORAGE_KEY = 'pachax_commercial_config_v2'
@@ -139,6 +140,8 @@ function getDefaultConfig(): StoredCommercialConfig {
 
 // Memoria activa y caché local para la experiencia pública
 let cachedConfig: StoredCommercialConfig | null = null
+export type AdminTemplatesState = 'loading' | 'uninitialized' | 'ready' | 'error'
+let adminTemplatesState: AdminTemplatesState = 'loading'
 
 export function loadCommercialConfig(): StoredCommercialConfig {
   if (cachedConfig) return cachedConfig
@@ -152,7 +155,8 @@ export function loadCommercialConfig(): StoredCommercialConfig {
     }
     const parsed = JSON.parse(raw) as Partial<StoredCommercialConfig>
     cachedConfig = {
-      templates: parsed.templates || getDefaultConfig().templates,
+      templates: Array.isArray(parsed.templates) && parsed.templates.length > 0
+        ? parsed.templates : getDefaultConfig().templates,
       plans: parsed.plans || getDefaultConfig().plans,
       extras: parsed.extras || getDefaultConfig().extras,
       landingContent: parsed.landingContent || getDefaultConfig().landingContent,
@@ -217,7 +221,8 @@ async function logPlatformAudit(action: string, resource: string, metadata?: Rec
 // 3. CONSULTAS SEPARADAS: PÚBLICO (published) vs ADMIN (draft+published)
 // ==============================================================
 
-let isSyncing = false
+let isPublicSyncing = false
+let isAdminSyncing = false
 
 /**
  * Consulta pública a Firestore.
@@ -225,8 +230,8 @@ let isSyncing = false
  * para respetar estrictamente las Firestore Security Rules públicas.
  */
 export async function syncPublicPublishedFromFirestore(): Promise<void> {
-  if (isSyncing || typeof window === 'undefined') return
-  isSyncing = true
+  if (isPublicSyncing || typeof window === 'undefined') return
+  isPublicSyncing = true
 
   try {
     const ctx = await getFirebaseContext()
@@ -239,6 +244,8 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
       getDocs(query(collection(ctx.db, 'platformExtras'), where('status', '==', 'published'))),
       getDocs(query(collection(ctx.db, 'platformMedia'), where('status', '==', 'published'))),
     ])
+
+    if (window.location.pathname.startsWith('/admin')) return
 
     const current = loadCommercialConfig()
     let changed = false
@@ -278,9 +285,10 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
     }
 
     if (mediaSnap.status === 'fulfilled') {
-      current.mediaAssets = mediaSnap.value.docs.map(
+      const remote = mediaSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as MediaAssetItem,
       )
+      current.mediaAssets = mediaSnap.value.empty ? getDefaultConfig().mediaAssets : remote
       changed = true
     }
 
@@ -290,7 +298,7 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
   } catch (err) {
     console.warn('Consulta pública de Firestore en modo offline / fallback:', err)
   } finally {
-    isSyncing = false
+    isPublicSyncing = false
   }
 }
 
@@ -300,12 +308,16 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
  * Carga tanto borradores (draft) como publicados (published).
  */
 export async function syncAdminAllFromFirestore(): Promise<void> {
-  if (isSyncing || typeof window === 'undefined') return
-  isSyncing = true
+  if (isAdminSyncing || typeof window === 'undefined') return
+  isAdminSyncing = true
 
   try {
     const ctx = await getFirebaseContext()
-    if (!ctx) return
+    if (!ctx) {
+      adminTemplatesState = 'error'
+      notifyUpdate()
+      return
+    }
 
     const [landingSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap] = await Promise.allSettled([
       getDoc(doc(ctx.db, 'platformConfig', 'publicLanding')),
@@ -314,6 +326,8 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
       getDocs(collection(ctx.db, 'platformExtras')),
       getDocs(collection(ctx.db, 'platformMedia')),
     ])
+
+    if (!window.location.pathname.startsWith('/admin')) return
 
     const current = loadCommercialConfig()
     let changed = false
@@ -325,30 +339,39 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
     }
 
     if (templatesSnap.status === 'fulfilled') {
-      current.templates = templatesSnap.value.docs.map(
+      const remote = templatesSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem,
       )
+      current.templates = mergeOfficialTemplates(remote)
+      adminTemplatesState = templatesSnap.value.empty ? 'uninitialized' : 'ready'
       changed = true
+    } else {
+      adminTemplatesState = 'error'
+      console.error('No se pudieron leer las plantillas administrativas:', templatesSnap.reason)
+      notifyUpdate()
     }
 
     if (plansSnap.status === 'fulfilled') {
-      current.plans = plansSnap.value.docs.map(
+      const remote = plansSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan,
       )
+      current.plans = plansSnap.value.empty ? getDefaultConfig().plans : remote
       changed = true
     }
 
     if (extrasSnap.status === 'fulfilled') {
-      current.extras = extrasSnap.value.docs.map(
+      const remote = extrasSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as CommercialExtraService,
       )
+      current.extras = extrasSnap.value.empty ? getDefaultConfig().extras : remote
       changed = true
     }
 
     if (mediaSnap.status === 'fulfilled') {
-      current.mediaAssets = mediaSnap.value.docs.map(
+      const remote = mediaSnap.value.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as MediaAssetItem,
       )
+      current.mediaAssets = mediaSnap.value.empty ? getDefaultConfig().mediaAssets : remote
       changed = true
     }
 
@@ -356,9 +379,11 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
       saveCommercialConfig(current)
     }
   } catch (err) {
-    console.warn('Sincronización administrativa de Firestore:', err)
+    adminTemplatesState = 'error'
+    console.error('Sincronización administrativa de Firestore:', err)
+    notifyUpdate()
   } finally {
-    isSyncing = false
+    isAdminSyncing = false
   }
 }
 
@@ -370,13 +395,22 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
   try {
     const ctx = await getFirebaseContext()
     if (!ctx) return { success: false, message: 'Firebase no configurado.' }
+    const claims = await ctx.auth.currentUser?.getIdTokenResult(true)
+    if (claims?.claims.platform !== true || !['platform_owner', 'platform_admin'].includes(String(claims.claims.platformRole))) {
+      return { success: false, message: 'La inicialización requiere Platform Owner o Platform Admin.' }
+    }
 
     const defaults = getDefaultConfig()
     const now = new Date().toISOString()
     const userUid = ctx.auth.currentUser?.uid || 'system_bootstrap'
+    const seedMissing = async (ref: ReturnType<typeof doc>, value: Record<string, unknown>) => {
+      await runTransaction(ctx.db, async transaction => {
+        if (!(await transaction.get(ref)).exists()) transaction.set(ref, value)
+      })
+    }
 
     // 1. Landing (Published)
-    await setDoc(
+    await seedMissing(
       doc(ctx.db, 'platformConfig', 'publicLanding'),
       {
         ...defaults.landingContent,
@@ -385,12 +419,11 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
         publishedBy: userUid,
         updatedAt: now,
       },
-      { merge: true },
     )
 
     // 2. Templates (Published si corresponden a las vitrinas actuales)
     for (const item of defaults.templates) {
-      await setDoc(
+      await seedMissing(
         doc(ctx.db, 'platformTemplates', item.id),
         {
           ...item,
@@ -399,13 +432,12 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
           publishedBy: userUid,
           updatedAt: now,
         },
-        { merge: true },
       )
     }
 
     // 3. Media (Published)
     for (const item of defaults.mediaAssets) {
-      await setDoc(
+      await seedMissing(
         doc(ctx.db, 'platformMedia', item.id),
         {
           ...item,
@@ -414,13 +446,12 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
           publishedBy: userUid,
           updatedAt: now,
         },
-        { merge: true },
       )
     }
 
     // 4. PLANES COMERCIALES: ESTRICTAMENTE DRAFT (PRECIOS NO DEFINITIVOS)
     for (const item of defaults.plans) {
-      await setDoc(
+      await seedMissing(
         doc(ctx.db, 'platformPlans', item.id),
         {
           ...item,
@@ -428,21 +459,19 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
           updatedAt: now,
           updatedBy: userUid,
         },
-        { merge: true },
       )
     }
 
-    // 5. EXTRAS CON PRECIOS: ESTRICTAMENTE DRAFT
+    // 5. Extras con importes referenciales en draft; cotización a medida sin importe permanece publicada.
     for (const item of defaults.extras) {
-      await setDoc(
+      await seedMissing(
         doc(ctx.db, 'platformExtras', item.id),
         {
           ...item,
-          status: 'draft', // DRAFT OBLIGATORIO
+          status: item.pricingType === 'custom_quote' ? 'published' : 'draft',
           updatedAt: now,
           updatedBy: userUid,
         },
-        { merge: true },
       )
     }
 
@@ -453,7 +482,7 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
 
     return {
       success: true,
-      message: 'Configuraciones sembradas en Firestore (Planes y Extras en estado BORRADOR / DRAFT por seguridad).',
+      message: 'Configuración oficial inicializada: planes y extras con importes en borrador; cotización a medida publicada sin precio fijo.',
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error sembrando datos en Firestore.'
@@ -525,24 +554,7 @@ export async function updatePlanInStore(
     const existing = idx >= 0 ? current.plans[idx] : {}
     const updated = { ...existing, ...updates }
 
-    // Preferir guardado seguro server-side con auditoría atómica
-    try {
-      await gateway('platformGateway', {
-        action: 'savePlan',
-        plan: updated,
-      })
-    } catch {
-      // Fallback directo a Firestore si gateway está en desarrollo local
-      await setDoc(
-        doc(ctx.db, 'platformPlans', id),
-        {
-          ...updated,
-          updatedAt: new Date().toISOString(),
-          updatedBy: ctx.auth.currentUser?.uid || null,
-        },
-        { merge: true },
-      )
-    }
+    await gateway('platformGateway', { action: 'savePlan', plan: updated })
 
     // Solo tras éxito en backend se actualiza la memoria
     if (idx >= 0) {
@@ -569,30 +581,7 @@ export async function togglePublishPlanInStore(
     if (!ctx) throw new Error('Firebase no conectado.')
 
     // 1. Invocar acción en server-side con auditoría atómica
-    try {
-      await gateway('platformGateway', {
-        action: 'publishPlan',
-        planId,
-        status: targetStatus,
-      })
-    } catch {
-      const now = new Date().toISOString()
-      const updatePayload: Record<string, unknown> = {
-        status: targetStatus,
-        updatedAt: now,
-        updatedBy: ctx.auth.currentUser?.uid || null,
-      }
-      if (targetStatus === 'published') {
-        updatePayload.publishedAt = now
-        updatePayload.publishedBy = ctx.auth.currentUser?.uid || null
-      }
-      await setDoc(doc(ctx.db, 'platformPlans', planId), updatePayload, { merge: true })
-      await logPlatformAudit(
-        targetStatus === 'published' ? 'plan.publish' : 'plan.unpublish',
-        `platformPlans/${planId}`,
-        { status: targetStatus },
-      )
-    }
+    await gateway('platformGateway', { action: 'publishPlan', planId, status: targetStatus })
 
     // 2. Actualizar store solo tras confirmación
     const current = loadCommercialConfig()
@@ -619,27 +608,10 @@ export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ succe
     const ctx = await getFirebaseContext()
     if (!ctx) throw new Error('Firebase no conectado.')
 
-    try {
-      await gateway('platformGateway', {
-        action: 'savePlan',
-        plan,
-      })
-    } catch {
-      await setDoc(
-        doc(ctx.db, 'platformPlans', plan.id),
-        {
-          ...plan,
-          status: 'draft', // Nuevos planes siempre en draft
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          updatedBy: ctx.auth.currentUser?.uid || null,
-        },
-        { merge: true },
-      )
-    }
+    await gateway('platformGateway', { action: 'savePlan', plan: { ...plan, status: 'draft' } })
 
     const current = loadCommercialConfig()
-    current.plans.push(plan)
+    current.plans.push({ ...plan, status: 'draft' })
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
@@ -653,15 +625,7 @@ export async function deletePlanInStore(id: string): Promise<{ success: boolean;
     const ctx = await getFirebaseContext()
     if (!ctx) throw new Error('Firebase no conectado.')
 
-    try {
-      await gateway('platformGateway', {
-        action: 'deletePlan',
-        planId: id,
-      })
-    } catch {
-      await deleteDoc(doc(ctx.db, 'platformPlans', id))
-      await logPlatformAudit('plan.delete', `platformPlans/${id}`)
-    }
+    await gateway('platformGateway', { action: 'deletePlan', planId: id })
 
     const current = loadCommercialConfig()
     current.plans = current.plans.filter((p) => p.id !== id)
@@ -776,6 +740,7 @@ export async function updateMediaAssetInStore(
 // Hook reactivo consumido por la Landing Pública y por Admin
 export function useCommercialConfig() {
   const [config, setConfig] = useState<StoredCommercialConfig>(() => loadCommercialConfig())
+  const [templatesState, setTemplatesState] = useState<AdminTemplatesState>(adminTemplatesState)
 
   useEffect(() => {
     // Si estamos en la ruta /admin, sincronizar la colección completa (draft + published)
@@ -788,6 +753,7 @@ export function useCommercialConfig() {
 
     const handleUpdate = () => {
       setConfig(loadCommercialConfig())
+      setTemplatesState(adminTemplatesState)
     }
     window.addEventListener(EVENT_NAME, handleUpdate)
     window.addEventListener('storage', handleUpdate)
@@ -808,6 +774,7 @@ export function useCommercialConfig() {
 
   return {
     config,
+    templatesState,
     publishedTemplates,
     publishedPlansByTemplate,
     publishedExtras,
