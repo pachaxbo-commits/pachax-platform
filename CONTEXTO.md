@@ -1,5 +1,36 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Modo Claro Completo de Alto Contraste en Nightclub para Proyector y Studio (07/10/2026)
+
+- **Rama**: `cambios-dario`, integrada con `origin/main` (`16daabf`). No se modifica `main` directamente.
+- **Objetivo URGENTE cumplido**: Implementación de Modo Claro completo para la plantilla canónica Nightclub (`NightclubExperience`), diseñado específicamente para proyección con alta luz ambiental y sol sin alterar ni degradar el Modo Oscuro existente.
+- **Alcance de la adaptación visual**:
+  - **Fondo y Shell**: `background: #f1f5f9` (Slate 100) en contenedor general; `color: #0f172a` (azul petróleo / casi negro profundo).
+  - **Superficies y Tarjetas**: `#ffffff` (blanco puro) para tarjetas, paneles, formularios y modales; `#f8fafc` (Slate 50) para paneles secundarios y vistas anidadas.
+  - **Sidebar y Navegación**: `#e2e8f0` (gris azulado muy claro) con bordes Slate-300 (`#cbd5e1`). Botones de navegación inactivos `#334155` y activos en dorado cálido (`#fef3c7` con texto `#92400e`). Barra inferior móvil adaptada a blanco con bordes legibles.
+  - **Topbar**: Encabezado en blanco translúcido (`rgba(255,255,255,0.96)`) con toggle rápido de tema: `[ 🌙 Oscuro | ☀️ Claro ]`.
+  - **Tipografía y Contraste**: Títulos y textos principales `#0f172a` (Slate 900), secundarios `#334155` (Slate 700), sutiles `#475569` (Slate 600). Alto contraste comprobado, sin texto blanco sobre fondo claro ni grises lavados.
+  - **Estados y Badges**:
+    - *Libre / Disponible*: Fondo `#ecfdf5`, texto `#065f46`, borde `#10b981`.
+    - *Ocupada / Peligro*: Fondo `#ffe4e6`, texto `#9f1239`, borde `#f43f5e`.
+    - *Reservada / Pendiente*: Fondo `#fef3c7`, texto `#92400e`, borde `#f59e0b`.
+    - *Por cobrar / Barra*: Fondo `#e0f2fe`, texto `#075985`, borde `#0ea5e9`.
+  - **Controles de formulario**: `input`, `select` y `textarea` con fondo blanco, texto oscuro `#0f172a` y bordes Slate-300 definidos.
+  - **Modales y Diálogos**: Backdrop semitransparente oscuro con desenfoque (`rgba(15,23,42,0.65)` con `backdrop-blur`) y contenedor modal blanco nítido con sombra profunda.
+  - **14 Vistas verificadas**: POS, Zonas, Cuentas, Barra, Inventario, Productos, Caja, Historial, Clientes, Usuarios, Reportes, Socios, Cortesías y Configuración.
+- **Selectores de Tema accesibles y coordinados**:
+  - En **StudioShell**: Controles `Tema: [Oscuro] [Claro]` en la barra superior de PACHAX Studio con sincronización bidireccional instantánea por `postMessage`.
+  - En **Nightclub Topbar**: Toggle visual rápido `[ 🌙 Oscuro | ☀️ Claro ]` junto al estado del turno.
+  - En **Nightclub Settings**: Selector visual bajo la sección «Apariencia».
+- **Pruebas y Verificación**:
+  - `npm run typecheck`: 0 errores (`tsc -b`).
+  - `npm run build`: Éxito total en 4.66s (bundle de producción compilado y validado).
+  - `npm run test:nightclub`: 43/43 tests unitarios y de dominio aprobados.
+  - `npm run test:platform`: 47/47 tests de plataforma y sandbox aprobados.
+  - `npm run test:nightclub-orders-backend`: 6/6 tests en emuladores Firebase aprobados (cobro atómico, Barra/Servicio idempotente, concurrencia de stock, reembolso auditado, cuentas anónimas/con nombre y cierre de turno con arqueo).
+  - `scripts/test-admin-studio-browser.mjs`: Suite completa de smoke test vía CDP en 4 resoluciones (390×844, 768×1024, 1366×768, 1920×1080) aprobada al 100%.
+  - `scripts/test-nightclub-light-mode.mjs`: Test automatizado en navegador real validando alternancia inmediata de modo oscuro/claro, retención de iframe sin recarga, contraste en todas las vistas y persistencia.
+
 ## Integración semántica de cambios de Darío sobre main canónico (07/10/2026)
 
 - `cambios-dario` integra `origin/main` `16daabf` sin reemplazar el flujo canónico de ronda cargada a cuenta, cobro posterior y pagos parciales. Se conserva el trabajo local de cierre de turno con sobrante e historial de cierres.
