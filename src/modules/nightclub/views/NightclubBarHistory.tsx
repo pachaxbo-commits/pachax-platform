@@ -4,6 +4,7 @@ import type { NightclubDataset } from '../domain/nightclubAccounts'
 import { nightclubAccountTableId, nightclubBalance, nightclubPaidTotal, normalizeNightclubRole } from '../domain/nightclubAccounts'
 import type { NightclubHistoryFilters } from '../domain/nightclubHistory'
 import { nightclubBusinessShifts, selectNightclubHistory } from '../domain/nightclubHistory'
+import { NightclubShiftHistory } from './NightclubShiftHistory'
 
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const when = (at: string) => new Date(at).toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' })
@@ -17,7 +18,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
 }) {
   const [filters, setFilters] = useState<NightclubHistoryFilters>(() => initialFilters(data.shift?.id || 'all'))
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [view, setView] = useState<'accounts' | 'products'>('accounts')
+  const [view, setView] = useState<'accounts' | 'products' | 'shifts'>('accounts')
   const viewerRole = normalizeNightclubRole(role)
   const canSeePayments = viewerRole !== 'bar' && viewerRole !== 'inventory'
   const canRefund = viewerRole === 'owner' || viewerRole === 'admin'
@@ -36,7 +37,9 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
     <div className="flex flex-wrap gap-2">
       <button onClick={() => setView('accounts')} className={`h-10 rounded-full px-4 text-xs font-bold ${view === 'accounts' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800'}`}>Mesas y pedidos en barra</button>
       <button onClick={() => setView('products')} className={`h-10 rounded-full px-4 text-xs font-bold ${view === 'products' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800'}`}>Por producto</button>
+      {canSeePayments && <button onClick={() => setView('shifts')} className={`h-10 rounded-full px-4 text-xs font-bold ${view === 'shifts' ? 'bg-amber-400 text-slate-950' : 'bg-slate-800'}`}>Cierres de turno</button>}
     </div>
+    {view === 'shifts' ? <NightclubShiftHistory data={data} /> : <>
     <section className="grid gap-2 rounded-xl border border-slate-700 bg-[#121b20] p-3 sm:grid-cols-2 lg:grid-cols-4">
       <label className="text-xs text-slate-400">Jornada<select aria-label="Jornada comercial" value={filters.shiftId} onChange={event => setFilter('shiftId', event.target.value)} className="mt-1 h-10 w-full rounded-lg bg-slate-950 px-2 text-sm text-white"><option value="all">Todas las jornadas</option>{shifts.map(shift => <option key={shift.id} value={shift.id}>{when(shift.openedAt)} · {shift.status === 'open' ? 'Actual' : 'Cerrada'}</option>)}</select></label>
       <label className="text-xs text-slate-400">Desde<input aria-label="Desde fecha de jornada" type="date" value={filters.from} onChange={event => setFilter('from', event.target.value)} className="mt-1 h-10 w-full rounded-lg bg-slate-950 px-2 text-sm text-white" /></label>
@@ -66,6 +69,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
       <h3 className="mt-6 text-sm font-bold uppercase tracking-wider text-slate-300">Rondas</h3><div className="mt-2 space-y-2">{selected.account.rounds.map(batch => <div key={batch.id} className="rounded-lg bg-slate-900 p-3 text-sm"><div className="flex justify-between gap-2"><strong>#{batch.sequence} · {batch.authorization === 'courtesy' ? 'Cortesía' : batch.authorization === 'payment' ? 'Pagado' : 'Pendiente de regularización'}</strong><span>{batch.status}</span></div><p className="mt-1 text-xs text-slate-400">{batch.items.map(item => `${item.quantity}× ${item.name}`).join(' · ')}</p>{canRefund && batch.authorization === 'payment' && batch.status !== 'cancelled' && batch.status !== 'delivered' && <button onClick={() => refund(selected.account.id, batch.id)} className="mt-2 rounded-lg border border-amber-400 px-3 py-2 text-xs font-bold text-amber-200">Reembolsar ronda</button>}</div>)}</div>
       <h3 className="mt-6 text-sm font-bold uppercase tracking-wider text-slate-300">Cronología</h3><ol className="mt-3 space-y-2 border-l border-slate-700 pl-4">{selected.entries.filter(entry => canSeePayments || entry.type !== 'payment' && entry.type !== 'refund').filter(entry => viewerRole !== 'bar' || !entry.productId || entry.preparationArea === 'Barra').map(entry => <li key={entry.id} className="relative rounded-lg bg-slate-900 p-3 before:absolute before:-left-[21px] before:top-5 before:h-2 before:w-2 before:rounded-full before:bg-amber-400"><span className="text-[11px] text-slate-400">{when(entry.at)} · {entry.actor}</span><strong className="mt-1 block text-sm">{entry.text}{entry.productName ? ` · ${entry.quantity}× ${entry.productName}` : ''}</strong>{entry.reason && <p className="mt-1 text-xs text-slate-400">Motivo: {entry.reason}</p>}{entry.amount !== undefined && canSeePayments && <span className="mt-1 block text-xs text-emerald-300">{money(entry.amount)}</span>}</li>)}</ol>
     </aside></div>}
+    </>}
   </div>
 }
 

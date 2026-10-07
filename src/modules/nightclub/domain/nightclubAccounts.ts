@@ -54,7 +54,7 @@ export interface NightclubAccount {
   /** Snapshot legacy del último pago. */
   payment?: NightclubPayment
 }
-export interface NightclubShift { id: string; status: 'open' | 'closed'; openedAt: string; openingFloat: number; openedBy: string; closedAt?: string; closedBy?: string; countedCash?: number; expectedCash?: number; difference?: number }
+export interface NightclubShift { id: string; status: 'open' | 'closed'; openedAt: string; openingFloat: number; openedBy: string; closedAt?: string; closedBy?: string; countedCash?: number; expectedCash?: number; difference?: number; reconciliationStatus?: 'balanced' | 'surplus'; totalSales?: number; incomeTotal?: number; expenseTotal?: number; cashIncome?: number; cashOutflow?: number }
 export interface NightclubCustomer { id: string; name: string; phone: string; notes?: string; active?: boolean; visits: number; totalSpent: number }
 export interface NightclubStaff { id: string; name: string; role: 'admin' | 'cashier' | 'service' | 'bar' | 'inventory'; active: boolean }
 export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled' }
@@ -82,6 +82,15 @@ export interface NightclubCourtesyDraft { memberId: string; productId: string; q
 export interface NightclubPaymentDraft { method: NightclubPaymentMethod; amount?: number; received?: number; cashAmount?: number; qrAmount?: number; cardAmount?: number; operationId?: string }
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+const moneyCents = (value: number) => Math.round((value + Number.EPSILON) * 100)
+
+export function nightclubCashReconciliation(expectedCash: number, countedInput: number | string) {
+  const entered = typeof countedInput === 'string' ? countedInput.trim() !== '' : true
+  const countedCash = entered ? Number(countedInput) : NaN
+  if (!Number.isFinite(countedCash) || countedCash < 0 || !Number.isFinite(expectedCash)) return { valid: false, countedCash: null, difference: null, canClose: false }
+  const difference = (moneyCents(countedCash) - moneyCents(expectedCash)) / 100
+  return { valid: true, countedCash: roundMoney(countedCash), difference, canClose: difference >= 0 }
+}
 const cloneDataset = (dataset: NightclubDataset): NightclubDataset => structuredClone(dataset)
 const audit = (next: NightclubDataset, type: string, actor: string, at: string, accountId?: string, details?: NightclubAuditEvent['details']) => {
   next.audit = [...(next.audit || []), { id: crypto.randomUUID(), type, actor, at, accountId, details }]
@@ -178,11 +187,17 @@ export function closeNightclubShift(dataset: NightclubDataset, actor: string, co
   if (dataset.shift?.status !== 'open') throw new Error('No hay turno abierto.')
   if (dataset.accounts.some(account => nightclubBalance(account) > 0)) throw new Error('No puedes cerrar el turno mientras existan cuentas con saldo.')
   if (dataset.accounts.some(account => account.status !== 'closed' && account.shiftId === dataset.shift?.id)) throw new Error('Finaliza las ocupaciones del turno antes de cerrar Caja.')
-  if (!Number.isFinite(countedCash) || countedCash < 0) throw new Error('Ingresa el efectivo contado.')
+  const summary = nightclubCashSummary(dataset)
+  const expectedCash = summary.expectedCash
+  const reconciliation = nightclubCashReconciliation(expectedCash, countedCash)
+  if (!reconciliation.valid) throw new Error('Ingresa un efectivo contado válido.')
+  if (!reconciliation.canClose) throw new Error(`La caja tiene un faltante de Bs ${Math.abs(reconciliation.difference!).toFixed(2)}. Corrige el arqueo antes de cerrar.`)
   const next = cloneDataset(dataset)
-  const summary = nightclubCashSummary(next)
-  next.shift = { ...next.shift!, status: 'closed', closedAt: now, closedBy: actor, countedCash, expectedCash: summary.expectedCash, difference: roundMoney(countedCash - summary.expectedCash) }
-  audit(next, 'shift_closed', actor, now, undefined, { countedCash, difference: next.shift.difference || 0 })
+  const movements = (dataset.cashMovements || []).filter(item => item.shiftId === dataset.shift!.id)
+  const incomeTotal = roundMoney(movements.filter(item => item.type === 'income').reduce((sum, item) => sum + item.amount, 0))
+  const expenseTotal = roundMoney(movements.filter(item => item.type === 'expense').reduce((sum, item) => sum + item.amount, 0))
+  next.shift = { ...next.shift!, status: 'closed', closedAt: now, closedBy: actor, countedCash: reconciliation.countedCash!, expectedCash, difference: reconciliation.difference!, reconciliationStatus: reconciliation.difference === 0 ? 'balanced' : 'surplus', totalSales: summary.totalSales, incomeTotal, expenseTotal, cashIncome: summary.cashIncome, cashOutflow: summary.cashOutflow }
+  audit(next, 'shift_closed', actor, now, undefined, { countedCash: reconciliation.countedCash!, difference: reconciliation.difference! })
   return next
 }
 
@@ -324,10 +339,15 @@ export function advanceNightclubRound(dataset: NightclubDataset, accountId: stri
 
 export function deliverNightclubRound(dataset: NightclubDataset, accountId: string, roundId: string, actor: string, now = new Date().toISOString()): NightclubDataset {
   const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId); const batch = account?.rounds.find(item => item.id === roundId)
+  if (batch?.status === 'delivered') return dataset
   if (!account || !batch || !batch.authorization || batch.status !== 'ready') throw new Error('El pedido todavía no está listo para entregar.')
   batch.status = 'delivered'; batch.deliveredAt = now; batch.deliveredBy = actor
   audit(next, 'round_delivered', actor, now, accountId, { roundId })
   return next
+}
+
+export function nightclubBarQueue(dataset: NightclubDataset) {
+  return dataset.accounts.filter(account => account.status !== 'closed').flatMap(account => account.rounds.filter(round => !!round.authorization && ['pending', 'preparing', 'ready'].includes(round.status)).map(round => ({ account, round })))
 }
 
 export function finishNightclubOccupancy(dataset: NightclubDataset, accountId: string, actor: string, now = new Date().toISOString()): NightclubDataset {

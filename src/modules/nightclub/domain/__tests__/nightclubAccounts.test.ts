@@ -3,8 +3,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
-import { advanceNightclubRound, deliverNightclubRound, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubCashSummary, openNightclubAccount, openNightclubBottle, refundNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
+import { advanceNightclubRound, deliverNightclubRound, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubBarQueue, nightclubCashSummary, openNightclubAccount, openNightclubBottle, refundNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
 import { registerNightclubCourtesy } from '../nightclubCourtesies.ts'
+import { nightclubAccountTimeline } from '../nightclubHistory.ts'
 
 const at = '2026-09-25T22:00:00Z'
 function setup() {
@@ -122,7 +123,7 @@ test('reintento del mismo operationId no duplica pago, pedido ni inventario', ()
   assert.equal(data.accounts[0].payments.length, 1)
 })
 
-test('Barra prepara y marca listo; Servicio entrega', () => {
+test('Barra prepara, entrega y conserva pago y stock sin segunda confirmación', () => {
   const { data: initial, id } = setup()
   let data = initial
   data = settleNightclubRound(data, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Mesero', at, 'op-1')
@@ -131,9 +132,43 @@ test('Barra prepara y marca listo; Servicio entrega', () => {
   data = advanceNightclubRound(data, id, roundId, 'Barra')
   data = advanceNightclubRound(data, id, roundId, 'Barra')
   assert.equal(data.accounts[0].rounds[0].status, 'ready')
-  data = deliverNightclubRound(data, id, roundId, 'Mesero')
-  assert.equal(data.accounts[0].rounds[0].deliveredBy, 'Mesero')
+  assert.equal(nightclubBarQueue(data).length, 1)
+  const sales = nightclubCashSummary(data).totalSales
+  const stock = data.inventory[0].current
+  const movements = data.inventoryMovements.length
+  data = deliverNightclubRound(data, id, roundId, 'Barra')
+  assert.equal(data.accounts[0].rounds[0].deliveredBy, 'Barra')
   assert.equal(data.accounts[0].rounds[0].status, 'delivered')
+  assert.equal(nightclubBarQueue(data).length, 0)
+  assert.equal(nightclubCashSummary(data).totalSales, sales)
+  assert.equal(data.inventory[0].current, stock)
+  assert.equal(data.inventoryMovements.length, movements)
+  assert.equal(deliverNightclubRound(data, id, roundId, 'Barra'), data)
+  assert.equal(nightclubAccountTimeline(data.accounts[0], data).some(entry => entry.type === 'delivery' && entry.actor === 'Barra'), true)
+})
+
+test('pedido directo sin mesero y cortesía autorizada salen de Barra al entregarse', () => {
+  const { data: initial, id } = setup()
+  let data = openNightclubAccount(initial, { type: 'customer', displayName: '' }, 'Mesero', at)
+  const directId = data.accounts.at(-1).id
+  data = settleNightclubRound(data, directId, [{ productId: 'beer', quantity: 1 }], { method: 'cash' }, 'Mesero', at, 'direct-1')
+  const directRound = data.accounts.at(-1).rounds[0].id
+  assert.equal(data.accounts.at(-1).rounds[0].status, 'ready')
+  assert.equal(nightclubBarQueue(data).some(item => item.round.id === directRound), true)
+  data = deliverNightclubRound(data, directId, directRound, 'Barra')
+  assert.equal(nightclubBarQueue(data).some(item => item.round.id === directRound), false)
+  data = registerNightclubCourtesy(data, { memberId: 'carlos', productId: 'ron', quantity: 1, accountId: id }, 'Mesero', at)
+  const courtesyRound = data.accounts[0].rounds.at(-1).id
+  data = advanceNightclubRound(data, id, courtesyRound, 'Barra')
+  data = advanceNightclubRound(data, id, courtesyRound, 'Barra')
+  const quota = data.courtesies.length
+  const stock = data.inventory[0].current
+  const sales = nightclubCashSummary(data).totalSales
+  data = deliverNightclubRound(data, id, courtesyRound, 'Barra')
+  assert.equal(nightclubBarQueue(data).some(item => item.round.id === courtesyRound), false)
+  assert.equal(data.courtesies.length, quota)
+  assert.equal(data.inventory[0].current, stock)
+  assert.equal(nightclubCashSummary(data).totalSales, sales)
 })
 
 test('finalizar ocupación no vuelve a cobrar y conserva historial', () => {
