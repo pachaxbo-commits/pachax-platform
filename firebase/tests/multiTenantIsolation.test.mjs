@@ -116,6 +116,14 @@ try {
   const restaurantOwner = env.authenticatedContext(ids.ownerA).firestore()
   await assertFails(getDoc(doc(restaurantOwner, 'tenants', ids.nightclub, 'nightclubAccounts', 'account'))); pass('owner A no lee una cuenta Nightclub de D')
   await assertFails(setDoc(doc(nightclubOwner, 'tenants', ids.nightclub, 'nightclubAccounts', 'forged'), { status: 'open' })); pass('cliente no escribe cuentas Nightclub sin Function')
+  const incidentPath = `tenants/${ids.nightclub}/nightclubCustomerIncidents/incident-${suffix}`
+  await admin.doc(incidentPath).set({ customerId: 'customer-1', branchId: 'main', description: 'Solo administración' })
+  await admin.doc(`tenants/${ids.nightclub}/members/qa-night-cashier-${suffix}`).set(member(`qa-night-cashier-${suffix}`, ids.nightclub, 'cashier'))
+  const nightclubCashier = env.authenticatedContext(`qa-night-cashier-${suffix}`).firestore()
+  await assertSucceeds(getDoc(doc(nightclubOwner, incidentPath))); pass('owner Nightclub lee incidente de su sucursal')
+  await assertFails(getDoc(doc(nightclubCashier, incidentPath))); pass('cajero Nightclub no lee incidentes privados')
+  await assertFails(getDoc(doc(restaurantOwner, incidentPath))); pass('otro tenant no lee incidentes')
+  await assertFails(setDoc(doc(nightclubOwner, incidentPath), { description: 'Alteración' })); pass('cliente no escribe incidentes sin Function')
 
   const tokenD = await signIn(ids.ownerD)
   const command = (operationId, commandType, payload = {}) => tenantGateway(tokenD, { action: 'nightclubCommand', tenantId: ids.nightclub, branchId: 'main', operationId, commandType, payload })
@@ -151,7 +159,7 @@ try {
   await assertFails(getDocs(collection(cashier, 'tenants', ids.restaurant, 'members'))); pass('caja no lista ni administra usuarios')
   await assertFails(setDoc(doc(cashier, 'tenants', ids.restaurant, 'members', 'forged'), member('forged', ids.restaurant, 'owner'))); pass('cliente no crea memberships')
 
-  assert.equal(checks, 42)
+  assert.equal(checks, 46)
   fs.mkdirSync('docs/qa-pachax', { recursive: true })
   fs.writeFileSync('docs/qa-pachax/multi-tenant-isolation-result.json', JSON.stringify({ passed: true, checks, projectId, at: new Date().toISOString() }, null, 2))
   console.log(`${checks} comprobaciones multiempresa aprobadas`)

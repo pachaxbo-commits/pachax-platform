@@ -209,7 +209,7 @@ export function DemoRuntime({
       {/* Barra superior exclusiva para demos públicas (/demo/...) */}
       {isPublicDemo && (
         <>
-          <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-xs backdrop-blur-md sm:px-8 sm:py-3">
+          <header data-demo-topbar className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-xs backdrop-blur-md sm:px-8 sm:py-3">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <a
                 href="/"

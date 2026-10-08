@@ -857,6 +857,10 @@ service cloud.firestore {
       allow read: if tPermission(tenantId,'customers.read','customers');
       allow write: if false;
     }
+    match /tenants/{tenantId}/nightclubCustomerIncidents/{incidentId} {
+      allow read: if tHasRole(tenantId,['admin']) && tBranch(tenantId,resource.data.branchId);
+      allow write: if false;
+    }
     match /tenants/{tenantId}/nightclubShifts/{shiftId} {
       allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;

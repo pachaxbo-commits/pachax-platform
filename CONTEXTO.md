@@ -1,5 +1,30 @@
 # Continuidad del proyecto PACHAX
 
+## Modal de Clientes y responsable de incidentes Nightclub (07/10/2026, trabajo local sin commit)
+
+- La ficha de Clientes conserva título y botón X en un encabezado fijo dentro del modal; solo el contenido desplaza. El modal queda por encima de la barra y navegación. La barra Nightclub mide la altura de la barra pública para ajustar sticky y evitar solapamientos en Clientes/Fidelización.
+- Se eliminó el selector de personal ficticio como responsable. El comando de incidentes ignora cualquier responsable incluido en el formulario y toma UID/nombre visible de la identidad de sesión entregada por el controlador. En demo, sin identidad real, guarda responsable sin UID y muestra Usuario demo; los incidentes anteriores sin nombre verificable se etiquetan como tales.
+- Nightclub 53/53, Platform 47/47, typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes. La verificación visual interactiva no pudo ejecutarse porque el navegador automatizado no arrancó; start-dario.ps1 impide abrir localhost mientras origin/main siga sin integrar. El fetch final avanzó origin/main a 2cf5655 (cuatro commits por delante de HEAD), con solapamiento en archivos Nightclub; no se hizo merge ni commit. Los cambios locales permanecen y no hubo commit ni push.
+## Convivencia, incidentes y fidelización Nightclub (07/10/2026, trabajo local sin commit)
+
+- En cambios-dario se preservó el trabajo local y se actualizó la referencia de origin/main a 4b69750. La rama aún diverge 2 commits de main; integrar sin commit dejaría un merge inconcluso, por lo que se mantiene pendiente.
+- Clientes muestra estado manual Verde/Amarillo/Rojo y ficha con consumo vinculado efectivamente pagado, visitas verificables, cumpleaños e incidentes para Administración. Los incidentes se crean, editan y eliminan con confirmación y auditoría; el estado nunca cambia automáticamente. Fidelización filtra ranking por mes/año, marca frecuentes desde 3 visitas verificables y muestra cumpleaños del mes/próximos 30 días.
+- Demo/Studio persisten incidentes en el controlador local. La ruta Firestore separada nightclubCustomerIncidents solo permite lectura administrativa del tenant y sucursal; escritura de cliente denegada. Falta un comando servidor y adaptador productivo de Clientes, por lo que no se debe registrar información real sensible en la demo ni considerar completa la persistencia productiva.
+- Pruebas: Nightclub 53/53, Platform 47/47, aislamiento multiempresa y Rules 46/46, typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes; lint global conserva 263 errores ajenos al cambio. Sin commit, push ni despliegue.
+## Cumpleaños opcional en Clientes Nightclub (07/10/2026, trabajo local sin commit)
+
+- En cambios-dario, origin/main 16daabf estaba integrado al implementar; el fetch final detectó 4b69750, aún sin integrar porque diverge y esta tarea prohíbe commits. Se conservó el trabajo local previo. Clientes permite registrar, editar, quitar y consultar una fecha de cumpleaños opcional.
+- El modelo guarda birthday como texto de calendario YYYY-MM-DD validado, sin conversiones horarias. La clave MM-DD queda disponible para consultas futuras; no se añadieron fidelización ni notificaciones.
+- Pruebas: Nightclub 50/50, Platform 47/47, typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes. La persistencia productiva Nightclub sigue pendiente del adaptador tenant preexistente; demo/Studio usa el controlador canónico con almacenamiento local.
+
+## Cliente por ronda/pedido en POS Nightclub (07/10/2026, trabajo local sin commit)
+
+- Rama `cambios-dario` con `origin/main` `16daabf` integrado y árbol inicialmente limpio. No se hizo commit ni push en esta tarea.
+- POS permite buscar clientes registrados por nombre o teléfono, registrar uno rápidamente y elegir explícitamente «Sin cliente asociado» para cada ronda de Mesa o pedido en Barra. La selección se reinicia tras enviar, sin heredar el cliente de la cuenta o de la ronda anterior.
+- Cada ronda guarda `customerId` y nombre histórico; cada pago confirmado guarda asignaciones por ronda en centavos, incluidas cuotas parciales y porciones anónimas. Clientes suma solo pagos vigentes, no rondas impagas ni canceladas. Reintentos con el mismo ID pero cliente/destino diferente se rechazan.
+- Cuentas e Historial muestran el cliente de cada ronda; Historial detalla la distribución de cada pago. Permanecen intactos envío, cobro posterior, Barra, Servicio, inventario y cortesías.
+- Pruebas: Nightclub 46/46 (Mesa con dos clientes y anónimo, Barra, abonos, cancelación, persistencia y reintento), Platform 47/47, typecheck y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes. La experiencia productiva Nightclub continúa fail-closed sin adaptador tenant; este cambio se verificó en el controlador canónico de demo/Studio.
+
 ## Integración semántica de cambios de Darío sobre main canónico (07/10/2026)
 
 - `cambios-dario` integra `origin/main` `16daabf` sin reemplazar el flujo canónico de ronda cargada a cuenta, cobro posterior y pagos parciales. Se conserva el trabajo local de cierre de turno con sobrante e historial de cierres.
