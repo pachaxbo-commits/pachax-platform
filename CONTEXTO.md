@@ -1056,3 +1056,10 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Pendiente conserva la cuenta abierta y no registra ingreso en Caja. Una cortesía queda cerrada, no crea pagos ni ingresos, conserva valor comercial, autorizador y timestamp, libera la mesa y descuenta existencias como movimiento `courtesy` separado de una venta.
 - Historial muestra responsable y valor comercial de la cortesía. En Studio, el rol Equipo conserva capacidades de caja y autorización de cortesías del dataset completo; los demás roles siguen limitados por sus capacidades.
 - Validación: `typecheck` y `test:restaurant` (27) aprobaron; build de emulador en ejecución antes de integrar.
+
+## Cambio de producto pagado Nightclub (07/10/2026, cambios-dario, trabajo local sin commit)
+
+- Se agreg� en Cuentas el cambio autorizado de una l�nea pagada antes de la entrega: conserva la l�nea original como devuelta, crea una ronda de reemplazo, registra auditor�a product_exchange, actualiza existencias y solo cobra o devuelve la diferencia.
+- Un cambio m�s caro mantiene el pago original y exige el pago complementario. Uno m�s barato permite devoluci�n de efectivo �nicamente hasta el efectivo realmente recibido; para QR/tarjeta se guarda una devoluci�n electr�nica pendiente sin alterar la caja f�sica. Las rondas entregadas se bloquean. Preparaci�n admite recuperable, merma o consumo interno.
+- Falta a�n conectar este contrato a una operaci�n transaccional de Firebase para uso multiusuario real; el comportamiento validado es el dominio y persistencia local de la demo.
+- Validaci�n local: typecheck y Nightclub 45/45 aprobados; build:emulator aprobado. El lint global mantiene 262 errores heredados fuera de este cambio.
