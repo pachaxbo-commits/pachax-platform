@@ -1,5 +1,22 @@
 # Continuidad del proyecto PACHAX
 
+## Integración semántica de cambios de Darío sobre main canónico (07/10/2026)
+
+- `cambios-dario` integra `origin/main` `16daabf` sin reemplazar el flujo canónico de ronda cargada a cuenta, cobro posterior y pagos parciales. Se conserva el trabajo local de cierre de turno con sobrante e historial de cierres.
+- Barra avanza `pending → preparing → ready`; Servicio (`waiter`/`service`) confirma `ready → delivered`. Owner/Admin mantienen la supervisión ya permitida. El rol `bar` no puede entregar ni en la vista ni en el controlador local ni en el comando tenant. Los productos `Directo` no entran en la cola de Barra.
+- Después de integrar: Nightclub 43/43, Platform 47/47, Restaurant 44/44, prueba transaccional Nightclub contra emuladores `demo-pachax-platform`, typecheck y build de emulador aprobados. El build productivo local requiere seis variables Firebase no configuradas; lint global mantiene errores ajenos a este cambio. Sin despliegue a Firebase.
+
+## Cierres de turno con sobrante e historial Nightclub (07/10/2026)
+
+- Sobre `cambios-dario` con `origin/main` integrado, Caja sigue impidiendo cerrar ante un faltante y ahora permite cerrar con caja cuadrada o sobrante. El sobrante se guarda como diferencia de arqueo, sin sumar ventas, entradas ni ganancia; el cálculo de efectivo esperado permanece intacto.
+- Cada cierre local conserva usuario, apertura/cierre, fondo, esperado, contado, diferencia, estado y resumen de ventas, entradas y salidas. El comando tenant guarda el mismo resumen dentro de la transacción. Historial añade la pestaña «Cierres de turno», con detalle, filtros de fechas/cajero/estado y orden por cierre reciente; las pestañas existentes permanecen.
+- Pruebas de dominio Nightclub 39/39 y prueba transaccional directa contra emuladores activos `demo-pachax-platform` aprobadas. `npm run typecheck` y build de emulador aprobados. La invocación de `emulators:exec` no pudo iniciar una segunda suite porque los puertos ya estaban ocupados por el servidor local; se ejecutó el script sobre esos emuladores activos. El build productivo requiere seis variables Firebase aún no configuradas y el lint global conserva errores ajenos a este cambio. Sin despliegue.
+
+## Arqueo y cierre de turno Nightclub (07/10/2026, trabajo local sin commit)
+
+- En `cambios-dario`, sincronizada por avance directo con `origin/main` `1da75a1`, Caja permite cerrar únicamente si el efectivo contado coincide con el esperado en centavos. La pantalla muestra esperado, contado, diferencia y faltante/sobrante; un campo vacío o inválido mantiene deshabilitado el cierre.
+- `closeNightclubShift` recalcula el esperado antes de cerrar y rechaza diferencias sin cambiar turno ni auditoría. El comando tenant `closeShift` calcula el efectivo esperado desde el fondo y los movimientos de efectivo del turno dentro de la transacción y aplica la misma restricción. No se alteraron ventas, movimientos, apertura ni otros módulos.
+- Pruebas Nightclub 37/37, prueba transaccional `nightclubOrders` en emuladores `demo-pachax-platform`, build de emulador, sintaxis backend y ESLint focal aprobados. El build de producción se detiene por seis variables Firebase aún no configuradas; lint global conserva errores existentes ajenos al cambio.
 ## Checkpoint: Integración final de Codex, Colaboradores y QA de Producción (07/10/2026)
 
 - **Rama**: `main`, integrada desde `integrate/final-studio-team-20261007` con merge commit semántico. Se preservaron intactas las ramas remotas de colaboradores (`fix/admin-studio-production-readiness` y `cambios-dario`).
@@ -211,6 +228,16 @@
 - QA manual en demo local, puerto 5193: navegación por los 14 módulos, POS con tarjeta y botón +, pedido local enviado a cocina, carrito móvil, Cocina, Historial, tema guardado y conservado al recargar, roles Caja y Cocina en Studio, tamaños 360/390/430/768/1024/1280/1440/1920 sin overflow horizontal ni salto del ancho del catálogo al agregar productos. Fullscreen de Studio ocupa el viewport completo.
 - `npm run typecheck`, `npm run test:restaurant` (25/25), `npm run test:platform` (27/27), `npm run build:emulator` y ESLint focal de shell/tema/demo pasan. `npm run build` productivo se detiene en la validación existente de seis variables Firebase ausentes; no se usaron credenciales ficticias. ESLint de archivos compartidos preexistentes conserva avisos anteriores de pureza/`any`.
 - Pendiente para producción: configurar el nuevo proyecto Firebase y conectar el proveedor operacional real de Restaurante. La app autenticada sigue usando el adaptador fail-closed preexistente para órdenes; la pantalla «Impresoras» continúa siendo un simulador de hardware. Conviene validar impresión y táctil en dispositivos físicos antes de publicar.
+
+## Entrega final desde Barra (28/09/2026, trabajo local sin commit)
+
+- En `cambios-dario`, sobre `origin/main` `8efda0e`, Barra usa la transición existente `deliverRound` al llegar a `ready`. La acción muestra el mesero asociado o «Marcar entregado» para un pedido directo, bloquea dobles pulsaciones y retira la ronda de la cola al entregarla. Cuentas sigue fuera del menú; no se alteraron POS ni la distribución de navegación.
+- La entrega conserva pago, stock, cortesía e historial. El backend admite la entrega de Barra y mantiene el cierre de mesa en Servicio. El historial muestra la hora y el actor de entrega. Al abrir Barra desde una página desplazada, la vista vuelve al inicio para que el título no quede bajo el encabezado.
+- Verificación: pruebas Nightclub 31/31, build de emulador y ESLint focal aprobados; la prueba transaccional de Firebase pasó contra los emuladores de `demo-pachax-platform`. QA manual de mesa pagada y pedido en barra anónimo comprobó preparación, entrega y salida de la cola. El lint global conserva errores anteriores ajenos a Nightclub.
+
+## Restauración del flujo anterior de Nightclub (28/09/2026, sin commit)
+
+- En `cambios-dario` se restauraron los cambios locales de los intentos de modificar la entrega y la navegación al estado aprobado `8efda0e`. La única diferencia funcional pendiente es que `Cuentas` ya no figura en el menú visible. Su página, datos y lógica permanecen; Barra, POS, permisos y orden de navegación conservan el comportamiento anterior. Build de emulador aprobado y localhost verificado.
 
 ## Integración a main: Nightclub premium config (27/09/2026)
 

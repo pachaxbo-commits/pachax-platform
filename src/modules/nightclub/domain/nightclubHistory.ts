@@ -15,7 +15,7 @@ export interface NightclubHistoryFilters {
   user: string
 }
 export interface NightclubHistoryEntry {
-  id: string; at: string; type: 'opened' | 'sale' | 'courtesy' | 'cancelled' | 'returned' | 'payment' | 'refund' | 'closed' | 'bill' | 'reopened' | 'preparation'
+  id: string; at: string; type: 'opened' | 'sale' | 'courtesy' | 'cancelled' | 'returned' | 'payment' | 'refund' | 'closed' | 'bill' | 'reopened' | 'preparation' | 'delivery'
   text: string; actor: string; waiter: string; productId?: string; productName?: string; category?: string
   quantity?: number; unitPrice?: number; amount?: number; commercialValue?: number; reason?: string; payment?: NightclubPayment; preparationArea?: 'Barra' | 'Directo'
 }
@@ -37,6 +37,7 @@ export function nightclubAccountTimeline(account: NightclubAccount, dataset: Nig
   const waiter = account.waiterName || account.openedBy
   const entries: NightclubHistoryEntry[] = [{ id: `open:${account.id}`, at: account.openedAt, type: 'opened', text: 'Cuenta abierta', actor: account.openedBy, waiter }]
   for (const batch of account.rounds) {
+    if (batch.status === 'delivered' && batch.deliveredAt) entries.push({ id: `delivery:${batch.id}`, at: batch.deliveredAt, type: 'delivery', text: `Ronda #${batch.sequence} entregada`, actor: batch.deliveredBy || 'Barra', waiter })
     for (const item of batch.items) {
       const courtesy = item.kind === 'courtesy' || batch.authorization === 'courtesy' || !!item.courtesyId
       entries.push({ id: `item:${item.id}`, at: batch.createdAt, type: courtesy ? 'courtesy' : 'sale', text: courtesy ? 'Cortesía autorizada' : batch.authorization === 'account_charge' ? 'Producto cargado a cuenta' : 'Producto pagado', actor: batch.sentBy || account.openedBy, waiter, productId: item.productId, productName: item.name, category: item.category, quantity: item.quantity, unitPrice: item.unitPrice, amount: item.lineTotal, commercialValue: item.commercialValue ?? item.unitPrice * item.quantity, preparationArea: item.preparationArea })

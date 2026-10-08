@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Wallet } from 'lucide-react'
 import type { NightclubCashMovement, NightclubDataset, NightclubPaymentDraft } from '../domain/nightclubAccounts'
-import { nightclubAccountLabel, nightclubBalance, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary } from '../domain/nightclubAccounts'
+import { nightclubAccountLabel, nightclubBalance, nightclubCashReconciliation, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary } from '../domain/nightclubAccounts'
 import { NightclubAccountPayment } from './NightclubAccountPayment'
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const labels = { inventory_purchase: 'Compra de inventario', payroll: 'Pago al personal', services: 'Servicios', rent: 'Alquiler', maintenance: 'Mantenimiento', transport: 'Transporte', advertising: 'Publicidad', cleaning: 'Limpieza', security: 'Seguridad', administrative: 'Gasto administrativo', other: 'Otro gasto' } as const
@@ -10,6 +10,7 @@ export function NightclubCash({ data, onStartShift, onCloseShift, onCashMovement
   const [opening, setOpening] = useState('200'); const [counted, setCounted] = useState(''); const [type, setType] = useState<'income' | 'expense'>('expense'); const [category, setCategory] = useState<keyof typeof labels>('other'); const [method, setMethod] = useState<'cash' | 'qr' | 'card'>('cash'); const [amount, setAmount] = useState(''); const [description, setDescription] = useState('')
   const [payingId, setPayingId] = useState<string | null>(null)
   const shift = data.shift; const cash = nightclubCashSummary(data); const profit = nightclubProfitSummary(data); const openAccounts = data.accounts.filter(account => nightclubBalance(account) > 0); const movements = (data.cashMovements || []).filter(item => item.shiftId === shift?.id).slice().reverse()
+  const reconciliation = nightclubCashReconciliation(cash.expectedCash, counted)
   const submit = () => { if (onCashMovement({ type, method, amount: Number(amount), description, ...(type === 'expense' ? { category } : {}) })) { setAmount(''); setDescription('') } }
   if (!shift || shift.status === 'closed') return <div className="space-y-5"><header><h1 className="text-2xl font-black">Caja y turnos</h1><p className="text-sm text-slate-400">Cobros, resultado y arqueo de la noche.</p></header><section className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="mb-3 text-sm">Inicia un turno para abrir cuentas y vender.</p><label className="block text-xs text-slate-400">Fondo inicial / cambio en caja<input type="number" min="0" value={opening} onChange={e => setOpening(e.target.value)} className="mt-1 block w-full rounded-xl bg-slate-950 p-3" /></label><button onClick={() => onStartShift(Number(opening))} className="mt-3 rounded-xl bg-amber-400 px-5 py-3 font-bold text-slate-950">Iniciar turno</button></section></div>
   return (
@@ -96,10 +97,17 @@ export function NightclubCash({ data, onStartShift, onCloseShift, onCashMovement
         <h2 className="font-bold">Arqueo y cierre</h2>
         <p className="mt-1 text-sm text-slate-400">{openAccounts.length ? `${openAccounts.length} cuenta(s) abiertas.` : 'Todas las cuentas están cerradas.'}</p>
         <div className="mt-3 flex gap-2">
-          <input type="number" min="0" placeholder="Efectivo contado" value={counted} onChange={e => setCounted(e.target.value)} className="rounded-xl bg-slate-950 p-3" />
-          <button disabled={openAccounts.length > 0 || counted === ''} onClick={() => onCloseShift(Number(counted))} className="rounded-xl bg-amber-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-40">Cerrar turno</button>
+          <input aria-label="Efectivo contado" type="number" min="0" step="0.01" placeholder="Efectivo contado" value={counted} onChange={e => setCounted(e.target.value)} className="rounded-xl bg-slate-950 p-3" />
+          <button disabled={openAccounts.length > 0 || !reconciliation.canClose} onClick={() => onCloseShift(reconciliation.countedCash!)} className="rounded-xl bg-amber-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-40">Cerrar turno</button>
         </div>
-        {counted && <p className="mt-2 text-sm">Diferencia: {money(Number(counted) - cash.expectedCash)}</p>}
+        <div className="mt-3 space-y-1 text-sm">
+          <p>Efectivo esperado: <b>{money(cash.expectedCash)}</b></p>
+          <p>Efectivo contado: <b>{reconciliation.valid ? money(reconciliation.countedCash!) : '—'}</b></p>
+          <p>Diferencia: <b>{reconciliation.valid ? money(reconciliation.difference!) : '—'}</b></p>
+          <p role="status" className={reconciliation.canClose ? 'text-emerald-300' : reconciliation.valid ? 'text-amber-300' : 'text-slate-400'}>
+            {!reconciliation.valid ? 'Ingresa un efectivo contado válido.' : reconciliation.difference! < 0 ? `Faltante: ${money(Math.abs(reconciliation.difference!))}. Corrige el arqueo antes de cerrar.` : reconciliation.difference! > 0 ? `Sobrante: ${money(reconciliation.difference!)}. El turno puede cerrarse.` : 'Caja cuadrada. El turno puede cerrarse.'}
+          </p>
+        </div>
       </section>
       {payingId && data.accounts.find(account => account.id === payingId && account.status === 'bill_requested') && (
         <NightclubAccountPayment

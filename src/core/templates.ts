@@ -29,6 +29,7 @@ function defaults(capabilities: Capability[]): BusinessTemplate['defaults'] {
   }
 }
 const restaurantCapabilities: Capability[] = [...commonCapabilities, 'orders', 'cash', 'kitchen', 'tables', 'unitSales']
+const hamburgerCapabilities: Capability[] = [...commonCapabilities, 'orders', 'cash', 'kitchen', 'unitSales']
 const distributionCapabilities: Capability[] = [...commonCapabilities, 'credits', 'dispatch', 'routes']
 const gelateriaCapabilities: Capability[] = [...commonCapabilities, 'cash', 'weightSales', 'unitSales']
 const nightclubCapabilities: Capability[] = [...commonCapabilities, 'orders', 'cash', 'kitchen', 'tables', 'unitSales']
@@ -39,6 +40,13 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     capabilities: restaurantCapabilities, defaults: defaults(restaurantCapabilities),
     modules: [...common, cash, { id: 'orders', name: 'Pedidos', capability: 'orders', permission: 'orders.read' }, { id: 'kitchen', name: 'Cocina', capability: 'kitchen', permission: 'orders.manage' }],
     roles: [owner, admin, cashier, { id: 'waiter', name: 'Mesero', permissions: ['orders.read', 'orders.manage', 'sales.create'] }, { id: 'kitchen', name: 'Cocina', permissions: ['orders.read', 'orders.manage'] }, inventory],
+    units: ['unit'], pos: 'orders', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'cash'],
+  },
+  hamburger_shop: {
+    businessType: 'hamburger_shop', name: 'Hamburguesería', description: 'Ventas en mostrador, cocina, caja e inventario.', icon: 'burger', version: 1,
+    capabilities: hamburgerCapabilities, defaults: defaults(hamburgerCapabilities),
+    modules: [...common, cash, { id: 'orders', name: 'Historial', capability: 'orders', permission: 'orders.read' }, { id: 'kitchen', name: 'Cocina', capability: 'kitchen', permission: 'orders.manage' }],
+    roles: [owner, admin, cashier, { id: 'kitchen', name: 'Cocina', permissions: ['orders.read', 'orders.manage'] }, inventory],
     units: ['unit'], pos: 'orders', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'cash'],
   },
   route_distribution: {

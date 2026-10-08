@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import type { StudioBranding } from '../../../studio/branding/brandingTypes'
 import { BarChart3, Bell, Boxes, ChevronRight, CircleDollarSign, ClipboardList, Clock3, GlassWater, LayoutGrid, LogOut, Menu, Music2, ReceiptText, Settings, Star, Users, Wine } from 'lucide-react'
@@ -43,7 +43,7 @@ export function NightclubExperience(props: Props) {
   const [staffRole, setStaffRole] = useState<'service' | 'cashier' | 'bar' | 'inventory' | 'admin'>('service')
   const activeAccounts = data.accounts.filter(account => account.status !== 'closed')
   const barRounds = activeAccounts.flatMap(account => account.rounds.map(batch => ({ ...batch, account, table: data.tables.find(table => table.id === account.tableId) }))).filter(batch => !!batch.authorization && (batch.status === 'pending' || batch.status === 'preparing'))
-  const readyRounds = activeAccounts.flatMap(account => account.rounds.filter(batch => !!batch.authorization && batch.status === 'ready').map(batch => ({ batch, account })))
+  const readyRounds = ['owner', 'admin', 'waiter', 'service'].includes(normalizedRole) ? activeAccounts.flatMap(account => account.rounds.filter(batch => !!batch.authorization && batch.status === 'ready').map(batch => ({ batch, account }))) : []
   const summary = nightclubCashSummary(data)
   const run = (action: () => void, message: string) => { try { action(); setNotice(message); return true } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo completar la acción.'); return false } }
   const canDeliver = ['owner', 'admin', 'waiter', 'service'].includes(normalizedRole)
@@ -56,6 +56,11 @@ export function NightclubExperience(props: Props) {
   const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor } : savedBranding
   const shellStyle = { '--night-gold': branding.primaryColor, '--night-positive': branding.accentColor, '--night-surface': branding.surfaceColor, '--night-background': props.studioBranding?.backgroundColor || '#050c13', '--night-sidebar': props.studioBranding?.sidebarColor || '#07111a' } as CSSProperties
   const go = (module: NightclubModule) => { setActiveModule(module); setMoreOpen(false) }
+  useEffect(() => {
+    if (currentModule !== 'bar') return
+    const frame = requestAnimationFrame(() => window.scrollTo(0, 0))
+    return () => cancelAnimationFrame(frame)
+  }, [currentModule])
 
   return <div className="nightclub-shell min-h-screen w-full bg-[#050c13] text-slate-100" style={shellStyle}>
     <div className="flex min-h-screen w-full">

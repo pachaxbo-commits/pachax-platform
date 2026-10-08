@@ -30,6 +30,7 @@ const BRAND_PALETTES: ColorPreset[] = [
 
 const REGISTER_PRESENTATION = {
   restaurant: { icon: Utensils, badgeColor: 'text-amber-700 bg-amber-50 border-amber-200' },
+  hamburger: { icon: Utensils, badgeColor: 'text-orange-700 bg-orange-50 border-orange-200' },
   distribution: { icon: Truck, badgeColor: 'text-blue-700 bg-blue-50 border-blue-200' },
   retail: { icon: Store, badgeColor: 'text-teal-700 bg-teal-50 border-teal-200' },
   nightclub: { icon: Music2, badgeColor: 'text-purple-700 bg-purple-50 border-purple-200' },

@@ -1,7 +1,7 @@
 import type { BusinessType } from './platform.ts'
 
 export type PublicTemplateStatus = 'available' | 'coming_soon'
-export type PublicTemplateId = 'restaurant' | 'distribution' | 'retail' | 'nightclub'
+export type PublicTemplateId = 'restaurant' | 'hamburger' | 'distribution' | 'retail' | 'nightclub'
 
 export interface PublicTemplateDefinition {
   id: PublicTemplateId
@@ -21,6 +21,15 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Organiza salón, pedidos, cocina, inventario y caja en un solo flujo.',
     demoPath: '/demo/restaurant',
     studioTemplateId: 'restaurant',
+    status: 'available',
+  },
+  {
+    id: 'hamburger',
+    businessType: 'hamburger_shop',
+    title: 'Hamburguesería',
+    shortDescription: 'Pedidos de mostrador, cocina, caja e inventario para hamburguesas y combos.',
+    demoPath: '/demo/hamburger',
+    studioTemplateId: 'hamburger',
     status: 'available',
   },
   {

@@ -1,0 +1,32 @@
+import { useMemo, useState } from 'react'
+import { X } from 'lucide-react'
+import type { NightclubDataset } from '../domain/nightclubAccounts'
+import type { NightclubClosureFilters } from '../domain/nightclubShiftHistory'
+import { selectNightclubShiftClosures } from '../domain/nightclubShiftHistory'
+
+const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const when = (at: string) => new Date(at).toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' })
+const statusLabel = { balanced: 'Cuadrado', surplus: 'Sobrante', legacy_shortage: 'Faltante histórico' } as const
+
+export function NightclubShiftHistory({ data }: { data: NightclubDataset }) {
+  const [filters, setFilters] = useState<NightclubClosureFilters>({ from: '', to: '', cashier: '', status: 'all' })
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const closures = useMemo(() => selectNightclubShiftClosures(data, filters), [data, filters])
+  const selected = closures.find(row => row.shift.id === selectedId)
+  const cashiers = [...new Set([...(data.shiftHistory || []), ...(data.shift ? [data.shift] : [])].filter(shift => shift.status === 'closed').map(shift => shift.closedBy).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b))
+  const setFilter = <K extends keyof NightclubClosureFilters>(key: K, value: NightclubClosureFilters[K]) => setFilters(previous => ({ ...previous, [key]: value }))
+
+  return <div className="space-y-4">
+    <section className="grid gap-2 rounded-xl border border-slate-700 bg-[#121b20] p-3 sm:grid-cols-2 lg:grid-cols-4">
+      <label className="text-xs text-slate-400">Desde<input aria-label="Cierres desde" type="date" value={filters.from} onChange={event => setFilter('from', event.target.value)} className="mt-1 h-10 w-full rounded-lg bg-slate-950 px-2 text-sm text-white" /></label>
+      <label className="text-xs text-slate-400">Hasta<input aria-label="Cierres hasta" type="date" value={filters.to} onChange={event => setFilter('to', event.target.value)} className="mt-1 h-10 w-full rounded-lg bg-slate-950 px-2 text-sm text-white" /></label>
+      <label className="text-xs text-slate-400">Cajero / usuario<select aria-label="Cajero del cierre" value={filters.cashier} onChange={event => setFilter('cashier', event.target.value)} className="mt-1 h-10 w-full rounded-lg bg-slate-950 px-2 text-sm text-white"><option value="">Todos</option>{cashiers.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
+      <label className="text-xs text-slate-400">Estado<select aria-label="Estado del cierre" value={filters.status} onChange={event => setFilter('status', event.target.value as NightclubClosureFilters['status'])} className="mt-1 h-10 w-full rounded-lg bg-slate-950 px-2 text-sm text-white"><option value="all">Todos</option><option value="balanced">Cuadrado</option><option value="surplus">Sobrante</option><option value="legacy_shortage">Faltante histórico</option></select></label>
+    </section>
+    <p className="text-xs text-slate-400">El sobrante se registra solo como diferencia de arqueo; no aumenta ventas, entradas ni ganancia.</p>
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{closures.map(row => <button key={row.shift.id} onClick={() => setSelectedId(row.shift.id)} className="rounded-xl border border-slate-700 bg-[#121b20] p-4 text-left hover:border-amber-400"><span className="text-xs font-bold text-amber-300">{statusLabel[row.status]}</span><strong className="mt-1 block">Cierre {when(row.shift.closedAt!)}</strong><span className="mt-1 block text-xs text-slate-400">{row.shift.closedBy || 'Usuario no registrado'} · Apertura {when(row.shift.openedAt)}</span><span className="mt-2 block text-sm">Esperado {money(row.expectedCash)} · Contado {money(row.countedCash)}</span><span className="mt-1 block text-sm font-bold">Diferencia {money(row.difference)}</span></button>)}{!closures.length && <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">No hay cierres para estos filtros.</p>}</div>
+    {selected && <div className="fixed inset-0 z-50 bg-black/65" onClick={() => setSelectedId(null)}><aside role="dialog" aria-modal="true" aria-label="Detalle de cierre de turno" className="absolute inset-y-0 right-0 w-full max-w-2xl overflow-y-auto border-l border-slate-700 bg-[#10191e] p-4 pb-20 sm:p-6" onClick={event => event.stopPropagation()}><div className="flex items-start justify-between gap-2"><div><span className="text-xs font-bold uppercase text-amber-300">Cierre de turno · {statusLabel[selected.status]}</span><h2 className="text-2xl font-black">{when(selected.shift.closedAt!)}</h2><p className="text-sm text-slate-400">{selected.shift.closedBy || 'Usuario no registrado'}</p></div><button aria-label="Cerrar detalle de turno" onClick={() => setSelectedId(null)} className="grid h-11 w-11 place-items-center rounded-xl border border-slate-700"><X size={18} /></button></div><div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3"><Fact label="Cajero / usuario" value={selected.shift.closedBy || 'No registrado'} /><Fact label="Abrió" value={selected.shift.openedBy} /><Fact label="Fecha de apertura" value={when(selected.shift.openedAt)} /><Fact label="Fecha de cierre" value={when(selected.shift.closedAt!)} /><Fact label="Fondo inicial" value={money(selected.shift.openingFloat)} /><Fact label="Efectivo esperado" value={money(selected.expectedCash)} /><Fact label="Efectivo contado" value={money(selected.countedCash)} /><Fact label="Diferencia de arqueo" value={money(selected.difference)} /><Fact label="Estado" value={statusLabel[selected.status]} /><Fact label="Ventas del turno" value={money(selected.totalSales)} /><Fact label="Entradas" value={money(selected.incomeTotal)} /><Fact label="Salidas / gastos" value={money(selected.expenseTotal)} /><Fact label="Entradas en efectivo" value={money(selected.cashIncome)} /><Fact label="Salidas en efectivo" value={money(selected.cashOutflow)} /></div><p className="mt-4 text-xs text-slate-400">La diferencia de arqueo no forma parte de ventas, entradas ni ganancia.</p></aside></div>}
+  </div>
+}
+
+function Fact({ label, value }: { label: string; value: string }) { return <div className="rounded-lg bg-slate-900 p-2"><span className="block text-[11px] text-slate-400">{label}</span><strong>{value}</strong></div> }

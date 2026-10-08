@@ -7,7 +7,7 @@ import type { ReservationDraft, TableDraft, ZoneDraft } from '../domain/nightclu
 
 export function useNightclubController(initial: () => NightclubDataset, actor: string, storageKey?: string, datasetMode?: string, resetKey = 0, role = 'admin') {
   const initialRef = useRef(initial)
-  const hasMounted = useRef(false)
+  const initializedFor = useRef({ datasetMode, resetKey })
   const [data, setData] = useState<NightclubDataset>(() => {
     if (!storageKey) return initial()
     try {
@@ -18,10 +18,8 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
   })
   const current = useRef(data)
   useEffect(() => {
-    if (!hasMounted.current) {
-      hasMounted.current = true
-      return
-    }
+    if (initializedFor.current.datasetMode === datasetMode && initializedFor.current.resetKey === resetKey) return
+    initializedFor.current = { datasetMode, resetKey }
     const next = initialRef.current()
     current.current = next
     setData(next)
@@ -79,7 +77,7 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     onReopenBill: (accountId: string) => { if (!['owner', 'admin', 'cashier'].includes(role)) throw new Error('Solo Caja o Administración pueden reabrir la cuenta.'); apply(state => reopenNightclubBill(state, accountId, actor)) },
     onRecordPayment: (accountId: string, payment: NightclubPaymentDraft) => { if (!['owner', 'admin', 'cashier'].includes(role)) throw new Error('Solo Caja puede registrar pagos.'); apply(state => recordNightclubPayment(state, accountId, payment, actor)) },
     onAdvanceRound: (accountId: string, roundId: string) => { if (!['owner', 'admin', 'bar'].includes(role)) throw new Error('Solo Barra puede preparar pedidos.'); apply(state => advanceNightclubRound(state, accountId, roundId, actor)) },
-    onDeliverRound: (accountId: string, roundId: string) => { if (!['owner', 'admin', 'waiter', 'service'].includes(role)) throw new Error('Solo Servicio puede entregar pedidos.'); apply(state => deliverNightclubRound(state, accountId, roundId, actor)) },
+    onDeliverRound: (accountId: string, roundId: string) => { if (!['owner', 'admin', 'waiter', 'service'].includes(role)) throw new Error('Solo Servicio puede entregar pedidos.'); apply(state => deliverNightclubRound(state, accountId, roundId, actor)); if (storageKey) try { localStorage.setItem(storageKey, JSON.stringify({ version: 3, mode: datasetMode, data: current.current })) } catch { /* Storage is optional in the demo. */ } },
     onFinishAccount: (accountId: string) => { if (!['owner', 'admin', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para cerrar mesas.'); apply(state => finishNightclubOccupancy(state, accountId, actor)) },
     onRefundRound: (accountId: string, roundId: string, reason: string) => { if (!['owner', 'admin'].includes(role)) throw new Error('Solo Administración puede reembolsar pedidos.'); apply(state => refundNightclubRound(state, accountId, roundId, actor, reason)) },
     onCancelRound: (accountId: string, roundId: string, reason: string) => apply(state => cancelNightclubRound(state, accountId, roundId, actor, reason)),
