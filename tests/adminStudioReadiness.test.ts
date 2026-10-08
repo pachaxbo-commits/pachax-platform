@@ -22,7 +22,7 @@ test('Firestore overrides one template without erasing the others', () => {
 })
 
 test('Studio roles resolve through the canonical template registry', () => {
-  assert.equal(PUBLIC_TEMPLATES.length, 4)
+  assert.equal(PUBLIC_TEMPLATES.length, 5)
   for (const item of PUBLIC_TEMPLATES) {
     assert.ok(getTemplate(item.businessType).roles.some(role => role.id === 'admin'))
   }

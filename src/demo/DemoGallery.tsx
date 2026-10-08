@@ -8,6 +8,10 @@ export function DemoGallery() {
       company: 'Bistró Demo', icon: Utensils, tag: 'Gastronomía & Salón',
       highlights: ['Comandas en tiempo real', 'Plano visual de mesas', 'Cocina KDS', 'Arqueo de turnos'],
     },
+    hamburger: {
+      company: 'Hamburguesería Demo', icon: Utensils, tag: 'Mostrador & Cocina',
+      highlights: ['Pedidos rápidos', 'Cocina KDS', 'Recetas e inventario', 'Arqueo de turnos'],
+    },
     distribution: {
       company: 'Distribuidora Demo', icon: Truck, tag: 'Logística & Preventa',
       highlights: ['Cierre de rutas', 'Cobranza de créditos', 'Gestión de almacenes', 'Tickets e impresión'],

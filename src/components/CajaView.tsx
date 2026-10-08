@@ -169,6 +169,7 @@ export function CajaView({
   restaurantCustomers = [],
   botManagementEnabled = true,
   orderEditingEnabled = true,
+  counterServiceMode = false,
   onConfirmDemoPayment,
 }: {
   nextOrderNumber: string
@@ -224,6 +225,7 @@ export function CajaView({
   restaurantCustomers?: import('../modules/restaurant/domain/restaurantCustomers').RestaurantCustomer[]
   orderEditingEnabled?: boolean
   botManagementEnabled?: boolean
+  counterServiceMode?: boolean
   onConfirmDemoPayment?: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
 }) {
   // Main view mode: either POS catalog or orders list
@@ -295,7 +297,7 @@ export function CajaView({
   // pagado cuando alguien lo cobra de verdad. El de caja se cobra en el momento, asi que ese si
   // arranca en pagado.
   const [paymentStatus, setPaymentStatus] = useState<'paid' | 'pending' | 'gift'>(
-    userRole === 'pedidos' || restaurantTables.length > 0 ? 'pending' : 'paid',
+    counterServiceMode ? 'paid' : userRole === 'pedidos' || restaurantTables.length > 0 ? 'pending' : 'paid',
   )
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>('cash')
   const [portalElement, setPortalElement] = useState<HTMLElement | null>(null)
@@ -737,10 +739,10 @@ export function CajaView({
       }
     })
     setCartItems(loadedCartItems)
-    setOrderSource(order.orderSource || 'local')
-    setFulfillmentType(order.fulfillmentType || (order.orderType === 'delivery' ? 'delivery' : 'table'))
-    setTableInfo(order.tableInfo || '')
-    setTableId(order.tableId || restaurantTables.find(table => table.name === order.tableInfo)?.id || '')
+    setOrderSource(counterServiceMode ? 'local' : order.orderSource || 'local')
+    setFulfillmentType(counterServiceMode ? 'pickup' : order.fulfillmentType || (order.orderType === 'delivery' ? 'delivery' : 'table'))
+    setTableInfo(counterServiceMode ? '' : order.tableInfo || '')
+    setTableId(counterServiceMode ? '' : order.tableId || restaurantTables.find(table => table.name === order.tableInfo)?.id || '')
     setCustomerName(order.customerName || '')
     setCustomerPhone(order.customerPhone || '')
     setCustomerId(order.customerId || '')
@@ -767,15 +769,15 @@ export function CajaView({
   const handleDiscardEdit = () => {
     setEditingOrderId(null)
     setCartItems([])
-    setFulfillmentType(userRole === 'pedidos' ? 'pickup' : 'table')
-    setOrderSource(userRole === 'pedidos' ? 'whatsapp' : 'local')
+    setFulfillmentType(counterServiceMode || userRole === 'pedidos' ? 'pickup' : 'table')
+    setOrderSource(counterServiceMode ? 'local' : userRole === 'pedidos' ? 'whatsapp' : 'local')
     setCustomerName('')
     setCustomerPhone('')
     setCustomerId('')
     setDeliveryAddress('')
     setTableInfo('')
     setTableId('')
-    setPaymentStatus(userRole === 'pedidos' || restaurantTables.length > 0 ? 'pending' : 'paid')
+    setPaymentStatus(counterServiceMode ? 'paid' : userRole === 'pedidos' || restaurantTables.length > 0 ? 'pending' : 'paid')
     setPaymentMethod('cash')
     setExpectedPaymentMethod(null)
     setCashReceivedInput('')
@@ -1874,7 +1876,7 @@ export function CajaView({
               <div className="px-3 pb-3 space-y-2.5">
 
                 {/* Origen */}
-                {userRole !== 'pedidos' ? (
+                {!counterServiceMode && userRole !== 'pedidos' ? (
                   <div className="space-y-1">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Canal</div>
                     <div className="grid grid-cols-2 gap-1.5">
@@ -1911,76 +1913,58 @@ export function CajaView({
                 ) : null}
 
                 {/* Entrega */}
-                <div className="space-y-1 pt-1.5 border-t border-border/50">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Entrega</div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {(() => {
-                      const options: Array<{ id: FulfillmentType; label: string; icon: typeof Utensils; disabled?: boolean }> = [
-                        { id: 'table', label: 'Mesa', icon: Utensils, disabled: userRole === 'pedidos' || orderSource === 'whatsapp' },
-                        { id: 'pickup', label: 'Retiro', icon: ShoppingBag },
-                        { id: 'delivery', label: 'Delivery', icon: Truck },
-                      ]
-                      return options.map((option) => {
-                        if (option.disabled) return null
-                        const isActive = fulfillmentType === option.id
-                        const Icon = option.icon
-                        return (
-                          <button
-                            key={option.id}
-                            type="button"
-                            className={`rounded-xl border py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                              isActive
-                                ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
-                                : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                            }`}
-                            onClick={() => {
-                              setFulfillmentType(option.id)
-                              if (option.id === 'table' && restaurantTables.length) {
-                                setPaymentStatus('pending')
-                                setPaymentMethod(null)
-                              }
-                            }}
-                          >
-                            <Icon size={13} />
-                            <span>{option.label}</span>
-                          </button>
-                        )
-                      })
-                    })()}
+                {counterServiceMode ? (
+                  <div className="rounded-xl border border-border/80 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                    Entrega: retiro en mostrador
                   </div>
-                  {fulfillmentType === 'table' ? (
-                    <div className="mt-1.5">
-                      {restaurantTables.length ? (
-                        <select
-                          className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
-                          value={tableId}
-                          onChange={(e) => {
+                ) : (
+                  <div className="space-y-1 pt-1.5 border-t border-border/50">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Entrega</div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(() => {
+                        const options: Array<{ id: FulfillmentType; label: string; icon: typeof Utensils; disabled?: boolean }> = [
+                          { id: 'table', label: 'Mesa', icon: Utensils, disabled: userRole === 'pedidos' || orderSource === 'whatsapp' },
+                          { id: 'pickup', label: 'Retiro', icon: ShoppingBag },
+                          { id: 'delivery', label: 'Delivery', icon: Truck },
+                        ]
+                        return options.map((option) => {
+                          if (option.disabled) return null
+                          const isActive = fulfillmentType === option.id
+                          const Icon = option.icon
+                          return (
+                            <button key={option.id} type="button"
+                              className={`rounded-xl border py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${isActive ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm' : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                              onClick={() => {
+                                setFulfillmentType(option.id)
+                                if (option.id === 'table' && restaurantTables.length) { setPaymentStatus('pending'); setPaymentMethod(null) }
+                              }}>
+                              <Icon size={13} /><span>{option.label}</span>
+                            </button>
+                          )
+                        })
+                      })()}
+                    </div>
+                    {fulfillmentType === 'table' ? (
+                      <div className="mt-1.5">
+                        {restaurantTables.length ? (
+                          <select className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]" value={tableId} onChange={(e) => {
                             const selected = restaurantTables.find((table) => table.id === e.target.value)
-                            setTableId(selected?.id || '')
-                            setTableInfo(selected?.name || '')
-                          }}
-                        >
-                          <option value="">Seleccionar mesa</option>
-                          {restaurantTables
-                            .filter((table) => !table.archivedAt && table.active !== false)
-                            .map((table) => (
+                            setTableId(selected?.id || ''); setTableInfo(selected?.name || '')
+                          }}>
+                            <option value="">Seleccionar mesa</option>
+                            {restaurantTables.filter((table) => !table.archivedAt && table.active !== false).map((table) => (
                               <option key={table.id} value={table.id} disabled={table.status === 'bill_requested' || table.status === 'reserved'}>
-                                {table.name} — {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse · reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}
+                                {table.name} ? {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse ? reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}
                               </option>
                             ))}
-                        </select>
-                      ) : (
-                        <input
-                          className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900"
-                          placeholder="Número o referencia de mesa"
-                          value={tableInfo}
-                          onChange={(e) => setTableInfo(e.target.value)}
-                        />
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-
+                          </select>
+                        ) : (
+                          <input className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900" placeholder="N?mero o referencia de mesa" value={tableInfo} onChange={(e) => setTableInfo(e.target.value)} />
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
                 {/* Contacto */}
                 <div className="space-y-1.5 pt-1.5 border-t border-border/50">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Datos de Contacto</div>
@@ -2359,8 +2343,8 @@ export function CajaView({
                       setCashSplitInput('')
                       setQrSplitInput('')
                       setCardSplitInput('')
-                      setFulfillmentType(userRole === 'pedidos' ? 'pickup' : 'table')
-                      setOrderSource(userRole === 'pedidos' ? 'whatsapp' : 'local')
+                      setFulfillmentType(counterServiceMode || userRole === 'pedidos' ? 'pickup' : 'table')
+                      setOrderSource(counterServiceMode ? 'local' : userRole === 'pedidos' ? 'whatsapp' : 'local')
                       setTableInfo('')
                       setTableId('')
                       setCustomerName('')

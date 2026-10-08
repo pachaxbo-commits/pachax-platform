@@ -56,7 +56,7 @@ export function StudioShell({
 
   const publicTemplate = getPublicTemplate(templateId)
   const templateRoles = getTemplate(publicTemplate.businessType).roles
-  const defaultCompany = { restaurant: 'Bistró Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo' }[templateId]
+  const defaultCompany = { restaurant: 'Bistró Demo', hamburger: 'Hamburguesería Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo' }[templateId]
 
   // Enviar mensaje de sincronización seguro al iframe
   const sendSync = useCallback(() => {

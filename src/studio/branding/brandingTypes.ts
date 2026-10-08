@@ -19,6 +19,16 @@ export const DEFAULT_RESTAURANT_BRANDING: StudioBranding = {
   styleTheme: 'clean',
 }
 
+export const DEFAULT_HAMBURGER_BRANDING: StudioBranding = {
+  companyName: 'Hamburguesería Demo',
+  primaryColor: '#9A3412',
+  sidebarColor: '#FFF7ED',
+  accentColor: '#EA580C',
+  backgroundColor: '#FFFDF8',
+  surfaceColor: '#FFFFFF',
+  styleTheme: 'warm',
+}
+
 export const DEFAULT_DISTRIBUTION_BRANDING: StudioBranding = {
   companyName: 'Distribuidora Demo',
   primaryColor: '#C1121F', // Rojo PACHAX sobrio

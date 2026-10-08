@@ -1,5 +1,5 @@
 /** Canonical contracts for the new platform. Legacy Restaurant* adapters are separate. */
-export type BusinessType = 'restaurant_pos' | 'route_distribution' | 'gelateria_weight_cafe' | 'nightclub_lounge'
+export type BusinessType = 'restaurant_pos' | 'hamburger_shop' | 'route_distribution' | 'gelateria_weight_cafe' | 'nightclub_lounge'
 export type Unit = 'kg' | 'g' | 'ml' | 'unit' | 'package' | 'box' | 'liter'
 export type Permission =
   | 'sales.read' | 'sales.create' | 'orders.read' | 'orders.manage'
@@ -16,7 +16,7 @@ export interface BusinessTemplate {
   businessType: BusinessType
   name: string
   description: string
-  icon: 'restaurant' | 'truck' | 'ice-cream' | 'music'
+  icon: 'restaurant' | 'burger' | 'truck' | 'ice-cream' | 'music'
   version: number
   capabilities: readonly Capability[]
   modules: readonly ModuleDefinition[]
