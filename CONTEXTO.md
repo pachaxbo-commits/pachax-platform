@@ -1103,3 +1103,10 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - POS permite elegir de forma opcional el responsable activo de Servicio. Una comision pasa de pendiente a ganada solo al existir pago completo y entrega; reembolsos, anulaciones y cambios invalidan la linea afectada.
 - Usuarios y roles muestra el resumen de comisiones y Administracion puede liquidarlas en efectivo, QR, tarjeta u otro. El pago de comision queda como salida de caja; solo efectivo modifica el efectivo esperado. Utilidad registra la comision al ganarse y no la duplica al liquidarla.
 - Validacion local: typecheck, lint, test:nightclub 58/58 y build:emulator aprobaron. Produccion sigue pendiente de comandos Firebase transaccionales y permisos validados en servidor.
+
+
+## Impresion de comandas Hamburgueseria (08/10/2026, cambios-dario, sin commit)
+
+- Hamburgueseria sigue usando RestaurantExperience con perfil counter_service. Al confirmar una venta crea una comanda de texto y un trabajo persistente separado; no crea una segunda venta ni vuelve a descontar inventario.
+- El ticket incluye numero de pedido, hora, tipo de entrega, cliente opcional, productos, cantidades y observaciones. Excluye precios, totales y pagos. Las adiciones y reimpresiones conservan una secuencia propia.
+- Impresoras permite configurar nombre, area, conexion, ancho de papel y modo. El navegador abre su dialogo manual; USB, red y Bluetooth requieren el agente local/nativo, que aun no existe para la demo web.

@@ -27,6 +27,8 @@ import { customerName, legacyCustomersFromOrders, normalizeCustomerPhone } from 
 import type { CustomerDraft } from './RestaurantCustomerForm'
 import type { DemoDatasetMode } from '../datasets/types'
 import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeColors } from '../../modules/restaurant/views/restaurantTheme'
+import { buildKitchenTicketPrintDocument, buildKitchenTicketText, type KitchenTicketJob } from '../../modules/restaurant/domain/kitchenPrint'
+import { DEFAULT_KITCHEN_PRINTER_CONFIG, type KitchenPrinterConfig } from './kitchenPrinterConfig'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -325,10 +327,12 @@ export function RestaurantDemo({
     }
     window.addEventListener('storage', syncInventory)
     return () => window.removeEventListener('storage', syncInventory)
-  }, [])
+  }, [storageKey])
   const [shift, setShift] = useState<Shift | null>(initial.shift)
   const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => readSaved<Shift[]>(`${storageKey}:shift-history`, []))
   const [audit, setAudit] = useState<AuditEvent[]>(initial.audit)
+  const [kitchenPrinterConfig, setKitchenPrinterConfig] = useState<KitchenPrinterConfig>(() => readSaved<KitchenPrinterConfig>(`${storageKey}:kitchen-printer:v1`, DEFAULT_KITCHEN_PRINTER_CONFIG))
+  const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>(() => readSaved<KitchenTicketJob[]>(`${storageKey}:kitchen-print-jobs:v1`, []))
   void resetKey
   const [cashierName, setCashierName] = useState(
     `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'}`
@@ -354,6 +358,82 @@ export function RestaurantDemo({
       persist('audit', next)
       return next
     })
+  }
+
+  const saveKitchenPrintJobs = (next: KitchenTicketJob[]) => {
+    setKitchenPrintJobs(next)
+    persist('kitchen-print-jobs:v1', next)
+  }
+
+  const patchKitchenPrintJob = (jobId: string, patch: Partial<KitchenTicketJob>) => {
+    setKitchenPrintJobs((previous) => {
+      const next = previous.map((item) => item.id === jobId ? { ...item, ...patch } : item)
+      persist('kitchen-print-jobs:v1', next)
+      return next
+    })
+  }
+
+  const sendKitchenTicket = (job: KitchenTicketJob) => {
+    const printWithBrowser = () => {
+      const popup = window.open('', '_blank', 'width=420,height=620')
+      if (!popup) {
+        patchKitchenPrintJob(job.id, { status: 'error', error: 'El navegador bloqueó la ventana de impresión.' })
+        return
+      }
+      popup.document.write(buildKitchenTicketPrintDocument(job.text, kitchenPrinterConfig.paperWidth === 'A4' ? '80mm' : kitchenPrinterConfig.paperWidth))
+      popup.document.close()
+      popup.focus()
+      window.setTimeout(() => popup.print(), 100)
+      patchKitchenPrintJob(job.id, { status: 'sent', sentAt: new Date().toISOString(), error: undefined })
+    }
+    if (!kitchenPrinterConfig.name.trim()) {
+      patchKitchenPrintJob(job.id, { status: 'error', error: 'Configura una impresora de cocina antes de imprimir.' })
+      return
+    }
+    if (kitchenPrinterConfig.connection !== 'browser') {
+      patchKitchenPrintJob(job.id, { status: 'error', error: 'Esta demo no incluye un agente local activo para enviar trabajos a USB, red o Bluetooth. Usa Navegador o instala el agente local.' })
+      return
+    }
+    printWithBrowser()
+  }
+
+  const createKitchenPrintJob = (order: Order, lines: Order['items'], kind: 'new' | 'addition' | 'reprint' = 'new', sequence = ((order.submittedBatches as Batch[] | undefined)?.length || 0) + 1): KitchenTicketJob => {
+    const createdAt = new Date().toISOString()
+    const batchId = crypto.randomUUID()
+    const text = buildKitchenTicketText({ order, sequence, lines, createdAt, kind, businessName: companyName || (profile === 'counter_service' ? 'Hamburguesería' : 'Restaurante') })
+    return { id: crypto.randomUUID(), idempotencyKey: `kitchen:${order.displayNumber}:${batchId}`, orderId: order.id, batchId, sequence, kind, status: 'pending', text, createdAt, retries: 0, createdBy: cashierName }
+  }
+
+  const saveKitchenPrinterConfig = (next: KitchenPrinterConfig) => {
+    setKitchenPrinterConfig(next)
+    persist('kitchen-printer:v1', next)
+  }
+
+  const retryKitchenPrint = (jobId: string) => {
+    const current = kitchenPrintJobs.find((job) => job.id === jobId)
+    if (!current) return
+    const retry = { ...current, status: 'retry' as const, retries: current.retries + 1, error: undefined }
+    const next = kitchenPrintJobs.map((job) => job.id === jobId ? retry : job)
+    saveKitchenPrintJobs(next)
+    sendKitchenTicket(retry)
+  }
+
+  const reprintLatestKitchenTicket = () => {
+    const original = kitchenPrintJobs[0]
+    const order = original ? orders.find((item) => item.id === original.orderId) : undefined
+    if (!original || !order) return
+    const reprint = { ...createKitchenPrintJob(order, order.items.filter((item) => original.text.includes(item.name)), 'reprint', original.sequence), idempotencyKey: `${original.idempotencyKey}:reprint:${Date.now()}`, kind: 'reprint' as const }
+    const next = [reprint, ...kitchenPrintJobs]
+    saveKitchenPrintJobs(next)
+    sendKitchenTicket(reprint)
+    record({ type: 'kitchen_ticket_reprinted', orderId: order.id, details: { originalJobId: original.id, jobId: reprint.id } })
+  }
+
+  const printKitchenTest = () => {
+    const test: KitchenTicketJob = { id: crypto.randomUUID(), idempotencyKey: `kitchen:test:${Date.now()}`, orderId: 'test', batchId: 'test', sequence: 1, kind: 'new', status: 'pending', text: 'COCINA\n--------------------------------\nPRUEBA DE IMPRESION\n\nSi puedes leer esto, la configuración funciona.\n', createdAt: new Date().toISOString(), retries: 0, createdBy: cashierName }
+    const next = [test, ...kitchenPrintJobs]
+    saveKitchenPrintJobs(next)
+    sendKitchenTicket(test)
   }
 
   const updateOrders = (updater: (previous: Order[]) => Order[]) => {
@@ -876,17 +956,32 @@ export function RestaurantDemo({
         : requestedPaymentStatus === 'gift'
           ? completeRestaurantGift(placed.orders, placed.tables, placed.order.id, cashierName, timestamp)
           : { orders: placed.orders, tables: placed.tables, order: placed.order }
+      let finalOrder = settled.order
+      let finalOrders = settled.orders
+      let kitchenJob: KitchenTicketJob | undefined
+      if (profile === 'counter_service') {
+        const existingBatches = (settled.order.submittedBatches as Batch[] | undefined) || []
+        const batch: Batch = { id: crypto.randomUUID(), sequence: existingBatches.length + 1, createdAt: timestamp, printedAt: undefined, itemIds: ticketItems.map((item) => item.id) }
+        finalOrder = { ...settled.order, submittedBatches: [...existingBatches, batch] }
+        finalOrders = settled.orders.map((item) => item.id === finalOrder.id ? finalOrder : item)
+        kitchenJob = createKitchenPrintJob(finalOrder, ticketItems, existingBatches.length ? 'addition' : 'new', batch.sequence)
+      }
       saveInventory(consumption.products, consumption.movements)
-      updateOrders(() => settled.orders)
+      updateOrders(() => finalOrders)
       updateTables(() => settled.tables)
       record({
         type: placed.added ? 'product_added' : requestedPaymentStatus === 'gift' ? 'order_gifted' : 'order_created',
-        orderId: settled.order.id,
-        tableId: settled.order.tableId,
-        details: { total: settled.order.total, paymentStatus: requestedPaymentStatus, itemIds: ticketItems.map(item => item.id) },
+        orderId: finalOrder.id,
+        tableId: finalOrder.tableId,
+        details: { total: finalOrder.total, paymentStatus: requestedPaymentStatus, itemIds: ticketItems.map(item => item.id) },
       })
-      if (requestedPaymentStatus === 'paid') record({ type: 'payment_confirmed', orderId: settled.order.id, tableId: settled.order.tableId, details: { total: settled.order.total, method: order.paymentMethod, change: settled.order.payment.change } })
-      if (consumption.appended.length) record({ type: requestedPaymentStatus === 'gift' ? 'inventory_courtesy' : 'inventory_sale', orderId: settled.order.id, tableId: settled.order.tableId, details: { movementIds: consumption.appended.map(item => item.id) } })
+      if (requestedPaymentStatus === 'paid') record({ type: 'payment_confirmed', orderId: finalOrder.id, tableId: finalOrder.tableId, details: { total: finalOrder.total, method: order.paymentMethod, change: finalOrder.payment.change } })
+      if (consumption.appended.length) record({ type: requestedPaymentStatus === 'gift' ? 'inventory_courtesy' : 'inventory_sale', orderId: finalOrder.id, tableId: finalOrder.tableId, details: { movementIds: consumption.appended.map(item => item.id) } })
+      if (kitchenJob) {
+        saveKitchenPrintJobs([kitchenJob, ...kitchenPrintJobs])
+        record({ type: 'kitchen_ticket_queued', orderId: finalOrder.id, details: { jobId: kitchenJob.id, batch: kitchenJob.sequence, status: kitchenJob.status } })
+        if (kitchenPrinterConfig.mode === 'automatic') sendKitchenTicket(kitchenJob)
+      }
       return true
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'No se pudo crear el pedido.')
@@ -1101,6 +1196,12 @@ export function RestaurantDemo({
       onAssignCustomer={assignCustomer}
       onSaveProducts={handleSaveProducts}
       stockMovements={stockMovements}
+      kitchenPrinterConfig={kitchenPrinterConfig}
+      kitchenPrintJobs={kitchenPrintJobs}
+      onSaveKitchenPrinterConfig={saveKitchenPrinterConfig}
+      onPrintKitchenTest={printKitchenTest}
+      onRetryKitchenPrint={retryKitchenPrint}
+      onReprintLatestKitchenTicket={reprintLatestKitchenTicket}
       onInventoryMovement={handleInventoryMovement}
       onCountInventoryItem={handleCountInventoryItem}
       onResetDemo={() => {
