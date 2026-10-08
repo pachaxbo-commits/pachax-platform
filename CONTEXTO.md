@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+## Integración de cambios de Darío con main (08/10/2026)
+
+- En cambios-dario se preservó en commit local el trabajo de clientes, incidentes, cumpleaños, fidelización y asociación de cliente por ronda. Se integró origin/main 2cf5655 sin descartar la plantilla Hamburguesería ni los cambios pagados de producto en Nightclub.
+- Los cuatro conflictos se resolvieron conservando el flujo canónico Barra → Listo → Servicio → Entregado, la atribución por pedido y la operación de cambio pagado. Un cambio de producto conserva el cliente de la ronda; cobros adicionales y devoluciones en efectivo ajustan su consumo y ranking sin inflarlos.
+- Verificaciones: Nightclub 56/56, Plataforma 47/47, Restaurante 44/44, aislamiento multiempresa y Rules 46/46, typecheck, ESLint focal, build de Rules y build de emulador aprobados. El build productivo requiere seis variables Firebase ausentes de esta máquina. Lint global conserva 263 errores preexistentes y 10 advertencias.
+- Limitación previa: Clientes e incidentes Nightclub persisten en demo/Studio; no existe aún adaptador productivo ni comando de servidor para esas operaciones, y la escritura directa Firestore permanece denegada. La comprobación visual interactiva del modal no se repitió en esta integración.
+
 ## Modal de Clientes y responsable de incidentes Nightclub (07/10/2026, trabajo local sin commit)
 
 - La ficha de Clientes conserva título y botón X en un encabezado fijo dentro del modal; solo el contenido desplaza. El modal queda por encima de la barra y navegación. La barra Nightclub mide la altura de la barra pública para ajustar sticky y evitar solapamientos en Clientes/Fidelización.
@@ -1081,3 +1088,10 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Pendiente conserva la cuenta abierta y no registra ingreso en Caja. Una cortesía queda cerrada, no crea pagos ni ingresos, conserva valor comercial, autorizador y timestamp, libera la mesa y descuenta existencias como movimiento `courtesy` separado de una venta.
 - Historial muestra responsable y valor comercial de la cortesía. En Studio, el rol Equipo conserva capacidades de caja y autorización de cortesías del dataset completo; los demás roles siguen limitados por sus capacidades.
 - Validación: `typecheck` y `test:restaurant` (27) aprobaron; build de emulador en ejecución antes de integrar.
+
+## Cambio de producto pagado Nightclub (07/10/2026, cambios-dario, trabajo local sin commit)
+
+- Se agreg� en Cuentas el cambio autorizado de una l�nea pagada antes de la entrega: conserva la l�nea original como devuelta, crea una ronda de reemplazo, registra auditor�a product_exchange, actualiza existencias y solo cobra o devuelve la diferencia.
+- Un cambio m�s caro mantiene el pago original y exige el pago complementario. Uno m�s barato permite devoluci�n de efectivo �nicamente hasta el efectivo realmente recibido; para QR/tarjeta se guarda una devoluci�n electr�nica pendiente sin alterar la caja f�sica. Las rondas entregadas se bloquean. Preparaci�n admite recuperable, merma o consumo interno.
+- Falta a�n conectar este contrato a una operaci�n transaccional de Firebase para uso multiusuario real; el comportamiento validado es el dominio y persistencia local de la demo.
+- Validaci�n local: typecheck y Nightclub 45/45 aprobados; build:emulator aprobado. El lint global mantiene 262 errores heredados fuera de este cambio.

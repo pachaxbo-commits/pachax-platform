@@ -24,8 +24,8 @@ export function nightclubLoyaltyReport(dataset: NightclubDataset, year: number, 
         if (!allocation.customerId || !ids.has(allocation.customerId)) continue
         const round = allocation.roundId ? account.rounds.find(item => item.id === allocation.roundId) : undefined
         if (allocation.roundId && (!round || round.status === 'cancelled' || round.authorization === 'courtesy')) continue
-        const paid = cents(allocation.amount)
-        if (!Number.isFinite(paid) || paid <= 0) continue
+        const paid = (payment.kind === 'exchange_refund' ? -1 : 1) * cents(allocation.amount)
+        if (!Number.isFinite(paid) || paid === 0) continue
         const row = rows.get(allocation.customerId) || { total: 0, month: 0, visits: new Set<string>(), monthVisits: new Set<string>(), unknownVisit: false, unknownMonthVisit: false }
         row.total += paid
         const current = payment.paidAt.slice(0, 7) === period

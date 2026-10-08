@@ -49,6 +49,8 @@ import type { Order, OrderStatus, Product } from '../../../types'
 import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
 import './restaurantKiosk.css'
 
+export type RestaurantExperienceProfile = 'restaurant' | 'counter_service'
+
 export type RestaurantModuleId =
   | 'dashboard'
   | 'pos'
@@ -140,6 +142,7 @@ export interface RestaurantExperienceProps {
   onModuleChange?: (module: RestaurantModuleId) => void
   themeColors?: RestaurantThemeColors
   onSaveTheme?: (colors: RestaurantThemeColors) => Promise<void> | void
+  profile?: RestaurantExperienceProfile
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -208,9 +211,11 @@ export function RestaurantExperience({
   onModuleChange,
   themeColors = DEFAULT_RESTAURANT_THEME,
   onSaveTheme,
+  profile = 'restaurant',
 }: RestaurantExperienceProps) {
+  const isCounterService = profile === 'counter_service'
   const [currentModule, setCurrentModule] = useState<RestaurantModuleId>(
-    initialModule ?? 'dashboard'
+    initialModule ?? (isCounterService ? 'pos' : 'dashboard')
   )
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
@@ -221,11 +226,14 @@ export function RestaurantExperience({
   // Módulos visibles según el rol del usuario (o todos en admin/owner/team)
   const visibleModules = useMemo(() => {
     const role = session.role || 'admin'
+    const modules = isCounterService
+      ? MODULE_DEFINITIONS.filter((module) => ['pos', 'cash', 'kitchen', 'customers', 'inventory', 'products', 'history'].includes(module.id))
+      : MODULE_DEFINITIONS
     if (role === 'admin' || role === 'owner' || role === 'team') {
-      return MODULE_DEFINITIONS
+      return modules
     }
-    return MODULE_DEFINITIONS.filter((m) => m.roles.includes(role))
-  }, [session.role])
+    return modules.filter((m) => m.roles.includes(role))
+  }, [session.role, isCounterService])
 
   const activeModule = visibleModules.some((m) => m.id === currentModule)
     ? currentModule
@@ -266,7 +274,7 @@ export function RestaurantExperience({
       ? 'Cocina'
       : session.role === 'inventory'
       ? 'Inventario'
-      : 'Restaurante'
+      : isCounterService ? 'Mostrador' : 'Restaurante'
 
   const displayName = companyName || session.restaurantName || 'Bistró Demo'
 
@@ -305,7 +313,7 @@ export function RestaurantExperience({
           </div>
         </div>
         <nav
-          aria-label="Secciones de Restaurante"
+          aria-label={isCounterService ? 'Secciones de Hamburgueser\u00eda' : 'Secciones de Restaurante'}
           className={`restaurant-top-navigation ${isDesktopNavOpen ? 'is-open' : ''}`}
           onMouseEnter={() => setIsDesktopNavOpen(true)}
           onMouseLeave={(event) => { if (!event.currentTarget.contains(document.activeElement)) setIsDesktopNavOpen(false) }}
@@ -349,8 +357,11 @@ export function RestaurantExperience({
               userRole={session.role}
               userName={session.userName}
               enabled={!!shift}
-              tables={visibleTables(tables)}
+              tables={isCounterService ? [] : visibleTables(tables)}
+
               customers={customers}
+
+              counterServiceMode={isCounterService}
             />
           )}
           {activeModule === 'tables' && (

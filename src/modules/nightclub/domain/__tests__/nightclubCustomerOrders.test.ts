@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 // @ts-expect-error Node test types are intentionally absent from the browser tsconfig.
 import test from 'node:test'
 import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
-import { cancelNightclubRound, deliverNightclubRound, nightclubCustomerPaidSummary, openNightclubAccount, recordNightclubPayment, requestNightclubBill, sendNightclubRound } from '../nightclubAccounts.ts'
+import { nightclubLoyaltyReport } from '../nightclubLoyalty.ts'
+import { cancelNightclubRound, deliverNightclubRound, exchangeNightclubPaidProduct, nightclubCustomerPaidSummary, openNightclubAccount, recordNightclubPayment, requestNightclubBill, sendNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
 
 const at = '2026-10-07T21:00:00Z'
 const line = [{ productId: 'beer', quantity: 1 }]
@@ -77,4 +78,27 @@ test('Ronda cancelada e ID de cliente inválido nunca generan consumo atribuido'
   assert.equal(summary(data, 'ana').spent, 25)
   assert.equal(summary(data, 'beto').spent, 0)
   assert.equal(data.accounts[0].payments?.[0].allocations?.length, 1)
+})
+
+test('un cambio pagado conserva el cliente y ajusta su consumo por diferencia', () => {
+  const { data: initial, accountId } = setup('bar')
+  initial.products.push({ id: 'premium', name: 'Premium', category: 'Bebidas', price: 35, preparationArea: 'Directo', stockUnits: 10, inventoryMode: 'unit', recipe: [{ inventoryId: 'premium-stock', quantity: 1 }] })
+  initial.products.push({ id: 'simple', name: 'Simple', category: 'Bebidas', price: 20, preparationArea: 'Directo', stockUnits: 10, inventoryMode: 'unit', recipe: [{ inventoryId: 'simple-stock', quantity: 1 }] })
+  initial.inventory.push({ id: 'premium-stock', name: 'Premium', unit: 'unit', current: 10, minimum: 0 })
+  initial.inventory.push({ id: 'simple-stock', name: 'Simple', unit: 'unit', current: 10, minimum: 0 })
+  const paid = settleNightclubRound(initial, accountId, line, { method: 'cash', received: 25 }, 'Caja', at, 'paid-original')
+  const source = paid.accounts[0].rounds[0]
+  const exchange = (replacementProductId: string, extra: boolean) => exchangeNightclubPaidProduct(paid, {
+    operationId: 'exchange-' + replacementProductId, accountId, roundId: source.id, itemId: source.items[0].id,
+    quantity: 1, replacementProductId, reason: 'Cambio solicitado', preparedTreatment: 'recoverable',
+    ...(extra ? { additionalPayment: { method: 'qr' as const, amount: 10 } } : { lowerSettlement: 'cash_refund' as const }),
+  }, 'admin', at)
+  const higher = exchange('premium', true)
+  assert.equal(higher.accounts[0].rounds.at(-1)?.customerId, 'ana')
+  assert.equal(summary(higher, 'ana').spent, 35)
+  assert.equal(nightclubLoyaltyReport(higher, 2026, 10)[0].monthSpent, 35)
+  const lower = exchange('simple', false)
+  assert.equal(lower.accounts[0].rounds.at(-1)?.customerId, 'ana')
+  assert.equal(summary(lower, 'ana').spent, 20)
+  assert.equal(nightclubLoyaltyReport(lower, 2026, 10)[0].monthSpent, 20)
 })
