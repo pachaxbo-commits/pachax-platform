@@ -1095,3 +1095,11 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Un cambio m�s caro mantiene el pago original y exige el pago complementario. Uno m�s barato permite devoluci�n de efectivo �nicamente hasta el efectivo realmente recibido; para QR/tarjeta se guarda una devoluci�n electr�nica pendiente sin alterar la caja f�sica. Las rondas entregadas se bloquean. Preparaci�n admite recuperable, merma o consumo interno.
 - Falta a�n conectar este contrato a una operaci�n transaccional de Firebase para uso multiusuario real; el comportamiento validado es el dominio y persistencia local de la demo.
 - Validaci�n local: typecheck y Nightclub 45/45 aprobados; build:emulator aprobado. El lint global mantiene 262 errores heredados fuera de este cambio.
+
+
+## Comisiones de Servicio Nightclub (08/10/2026, cambios-dario, trabajo local sin commit)
+
+- Productos de tipo botella pueden marcarse como comisionables por porcentaje o monto fijo. Cada ronda guarda un snapshot de la regla para mantener el historial aunque el producto cambie luego.
+- POS permite elegir de forma opcional el responsable activo de Servicio. Una comision pasa de pendiente a ganada solo al existir pago completo y entrega; reembolsos, anulaciones y cambios invalidan la linea afectada.
+- Usuarios y roles muestra el resumen de comisiones y Administracion puede liquidarlas en efectivo, QR, tarjeta u otro. El pago de comision queda como salida de caja; solo efectivo modifica el efectivo esperado. Utilidad registra la comision al ganarse y no la duplica al liquidarla.
+- Validacion local: typecheck, lint, test:nightclub 58/58 y build:emulator aprobaron. Produccion sigue pendiente de comandos Firebase transaccionales y permisos validados en servidor.
