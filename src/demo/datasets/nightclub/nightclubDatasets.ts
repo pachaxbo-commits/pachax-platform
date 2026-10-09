@@ -32,7 +32,7 @@ const branding = {
 }
 
 export function createEmptyNightclubDataset(): NightclubDataset {
-  return { zones: structuredClone(zones), tables: structuredClone(tables), products: [], accounts: [], shift: null, customers: [], reservations: [], inventory: [], inventoryMovements: [], cashMovements: [], audit: [], staff: [], branding: structuredClone(branding) }
+  return { zones: structuredClone(zones), tables: structuredClone(tables), products: [], accounts: [], shift: null, customers: [], promoters: [], promoterEvents: [], promoterTicketSales: [], promoterLoungeSales: [], promoterConsumptions: [], reservations: [], inventory: [], inventoryMovements: [], cashMovements: [], audit: [], staff: [], branding: structuredClone(branding) }
 }
 
 /** A genuinely new club for Studio onboarding, with no preset floor plan. */
@@ -74,6 +74,8 @@ export function createFullNightclubDataset(): NightclubDataset {
     zones: structuredClone(zones), tables: fullTables, products: products.map(product => ({ ...structuredClone(product), stockUnits: nightclubProductAvailability(product, fullInventory) })), accounts: [accountOne, accountTwo, previousAccount],
     shift: { id: 'night-shift-01', status: 'open', openedAt: '2026-09-25T19:30:00Z', openingFloat: 1000, openedBy: 'Caja Nocturna' },
     shiftHistory: [{ id: 'night-shift-previous', status: 'closed', openedAt: '2026-09-24T20:00:00-04:00', closedAt: '2026-09-25T05:00:00-04:00', openingFloat: 600, openedBy: 'Caja Nocturna', closedBy: 'Caja Nocturna', expectedCash: 600, countedCash: 600, difference: 0 }],
+    promoters: [{ id: 'demo-promoter-1', name: 'Lucía Méndez', phone: '70001001', birthday: '1998-05-12', joinedAt: '2026-09-01', active: true }, { id: 'demo-promoter-2', name: 'Tomás Rojas', phone: '70001002', joinedAt: '2026-09-15', active: true }],
+    promoterEvents: [], promoterTicketSales: [], promoterLoungeSales: [], promoterConsumptions: [],
     customers: [{ id: 'night-customer-1', name: 'Diego Arce', phone: '70001122', visits: 9, totalSpent: 4850 }, { id: 'night-customer-2', name: 'Andrea Salvatierra', phone: '71112233', visits: 4, totalSpent: 2140 }],
     reservations: [{ id: 'reservation-vip-2', tableId: reserved.id, customerName: 'Andrea Salvatierra', time: '22:30', guests: 8, status: 'confirmed' }],
     inventory: fullInventory, inventoryMovements, cashMovements: [], audit: [],

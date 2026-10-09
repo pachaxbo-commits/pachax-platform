@@ -1,10 +1,11 @@
 import { synchronizeNightclubCommissions } from './nightclubCommissions.ts'
+import type { NightclubPromoter, NightclubPromoterEvent, NightclubTicketControlPlan, NightclubTicketSale, NightclubLoungeSale, NightclubPromoterConsumption } from './nightclubPromoters'
 export type NightclubTableStatus = 'available' | 'occupied' | 'reserved' | 'bill_requested'
 export type NightclubAccountStatus = 'open' | 'bill_requested' | 'closed'
 export type NightclubPaymentMethod = 'cash' | 'qr' | 'card' | 'mixed'
 export type NightclubRoundStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
 export type NightclubRole = 'owner' | 'admin' | 'cashier' | 'waiter' | 'service' | 'bar' | 'inventory'
-export type NightclubModuleId = 'dashboard' | 'floor' | 'pos' | 'accounts' | 'bar' | 'inventory' | 'products' | 'cash' | 'history' | 'customers' | 'members' | 'users' | 'reports' | 'settings'
+export type NightclubModuleId = 'dashboard' | 'floor' | 'pos' | 'accounts' | 'bar' | 'inventory' | 'products' | 'cash' | 'history' | 'customers' | 'promoters' | 'members' | 'users' | 'reports' | 'settings'
 export type NightclubServiceTarget =
   | { type: 'table'; tableId: string }
   | { type: 'customer'; customerId?: string; displayName: string }
@@ -85,7 +86,7 @@ export interface NightclubCourtesy { id: string; memberId: string; productId: st
 export type NightclubExpenseCategory = 'inventory_purchase' | 'payroll' | 'services' | 'rent' | 'maintenance' | 'transport' | 'advertising' | 'cleaning' | 'security' | 'administrative' | 'other'
 export interface NightclubCashMovement { id: string; shiftId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; category?: NightclubExpenseCategory; notes?: string; at: string; actor: string; commissionPaymentId?: string }
 export interface NightclubAuditEvent { id: string; type: string; at: string; actor: string; accountId?: string; details?: Record<string, string | number> }
-export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; customerIncidents?: NightclubCustomerIncident[]; staff?: NightclubStaff[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[]; commissions?: NightclubCommission[]; commissionPayments?: NightclubCommissionPayment[]; branding?: NightclubBranding }
+export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; customerIncidents?: NightclubCustomerIncident[]; promoters?: NightclubPromoter[]; promoterEvents?: NightclubPromoterEvent[]; promoterTicketControlPlans?: NightclubTicketControlPlan[]; promoterTicketSales?: NightclubTicketSale[]; promoterLoungeSales?: NightclubLoungeSale[]; promoterConsumptions?: NightclubPromoterConsumption[]; staff?: NightclubStaff[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[]; commissions?: NightclubCommission[]; commissionPayments?: NightclubCommissionPayment[]; branding?: NightclubBranding }
 export interface NightclubRoundDraft { productId: string; quantity: number }
 export interface NightclubCommissionPaymentDraft { staffId: string; amount: number; method: 'cash' | 'qr' | 'card' | 'other'; note?: string; commissionIds?: string[]; operationId?: string }
 export interface NightclubCourtesyDraft { memberId: string; productId: string; quantity: number; accountId?: string; beneficiary?: string; note?: string }
@@ -143,9 +144,9 @@ export function nightclubCustomerPaidSummary(dataset: NightclubDataset, customer
 }
 
 export const NIGHTCLUB_ROLE_MODULES: Readonly<Record<NightclubRole, readonly NightclubModuleId[]>> = {
-  owner: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'members', 'users', 'reports', 'settings'],
-  admin: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'members', 'users', 'reports', 'settings'],
-  cashier: ['dashboard', 'pos', 'accounts', 'cash', 'history', 'customers', 'members'],
+  owner: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'promoters', 'members', 'users', 'reports', 'settings'],
+  admin: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'promoters', 'members', 'users', 'reports', 'settings'],
+  cashier: ['dashboard', 'pos', 'accounts', 'cash', 'history', 'customers', 'promoters', 'members'],
   waiter: ['floor', 'pos', 'accounts', 'history', 'customers', 'members'],
   service: ['floor', 'pos', 'accounts', 'history', 'customers', 'members'],
   bar: ['bar', 'history'],

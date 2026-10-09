@@ -4,10 +4,18 @@ import type { NightclubBranding, NightclubCashMovement, NightclubCourtesyDraft, 
 import { payNightclubCommissions } from '../domain/nightclubCommissions'
 import { cancelNightclubCourtesy, registerNightclubCourtesy, saveNightclubMember } from '../domain/nightclubCourtesies'
 import { saveNightclubCustomer } from '../domain/nightclubCustomers'
+import { deleteNightclubPromoter, markNightclubLoungeSalePaid, saveNightclubPromoter, saveNightclubPromoterConsumption, saveNightclubPromoterEvent, saveNightclubLoungeSale, saveNightclubTicketSale } from '../domain/nightclubPromoters'
+import type { NightclubConsumptionDraft, NightclubPromoter, NightclubPromoterEvent, NightclubLoungeSaleDraft, NightclubSaleDraft } from '../domain/nightclubPromoters'
 import { deleteNightclubCustomerIncident, saveNightclubCustomerIncident, setNightclubCustomerStatus } from '../domain/nightclubCustomerIncidents'
 import type { NightclubIncidentDraft, NightclubIncidentIdentity } from '../domain/nightclubCustomerIncidents'
 import { arriveNightclubReservation, cancelNightclubReservation, deleteNightclubTable, deleteNightclubZone, saveNightclubBranding, saveNightclubReservation, saveNightclubTable, saveNightclubZone } from '../domain/nightclubFloor'
 import type { ReservationDraft, TableDraft, ZoneDraft } from '../domain/nightclubFloor'
+
+const hydratePromoters = (saved: NightclubDataset, seed: () => NightclubDataset): NightclubDataset => {
+  if (saved.promoters && saved.promoterEvents && saved.promoterTicketSales && saved.promoterLoungeSales && saved.promoterConsumptions) return saved
+  const fallback = seed()
+  return { ...saved, promoters: saved.promoters ?? fallback.promoters ?? [], promoterEvents: saved.promoterEvents ?? [], promoterTicketSales: saved.promoterTicketSales ?? [], promoterLoungeSales: saved.promoterLoungeSales ?? [], promoterConsumptions: saved.promoterConsumptions ?? [] }
+}
 
 export function useNightclubController(initial: () => NightclubDataset, actor: string, storageKey?: string, datasetMode?: string, resetKey = 0, role = 'admin', incidentIdentity: NightclubIncidentIdentity | null = null) {
   const initialRef = useRef(initial)
@@ -16,7 +24,7 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     if (!storageKey) return initial()
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || 'null') as { version: number; mode: string; data: NightclubDataset } | null
-      if (saved?.version === 3 && saved.mode === datasetMode && Array.isArray(saved.data?.inventoryMovements)) return saved.data
+      if (saved?.version === 3 && saved.mode === datasetMode && Array.isArray(saved.data?.inventoryMovements)) return hydratePromoters(saved.data, initial)
     } catch { /* Corrupt demo data falls back to the fixture. */ }
     return initial()
   })
@@ -37,8 +45,9 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
       try {
         const saved = JSON.parse(event.newValue) as { version: number; mode: string; data: NightclubDataset }
         if (saved.version === 3 && saved.mode === datasetMode && Array.isArray(saved.data?.inventoryMovements)) {
-          current.current = saved.data
-          setData(saved.data)
+          const next = hydratePromoters(saved.data, initialRef.current)
+          current.current = next
+          setData(next)
         }
       } catch { /* Keep the current operation if another tab has invalid data. */ }
     }
@@ -141,6 +150,13 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
       if (index >= 0) next.products[index] = saved; else next.products.push(saved)
       return next
     }),
+    onSavePromoterEvent: (event: Pick<NightclubPromoterEvent, 'id' | 'name' | 'date' | 'status'>) => apply(state => saveNightclubPromoterEvent(state, event, actor, role)),
+    onSavePromoter: (promoter: NightclubPromoter) => apply(state => saveNightclubPromoter(state, promoter, actor, role)),
+    onDeletePromoter: (id: string) => apply(state => deleteNightclubPromoter(state, id, actor, role)),
+    onSavePromoterSale: (sale: NightclubSaleDraft) => apply(state => saveNightclubTicketSale(state, sale, actor, role)),
+    onSavePromoterLoungeSale: (sale: NightclubLoungeSaleDraft) => apply(state => saveNightclubLoungeSale(state, sale, actor, role)),
+    onMarkPromoterLoungePaid: (id: string) => apply(state => markNightclubLoungeSalePaid(state, id, actor, role)),
+    onSavePromoterConsumption: (consumption: NightclubConsumptionDraft) => apply(state => saveNightclubPromoterConsumption(state, consumption, actor, role)),
     onSaveCustomer: (customer: NightclubCustomer) => apply(state => saveNightclubCustomer(state, customer)),
     onSetCustomerStatus: (customerId: string, status: NightclubCustomerStatus) => apply(state => setNightclubCustomerStatus(state, customerId, status, incidentIdentity?.uid || 'demo', role)),
     onSaveCustomerIncident: (incident: NightclubIncidentDraft) => apply(state => saveNightclubCustomerIncident(state, incident, incidentIdentity, role)),

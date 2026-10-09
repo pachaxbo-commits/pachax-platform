@@ -55,7 +55,7 @@ export function DemoRuntime({
         if (
           (templateId === 'restaurant' && key.startsWith('pachax:restaurant-studio:')) ||
           (templateId === 'hamburger' && key.startsWith('pachax:hamburger-studio:')) ||
-          (templateId === 'nightclub' && key.startsWith('pachax:nightclub-studio:'))
+          (templateId === 'nightclub' && (key.startsWith('pachax:nightclub-studio:') || key.startsWith('pachax:nightclub-demo:')))
         ) {
           localStorage.removeItem(key)
         }
