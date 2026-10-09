@@ -79,7 +79,7 @@ export function createFullNightclubDataset(): NightclubDataset {
     customers: [{ id: 'night-customer-1', name: 'Diego Arce', phone: '70001122', visits: 9, totalSpent: 4850 }, { id: 'night-customer-2', name: 'Andrea Salvatierra', phone: '71112233', visits: 4, totalSpent: 2140 }],
     reservations: [{ id: 'reservation-vip-2', tableId: reserved.id, customerName: 'Andrea Salvatierra', time: '22:30', guests: 8, status: 'confirmed' }],
     inventory: fullInventory, inventoryMovements, cashMovements: [], audit: [],
-    staff: [{ id: 'night-staff-1', name: 'Valeria', role: 'service', active: true }, { id: 'night-staff-2', name: 'Marco', role: 'service', active: true }, { id: 'night-staff-3', name: 'Caja Nocturna', role: 'cashier', active: true }],
+    staff: [{ id: 'night-staff-1', name: 'Valeria', role: 'waiter', active: true }, { id: 'night-staff-2', name: 'Marco', role: 'waiter', active: true }, { id: 'night-staff-3', name: 'Caja Nocturna', role: 'cashier', active: true }],
     branding: structuredClone(branding),
   }
 }

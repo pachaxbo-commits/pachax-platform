@@ -11,11 +11,12 @@ const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFr
 const when = (at: string) => new Date(at).toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' })
 const initialFilters = (shiftId: string): NightclubHistoryFilters => ({ shiftId, from: '', to: '', query: '', table: '', waiter: '', product: '', category: '', paymentMethod: '', status: 'all', user: '' })
 
-export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
+export function NightclubBarHistory({ data, role, actor, onRefundRound, canRefundOverride }: {
   data: NightclubDataset
   role: string
   actor: string
   onRefundRound: (accountId: string, roundId: string, reason: string) => boolean
+  canRefundOverride?: boolean
 }) {
   const [filters, setFilters] = useState<NightclubHistoryFilters>(() => initialFilters(data.shift?.id || 'all'))
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -23,7 +24,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound }: {
   const [refundTarget, setRefundTarget] = useState<{ accountId: string; roundId: string } | null>(null)
   const viewerRole = normalizeNightclubRole(role)
   const canSeePayments = viewerRole !== 'bar' && viewerRole !== 'inventory'
-  const canRefund = viewerRole === 'owner' || viewerRole === 'admin'
+  const canRefund = canRefundOverride ?? (viewerRole === 'owner' || viewerRole === 'admin')
   const shifts = nightclubBusinessShifts(data)
   const result = useMemo(() => selectNightclubHistory(data, filters, { role, actor }), [data, filters, role, actor])
   const selected = result.accounts.find(row => row.account.id === selectedId)

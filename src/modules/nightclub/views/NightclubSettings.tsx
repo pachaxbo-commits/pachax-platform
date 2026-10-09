@@ -1,5 +1,6 @@
-import { ChevronDown, ImagePlus, Palette, Save, SlidersHorizontal, Store, TableProperties } from 'lucide-react'
+import { ChevronDown, ImagePlus, Palette, Save, SlidersHorizontal, Store, TableProperties, Users } from 'lucide-react'
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import type { NightclubBranding, NightclubDataset } from '../domain/nightclubAccounts'
 import type { TableDraft, ZoneDraft } from '../domain/nightclubFloor'
 import { NightclubFloor } from './NightclubFloor'
@@ -14,11 +15,14 @@ type Props = {
   onSaveTable: (draft: TableDraft) => boolean
   onDeleteZone: (id: string) => boolean
   onDeleteTable: (id: string) => boolean
+  usersPanel?: ReactNode
+  canViewFloor?: boolean
+  readOnly?: boolean
 }
 
 const defaultBranding = (name: string, logo?: string): NightclubBranding => ({ businessName: name, subtitle: 'Club nocturno / Lounge', logoDataUrl: logo, primaryColor: '#d8a84e', accentColor: '#35d0a0', surfaceColor: '#0d1720' })
 
-export function NightclubSettings({ data, fallbackName, fallbackLogo, onSaveBranding, onSaveZone, onSaveTable, onDeleteZone, onDeleteTable }: Props) {
+export function NightclubSettings({ data, fallbackName, fallbackLogo, onSaveBranding, onSaveZone, onSaveTable, onDeleteZone, onDeleteTable, usersPanel, canViewFloor = true, readOnly = false }: Props) {
   const [branding, setBranding] = useState<NightclubBranding>(() => structuredClone(data.branding || defaultBranding(fallbackName, fallbackLogo)))
   const [message, setMessage] = useState('')
   const pickImage = async (kind: 'logoDataUrl' | 'heroDataUrl', file?: File) => {
@@ -30,7 +34,7 @@ export function NightclubSettings({ data, fallbackName, fallbackLogo, onSaveBran
   return <div className="space-y-5">
     <header><p className="text-[11px] font-bold uppercase tracking-[.2em] text-amber-300">Administración del espacio</p><h1 className="mt-1 text-3xl font-semibold tracking-tight text-white">Configuración</h1><p className="mt-1 text-sm text-slate-400">Ajusta la identidad y organiza el salón desde un solo lugar.</p></header>
     {message && <button type="button" onClick={() => setMessage('')} role="status" className="w-full rounded-xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-left text-sm text-amber-100">{message}</button>}
-    <Accordion icon={Store} title="Identidad del negocio" description="Nombre, subtítulo y marca visibles" open>
+    <fieldset disabled={readOnly} className="space-y-5"><Accordion icon={Store} title="Identidad del negocio" description="Nombre, subtítulo y marca visibles" open>
       <div className="grid gap-4 md:grid-cols-2"><Field label="Nombre del negocio"><input value={branding.businessName} onChange={event => setBranding({ ...branding, businessName: event.target.value })} /></Field><Field label="Tipo de negocio"><input value={branding.subtitle} onChange={event => setBranding({ ...branding, subtitle: event.target.value })} /></Field></div>
       <div className="mt-4 grid gap-4 md:grid-cols-2"><ImagePicker label="Logo" value={branding.logoDataUrl} onPick={file => void pickImage('logoDataUrl', file)} onClear={() => setBranding({ ...branding, logoDataUrl: undefined })} /><ImagePicker label="Portada de Inicio" value={branding.heroDataUrl} wide onPick={file => void pickImage('heroDataUrl', file)} onClear={() => setBranding({ ...branding, heroDataUrl: undefined })} /></div>
       <p className="mt-3 text-xs leading-5 text-slate-500">En la demo, las imágenes se guardan únicamente en este navegador. La conexión remota de branding continúa deshabilitada hasta disponer del repositorio tenant y Storage.</p>
@@ -38,13 +42,15 @@ export function NightclubSettings({ data, fallbackName, fallbackLogo, onSaveBran
     <Accordion icon={Palette} title="Apariencia" description="Acentos y superficies de la experiencia">
       <div className="grid gap-4 sm:grid-cols-3"><ColorField label="Dorado principal" value={branding.primaryColor} onChange={value => setBranding({ ...branding, primaryColor: value })} /><ColorField label="Estado positivo" value={branding.accentColor} onChange={value => setBranding({ ...branding, accentColor: value })} /><ColorField label="Superficie" value={branding.surfaceColor} onChange={value => setBranding({ ...branding, surfaceColor: value })} /></div>
     </Accordion>
-    <Accordion icon={TableProperties} title="Zonas y mesas" description={`${data.zones.length} zonas · ${data.tables.length} mesas`}>
+    </fieldset>
+    {canViewFloor && <Accordion icon={TableProperties} title="Zonas y mesas" description={`${data.zones.length} zonas · ${data.tables.length} mesas`}>
       <NightclubFloor data={data} onSelectTable={() => undefined} onSaveZone={onSaveZone} onSaveTable={onSaveTable} onDeleteZone={onDeleteZone} onDeleteTable={onDeleteTable} embedded />
-    </Accordion>
+    </Accordion>}
+    {usersPanel && <Accordion icon={Users} title="Usuarios y permisos" description="Personal, roles y matriz de acceso">{usersPanel}</Accordion>}
     <Accordion icon={SlidersHorizontal} title="Operación" description="Estado del turno y reglas activas">
       <div className="grid gap-3 sm:grid-cols-3"><Status label="Turno" value={data.shift?.status === 'open' ? 'Abierto' : 'Cerrado'} /><Status label="Reservas" value="Habilitadas" /><Status label="Cobro por ronda" value="Activo" /></div><p className="mt-3 text-xs text-slate-500">Los cambios de turno se realizan en Caja. Los estados de mesa se administran desde Zonas para conservar la trazabilidad.</p>
     </Accordion>
-    <button type="button" onClick={saveBranding} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-amber-300 px-5 font-bold text-[#07111a] sm:w-auto"><Save size={17} />Guardar identidad y apariencia</button>
+    {!readOnly && <button type="button" onClick={saveBranding} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-amber-300 px-5 font-bold text-[#07111a] sm:w-auto"><Save size={17} />Guardar identidad y apariencia</button>}
   </div>
 }
 

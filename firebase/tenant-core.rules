@@ -15,7 +15,9 @@
     }
     function tPermission(tenantId, permission, capability) {
       return tIsActiveMember(tenantId)
-        && get(/databases/$(database)/documents/tenants/$(tenantId)/roles/$(tMemberData(tenantId).roleId)).data.permissions.hasAny([permission])
+        && (get(/databases/$(database)/documents/tenants/$(tenantId)/roles/$(tMemberData(tenantId).roleId)).data.permissions.hasAny([permission])
+          || (permission == 'users.manage' && get(/databases/$(database)/documents/tenants/$(tenantId)).data.businessType == 'nightclub_lounge'
+            && tMemberData(tenantId).get('nightclubPermissions', []).hasAny(['special.manageUsers'])))
         && get(/databases/$(database)/documents/tenants/$(tenantId)).data.configuration.features.get(capability, false) == true;
     }
     function tBranch(tenantId, branchId) {

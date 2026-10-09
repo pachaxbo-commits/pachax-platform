@@ -39,10 +39,10 @@ const adminAuth = getAuth(adminApp)
 let checks = 0
 const pass = message => { checks++; console.log('PASS', message) }
 const member = (uid, tenantId, roleId, status = 'active', routeIds = []) => ({ uid, tenantId, roleId, status, branchIds: ['main'], routeIds })
-async function signIn(uid) {
+async function signIn(uid, email = uid + '@example.test', password = 'Emulator123!') {
   const response = await fetch('http://127.0.0.1:9195/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=emulator', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: `${uid}@example.test`, password: 'Emulator123!', returnSecureToken: true }),
+    body: JSON.stringify({ email, password, returnSecureToken: true }),
   })
   assert(response.ok, `Auth emulator rechazó ${uid}`)
   return (await response.json()).idToken
@@ -126,6 +126,37 @@ try {
   await assertFails(setDoc(doc(nightclubOwner, incidentPath), { description: 'Alteración' })); pass('cliente no escribe incidentes sin Function')
 
   const tokenD = await signIn(ids.ownerD)
+  const invalidMatrix = await tenantGateway(tokenD, { action: 'createMember', tenantId: ids.nightclub, operationId: 'invalid-matrix-' + suffix, email: 'invalid-' + suffix + '@example.test', password: 'Password123!', displayName: 'Inválido', roleId: 'waiter', nightclubPermissions: ['pos.edit'] })
+  assert(!invalidMatrix.response.ok); pass('Function rechaza editar POS sin permiso Ver')
+  const partnerCreated = await tenantGateway(tokenD, { action: 'createMember', tenantId: ids.nightclub, operationId: 'partner-' + suffix, email: 'partner-' + suffix + '@example.test', password: 'Password123!', displayName: 'Socio QA', roleId: 'partner', nightclubPermissions: ['dashboard.view', 'reports.view'] })
+  assert(partnerCreated.response.ok)
+  const partnerUid = (partnerCreated.body.result?.data || partnerCreated.body.result).uid
+  const partnerDoc = (await admin.doc('tenants/' + ids.nightclub + '/members/' + partnerUid).get()).data()
+  assert.equal(partnerDoc.roleId, 'partner'); assert.deepEqual(partnerDoc.nightclubPermissions, ['dashboard.view', 'reports.view']); assert(!('password' in partnerDoc))
+  assert.equal((await adminAuth.getUser(partnerUid)).email, 'partner-' + suffix + '@example.test'); pass('owner crea socio en Firebase Auth y membership por UID sin guardar contraseña')
+  await assertFails(setDoc(doc(nightclubOwner, 'tenants', ids.nightclub, 'members', partnerUid), { roleId: 'admin' }, { merge: true })); pass('cliente no modifica permisos ni roles directamente')
+  const supervisorCreated = await tenantGateway(tokenD, { action: 'createMember', tenantId: ids.nightclub, operationId: 'supervisor-' + suffix, email: 'supervisor-' + suffix + '@example.test', password: 'Password123!', displayName: 'Supervisor QA', roleId: 'supervisor', nightclubPermissions: ['users.view', 'special.manageUsers'] })
+  assert(supervisorCreated.response.ok)
+  const supervisorUid = (supervisorCreated.body.result?.data || supervisorCreated.body.result).uid
+  const supervisorToken = await signIn(supervisorUid, 'supervisor-' + suffix + '@example.test', 'Password123!')
+  const supervisorClient = env.authenticatedContext(supervisorUid).firestore()
+  await assertSucceeds(getDocs(collection(supervisorClient, 'tenants', ids.nightclub, 'members'))); pass('permiso individual autentificado permite listar usuarios solo del tenant')
+  await assertFails(getDocs(collection(supervisorClient, 'tenants', ids.restaurant, 'members'))); pass('permiso individual no cruza tenants')
+  const supervisorEscalation = await tenantGateway(supervisorToken, { action: 'updateMember', tenantId: ids.nightclub, uid: partnerUid, roleId: 'admin', nightclubPermissions: ['users.view', 'special.manageUsers'] })
+  assert(!supervisorEscalation.response.ok); pass('supervisor no puede conceder Administración')
+  const supervisorRoleEdit = await tenantGateway(supervisorToken, { action: 'saveNightclubRolePreset', tenantId: ids.nightclub, roleId: 'bar', nightclubPermissions: ['bar.view'] })
+  assert(!supervisorRoleEdit.response.ok); pass('solo Administración edita plantillas')
+  const savedRole = await tenantGateway(tokenD, { action: 'saveNightclubRolePreset', tenantId: ids.nightclub, roleId: 'bar', nightclubPermissions: ['bar.view', 'bar.create'] })
+  assert(savedRole.response.ok && (await admin.doc('tenants/' + ids.nightclub + '/roles/bar').get()).data().nightclubPermissions.includes('bar.create')); pass('plantilla editable persiste y queda auditada')
+  const updatedPartner = await tenantGateway(tokenD, { action: 'updateMember', tenantId: ids.nightclub, uid: partnerUid, displayName: 'Socio Editado', nightclubPermissions: ['dashboard.view', 'history.view'] })
+  assert(updatedPartner.response.ok && (await admin.doc('tenants/' + ids.nightclub + '/members/' + partnerUid).get()).data().displayName === 'Socio Editado'); pass('edición conserva identidad Auth y actualiza permisos del UID')
+  const removedPartner = await tenantGateway(tokenD, { action: 'deleteMember', tenantId: ids.nightclub, uid: partnerUid })
+  assert(removedPartner.response.ok && (await admin.doc('tenants/' + ids.nightclub + '/members/' + partnerUid).get()).data().status === 'disabled'); pass('eliminar retira acceso y conserva membresía histórica')
+  await assertFails(getDoc(doc(env.authenticatedContext(partnerUid).firestore(), 'tenants', ids.nightclub))); pass('miembro retirado no lee tenant')
+  const lastAdmin = await tenantGateway(tokenD, { action: 'deleteMember', tenantId: ids.nightclub, uid: ids.ownerD })
+  assert(!lastAdmin.response.ok); pass('no se puede retirar al dueño y último administrador')
+  const auditRows = await admin.collection('tenants/' + ids.nightclub + '/auditLogs').where('action', '==', 'member.updated').get()
+  assert(auditRows.docs.some(doc => doc.data().actorUid === ids.ownerD)); pass('auditoría registra UID real del administrador')
   const command = (operationId, commandType, payload = {}) => tenantGateway(tokenD, { action: 'nightclubCommand', tenantId: ids.nightclub, branchId: 'main', operationId, commandType, payload })
   const shift = await command(`night-shift-${suffix}`, 'openShift', { openingFloat: 500 })
   assert(shift.response.ok); const shiftResult = shift.body.result?.data || shift.body.result; pass('Nightclub abre turno mediante Function')
@@ -159,7 +190,7 @@ try {
   await assertFails(getDocs(collection(cashier, 'tenants', ids.restaurant, 'members'))); pass('caja no lista ni administra usuarios')
   await assertFails(setDoc(doc(cashier, 'tenants', ids.restaurant, 'members', 'forged'), member('forged', ids.restaurant, 'owner'))); pass('cliente no crea memberships')
 
-  assert.equal(checks, 46)
+  assert.equal(checks, 59)
   fs.mkdirSync('docs/qa-pachax', { recursive: true })
   fs.writeFileSync('docs/qa-pachax/multi-tenant-isolation-result.json', JSON.stringify({ passed: true, checks, projectId, at: new Date().toISOString() }, null, 2))
   console.log(`${checks} comprobaciones multiempresa aprobadas`)

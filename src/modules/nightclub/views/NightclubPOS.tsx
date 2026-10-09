@@ -5,7 +5,7 @@ import { nightclubAccountLabel, nightclubProductAvailability } from '../domain/n
 
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer }: {
+export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer, currentWaiterId }: {
   data: NightclubDataset
   draft: NightclubRoundDraft[]
   selectedAccountId: string
@@ -13,9 +13,10 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
   onDraftChange: (draft: NightclubRoundDraft[]) => void
   onOpenAccount: (target: NightclubServiceTarget) => string
   onSendRound: (accountId: string, draft: NightclubRoundDraft[], operationId: string, customerId: string | null, serviceStaffId?: string) => boolean
-  onSettleRound: (accountId: string, draft: NightclubRoundDraft[], payment: import('../domain/nightclubAccounts').NightclubPaymentDraft, operationId: string) => boolean
+  onSettleRound: (accountId: string, draft: NightclubRoundDraft[], payment: import('../domain/nightclubAccounts').NightclubPaymentDraft, operationId: string, sellerStaffId?: string) => boolean
   onCourtesy: (accountId: string) => void
   onSaveCustomer: (customer: NightclubCustomer) => boolean
+  currentWaiterId?: string
 }) {
   const [category, setCategory] = useState('Todos')
   const [search, setSearch] = useState('')
@@ -35,6 +36,7 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
   const [customerName, setCustomerName] = useState('')
   const [customerSearch, setCustomerSearch] = useState('')
   const [serviceStaffId, setServiceStaffId] = useState('')
+  const sellerStaffId = currentWaiterId || serviceStaffId
   const [creatingCustomer, setCreatingCustomer] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState('')
   const [newCustomerPhone, setNewCustomerPhone] = useState('')
@@ -48,6 +50,7 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
   const products = useMemo(() => data.products.filter(product => product.active !== false && product.price > 0 && (category === 'Todos' || product.category === category) && product.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [category, data.products, search])
   const zoneTables = data.tables.filter(table => table.zoneId === zoneId)
   const itemCount = draft.reduce((sum, item) => sum + item.quantity, 0)
+  const hasCommissionableProduct = draft.some(item => data.products.some(product => product.id === item.productId && product.commission?.enabled && product.commission.value > 0))
   const draftTotal = draft.reduce((sum, item) => sum + (data.products.find(product => product.id === item.productId)?.price || 0) * item.quantity, 0)
   const update = (productId: string, delta: number) => { operation.current = null; onDraftChange((draft.some(item => item.productId === productId) ? draft.map(item => item.productId === productId ? { ...item, quantity: item.quantity + delta } : item) : [...draft, { productId, quantity: delta }]).filter(item => item.quantity > 0)) }
   const selectAccount = (accountId: string) => { operation.current = null; onSelectAccount(accountId) }
@@ -59,13 +62,13 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     setCustomerName('')
   }
   const cancelDraft = () => { onDraftChange([]); selectAccount(''); setCustomerId(''); setCustomerName('') }
-  const settleRound = () => { if (!selected || !draft.length || lock.current) return; const received = Number(quickReceived || draftTotal); if (quickMethod === 'cash' && (!Number.isFinite(received) || received < draftTotal)) return; lock.current = true; setProcessing(true); const operationId = operation.current ||= crypto.randomUUID(); const success = onSettleRound(selected.id, draft, { method: quickMethod, ...(quickMethod === 'cash' ? { received } : {}) }, operationId); if (success) { onDraftChange([]); operation.current = null; setQuickPay(false); setQuickReceived(''); if (destinationMode === 'bar') selectAccount('') } lock.current = false; setProcessing(false) }
+  const settleRound = () => { if (!selected || !draft.length || lock.current) return; const received = Number(quickReceived || draftTotal); if (quickMethod === 'cash' && (!Number.isFinite(received) || received < draftTotal)) return; lock.current = true; setProcessing(true); const operationId = operation.current ||= crypto.randomUUID(); const success = onSettleRound(selected.id, draft, { method: quickMethod, ...(quickMethod === 'cash' ? { received } : {}) }, operationId, sellerStaffId || undefined); if (success) { onDraftChange([]); operation.current = null; setQuickPay(false); setQuickReceived(''); if (destinationMode === 'bar') selectAccount('') } lock.current = false; setProcessing(false) }
   const sendRound = () => {
     if (!selected || selected.status !== 'open' || !draft.length || lock.current) return
     lock.current = true
     setProcessing(true)
     const operationId = operation.current ||= crypto.randomUUID()
-    const success = onSendRound(selected.id, draft, operationId, customerId || null, serviceStaffId || undefined)
+    const success = onSendRound(selected.id, draft, operationId, customerId || null, sellerStaffId || undefined)
     if (success) { onDraftChange([]); operation.current = null; setDrawerOpen(false); setCustomerId(''); setCustomerName(''); setCustomerSearch(''); setServiceStaffId(''); if (destinationMode === 'bar') selectAccount('') }
     lock.current = false
     setProcessing(false)
@@ -115,7 +118,8 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     <div className="flex items-start justify-between gap-3"><div><span className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-300">Destino de ronda</span><h2 className="mt-1 text-lg font-bold">{selected ? nightclubAccountLabel(selected, data) : 'Selecciona una cuenta'}</h2><p className="mt-1 text-xs text-slate-400">Puedes preparar productos antes de elegir el destino.</p></div>{mobile && <button aria-label="Cerrar cuenta" onClick={() => setDrawerOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-700"><X /></button>}</div>
     {destinationPicker}
     <div className="mt-3 space-y-2 rounded-xl border border-slate-700/80 bg-slate-950/55 p-3"><label className="block text-xs font-bold text-slate-300">Cliente de esta ronda</label><input aria-label="Buscar cliente para esta ronda" placeholder="Buscar por nombre o teléfono" value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} className="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" /><select aria-label="Cliente de esta ronda" value={customerId} onChange={event => { setCustomerId(event.target.value); if (event.target.value) setCustomerName(''); operation.current = null }} className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100"><option value="">Sin cliente asociado</option>{availableCustomers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` · ${customer.phone}` : ''}</option>)}{customerId && !availableCustomers.some(customer => customer.id === customerId) && data.customers.find(customer => customer.id === customerId) && <option value={customerId}>{data.customers.find(customer => customer.id === customerId)?.name}</option>}</select><button onClick={() => setCreatingCustomer(value => !value)} className="min-h-9 rounded-lg border border-slate-600 px-3 text-xs font-bold text-amber-200">{creatingCustomer ? 'Cancelar registro' : 'Registrar cliente rápido'}</button>{creatingCustomer && <div className="grid gap-2"><input aria-label="Nombre del nuevo cliente" placeholder="Nombre" value={newCustomerName} onChange={event => setNewCustomerName(event.target.value)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm" /><input aria-label="Teléfono del nuevo cliente" placeholder="Teléfono (opcional)" value={newCustomerPhone} onChange={event => setNewCustomerPhone(event.target.value)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm" /><button disabled={!newCustomerName.trim()} onClick={registerCustomer} className="min-h-10 rounded-lg bg-amber-400 px-3 text-sm font-bold text-slate-950 disabled:opacity-40">Guardar y seleccionar</button></div>}</div>
-    <label className="mt-3 block text-xs font-bold text-slate-300">Responsable de servicio (opcional)<select aria-label="Responsable de servicio" value={serviceStaffId} onChange={event => { setServiceStaffId(event.target.value); operation.current = null }} className="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100"><option value="">Asignar autom?ticamente si corresponde</option>{(data.staff || []).filter(person => person.active && person.role === 'service').map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+    <label className="mt-3 block text-xs font-bold text-slate-300">Mesero que realizó la venta (opcional)<select aria-label="Mesero vendedor" value={sellerStaffId} disabled={!!currentWaiterId} onChange={event => { setServiceStaffId(event.target.value); operation.current = null }} className="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100"><option value="">Asignar automáticamente si corresponde</option>{(data.staff || []).filter(person => person.active && person.role === 'waiter').map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+    {hasCommissionableProduct && !sellerStaffId && <p className="mt-2 text-xs text-amber-200">Selecciona al mesero vendedor para atribuir la comisión. Sin mesero identificado, la venta no genera comisión.</p>}
     <div className="mt-4 space-y-1">{draft.map(line => { const product = data.products.find(item => item.id === line.productId); return <div key={line.productId} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-slate-800 py-2.5"><div className="min-w-0"><strong className="block truncate text-sm">{product?.name}</strong><span className="block text-xs text-slate-400">{money((product?.price || 0) * line.quantity)}</span></div><div className="flex items-center gap-2"><button aria-label={`Quitar ${product?.name}`} onClick={() => update(line.productId, -1)} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-800"><Minus size={14} /></button><b className="w-4 text-center text-sm">{line.quantity}</b><button aria-label={`Agregar ${product?.name}`} onClick={() => update(line.productId, 1)} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-800"><Plus size={14} /></button></div></div>})}{!draft.length && <p className="rounded-xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">Añade productos para preparar una nueva ronda.</p>}</div>
     <div className="mt-4 flex items-center justify-between"><span className="text-sm text-slate-400">Subtotal de ronda</span><strong className="text-xl">{money(draftTotal)}</strong></div>
     <button disabled={!draft.length || !selected || selected.status !== 'open' || processing || data.shift?.status !== 'open'} onClick={sendRound} className="mt-4 min-h-12 w-full rounded-xl bg-emerald-400 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{selected ? `ENVIAR RONDA · ${money(draftTotal)}` : 'ELIGE EL DESTINO'}</button>

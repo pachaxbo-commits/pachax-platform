@@ -6,15 +6,21 @@ import { cancelNightclubCourtesy, registerNightclubCourtesy, saveNightclubMember
 import { saveNightclubCustomer } from '../domain/nightclubCustomers'
 import { deleteNightclubPromoter, markNightclubLoungeSalePaid, saveNightclubPromoter, saveNightclubPromoterConsumption, saveNightclubPromoterEvent, saveNightclubLoungeSale, saveNightclubTicketSale } from '../domain/nightclubPromoters'
 import type { NightclubConsumptionDraft, NightclubPromoter, NightclubPromoterEvent, NightclubLoungeSaleDraft, NightclubSaleDraft } from '../domain/nightclubPromoters'
+import { deleteNightclubCustomRole, deleteNightclubUser, saveNightclubCustomRole, saveNightclubRolePreset, saveNightclubUser } from '../domain/nightclubUsers'
+import type { NightclubUserRole } from '../domain/nightclubUsers'
 import { deleteNightclubCustomerIncident, saveNightclubCustomerIncident, setNightclubCustomerStatus } from '../domain/nightclubCustomerIncidents'
 import type { NightclubIncidentDraft, NightclubIncidentIdentity } from '../domain/nightclubCustomerIncidents'
 import { arriveNightclubReservation, cancelNightclubReservation, deleteNightclubTable, deleteNightclubZone, saveNightclubBranding, saveNightclubReservation, saveNightclubTable, saveNightclubZone } from '../domain/nightclubFloor'
 import type { ReservationDraft, TableDraft, ZoneDraft } from '../domain/nightclubFloor'
 
 const hydratePromoters = (saved: NightclubDataset, seed: () => NightclubDataset): NightclubDataset => {
-  if (saved.promoters && saved.promoterEvents && saved.promoterTicketSales && saved.promoterLoungeSales && saved.promoterConsumptions) return saved
-  const fallback = seed()
-  return { ...saved, promoters: saved.promoters ?? fallback.promoters ?? [], promoterEvents: saved.promoterEvents ?? [], promoterTicketSales: saved.promoterTicketSales ?? [], promoterLoungeSales: saved.promoterLoungeSales ?? [], promoterConsumptions: saved.promoterConsumptions ?? [] }
+  const fallback = saved.promoters && saved.promoterEvents && saved.promoterTicketSales && saved.promoterLoungeSales && saved.promoterConsumptions ? null : seed()
+  const previousDemoWaiters = { 'night-staff-1': 'Valeria', 'night-staff-2': 'Marco' } as const
+  const staff = saved.staff?.map(person => {
+    const demoName = previousDemoWaiters[person.id as keyof typeof previousDemoWaiters]
+    return demoName && person.name === demoName && person.role === 'service' ? { ...person, role: 'waiter' as const } : person
+  })
+  return { ...saved, staff, promoters: saved.promoters ?? fallback?.promoters ?? [], promoterEvents: saved.promoterEvents ?? [], promoterTicketSales: saved.promoterTicketSales ?? [], promoterLoungeSales: saved.promoterLoungeSales ?? [], promoterConsumptions: saved.promoterConsumptions ?? [] }
 }
 
 export function useNightclubController(initial: () => NightclubDataset, actor: string, storageKey?: string, datasetMode?: string, resetKey = 0, role = 'admin', incidentIdentity: NightclubIncidentIdentity | null = null) {
@@ -85,7 +91,7 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
       })
       return openedId
     },
-    onSettleRound: (accountId: string, items: NightclubRoundDraft[], payment: NightclubPaymentDraft, operationId: string) => { if (!['owner', 'admin', 'cashier', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para cobrar pedidos.'); apply(state => settleNightclubRound(state, accountId, items, payment, actor, new Date().toISOString(), operationId)) },
+    onSettleRound: (accountId: string, items: NightclubRoundDraft[], payment: NightclubPaymentDraft, operationId: string, sellerStaffId?: string) => { if (!['owner', 'admin', 'cashier', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para cobrar pedidos.'); apply(state => settleNightclubRound(state, accountId, items, payment, actor, new Date().toISOString(), operationId, sellerStaffId)) },
     onSendRound: (accountId: string, items: NightclubRoundDraft[], operationId: string, customerId: string | null = null, serviceStaffId?: string) => { if (!['owner', 'admin', 'cashier', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para enviar pedidos.'); apply(state => sendNightclubRound(state, accountId, items, actor, new Date().toISOString(), operationId, customerId, serviceStaffId)) },
     onRequestBill: (accountId: string) => { if (!['owner', 'admin', 'cashier', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para solicitar cobro.'); apply(state => requestNightclubBill(state, accountId, actor)) },
     onReopenBill: (accountId: string) => { if (!['owner', 'admin', 'cashier'].includes(role)) throw new Error('Solo Caja o Administración pueden reabrir la cuenta.'); apply(state => reopenNightclubBill(state, accountId, actor)) },
@@ -162,7 +168,11 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     onSaveCustomerIncident: (incident: NightclubIncidentDraft) => apply(state => saveNightclubCustomerIncident(state, incident, incidentIdentity, role)),
     onDeleteCustomerIncident: (customerId: string, incidentId: string) => apply(state => deleteNightclubCustomerIncident(state, customerId, incidentId, incidentIdentity?.uid || 'demo', role)),
     onAssignCustomer: (accountId: string, customerId: string) => apply(state => { const next = structuredClone(state); const account = next.accounts.find(item => item.id === accountId); if (!account || account.status === 'closed') throw new Error('La cuenta está cerrada.'); account.customerId = customerId || undefined; return next }),
-    onSaveStaff: (staff: NightclubStaff) => apply(state => { const next = structuredClone(state); const index = (next.staff || []).findIndex(item => item.id === staff.id); next.staff ||= []; if (index >= 0) next.staff[index] = staff; else next.staff.push(staff); return next }),
+    onSaveStaff: (staff: NightclubStaff) => apply(state => saveNightclubUser(state, staff, actor, role)),
+    onDeleteStaff: (id: string) => apply(state => deleteNightclubUser(state, id, actor, role)),
+    onSaveUserRolePreset: (roleId: NightclubUserRole, permissions: string[]) => apply(state => saveNightclubRolePreset(state, roleId as Exclude<NightclubUserRole, `custom:${string}`>, permissions, actor, role)),
+    onSaveCustomRole: (draft: { id?: `custom:${string}`; label: string; permissions: string[] }) => apply(state => saveNightclubCustomRole(state, draft, actor, role)),
+    onDeleteCustomRole: (id: string) => apply(state => deleteNightclubCustomRole(state, id, actor, role)),
     onPayCommissions: (draft: NightclubCommissionPaymentDraft) => { if (!['owner', 'admin'].includes(role)) throw new Error('Solo Administracion puede pagar comisiones.'); apply(state => payNightclubCommissions(state, draft, actor)) },
     onSaveMember: (member: NightclubMember) => { if (!['owner', 'admin'].includes(role)) throw new Error('Solo Administración puede gestionar cupos.'); apply(state => saveNightclubMember(state, member, actor)) },
     onRegisterCourtesy: (draft: NightclubCourtesyDraft) => { if (!['owner', 'admin', 'cashier', 'waiter', 'service'].includes(role)) throw new Error('No tienes permiso para registrar cortesías.'); apply(state => registerNightclubCourtesy(state, draft, actor)) },

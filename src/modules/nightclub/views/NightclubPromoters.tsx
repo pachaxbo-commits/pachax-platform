@@ -7,6 +7,8 @@ import { nightclubLoungeChangeHistory, nightclubLoungeReservationDate, nightclub
 type Props = {
   data: NightclubDataset
   role: string
+  canManageOverride?: boolean
+  canSellOverride?: boolean
   onSaveEvent: (value: Pick<NightclubPromoterEvent, 'id' | 'name' | 'date' | 'status'>) => boolean
   onSavePromoter: (value: NightclubPromoter) => boolean
   onDeletePromoter: (id: string) => boolean
@@ -25,9 +27,9 @@ const loungeStatus = { reserved: 'Reservado', paid: 'Pagado', cancelled: 'Cancel
 const consumptionKind = { courtesy: 'Cortesía asignada', own_purchase: 'Compra propia' }
 const pageSize = 20
 
-export function NightclubPromoters({ data, role, onSaveEvent, onSavePromoter, onDeletePromoter, onSaveSale, onSaveLoungeSale, onMarkLoungePaid, onSaveConsumption }: Props) {
-  const canManage = role === 'owner' || role === 'admin'
-  const canSell = canManage || role === 'cashier'
+export function NightclubPromoters({ data, role, canManageOverride, canSellOverride, onSaveEvent, onSavePromoter, onDeletePromoter, onSaveSale, onSaveLoungeSale, onMarkLoungePaid, onSaveConsumption }: Props) {
+  const canManage = canManageOverride ?? (role === 'owner' || role === 'admin')
+  const canSell = canSellOverride ?? (canManage || role === 'cashier')
   const [tab, setTab] = useState<'directory' | 'ranking'>('directory')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)

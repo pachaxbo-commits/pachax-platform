@@ -26,7 +26,7 @@ test('Studio roles resolve through the canonical template registry', () => {
   for (const item of PUBLIC_TEMPLATES) {
     assert.ok(getTemplate(item.businessType).roles.some(role => role.id === 'admin'))
   }
-  assert.deepEqual(getTemplate('nightclub_lounge').roles.map(role => role.id), ['owner', 'admin', 'cashier', 'waiter', 'bar', 'inventory'])
+  assert.deepEqual(getTemplate('nightclub_lounge').roles.map(role => role.id), ['owner', 'admin', 'partner', 'cashier', 'waiter', 'service', 'bar', 'promoter', 'supervisor', 'inventory'])
 })
 
 test('Nightclub Studio has full and genuinely empty sandbox datasets', () => {

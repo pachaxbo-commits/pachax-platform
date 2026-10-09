@@ -72,7 +72,7 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     icon: 'music', version: 1,
     capabilities: nightclubCapabilities, defaults: defaults(nightclubCapabilities),
     modules: [...common, cash, { id: 'orders', name: 'Cuentas abiertas', capability: 'orders', permission: 'orders.read' }, { id: 'bar', name: 'Barra / preparación', capability: 'kitchen', permission: 'orders.manage' }],
-    roles: [owner, admin, cashier, { id: 'waiter', name: 'Servicio', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'bar', name: 'Barra', permissions: ['orders.read', 'orders.manage'] }, inventory],
+    roles: [owner, admin, { id: 'partner', name: 'Socio / Dueño', permissions: ['sales.read', 'orders.read', 'customers.read', 'reports.read'] }, cashier, { id: 'waiter', name: 'Mesero', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'service', name: 'Servicio', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'bar', name: 'Barra', permissions: ['orders.read', 'orders.manage'] }, { id: 'promoter', name: 'Relacionador', permissions: ['reports.read'] }, { id: 'supervisor', name: 'Supervisor', permissions: ['orders.read', 'customers.read', 'reports.read'] }, inventory],
     units: ['unit', 'ml'], pos: 'orders', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'cash', 'openTabs'],
   },
 }

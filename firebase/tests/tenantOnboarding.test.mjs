@@ -142,7 +142,7 @@ try {
   assert(nightclubResult.response.ok)
   assert.equal(nightclubResult.result.template.businessType, 'nightclub_lounge')
   const nightclubTenant = nightclubResult.result.tenantId
-  assert.equal((await db.collection(`tenants/${nightclubTenant}/roles`).get()).size, 6)
+  assert.equal((await db.collection(`tenants/${nightclubTenant}/roles`).get()).size, 10)
   assert.equal((await db.doc(`tenants/${nightclubTenant}`).get()).data().businessType, 'nightclub_lounge')
   pass('Nightclub completa onboarding con tenant, owner y roles del template canónico')
 

@@ -1,0 +1,82 @@
+{
+  "sections": [
+    {
+      "id": "dashboard",
+      "label": "Inicio"
+    },
+    {
+      "id": "floor",
+      "label": "Zonas"
+    },
+    {
+      "id": "pos",
+      "label": "POS"
+    },
+    {
+      "id": "accounts",
+      "label": "Cuentas"
+    },
+    {
+      "id": "bar",
+      "label": "Barra"
+    },
+    {
+      "id": "inventory",
+      "label": "Inventario"
+    },
+    {
+      "id": "products",
+      "label": "Productos"
+    },
+    {
+      "id": "cash",
+      "label": "Caja"
+    },
+    {
+      "id": "history",
+      "label": "Historial"
+    },
+    {
+      "id": "customers",
+      "label": "Clientes"
+    },
+    {
+      "id": "promoters",
+      "label": "Relacionadores"
+    },
+    {
+      "id": "members",
+      "label": "Socios"
+    },
+    {
+      "id": "users",
+      "label": "Usuarios"
+    },
+    {
+      "id": "reports",
+      "label": "Reportes"
+    },
+    {
+      "id": "settings",
+      "label": "Configuración"
+    }
+  ],
+  "special": [
+    {
+      "id": "approveOperations",
+      "label": "Aprobar operaciones"
+    },
+    {
+      "id": "closeCash",
+      "label": "Cerrar caja"
+    },
+    {
+      "id": "manageUsers",
+      "label": "Gestionar usuarios"
+    },
+    {
+      "id": "viewOtherEmployees",
+      "label": "Consultar otros empleados"
+    }
+  ]
+}

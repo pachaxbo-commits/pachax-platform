@@ -4,7 +4,7 @@ export type NightclubTableStatus = 'available' | 'occupied' | 'reserved' | 'bill
 export type NightclubAccountStatus = 'open' | 'bill_requested' | 'closed'
 export type NightclubPaymentMethod = 'cash' | 'qr' | 'card' | 'mixed'
 export type NightclubRoundStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
-export type NightclubRole = 'owner' | 'admin' | 'cashier' | 'waiter' | 'service' | 'bar' | 'inventory'
+export type NightclubRole = 'owner' | 'admin' | 'partner' | 'cashier' | 'waiter' | 'service' | 'bar' | 'promoter' | 'supervisor' | 'inventory' | 'restricted'
 export type NightclubModuleId = 'dashboard' | 'floor' | 'pos' | 'accounts' | 'bar' | 'inventory' | 'products' | 'cash' | 'history' | 'customers' | 'promoters' | 'members' | 'users' | 'reports' | 'settings'
 export type NightclubServiceTarget =
   | { type: 'table'; tableId: string }
@@ -32,7 +32,7 @@ export interface NightclubProduct {
 }
 export interface NightclubCommissionSnapshot { type: 'percentage' | 'fixed'; value: number }
 export interface NightclubRoundItem { id: string; productId: string; name: string; category?: string; quantity: number; unitPrice: number; lineTotal: number; costAtSale?: number; commercialValue?: number; kind?: 'sale' | 'courtesy'; status?: 'active' | 'cancelled' | 'returned'; cancelledAt?: string; cancelledBy?: string; cancelReason?: string; stockUsage?: NightclubRecipeLine[]; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string; exchangeId?: string; exchangedForProductId?: string; exchangeSourceItemId?: string; commissionSnapshot?: NightclubCommissionSnapshot }
-export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; customerId?: string | null; customerNameSnapshot?: string; serviceStaffId?: string; serviceStaffName?: string; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentAt?: string; paidAt?: string; deliveredBy?: string; sentBy?: string; authorization?: 'payment' | 'account_charge' | 'courtesy'; paymentId?: string; courtesyId?: string; operationId?: string; cancelledBy?: string; cancellationReason?: string }
+export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; customerId?: string | null; customerNameSnapshot?: string; serviceStaffId?: string; serviceStaffName?: string; sellerStaffId?: string; sellerStaffName?: string; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentAt?: string; paidAt?: string; deliveredBy?: string; sentBy?: string; authorization?: 'payment' | 'account_charge' | 'courtesy'; paymentId?: string; courtesyId?: string; operationId?: string; cancelledBy?: string; cancellationReason?: string }
 export interface NightclubPaymentAllocation { roundId: string; customerId: string | null; amount: number }
 export interface NightclubPayment { id?: string; operationId?: string; roundId?: string; allocations?: NightclubPaymentAllocation[]; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string; status?: 'confirmed' | 'refunded'; kind?: 'sale' | 'exchange_refund' | 'pending_electronic_refund'; refundedAt?: string; refundedBy?: string; refundReason?: string; exchangeId?: string }
 export interface NightclubAccount {
@@ -63,7 +63,8 @@ export interface NightclubShift { id: string; status: 'open' | 'closed'; openedA
 export type NightclubCustomerStatus = 'green' | 'yellow' | 'red'
 export interface NightclubCustomerIncident { id: string; customerId: string; date: string; severity: 'low' | 'medium' | 'high'; description: string; responsible?: string; responsibleName?: string; createdBy: string; createdAt: string; updatedBy?: string; updatedAt?: string }
 export interface NightclubCustomer { id: string; name: string; phone: string; birthday?: string; notes?: string; active?: boolean; convivenciaStatus?: NightclubCustomerStatus; visits: number; totalSpent: number }
-export interface NightclubStaff { id: string; name: string; role: 'admin' | 'cashier' | 'service' | 'bar' | 'inventory'; active: boolean }
+export interface NightclubStaff { id: string; name: string; email?: string; role: 'admin' | 'partner' | 'waiter' | 'cashier' | 'service' | 'bar' | 'promoter' | 'supervisor' | 'inventory' | `custom:${string}`; active: boolean; permissions?: string[]; permissionsInherited?: boolean; createdAt?: string; createdBy?: string; updatedAt?: string; updatedBy?: string }
+export interface NightclubCustomRole { id: `custom:${string}`; label: string; permissions: string[]; createdAt: string; createdBy: string; updatedAt?: string; updatedBy?: string }
 export type NightclubCommissionStatus = 'pending' | 'earned' | 'void' | 'paid'
 export interface NightclubCommission { id: string; accountId: string; roundId: string; itemId: string; productId: string; productName: string; staffId: string; staffName: string; quantity: number; saleAmount: number; type: 'percentage' | 'fixed'; value: number; amount: number; paidAmount: number; status: NightclubCommissionStatus; shiftId?: string; createdAt: string; earnedAt?: string; voidedAt?: string; voidReason?: string; paymentIds?: string[] }
 export interface NightclubCommissionPayment { id: string; staffId: string; amount: number; method: 'cash' | 'qr' | 'card' | 'other'; at: string; actor: string; shiftId?: string; note?: string; commissionIds: string[] }
@@ -86,7 +87,7 @@ export interface NightclubCourtesy { id: string; memberId: string; productId: st
 export type NightclubExpenseCategory = 'inventory_purchase' | 'payroll' | 'services' | 'rent' | 'maintenance' | 'transport' | 'advertising' | 'cleaning' | 'security' | 'administrative' | 'other'
 export interface NightclubCashMovement { id: string; shiftId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; category?: NightclubExpenseCategory; notes?: string; at: string; actor: string; commissionPaymentId?: string }
 export interface NightclubAuditEvent { id: string; type: string; at: string; actor: string; accountId?: string; details?: Record<string, string | number> }
-export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; customerIncidents?: NightclubCustomerIncident[]; promoters?: NightclubPromoter[]; promoterEvents?: NightclubPromoterEvent[]; promoterTicketControlPlans?: NightclubTicketControlPlan[]; promoterTicketSales?: NightclubTicketSale[]; promoterLoungeSales?: NightclubLoungeSale[]; promoterConsumptions?: NightclubPromoterConsumption[]; staff?: NightclubStaff[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[]; commissions?: NightclubCommission[]; commissionPayments?: NightclubCommissionPayment[]; branding?: NightclubBranding }
+export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; customerIncidents?: NightclubCustomerIncident[]; promoters?: NightclubPromoter[]; promoterEvents?: NightclubPromoterEvent[]; promoterTicketControlPlans?: NightclubTicketControlPlan[]; promoterTicketSales?: NightclubTicketSale[]; promoterLoungeSales?: NightclubLoungeSale[]; promoterConsumptions?: NightclubPromoterConsumption[]; staff?: NightclubStaff[]; userRolePresets?: Partial<Record<NightclubStaff['role'], string[]>>; customRoles?: NightclubCustomRole[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[]; commissions?: NightclubCommission[]; commissionPayments?: NightclubCommissionPayment[]; branding?: NightclubBranding }
 export interface NightclubRoundDraft { productId: string; quantity: number }
 export interface NightclubCommissionPaymentDraft { staffId: string; amount: number; method: 'cash' | 'qr' | 'card' | 'other'; note?: string; commissionIds?: string[]; operationId?: string }
 export interface NightclubCourtesyDraft { memberId: string; productId: string; quantity: number; accountId?: string; beneficiary?: string; note?: string }
@@ -146,15 +147,19 @@ export function nightclubCustomerPaidSummary(dataset: NightclubDataset, customer
 export const NIGHTCLUB_ROLE_MODULES: Readonly<Record<NightclubRole, readonly NightclubModuleId[]>> = {
   owner: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'promoters', 'members', 'users', 'reports', 'settings'],
   admin: ['dashboard', 'floor', 'pos', 'accounts', 'bar', 'inventory', 'products', 'cash', 'history', 'customers', 'promoters', 'members', 'users', 'reports', 'settings'],
+  partner: ['dashboard', 'history', 'customers', 'promoters', 'members', 'reports'],
   cashier: ['dashboard', 'pos', 'accounts', 'cash', 'history', 'customers', 'promoters', 'members'],
   waiter: ['floor', 'pos', 'accounts', 'history', 'customers', 'members'],
   service: ['floor', 'pos', 'accounts', 'history', 'customers', 'members'],
   bar: ['bar', 'history'],
+  promoter: ['dashboard'],
+  supervisor: ['dashboard', 'history', 'reports'],
+  restricted: ['dashboard'],
   inventory: ['inventory', 'products', 'history'],
 }
 
 export function normalizeNightclubRole(role: string): NightclubRole {
-  return role === 'waiter' || role === 'service' || role === 'cashier' || role === 'bar' || role === 'inventory' || role === 'owner' ? role : 'admin'
+  return role === 'waiter' || role === 'service' || role === 'cashier' || role === 'bar' || role === 'inventory' || role === 'owner' || role === 'admin' || role === 'partner' || role === 'promoter' || role === 'supervisor' ? role : 'restricted'
 }
 
 export function nightclubCan(role: string, module: NightclubModuleId) {
@@ -358,9 +363,11 @@ export function sendNightclubRound(dataset: NightclubDataset, accountId: string,
   const next = addNightclubRound(dataset, accountId, drafts, actor, now, operationId)
   const round = next.accounts.find(account => account.id === accountId)!.rounds.at(-1)!
   round.authorization = 'account_charge'
-  const staff = serviceStaffId ? next.staff?.find(person => person.id === serviceStaffId && person.role === 'service' && person.active) : next.staff?.find(person => person.role === 'service' && person.active && person.name === actor)
-  if (serviceStaffId && !staff) throw new Error('Selecciona un trabajador de Servicio activo.')
+  const staff = serviceStaffId ? next.staff?.find(person => person.id === serviceStaffId && ['service', 'waiter'].includes(person.role) && person.active) : next.staff?.find(person => ['service', 'waiter'].includes(person.role) && person.active && person.name === actor)
+  if (serviceStaffId && !staff) throw new Error('Selecciona un mesero o trabajador de Servicio activo.')
   if (staff) { round.serviceStaffId = staff.id; round.serviceStaffName = staff.name }
+  const seller = staff?.role === 'waiter' ? staff : !serviceStaffId ? next.staff?.find(person => person.active && person.role === 'waiter' && person.name === actor && next.staff?.filter(other => other.active && other.role === 'waiter' && other.name === actor).length === 1) : undefined
+  if (seller) { round.sellerStaffId = seller.id; round.sellerStaffName = seller.name }
   round.customerId = customer?.id || null
   round.customerNameSnapshot = customer?.name
   round.sentAt = now
@@ -370,7 +377,7 @@ export function sendNightclubRound(dataset: NightclubDataset, accountId: string,
 }
 
 /** Compatibilidad con rondas antiguas ya pagadas; el POS nuevo utiliza sendNightclubRound. */
-export function settleNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], paymentDraft: NightclubPaymentDraft, actor: string, now = new Date().toISOString(), operationId: string = crypto.randomUUID()): NightclubDataset {
+export function settleNightclubRound(dataset: NightclubDataset, accountId: string, drafts: NightclubRoundDraft[], paymentDraft: NightclubPaymentDraft, actor: string, now = new Date().toISOString(), operationId: string = crypto.randomUUID(), sellerStaffId?: string): NightclubDataset {
   if (!operationId.trim()) throw new Error('La operación necesita una clave idempotente.')
   const existing = dataset.accounts.find(item => item.id === accountId)?.rounds.find(item => item.operationId === operationId)
   if (existing) return dataset
@@ -404,8 +411,9 @@ export function settleNightclubRound(dataset: NightclubDataset, accountId: strin
   const payments: NightclubPayment[] = installments?.length ? installments.map((item, index) => ({ id: index === 0 ? paymentId : crypto.randomUUID(), operationId, roundId: batch.id, method: item.method, amount: roundMoney(item.amount), cashAmount: item.method === 'cash' ? roundMoney(item.amount) : 0, qrAmount: item.method === 'qr' ? roundMoney(item.amount) : 0, cardAmount: item.method === 'card' ? roundMoney(item.amount) : 0, received: item.method === 'cash' ? roundMoney(item.received || 0) : 0, change: item.method === 'cash' ? roundMoney((item.received || 0) - item.amount) : 0, paidAt: now, paidBy: actor, status: 'confirmed' })) : [{ id: paymentId, operationId, roundId: batch.id, method: paymentDraft.method, amount: total, cashAmount, qrAmount, cardAmount, received, change: roundMoney(received - cashAmount), paidAt: now, paidBy: actor, status: 'confirmed' }]
   account.payments = [...(account.payments || (account.payment ? [account.payment] : [])), ...payments]
   account.payment = payments.at(-1)
-  const staff = (next.staff || []).find(person => person.active && person.role === 'service' && person.name.trim().toLocaleLowerCase() === actor.trim().toLocaleLowerCase())
-  if (staff) { batch.serviceStaffId = staff.id; batch.serviceStaffName = staff.name }
+  const seller = sellerStaffId ? next.staff?.find(person => person.id === sellerStaffId && person.active && person.role === 'waiter') : next.staff?.find(person => person.active && person.role === 'waiter' && person.name === actor && next.staff?.filter(other => other.active && other.role === 'waiter' && other.name === actor).length === 1)
+  if (sellerStaffId && !seller) throw new Error('Selecciona un mesero activo para esta venta.')
+  if (seller) { batch.sellerStaffId = seller.id; batch.sellerStaffName = seller.name; batch.serviceStaffId = seller.id; batch.serviceStaffName = seller.name }
   synchronizeNightclubCommissions(next, now)
   audit(next, 'round_paid_and_sent', actor, now, accountId, { roundId: batch.id, paymentId, total, method: paymentDraft.method })
   return next
@@ -509,7 +517,7 @@ export function exchangeNightclubPaidProduct(dataset: NightclubDataset, draft: N
   round.items.push(returned)
   account.subtotal = roundMoney(account.rounds.filter(value => value.status !== 'cancelled').flatMap(value => value.items).filter(value => value.status !== 'returned' && value.status !== 'cancelled').reduce((sum, value) => sum + value.lineTotal, 0))
   const added = addNightclubRound(next, account.id, [{ productId: replacement.id, quantity: draft.quantity }], actor, now, `exchange:${draft.operationId}`)
-  const addedAccount = added.accounts.find(value => value.id === account.id)!; const replacementRound = addedAccount.rounds.at(-1)!; replacementRound.authorization = 'payment'; replacementRound.paidAt = now; replacementRound.operationId = draft.operationId; replacementRound.serviceStaffId = round.serviceStaffId; replacementRound.serviceStaffName = round.serviceStaffName; replacementRound.customerId = round.customerId === undefined ? account.customerId || null : round.customerId; replacementRound.customerNameSnapshot = round.customerNameSnapshot
+  const addedAccount = added.accounts.find(value => value.id === account.id)!; const replacementRound = addedAccount.rounds.at(-1)!; replacementRound.authorization = 'payment'; replacementRound.paidAt = now; replacementRound.operationId = draft.operationId; replacementRound.serviceStaffId = round.serviceStaffId; replacementRound.serviceStaffName = round.serviceStaffName; replacementRound.sellerStaffId = round.sellerStaffId; replacementRound.sellerStaffName = round.sellerStaffName; replacementRound.customerId = round.customerId === undefined ? account.customerId || null : round.customerId; replacementRound.customerNameSnapshot = round.customerNameSnapshot
   const replacementItem = replacementRound.items[0]; replacementItem.exchangeId = exchangeId; replacementItem.exchangeSourceItemId = returned.id
   const payments = addedAccount.payments || []
   if (difference > 0) {
@@ -597,9 +605,10 @@ export function reopenNightclubBill(dataset: NightclubDataset, accountId: string
 }
 
 export function recordNightclubPayment(dataset: NightclubDataset, accountId: string, paymentDraft: NightclubPaymentDraft, actor = 'Caja', now = new Date().toISOString()): NightclubDataset {
+  const previous = dataset.accounts.find(item => item.id === accountId)
+  if (paymentDraft.operationId && (previous?.payments || []).some(payment => payment.operationId === paymentDraft.operationId)) return dataset
   const next = cloneDataset(dataset); const account = next.accounts.find(item => item.id === accountId)
   if (!account || account.status !== 'bill_requested') throw new Error('La cuenta debe estar por cobrar.')
-  if (paymentDraft.operationId && (account.payments || []).some(payment => payment.operationId === paymentDraft.operationId)) return dataset
   if (next.shift?.status !== 'open') throw new Error('Debes abrir el turno antes de cobrar.')
   const balance = nightclubBalance(account)
   const requested = roundMoney(paymentDraft.amount ?? balance)

@@ -2,6 +2,7 @@ const { createHash } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
 const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id, tenantActor, audit, hasPermission } = require('./authorization.cjs');
+const { normalizeNightclubPermissions } = require('./nightclubUsers.cjs');
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 36);
 function text(value, max = 100) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.');
@@ -109,6 +110,9 @@ async function manageMember(db, auth, request) {
   const actor = await tenantActor(db, request, 'users.manage'), input = request.data;
   const roleId = input.roleId || input.role;
   if (input.action === 'createMember') {
+    const nightclubPermissions = actor.tenant.businessType === 'nightclub_lounge' ? normalizeNightclubPermissions(input.nightclubPermissions) : undefined;
+    if (actor.tenant.businessType === 'nightclub_lounge' && roleId === 'admin' && !nightclubPermissions.includes('special.manageUsers')) throw new HttpsError('invalid-argument', 'Administración debe conservar la gestión de usuarios.');
+    if (actor.tenant.businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(actor.membership.roleId) && (roleId === 'admin' || nightclubPermissions.includes('special.manageUsers'))) throw new HttpsError('permission-denied', 'No puedes crear otro administrador.');
     if (!getTemplate(actor.tenant.businessType).roles.some(role => role.id === roleId && role.id !== 'owner')) throw new HttpsError('invalid-argument', 'Rol no válido.');
     const email = text(input.email, 160).toLowerCase(), displayName = text(input.displayName, 80);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof input.password !== 'string' || input.password.length < 8 || input.password.length > 72) throw new HttpsError('invalid-argument', 'Correo o contraseña inválidos.');
@@ -126,7 +130,7 @@ async function manageMember(db, auth, request) {
       if (!hasPermission(tenant.data(), fresh.data(), 'users.manage')) throw new HttpsError('permission-denied', 'Permiso revocado.');
       if (current.exists) return;
       const now = new Date().toISOString();
-      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
+      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions ? { nightclubPermissions } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
       tx.create(ref, member);
       tx.create(db.doc(`users/${uid}`), { uid, email, displayName, defaultTenantId: actor.tenantId, managedByTenantId: actor.tenantId, createdAt: now, updatedAt: now });
       tx.create(db.doc(`users/${uid}/tenantLinks/${actor.tenantId}`), { tenantId: actor.tenantId, name: actor.tenant.name, businessType: actor.tenant.businessType });
@@ -149,6 +153,7 @@ async function manageMember(db, auth, request) {
     if (!hasPermission(tenant.data(), fresh.data(), 'users.manage')) throw new HttpsError('permission-denied', 'Permiso revocado.');
     if (!current.exists) throw new HttpsError('not-found', 'Miembro no encontrado.');
     if (uid === tenant.data().ownerUid || uid === actor.uid) throw new HttpsError('failed-precondition', 'No se puede retirar ni modificar al dueño o tu propio acceso.');
+    if (tenant.data().businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(fresh.data().roleId) && current.data().roleId === 'admin') throw new HttpsError('permission-denied', 'No puedes modificar a Administración.');
     if (!['updateMember', 'deleteMember'].includes(input.action)) throw new HttpsError('invalid-argument', 'Acción inválida.');
     const patch = { updatedAt: new Date().toISOString() };
     if (input.action === 'deleteMember' || input.active === false) patch.status = 'disabled';
@@ -158,10 +163,38 @@ async function manageMember(db, auth, request) {
       patch.roleId = roleId;
     }
     if (input.displayName) patch.displayName = text(input.displayName, 80);
+    if (tenant.data().businessType === 'nightclub_lounge' && input.nightclubPermissions !== undefined) patch.nightclubPermissions = normalizeNightclubPermissions(input.nightclubPermissions);
+    if (tenant.data().businessType === 'nightclub_lounge' && (patch.roleId || current.data().roleId) === 'admin' && patch.nightclubPermissions && !patch.nightclubPermissions.includes('special.manageUsers')) throw new HttpsError('failed-precondition', 'Administración debe conservar la gestión de usuarios.');
+    if (tenant.data().businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(fresh.data().roleId) && (patch.roleId === 'admin' || patch.nightclubPermissions?.includes('special.manageUsers'))) throw new HttpsError('permission-denied', 'No puedes asignar permisos administrativos.');
+    if (input.action === 'deleteMember') patch.deletedAt = patch.updatedAt;
+    if (tenant.data().businessType === 'nightclub_lounge' && current.data().roleId === 'admin' && current.data().status === 'active' && (patch.status === 'disabled' || (patch.roleId && patch.roleId !== 'admin'))) {
+      const activeMembers = await tx.get(actor.root.collection('members').where('status', '==', 'active'));
+      const admins = activeMembers.docs.filter(doc => ['admin', 'owner'].includes(doc.data().roleId));
+      if (admins.length <= 1) throw new HttpsError('failed-precondition', 'No se puede retirar al último administrador.');
+    }
     // Auth email/disabled are global: never change them when modifying one membership.
     if (input.email && input.email !== current.data().email) throw new HttpsError('failed-precondition', 'El correo global se cambia desde el perfil del usuario.');
     tx.update(ref, patch); audit(db, tx, actor, 'member.updated', uid, current.data(), { ...current.data(), ...patch });
   });
   return { changed: true, deleted: input.action === 'deleteMember' };
 }
-module.exports = { createTenant, listMemberships, selectTenant, updateSettings, manageMember, settingsPatch };
+async function saveNightclubRolePreset(db, request) {
+  const actor = await tenantActor(db, request, 'users.manage'), input = request.data || {};
+  if (actor.tenant.businessType !== 'nightclub_lounge') throw new HttpsError('failed-precondition', 'Esta matriz corresponde a Nocturna.');
+  if (!['owner', 'admin'].includes(actor.membership.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede editar plantillas de roles.');
+  const roleId = id(input.roleId), template = getTemplate(actor.tenant.businessType);
+  if (!template.roles.some(role => role.id === roleId && roleId !== 'owner')) throw new HttpsError('invalid-argument', 'Rol desconocido.');
+  const permissions = normalizeNightclubPermissions(input.nightclubPermissions);
+  if (roleId === 'admin' && !permissions.includes('special.manageUsers')) throw new HttpsError('failed-precondition', 'Administración debe conservar la gestión de usuarios.');
+  const ref = actor.root.collection('roles').doc(roleId);
+  await db.runTransaction(async tx => {
+    const [tenant, member, current] = await Promise.all([tx.get(actor.root), tx.get(actor.root.collection('members').doc(actor.uid)), tx.get(ref)]);
+    if (!hasPermission(tenant.data(), member.data(), 'users.manage')) throw new HttpsError('permission-denied', 'Permiso revocado.');
+    if (!current.exists) throw new HttpsError('not-found', 'Rol no encontrado.');
+    const patch = { nightclubPermissions: permissions, updatedAt: new Date().toISOString(), updatedBy: actor.uid };
+    tx.update(ref, patch);
+    audit(db, tx, actor, 'nightclub.rolePermissions.updated', roleId, current.data(), { ...current.data(), ...patch });
+  });
+  return { changed: true };
+}
+module.exports = { createTenant, listMemberships, selectTenant, updateSettings, manageMember, saveNightclubRolePreset, settingsPatch };
