@@ -583,7 +583,7 @@ export function RestaurantExperience({
           )}
           {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
           {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} />}
-          {activeModule === 'printers' && <RestaurantPrinters config={kitchenPrinterConfig} jobs={kitchenPrintJobs} onSave={onSaveKitchenPrinterConfig} onPrintTest={onPrintKitchenTest} onRetry={onRetryKitchenPrint} onReprintLatest={onReprintLatestKitchenTicket} />}
+          {activeModule === 'printers' && <RestaurantPrinters tenantId={session.tenantId} branchId="main" config={kitchenPrinterConfig} jobs={kitchenPrintJobs} onSave={onSaveKitchenPrinterConfig} onPrintTest={onPrintKitchenTest} onRetry={onRetryKitchenPrint} onReprintLatest={onReprintLatestKitchenTicket} />}
         </main>
       </div>
 

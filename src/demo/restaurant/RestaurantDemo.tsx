@@ -685,6 +685,9 @@ export function RestaurantDemo({
         })),
       },
     })
+    const kitchenJob = createKitchenPrintJob(current, lines, 'addition', batch.sequence)
+    saveKitchenPrintJobs([kitchenJob, ...kitchenPrintJobs])
+    sendKitchenTicket(kitchenJob)
     window.setTimeout(() => orderLocks.current.delete(orderId), 800)
     return true
   }

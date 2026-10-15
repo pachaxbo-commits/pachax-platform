@@ -38,6 +38,10 @@ export class PrintEngineService {
     this.printers.set(printer.id, printer)
   }
 
+  unregisterPrinterProfile(id: string): void {
+    this.printers.delete(id)
+  }
+
   registerKitchenStation(station: KitchenStation): void {
     this.stations.set(station.id, station)
   }
@@ -50,12 +54,13 @@ export class PrintEngineService {
     return this.printers.get(id)
   }
 
-  listPrinterProfiles(): PrinterProfile[] {
-    return Array.from(this.printers.values()).filter(p => p.restaurantId === getFirebaseRestaurantId())
+  listPrinterProfiles(tenantId?: string): PrinterProfile[] {
+    const tid = tenantId || getFirebaseRestaurantId()
+    return Array.from(this.printers.values()).filter(p => !tid || p.restaurantId === tid)
   }
 
   /** Resolves destination printer for target or station */
-  resolveDestinationPrinters(targetType: PrintJobTarget, stationId?: string): { primary: PrinterProfile; backup?: PrinterProfile } {
+  resolveDestinationPrinters(targetType: PrintJobTarget, stationId?: string, tenantId?: string): { primary: PrinterProfile; backup?: PrinterProfile } {
     if (stationId && this.stations.has(stationId)) {
       const station = this.stations.get(stationId)!
       const primary = this.printers.get(station.primaryPrinterId)
@@ -64,8 +69,13 @@ export class PrintEngineService {
     }
 
     // Default lookup by role
-    const activePrinters = this.listPrinterProfiles().filter((p) => p.isActive)
-    const roleMatch = activePrinters.find((p) => p.role === (targetType === 'kitchen_ticket' ? 'kitchen' : 'receipt'))
+    const activePrinters = this.listPrinterProfiles(tenantId).filter((p) => p.isActive)
+    const roleMatch = activePrinters.find((p) => {
+      if (targetType === 'kitchen_ticket') return p.role === 'kitchen'
+      if (targetType === 'bar_ticket') return p.role === 'bar'
+      if (targetType === 'receipt' || targetType === 'cash_report') return p.role === 'receipt'
+      return true
+    })
     const fallback = roleMatch || activePrinters[0] || this.createDefaultFallbackProfile()
 
     return { primary: fallback }

@@ -208,6 +208,8 @@ export interface PrintTransportPayload {
   jobId: string
   bytes: Uint8Array
   printer: PrinterProfile
+  jobPayload?: PrintJobPayload
+  targetType?: PrintJobTarget
 }
 
 export interface PrintResult {

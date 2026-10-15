@@ -50,6 +50,13 @@ import {
   deleteTenantMember,
   type RestaurantOperationalState,
 } from '../data/restaurantRepository'
+import { PrintEngineService } from '../../../services/printing/printEngineService'
+import {
+  initializePrinting,
+  getActiveReceiptPrinter,
+} from '../../../services/printing/printerBootstrap'
+import type { KitchenTicketJob } from '../domain/kitchenPrint'
+import type { PrintJobPayload } from '../../../types/printing'
 
 export function RestaurantApp({
   tenantId,
@@ -95,10 +102,18 @@ export function RestaurantApp({
   const [stockMovements, setStockMovements] = useState<InventoryMovement[]>([])
   const [members, setMembers] = useState<RestaurantMember[]>([])
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>([])
+  const [lastPrintedComanda, setLastPrintedComanda] = useState<PrintJobPayload | null>(null)
 
   useEffect(() => {
     applyTenantTheme(definition.theme)
   }, [definition.theme])
+
+  useEffect(() => {
+    if (tenantId) {
+      initializePrinting(tenantId, 'main')
+    }
+  }, [tenantId])
 
   // Subscriptions to real-time Firestore collections with error handling
   useEffect(() => {
@@ -153,6 +168,203 @@ export function RestaurantApp({
     uid,
     userName,
     role,
+  }
+
+  const handlePrintBatch = async (orderId: string): Promise<boolean> => {
+    const currentOrder = orders.find((o) => o.id === orderId)
+    if (!currentOrder) {
+      window.alert('No se encontró el pedido a comandar.')
+      return false
+    }
+
+    const existingBatches = (currentOrder.submittedBatches as Array<{ itemIds: string[] }> | undefined) || []
+    const lockedIds = new Set(existingBatches.flatMap((b) => b.itemIds))
+    const lines = currentOrder.items.filter((item) => item.quantity > 0 && !lockedIds.has(item.id))
+    if (!lines.length) {
+      window.alert('Todos los productos de esta mesa ya fueron comandados a cocina.')
+      return false
+    }
+
+    const engine = PrintEngineService.getInstance()
+    const activePrinters = engine.listPrinterProfiles(tenantId).filter((p) => p.isActive)
+    if (!activePrinters.length) {
+      window.alert('No hay ninguna impresora configurada. Ve a Más > Impresoras para agregar una impresora de cocina.')
+      return false
+    }
+
+    const now = new Date().toISOString()
+    const sequence = existingBatches.length + 1
+    const payload: PrintJobPayload = {
+      payloadSchemaVersion: 1,
+      templateVersion: 'v1.0',
+      restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
+      branchName: 'Principal',
+      orderId: currentOrder.id,
+      displayNumber: currentOrder.displayNumber || currentOrder.sequence?.toString() || currentOrder.id.slice(-4),
+      tableInfo: currentOrder.tableInfo || 'MESA',
+      customerName: currentOrder.customerName,
+      fulfillmentType: currentOrder.fulfillmentType || 'table',
+      items: lines.map((item) => ({
+        name: item.name,
+        basePrice: 0,
+        quantity: item.quantity,
+        lineTotal: 0,
+        modifiersText: item.modifiers ? Object.values(item.modifiers).filter((v) => typeof v === 'string' && v !== item.modifiers?.note) as string[] : undefined,
+        note: item.modifiers?.note,
+      })),
+      subtotal: 0,
+      discountTotal: 0,
+      taxTotal: 0,
+      deliveryFee: 0,
+      grandTotal: 0,
+      isCopy: false,
+      copies: 1,
+      createdIso: now,
+    }
+
+    try {
+      const job = await engine.submitPrintRequest({
+        targetType: 'kitchen_ticket',
+        orderId: currentOrder.id,
+        idempotencyKey: `kitchen:${currentOrder.id}:${sequence}:${Date.now()}`,
+        payload,
+      })
+
+      if (job.status === 'failed' || Boolean(job.lastError)) {
+        throw new Error(job.lastError || 'Fallo de transmisión al enviar a impresora.')
+      }
+
+      setLastPrintedComanda(payload)
+      setKitchenPrintJobs((prev) => [
+        {
+          id: job.id,
+          idempotencyKey: job.idempotencyKey,
+          orderId: currentOrder.id,
+          batchId: `batch-${sequence}`,
+          sequence,
+          kind: 'new',
+          status: 'sent',
+          text: '',
+          createdAt: now,
+          sentAt: now,
+          retries: 0,
+          createdBy: uid || 'cashier',
+        },
+        ...prev,
+      ])
+
+      return true
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al imprimir la comanda.'
+      window.alert(`Error de impresión: ${msg}`)
+      return false
+    }
+  }
+
+  const handleReprintLatestKitchenTicket = async () => {
+    let payloadToReprint = lastPrintedComanda
+    if (!payloadToReprint) {
+      const lastOrderWithItems = orders.find((o) => o.items && o.items.length > 0)
+      if (lastOrderWithItems) {
+        payloadToReprint = {
+          payloadSchemaVersion: 1,
+          templateVersion: 'v1.0',
+          restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
+          branchName: 'Principal',
+          orderId: lastOrderWithItems.id,
+          displayNumber: lastOrderWithItems.displayNumber || lastOrderWithItems.id.slice(-4),
+          tableInfo: lastOrderWithItems.tableInfo || 'MESA',
+          customerName: lastOrderWithItems.customerName,
+          fulfillmentType: lastOrderWithItems.fulfillmentType || 'table',
+          items: lastOrderWithItems.items.map((item) => ({
+            name: item.name,
+            basePrice: 0,
+            quantity: item.quantity,
+            lineTotal: 0,
+            modifiersText: item.modifiers ? Object.values(item.modifiers).filter((v) => typeof v === 'string' && v !== item.modifiers?.note) as string[] : undefined,
+            note: item.modifiers?.note,
+          })),
+          subtotal: 0,
+          discountTotal: 0,
+          taxTotal: 0,
+          deliveryFee: 0,
+          grandTotal: 0,
+          isCopy: true,
+          copies: 1,
+          createdIso: new Date().toISOString(),
+        }
+      }
+    }
+
+    if (!payloadToReprint) {
+      window.alert('No hay ninguna comanda previa para reimprimir.')
+      return
+    }
+
+    const engine = PrintEngineService.getInstance()
+    const activePrinters = engine.listPrinterProfiles(tenantId).filter((p) => p.isActive)
+    if (!activePrinters.length) {
+      window.alert('No hay ninguna impresora configurada. Ve a Más > Impresoras para configurarla.')
+      return
+    }
+
+    try {
+      const job = await engine.submitPrintRequest({
+        targetType: 'kitchen_ticket',
+        idempotencyKey: `reprint:${Date.now()}`,
+        payload: {
+          ...payloadToReprint,
+          isCopy: true,
+          createdIso: new Date().toISOString(),
+        },
+      })
+      if (job.status === 'failed' || Boolean(job.lastError)) {
+        throw new Error(job.lastError || 'Fallo de transmisión al reimprimir.')
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al reimprimir comanda.'
+      window.alert(`Error de reimpresión: ${msg}`)
+    }
+  }
+
+  const handlePrintKitchenTest = async () => {
+    const engine = PrintEngineService.getInstance()
+    const activePrinters = engine.listPrinterProfiles(tenantId).filter((p) => p.isActive)
+    if (!activePrinters.length) {
+      window.alert('No hay ninguna impresora configurada para probar. Ve a Más > Impresoras para configurarla.')
+      return
+    }
+
+    try {
+      const testPayload: PrintJobPayload = {
+        payloadSchemaVersion: 1,
+        templateVersion: 'v1.0',
+        restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
+        branchName: 'Principal',
+        displayNumber: 'PRUEBA',
+        tableInfo: 'MESA TEST',
+        items: [{ name: 'Ticket de prueba', basePrice: 0, quantity: 1, lineTotal: 0 }],
+        subtotal: 0,
+        discountTotal: 0,
+        taxTotal: 0,
+        deliveryFee: 0,
+        grandTotal: 0,
+        isCopy: false,
+        copies: 1,
+        createdIso: new Date().toISOString(),
+      }
+
+      const job = await engine.submitPrintRequest({
+        targetType: 'test',
+        payload: testPayload,
+      })
+      if (job.status === 'failed' || Boolean(job.lastError)) {
+        throw new Error(job.lastError || 'Fallo de transmisión al dispositivo.')
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al probar impresora.'
+      window.alert(`Error de prueba: ${msg}`)
+    }
   }
 
   return (
@@ -311,7 +523,48 @@ export function RestaurantApp({
         }}
         onPayment={async (orderId, input) => {
           try {
+            // La venta y el cobro SIEMPRE se guardan antes de imprimir
             await recordPayment(tenantId, 'main', orderId, input)
+
+            // Si hay impresora de recibos con auto-impresión activa, emitir ticket
+            const receiptPrinter = getActiveReceiptPrinter(tenantId, 'main')
+            const paidOrder = orders.find((o) => o.id === orderId)
+            if (receiptPrinter && receiptPrinter.autoPrintOnOrderPaid && paidOrder) {
+              try {
+                await PrintEngineService.getInstance().submitPrintRequest({
+                  targetType: 'receipt',
+                  printerProfileId: receiptPrinter.id,
+                  payload: {
+                    payloadSchemaVersion: 1,
+                    templateVersion: 'v1.0',
+                    restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
+                    branchName: 'Principal',
+                    displayNumber: paidOrder.displayNumber || paidOrder.id.slice(-4),
+                    tableInfo: paidOrder.tableInfo || 'MOSTRADOR',
+                    customerName: paidOrder.customerName,
+                    fulfillmentType: paidOrder.fulfillmentType || 'table',
+                    items: paidOrder.items.map((item) => ({
+                      name: item.name,
+                      basePrice: item.basePrice,
+                      quantity: item.quantity,
+                      lineTotal: item.lineTotal,
+                    })),
+                    subtotal: paidOrder.total,
+                    discountTotal: 0,
+                    taxTotal: 0,
+                    deliveryFee: 0,
+                    grandTotal: paidOrder.total,
+                    paymentMethod: input.method === 'cash' ? 'EFECTIVO' : input.method === 'qr' ? 'QR' : input.method === 'card' ? 'TARJETA' : 'MIXTO',
+                    footerMessage: '¡Gracias por su visita!',
+                    isCopy: false,
+                    copies: 1,
+                    createdIso: new Date().toISOString(),
+                  },
+                })
+              } catch (printErr) {
+                console.warn('[RestaurantApp] Fallo de impresión de recibo tras cobro exitoso:', printErr)
+              }
+            }
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Error al registrar pago.'
             window.alert(msg)
@@ -338,6 +591,45 @@ export function RestaurantApp({
         onRequestBill={async (tableId) => {
           try {
             await requestBill(tenantId, 'main', tableId)
+            // Si hay impresora de recibos configurada, emitir pre-cuenta de mesa
+            const receiptPrinter = getActiveReceiptPrinter(tenantId, 'main')
+            const targetTable = tables.find((t) => t.id === tableId)
+            const targetOrder = orders.find((o) => o.id === targetTable?.activeOrderId)
+            if (receiptPrinter && targetOrder) {
+              try {
+                await PrintEngineService.getInstance().submitPrintRequest({
+                  targetType: 'receipt',
+                  printerProfileId: receiptPrinter.id,
+                  payload: {
+                    payloadSchemaVersion: 1,
+                    templateVersion: 'v1.0',
+                    restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
+                    branchName: 'Principal',
+                    displayNumber: targetOrder.displayNumber || targetOrder.id.slice(-4),
+                    tableInfo: targetTable?.name || 'MESA',
+                    customerName: targetOrder.customerName,
+                    fulfillmentType: 'table',
+                    items: targetOrder.items.map((item) => ({
+                      name: item.name,
+                      basePrice: item.basePrice,
+                      quantity: item.quantity,
+                      lineTotal: item.lineTotal,
+                    })),
+                    subtotal: targetOrder.total,
+                    discountTotal: 0,
+                    taxTotal: 0,
+                    deliveryFee: 0,
+                    grandTotal: targetOrder.total,
+                    footerMessage: 'PRE-CUENTA DE MESA (NO VALIDO COMO FACTURA)',
+                    isCopy: false,
+                    copies: 1,
+                    createdIso: new Date().toISOString(),
+                  },
+                })
+              } catch (printErr) {
+                console.warn('[RestaurantApp] Fallo de impresión de pre-cuenta (no bloqueante):', printErr)
+              }
+            }
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Error al pedir cuenta.'
             window.alert(msg)
@@ -359,7 +651,10 @@ export function RestaurantApp({
             window.alert(msg)
           }
         }}
-        onPrintBatch={() => true}
+        onPrintBatch={handlePrintBatch}
+        onReprintLatestKitchenTicket={handleReprintLatestKitchenTicket}
+        onPrintKitchenTest={handlePrintKitchenTest}
+        kitchenPrintJobs={kitchenPrintJobs}
         onCreateProduct={async (_tableId, input) => {
           try {
             await createProduct(tenantId, 'main', input)

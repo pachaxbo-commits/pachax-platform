@@ -1,5 +1,42 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: R7 - Impresión Real Canónica con PrintEngineService, Browser Dialog Térmico y Aislamiento por Tenant (15/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `afd4b9e` antes de este bloque).
+- **Objetivo Cumplido**: Eliminar la impresión simulada (`onPrintBatch={() => true}`) y conectar el sistema canónico de impresión PACHAX (`PrintEngineService`) en PACHAX Restaurante, soportando Android Bluetooth SPP, Android Red/Wi-Fi TCP y PC/Navegador/USB (vía adaptador `browser_dialog` térmico de 58mm/80mm).
+- **Detalles Técnicos Implementados**:
+  1. **Adaptador Real `BrowserDialogPrinterAdapter` (`src/adapters/printing/browserDialogPrinterAdapter.ts`)**:
+     - Implementa `PrinterAdapter` para el tipo de conexión `'browser_dialog'`.
+     - Genera documentos HTML limpios diseñados para impresoras térmicas con soporte de anchos `58mm` y `80mm` mediante `@page { size: ${paperWidth} auto; margin: 3mm; }`.
+     - `buildKitchenTicketHtml`: Comanda térmica limpia con empresa, número de pedido, mesa/salón, hora, productos con modificadores y notas operativas. **No incluye precios ni datos de cobro**. Si `isCopy: true`, estampa en el encabezado `*** REIMPRESION ***`.
+     - `buildReceiptHtml`: Comprobante de cuenta/recibo con desglose por ítem, importes, totales y medios de pago.
+     - `printHtmlViaBrowser`: Utiliza iframe invisible y seguro para disparar el diálogo del sistema operativo (`window.print()`) de forma transparente en escritorio Windows/navegador.
+  2. **Aislamiento Multitenant de Impresoras (`src/services/printing/printerProfiles.ts` & `printerBootstrap.ts`)**:
+     - Las configuraciones de hardware local de impresoras se persisten en `localStorage` con clave estrictamente aislada por tenant y sucursal: `pachax:printers:{tenantId}:{branchId}`.
+     - Migración retrocompatible transparente desde `pachax:printer-profiles` sin pérdida de datos existentes.
+     - Funciones de resolución de impresoras activas por rol (`kitchen`, `receipt`, `bar`) con fallback seguro a general.
+  3. **Ampliación de `PrintEngineService` y `PrintQueueManager`**:
+     - Extensión de `PrintTransportPayload` para transportar opcionalmente `jobPayload: PrintJobPayload` y `targetType: PrintJobTarget`.
+     - `PrintQueueManager.processJob` provee el payload estructurado directamente a los adaptadores.
+     - `PrintEngineService` soporta desregistro de perfiles (`unregisterPrinterProfile`) y filtrado estricto por `tenantId`.
+  4. **Eliminación Total de Impresión Simulada (`RestaurantTables.tsx` y `RestaurantApp.tsx`)**:
+     - Se eliminó el popup estático `window.open` hardcodeado en `RestaurantTables.tsx`.
+     - `onPrintBatch` se convirtió en callback asíncrono con guardas de doble clic (`printingBatch`) y retroalimentación `"Imprimiendo..."`.
+     - `RestaurantApp.tsx` valida ítems pendientes, consulta la existencia de impresoras activas del tenant, construye el payload sin precios, invoca `PrintEngineService.getInstance().submitPrintRequest` y registra el trabajo en `kitchenPrintJobs`.
+     - Se conectaron `onReprintLatestKitchenTicket` (emisión con `isCopy: true`) y `onPrintKitchenTest` (ticket de prueba con feedback de error o éxito).
+     - La venta y cobro en `onPayment` se guardan **SIEMPRE** antes de intentar imprimir el recibo (un fallo o cancelación de impresora jamás anula ni duplica la venta).
+  5. **Pantalla Unificada y Amigable de Configuración (`RestaurantPrinters.tsx`)**:
+     - Reemplazo de configuraciones divergentes con interfaz simplificada en vocabulario del negocio (Uso: Cocina, Barra, Recibos; Conexión: USB en PC / Diálogo, Red Wi-Fi, Bluetooth).
+     - Campos condicionales (IP y puerto 9100 para red; Dirección MAC para Bluetooth; instrucción clara para USB en Windows).
+     - Nota informativa destacada para PC: *"Impresión automática en PC requiere PACHAX Print Agent — próximamente"*.
+     - Acciones de Guardar, Probar impresión, Reimprimir última comanda y Eliminar.
+  6. **Pruebas y Verificaciones**:
+     - Nueva suite de dominio: `src/modules/restaurant/domain/__tests__/restaurantPrinting.test.ts` (comanda sin precios, reimpresión marcada, recibo con desglose, aislamiento A/B de perfiles, resolución por rol, ejecución del adapter `browser_dialog`).
+     - `npm run test:restaurant`: 52/52 pruebas aprobadas (46 existentes + 6 de impresión).
+     - `npm run typecheck`: 0 errores de TypeScript en todo el proyecto.
+     - `npm run build`: Compilación de producción (`tsc -b && vite build`) exitosa en 5.05s.
+     - `git diff --check`: 0 errores de formato.
+
 ## Checkpoint: Espera Asíncrona de Confirmación, Protección contra Doble Submit y Pruebas Permanentes de Seguridad en PACHAX Restaurante (15/10/2026)
 
 - **Rama**: `cambios-dario` (verificada con `origin/cambios-dario` y `origin/main` en `60a62a046db92c6f61401af4c230501edb3a8fa4`).

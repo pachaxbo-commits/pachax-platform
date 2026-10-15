@@ -144,7 +144,13 @@ export class PrintQueueManager {
       await adapter.connect(printer)
       await this.storage.update(jobId, { status: 'transmitting' })
 
-      const result = await adapter.sendBytes({ jobId: job.id, bytes, printer })
+      const result = await adapter.sendBytes({
+        jobId: job.id,
+        bytes,
+        printer,
+        jobPayload: job.payload,
+        targetType: job.targetType,
+      })
       await adapter.disconnect()
 
       if (result.success) {
