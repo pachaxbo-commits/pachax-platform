@@ -34,7 +34,7 @@ export function NightclubCourtesyDialog({ data, accountId, productId, memberId, 
   </section></div>
 }
 
-export function NightclubMembers({ data, role, onSave, onRegister, onCancel }: { data: NightclubDataset; role: string; onSave: (member: NightclubMember) => boolean; onRegister: (draft: NightclubCourtesyDraft) => boolean; onCancel: (id: string) => boolean }) {
+export function NightclubMembers({ data, role, canManageOverride, canRegisterOverride, onSave, onRegister, onCancel }: { data: NightclubDataset; role: string; canManageOverride?: boolean; canRegisterOverride?: boolean; onSave: (member: NightclubMember) => boolean; onRegister: (draft: NightclubCourtesyDraft) => boolean; onCancel: (id: string) => boolean }) {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
   const [editing, setEditing] = useState<NightclubMember | null>(null)
@@ -45,8 +45,8 @@ export function NightclubMembers({ data, role, onSave, onRegister, onCancel }: {
   const [windowDays, setWindowDays] = useState('7')
   const [anchorAt, setAnchorAt] = useState('')
   const [active, setActive] = useState(true)
-  const canManage = ['owner', 'admin'].includes(role)
-  const canRegister = canManage || ['cashier', 'waiter', 'service'].includes(role)
+  const canManage = canManageOverride ?? ['owner', 'admin'].includes(role)
+  const canRegister = canRegisterOverride ?? (canManage || ['cashier', 'waiter', 'service'].includes(role))
   const members = useMemo(() => (data.members || []).filter(item => item.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())), [data.members, search])
   const selected = (data.members || []).find(item => item.id === selectedId)
   const records = (data.courtesies || []).filter(item => item.memberId === selectedId).slice().reverse()

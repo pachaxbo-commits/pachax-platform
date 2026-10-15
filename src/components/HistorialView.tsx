@@ -94,6 +94,9 @@ export function HistorialView({
   const [selectedDayKey, setSelectedDayKey] = useState<string>(dayOptions[0] ?? getTodayKey())
   const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month'>('day')
   const [filter, setFilter] = useState<'all' | OrderStatus>('all')
+  const [productFilter, setProductFilter] = useState('')
+  const [customerFilter, setCustomerFilter] = useState('')
+  const [userFilter, setUserFilter] = useState('')
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
 
   const selectedDayOrders = useMemo(() => {
@@ -104,10 +107,19 @@ export function HistorialView({
     })
   }, [orders, selectedDayKey, timeRange])
 
-  const filteredOrders = useMemo(
-    () => (filter === 'all' ? selectedDayOrders : selectedDayOrders.filter((order) => order.status === filter)),
-    [filter, selectedDayOrders],
-  )
+  const filterOptionsByOrder = useMemo(() => ({
+    products: [...new Map(selectedDayOrders.flatMap(order => order.items.map(item => [item.productId || item.name, item.name]))).entries()],
+    customers: [...new Set(selectedDayOrders.map(order => order.customerName?.trim()).filter(Boolean))] as string[],
+    users: [...new Set(selectedDayOrders.flatMap(order => [order.createdBy, order.paidBy]).filter(Boolean))] as string[],
+  }), [selectedDayOrders])
+
+  const filteredOrders = useMemo(() => selectedDayOrders.filter((order) => {
+    if (filter !== 'all' && order.status !== filter) return false
+    if (productFilter && !order.items.some(item => (item.productId || item.name) === productFilter)) return false
+    if (customerFilter && order.customerName?.trim() !== customerFilter) return false
+    if (userFilter && order.createdBy !== userFilter && order.paidBy !== userFilter) return false
+    return true
+  }), [filter, selectedDayOrders, productFilter, customerFilter, userFilter])
 
   const summary = useMemo(() => {
     // Pedidos activos creados en el rango seleccionado
@@ -596,6 +608,12 @@ export function HistorialView({
             Filtro activo: {filterOptions.find((option) => option.value === filter)?.label}
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:grid-cols-3">
+        <label className="text-xs font-semibold text-slate-600">Producto<select value={productFilter} onChange={(event) => setProductFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"><option value="">Todos los productos</option>{filterOptionsByOrder.products.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <label className="text-xs font-semibold text-slate-600">Cliente<select value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"><option value="">Todos los clientes</option>{filterOptionsByOrder.customers.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
+        <label className="text-xs font-semibold text-slate-600">Usuario responsable<select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm"><option value="">Todos los usuarios</option>{filterOptionsByOrder.users.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
       </div>
 
       <div className="space-y-4">

@@ -6,7 +6,7 @@ import { buildDemoUrl } from '../src/public/routing/demoNavigation.ts'
 import { resolveDemoRoute } from '../src/demo/resolveDemoRoute.ts'
 
 test('public templates use one canonical business, demo and Studio mapping', () => {
-  assert.deepEqual(PUBLIC_TEMPLATES.map(item => item.id), ['restaurant', 'distribution', 'retail', 'nightclub'])
+  assert.deepEqual(PUBLIC_TEMPLATES.map(item => item.id), ['restaurant', 'hamburger', 'distribution', 'retail', 'nightclub'])
   for (const item of PUBLIC_TEMPLATES) {
     assert.equal(getTemplate(item.businessType).businessType, item.businessType)
     assert.equal(item.demoPath, `/demo/${item.id}`)

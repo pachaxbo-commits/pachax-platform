@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
-import { advanceNightclubRound, deliverNightclubRound, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubBarQueue, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary, openNightclubAccount, openNightclubBottle, recordNightclubPayment, refundNightclubRound, requestNightclubBill, sendNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
+import { advanceNightclubRound, deliverNightclubRound, exchangeNightclubPaidProduct, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubBarQueue, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary, openNightclubAccount, openNightclubBottle, recordNightclubPayment, refundNightclubRound, requestNightclubBill, sendNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
 import { registerNightclubCourtesy } from '../nightclubCourtesies.ts'
 import { nightclubAccountTimeline, selectNightclubHistory } from '../nightclubHistory.ts'
 
@@ -322,4 +322,36 @@ test('refresco de 2 L guarda 2000 ml y descuenta jarras y recetas en ml', () => 
   const afterRecipe = settleNightclubRound(secondJar, id, [{ productId: 'coca-receta', quantity: 1 }], { method: 'qr' }, 'Barra', at, 'coca-receta-1')
   assert.equal(afterRecipe.inventory[0].current, 99)
   assert.equal(afterRecipe.inventory[0].openBottleMl, 850)
+})
+
+
+test('cambio pagado conserva el pago original, cobra solo la diferencia y revierte stock una vez', () => {
+  const { data: initial, id } = setup()
+  initial.products.push({ id: 'gin', name: 'Gin', category: 'Botellas', price: 45, preparationArea: 'Barra', stockUnits: 10, inventoryMode: 'unit', recipe: [{ inventoryId: 'gin-stock', quantity: 1 }] })
+  initial.products[0].price = 30
+  initial.inventory.push({ id: 'gin-stock', name: 'Gin', unit: 'unit', current: 10, minimum: 0 })
+  const paid = settleNightclubRound(initial, id, [{ productId: 'ron', quantity: 1 }], { method: 'cash', received: 30 }, 'Caja', at, 'paid-ron')
+  const round = paid.accounts[0].rounds[0]
+  const changed = exchangeNightclubPaidProduct(paid, { operationId: 'exchange-ron-gin', accountId: id, roundId: round.id, itemId: round.items[0].id, quantity: 1, replacementProductId: 'gin', reason: 'Cliente cambi? de opini?n', additionalPayment: { method: 'qr', amount: 15 } }, 'admin', at)
+  assert.equal(changed.inventory.find(item => item.id === 'ron-stock').current, 10)
+  assert.equal(changed.inventory.find(item => item.id === 'gin-stock').current, 9)
+  assert.equal(changed.accounts[0].subtotal, 45)
+  assert.equal(nightclubPaidTotal(changed.accounts[0]), 45)
+  assert.equal(nightclubCashSummary(changed).cashSales, 30)
+  assert.equal(nightclubCashSummary(changed).qrSales, 15)
+  assert.equal(exchangeNightclubPaidProduct(changed, { operationId: 'exchange-ron-gin', accountId: id, roundId: round.id, itemId: round.items[0].id, quantity: 1, replacementProductId: 'gin', reason: 'Cliente cambi? de opini?n', additionalPayment: { method: 'qr', amount: 15 } }, 'admin', at), changed)
+})
+
+test('cambio de producto entregado se bloquea y cambio m?s barato registra devoluci?n pendiente sin tocar efectivo', () => {
+  const { data: initial, id } = setup()
+  initial.products.push({ id: 'gin', name: 'Gin', category: 'Botellas', price: 30, preparationArea: 'Barra', stockUnits: 10, inventoryMode: 'unit', recipe: [{ inventoryId: 'gin-stock', quantity: 1 }] })
+  initial.inventory.push({ id: 'gin-stock', name: 'Gin', unit: 'unit', current: 10, minimum: 0 })
+  initial.products[0].price = 45
+  const paid = settleNightclubRound(initial, id, [{ productId: 'ron', quantity: 1 }], { method: 'qr' }, 'Caja', at, 'paid-expensive')
+  const round = paid.accounts[0].rounds[0]
+  const changed = exchangeNightclubPaidProduct(paid, { operationId: 'exchange-lower', accountId: id, roundId: round.id, itemId: round.items[0].id, quantity: 1, replacementProductId: 'gin', reason: 'Producto alternativo', lowerSettlement: 'pending_electronic_refund' }, 'admin', at)
+  assert.equal(nightclubCashSummary(changed).cashSales, 0)
+  assert.equal(nightclubCashSummary(changed).qrSales, 45)
+  assert.equal(nightclubCashSummary(changed).pendingElectronicRefunds, 15)
+  assert.throws(() => exchangeNightclubPaidProduct({ ...paid, accounts: [{ ...paid.accounts[0], rounds: [{ ...round, status: 'delivered' }] }] }, { operationId: 'blocked-delivered', accountId: id, roundId: round.id, itemId: round.items[0].id, quantity: 1, replacementProductId: 'gin', reason: 'Tard?o', lowerSettlement: 'pending_electronic_refund' }, 'admin', at), /entregado/)
 })

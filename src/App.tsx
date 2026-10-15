@@ -134,7 +134,7 @@ function App() {
     )
   }
 
-  if (canonicalBusinessType === 'restaurant_pos') {
+  if (canonicalBusinessType === 'restaurant_pos' || canonicalBusinessType === 'hamburger_shop') {
     return (
       <RestaurantApp
         key={`${auth.tenantId}:${auth.member.uid}`}
@@ -148,6 +148,7 @@ function App() {
         userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
         role={activeTenant?.role || auth.member.role}
         onSignOut={auth.signOut}
+        profile={canonicalBusinessType === 'hamburger_shop' ? 'counter_service' : 'restaurant'}
       />
     )
   }

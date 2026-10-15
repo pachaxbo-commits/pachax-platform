@@ -10,6 +10,12 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
       badges: ['Salón & Mesas', 'KDS Cocina', 'Caja POS'],
       internalNote: 'Flujo gastronómico completo sin dependencias remotas.',
     },
+    hamburger: {
+      company: 'Hamburguesería Demo',
+      icon: Utensils,
+      badges: ['Mostrador', 'Cocina', 'Caja POS'],
+      internalNote: 'Pedidos rápidos sin mesas, con recetas e inventario compartidos.',
+    },
     distribution: {
       company: 'Distribuidora Demo',
       icon: Truck,

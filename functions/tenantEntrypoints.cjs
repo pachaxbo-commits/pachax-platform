@@ -20,6 +20,7 @@ exports.tenantGateway = onCall(options, async request => {
     case 'selectTenant': return tenants.selectTenant(db, request);
     case 'updateSettings': return tenants.updateSettings(db, request);
     case 'createMember': case 'updateMember': case 'deleteMember': case 'changePassword': return tenants.manageMember(db, auth, request);
+    case 'saveNightclubRolePreset': return tenants.saveNightclubRolePreset(db, request);
     case 'prepareCleanDelivery': case 'executeCleanDelivery':
       if (!request.data?.tenantId) throw new HttpsError('invalid-argument', 'Empresa requerida.');
       return request.data.action === 'prepareCleanDelivery' ? prepareCleanDelivery(db, request) : executeCleanDelivery(db, request);

@@ -15,7 +15,7 @@ export interface NightclubHistoryFilters {
   user: string
 }
 export interface NightclubHistoryEntry {
-  id: string; at: string; type: 'opened' | 'sale' | 'courtesy' | 'cancelled' | 'returned' | 'payment' | 'refund' | 'closed' | 'bill' | 'reopened' | 'preparation' | 'delivery'
+  id: string; at: string; type: 'opened' | 'sale' | 'courtesy' | 'cancelled' | 'returned' | 'payment' | 'refund' | 'exchange' | 'closed' | 'bill' | 'reopened' | 'preparation' | 'delivery'
   text: string; actor: string; waiter: string; productId?: string; productName?: string; category?: string
   quantity?: number; unitPrice?: number; amount?: number; commercialValue?: number; reason?: string; payment?: NightclubPayment; preparationArea?: 'Barra' | 'Directo'
 }

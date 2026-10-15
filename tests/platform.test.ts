@@ -13,8 +13,8 @@ function fixture() {
   const member: Membership = { tenantId: 'a', uid: 'u', roleId: 'cashier', status: 'active', branchIds: ['main'], routeIds: [] }
   return { template, tenant, member, module: template.modules.find(module => module.id === 'sell')! }
 }
-test('four explicit templates reject unknown business types', () => {
-  for (const type of ['restaurant_pos', 'route_distribution', 'gelateria_weight_cafe', 'nightclub_lounge']) assert.equal(getTemplate(type).businessType, type)
+test('explicit templates reject unknown business types', () => {
+  for (const type of ['restaurant_pos', 'hamburger_shop', 'route_distribution', 'gelateria_weight_cafe', 'nightclub_lounge']) assert.equal(getTemplate(type).businessType, type)
   assert.throws(() => getTemplate('unknown'))
   assert.throws(() => getTemplate('__proto__'))
 })

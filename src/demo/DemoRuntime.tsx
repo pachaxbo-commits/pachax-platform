@@ -49,12 +49,13 @@ export function DemoRuntime({
   const [resetKey, setResetKey] = useState(0)
 
   const clearTemplateDemo = useCallback(() => {
-    if (templateId !== 'restaurant' && templateId !== 'nightclub') return
+    if (templateId !== 'restaurant' && templateId !== 'hamburger' && templateId !== 'nightclub') return
     try {
       for (const key of Object.keys(localStorage)) {
         if (
           (templateId === 'restaurant' && key.startsWith('pachax:restaurant-studio:')) ||
-          (templateId === 'nightclub' && key.startsWith('pachax:nightclub-studio:'))
+          (templateId === 'hamburger' && key.startsWith('pachax:hamburger-studio:')) ||
+          (templateId === 'nightclub' && (key.startsWith('pachax:nightclub-studio:') || key.startsWith('pachax:nightclub-demo:')))
         ) {
           localStorage.removeItem(key)
         }
@@ -120,6 +121,11 @@ export function DemoRuntime({
       company: branding?.companyName || 'Bistró Demo',
       desc: 'Pedidos, mesas, cocina, caja e inventario.',
     },
+    hamburger: {
+      name: 'Hamburguesería',
+      company: branding?.companyName || 'Hamburguesería Demo',
+      desc: 'Pedidos de mostrador, cocina, caja e inventario.',
+    },
     distribution: {
       name: 'Producción y distribución',
       company: branding?.companyName || 'Distribuidora Demo',
@@ -168,6 +174,20 @@ export function DemoRuntime({
             resetKey={resetKey}
           />
         )}
+        {templateId === 'hamburger' && (
+          <RestaurantDemo
+            key={`hamburger:${currentDatasetMode}:${resetKey}`}
+            mode={mode}
+            simulatedRole={effectiveRole}
+            onSelectRole={onSelectRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
+            datasetMode={currentDatasetMode}
+            resetKey={resetKey}
+            profile="counter_service"
+          />
+        )}
         {templateId === 'distribution' && (
           <DistributionDemo
             mode={mode}
@@ -209,7 +229,7 @@ export function DemoRuntime({
       {/* Barra superior exclusiva para demos públicas (/demo/...) */}
       {isPublicDemo && (
         <>
-          <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-xs backdrop-blur-md sm:px-8 sm:py-3">
+          <header data-demo-topbar className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-slate-200/80 bg-white/95 px-3 py-2 shadow-xs backdrop-blur-md sm:px-8 sm:py-3">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <a
                 href="/"
@@ -289,7 +309,7 @@ export function DemoRuntime({
       )}
 
       {/* Contenedor principal de la demo */}
-      <main className={`flex-1 w-full ${templateId === 'nightclub' ? 'max-w-none p-0' : templateId === 'restaurant' ? 'max-w-none p-0' : `max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}`}>
+      <main className={`flex-1 w-full ${templateId === 'nightclub' ? 'max-w-none p-0' : templateId === 'restaurant' || templateId === 'hamburger' ? 'max-w-none p-0' : `max-w-7xl mx-auto ${isPublicDemo ? 'p-4 sm:p-6 lg:p-8' : 'p-2 sm:p-4'}`}`}>
         {templateId === 'restaurant' && (
           <RestaurantDemo
             key={`restaurant:${currentDatasetMode}:${resetKey}`}
@@ -301,6 +321,20 @@ export function DemoRuntime({
             themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
+          />
+        )}
+        {templateId === 'hamburger' && (
+          <RestaurantDemo
+            key={`hamburger:${currentDatasetMode}:${resetKey}`}
+            mode={mode}
+            simulatedRole={effectiveRole}
+            onSelectRole={onSelectRole}
+            logoUrl={branding?.logoUrl}
+            companyName={branding?.companyName}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
+            datasetMode={currentDatasetMode}
+            resetKey={resetKey}
+            profile="counter_service"
           />
         )}
         {templateId === 'distribution' && (

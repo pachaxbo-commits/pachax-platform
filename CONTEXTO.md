@@ -1,35 +1,92 @@
 # Continuidad del proyecto PACHAX
 
 ## Checkpoint: Modo Claro Completo de Alto Contraste en Nightclub para Proyector y Studio (07/10/2026)
+## Simulación de permisos por empleado en Nocturna Demo (08/10/2026, trabajo local sin commit)
 
-- **Rama**: `cambios-dario`, integrada con `origin/main` (`16daabf`). No se modifica `main` directamente.
-- **Objetivo URGENTE cumplido**: Implementación de Modo Claro completo para la plantilla canónica Nightclub (`NightclubExperience`), diseñado específicamente para proyección con alta luz ambiental y sol sin alterar ni degradar el Modo Oscuro existente.
-- **Alcance de la adaptación visual**:
-  - **Fondo y Shell**: `background: #f1f5f9` (Slate 100) en contenedor general; `color: #0f172a` (azul petróleo / casi negro profundo).
-  - **Superficies y Tarjetas**: `#ffffff` (blanco puro) para tarjetas, paneles, formularios y modales; `#f8fafc` (Slate 50) para paneles secundarios y vistas anidadas.
-  - **Sidebar y Navegación**: `#e2e8f0` (gris azulado muy claro) con bordes Slate-300 (`#cbd5e1`). Botones de navegación inactivos `#334155` y activos en dorado cálido (`#fef3c7` con texto `#92400e`). Barra inferior móvil adaptada a blanco con bordes legibles.
-  - **Topbar**: Encabezado en blanco translúcido (`rgba(255,255,255,0.96)`) con toggle rápido de tema: `[ 🌙 Oscuro | ☀️ Claro ]`.
-  - **Tipografía y Contraste**: Títulos y textos principales `#0f172a` (Slate 900), secundarios `#334155` (Slate 700), sutiles `#475569` (Slate 600). Alto contraste comprobado, sin texto blanco sobre fondo claro ni grises lavados.
-  - **Estados y Badges**:
-    - *Libre / Disponible*: Fondo `#ecfdf5`, texto `#065f46`, borde `#10b981`.
-    - *Ocupada / Peligro*: Fondo `#ffe4e6`, texto `#9f1239`, borde `#f43f5e`.
-    - *Reservada / Pendiente*: Fondo `#fef3c7`, texto `#92400e`, borde `#f59e0b`.
-    - *Por cobrar / Barra*: Fondo `#e0f2fe`, texto `#075985`, borde `#0ea5e9`.
-  - **Controles de formulario**: `input`, `select` y `textarea` con fondo blanco, texto oscuro `#0f172a` y bordes Slate-300 definidos.
-  - **Modales y Diálogos**: Backdrop semitransparente oscuro con desenfoque (`rgba(15,23,42,0.65)` con `backdrop-blur`) y contenedor modal blanco nítido con sombra profunda.
-  - **14 Vistas verificadas**: POS, Zonas, Cuentas, Barra, Inventario, Productos, Caja, Historial, Clientes, Usuarios, Reportes, Socios, Cortesías y Configuración.
-- **Selectores de Tema accesibles y coordinados**:
-  - En **StudioShell**: Controles `Tema: [Oscuro] [Claro]` en la barra superior de PACHAX Studio con sincronización bidireccional instantánea por `postMessage`.
-  - En **Nightclub Topbar**: Toggle visual rápido `[ 🌙 Oscuro | ☀️ Claro ]` junto al estado del turno.
-  - En **Nightclub Settings**: Selector visual bajo la sección «Apariencia».
-- **Pruebas y Verificación**:
-  - `npm run typecheck`: 0 errores (`tsc -b`).
-  - `npm run build`: Éxito total en 4.66s (bundle de producción compilado y validado).
-  - `npm run test:nightclub`: 43/43 tests unitarios y de dominio aprobados.
-  - `npm run test:platform`: 47/47 tests de plataforma y sandbox aprobados.
-  - `npm run test:nightclub-orders-backend`: 6/6 tests en emuladores Firebase aprobados (cobro atómico, Barra/Servicio idempotente, concurrencia de stock, reembolso auditado, cuentas anónimas/con nombre y cierre de turno con arqueo).
-  - `scripts/test-admin-studio-browser.mjs`: Suite completa de smoke test vía CDP en 4 resoluciones (390×844, 768×1024, 1366×768, 1920×1080) aprobada al 100%.
-  - `scripts/test-nightclub-light-mode.mjs`: Test automatizado en navegador real validando alternancia inmediata de modo oscuro/claro, retención de iframe sin recarga, contraste en todas las vistas y persistencia.
+- cambios-dario y origin/main permanecieron en dcf27e3 después de fetch; los cambios locales previos de Usuarios y permisos se conservaron íntegros. No se hizo commit, push ni merge.
+- La cabecera de la demo permite «Probar como usuario» con personal activo del dataset y «Volver a Administrador». La selección usa los permisos individuales vigentes, oculta secciones sin Ver, evita navegar a módulos restringidos y bloquea todos los comandos del controlador si falta Crear, Editar, Eliminar o un permiso especial. Los cambios del dataset se reflejan durante la sesión. Un usuario desactivado deja de ser seleccionable y pierde acceso.
+- La vista de Usuarios oculta acciones de crear, editar y eliminar según su matriz; Configuración oculta Usuarios o Zonas cuando falta acceso y deshabilita la edición de marca en solo lectura. Clientes, Socios, Relacionadores, Historial y Cuentas conservan sus controles y flujos, con comprobación de permisos en los comandos. Para Mesero/Servicio se muestran cuentas propias o aún sin responsable, se fuerza su ID como responsable al enviar ronda y se rechaza operar pedidos o mesas asignados a otro. Barra sigue preparando; Servicio/Mesero entrega.
+- Esta simulación opera solamente en la demo local. No agrega autenticación ni autorización productiva y no cambia el backend tenant. Persisten botones de algunos módulos especializados que, al pulsarse sin permiso, muestran rechazo desde el comando; la segunda etapa productiva sigue pendiente.
+- Verificaciones: Nocturna 80/80, Plataforma 47/47 y Restaurante 46/46; navegador de Administrador, Socio, Mesero, Cajero, Barra, cambio inmediato, inactivo, navegación, móvil y regresión de Relacionadores/Usuarios. Typecheck, lint focal y build de emulador aprobados. Lint global conserva 263 errores y 9 advertencias preexistentes. Build productivo local bloqueado por seis variables Firebase no configuradas.
+## Usuarios y permisos de Nocturna (08/10/2026, trabajo local sin commit)
+
+- La rama cambios-dario comenzó alineada con origin/main y sin cambios locales pendientes. Se revisaron autenticación Firebase, membresías tenant, roles, Rules, Functions y la experiencia canónica Nocturna. La administración de usuarios ahora aparece en Configuración y reutiliza la misma interfaz para demo/Studio y tenant real.
+- En demo/Studio se pueden crear, buscar, filtrar, editar, desactivar y retirar usuarios locales, además de editar plantillas y permisos individuales. En tenant real las credenciales se crean mediante Firebase Auth y la membresía, permisos y auditoría se guardan mediante Functions; no se persisten contraseñas. El servidor valida la matriz, vincula permisos al UID, limita la gestión al tenant, impide escalamiento por supervisor, protege al último administrador y conserva registros al desactivar una membresía con historial. Los usuarios ya existentes permanecen; no se sembraron nuevos empleados ni socios.
+- La matriz reúne las 15 secciones reales con Ver/Crear/Editar/Eliminar y cuatro permisos especiales. La primera etapa aplica realmente la autorización de gestión de usuarios, la lectura de miembros y roles y el bloqueo de escritura directa en Rules. El resto de los permisos se guarda como configuración para una segunda etapa; POS, Caja, Barra, Inventario y otros flujos operativos conservan su control actual. La experiencia tenant operativa de Nocturna sigue cerrada porque falta su repositorio operacional completo.
+- Verificaciones: dominio Nocturna 75/75, Plataforma 47/47, Restaurante 46/46, onboarding tenant 16/16 y aislamiento multi-tenant 59/59; navegador demo de crear, buscar, editar, desactivar y eliminar; typecheck, build de Functions/Rules y build de emulador aprobados. El build productivo local requiere seis variables Firebase ausentes; lint global conserva errores históricos. No se hizo commit, push ni despliegue.
+## Estados e historial de lounges de Relacionadores (08/10/2026, trabajo local sin commit)
+
+- Las reservas pendientes tienen una acción directa “Marcar como pagado”. El comando de dominio verifica rol, estado y conflictos de mesa/fecha; guarda fecha/hora y actor del controlador en la misma lista de cambios y auditoría. Repetir la acción sobre un registro pagado no añade entradas. No se registra cobro ni se modifica Caja, POS, Zonas o mesas.
+- La edición/cancelación existente conserva el motivo obligatorio. “Ver historial de cambios” muestra creación y transiciones posteriores con usuario, hora, estado anterior/nuevo, campos modificados y motivo si existe; reconstruye los cambios antiguos desde sus snapshots sin migrar ni duplicar registros.
+- Verificaciones: Relacionadores 13/13, Nightclub 71/71, Restaurante 46/46, Plataforma 47/47; navegador en escritorio/móvil; typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por las seis variables Firebase ausentes; lint global mantiene 263 errores y 9 advertencias preexistentes. Persistencia de Relacionadores sigue limitada a demo/Studio hasta implementar el backend tenant. Sin commit ni push.
+
+## Reserva de mesa por fecha en Relacionadores (08/10/2026, trabajo local sin commit)
+
+- El formulario Vender / reservar lounge ahora exige solo Fecha de reserva (calendario), zona y mesa reales; no depende de que existan jornadas. El selector muestra todas las mesas de la zona libres para esa fecha, incluidas mesas fuera de Lounge. Cambiar fecha o zona limpia la mesa elegida. Para hoy, el selector también respeta las ocupaciones y reservas operativas vigentes, que carecen de fecha futura.
+- El comando de guardado vuelve a validar mesa, zona y fecha, y bloquea una reserva o venta no cancelada del mismo espacio y día en cualquier relacionador. Fechas distintas son independientes; cancelar libera el espacio. Las correcciones guardan motivo, fecha anterior y nueva fecha. Ventas antiguas sin reservationDate usan su eventDate histórica, siguen bloqueando su fecha y se pueden corregir sin perder su jornada histórica. No se tocaron Zonas/Mesas, cuentas, POS, Caja ni Barra.
+- Verificaciones: dominio 11/11 del módulo Relacionadores, Nightclub 69/69, Restaurante 46/46 y Plataforma 47/47; navegador local en escritorio y móvil (fecha sin jornadas, zona/mesa, cambio de fecha, modal, guardado, corrección e historial); typecheck, ESLint focal y build de emulador aprobados. El build productivo sigue bloqueado por seis variables Firebase ausentes; lint global mantiene 263 errores y 9 advertencias preexistentes. Persistencia del módulo sigue limitada a demo/Studio porque falta el backend operacional tenant. Sin commit ni push.
+
+## Corrección del formulario Vender / reservar lounge (08/10/2026, trabajo local sin commit)
+
+- Se corrigió la lista de jornadas del modal: usa promoterEvents existentes, muestra también las jornadas cerradas con su estado y explica cuando no hay jornadas o todas están cerradas. La demo inicia deliberadamente sin jornadas; no se creó ninguna automáticamente.
+- El modal permite elegir cualquier zona real y luego únicamente mesas reales de esa zona disponibles para la jornada. El selector y el comando de guardado excluyen mesas con cuenta activa, ocupadas, reservadas operativamente o con reserva comercial no cancelada para esa jornada. Al corregir un registro se mantiene visible su mesa actual. No se cambió Zonas/Mesas ni su ocupación.
+- Clic fuera, X y Escape cierran únicamente el modal de lounge; clic dentro no cierra. Los cambios sin guardar requieren confirmación. Se conserva la validación de duplicados en la lógica, independiente del selector.
+- Verificaciones: pruebas focales de jornada vacía/cerrada, zonas y mesas existentes, indisponibilidad operativa/comercial y ausencia de efectos sobre Zonas/Caja; navegador local de selectores dependientes y cierre seguro del modal. Nocturna 68/68, Restaurante 46/46, Plataforma 47/47, typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes; lint global conserva 263 errores preexistentes y 9 advertencias. Sin commit ni push.
+
+## Venta y reserva comercial de lounges en Relacionadores (08/10/2026, trabajo local sin commit)
+
+- cambios-dario permaneció alineada con origin/main 38e56c8; se conservaron todos los cambios locales anteriores. La ficha permite reservar o vender un espacio real de la zona Lounge para una jornada existente, con cliente registrado opcional, precio acordado y estado reservado, pagado o cancelado. El comando valida IDs de jornada, espacio y cliente, precio en centavos, rol, duplicados por operación y doble reserva del mismo lounge/jornada. Las correcciones exigen motivo y conservan snapshot previo y auditoría.
+- Ranking y ficha muestran por separado entradas pagadas, lounges pagados, valor de entradas, valor de lounges y valor total vendido, filtrados por jornada, fin de semana, mes o histórico. Podio discreto #1/#2/#3 sin emojis y orden por entradas, lounges o valor total. Reservas, pendientes, cancelaciones y duplicados no suman. “Valor vendido” no implica ingreso confirmado en Caja.
+- No se modifican ocupación de Zonas, cuentas, POS, Barra, Caja ni Inventario; los registros comerciales no generan cobros. Se mantienen dos relacionadores ficticios demo y ningún lounge inventado. La persistencia continúa en demo/Studio; producción Nightclub carece de repositorio operacional y permisos de este módulo.
+- Verificaciones: prueba de dominio de reserva, pago, cancelación, doble reserva, correcciones, IDs, filtros, deduplicación y no alteración de datos operativos; navegador local de formulario, historial, podio, reinicio demo y móvil. Nocturna 67/67, Restaurante 46/46 y Plataforma 47/47; typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes en esta máquina. Lint global conserva 263 errores preexistentes y 9 advertencias. Sin commit ni push.
+
+## Jornadas y podio de Relacionadores Nightclub (08/10/2026, trabajo local sin commit)
+
+- Al inicio cambios-dario y origin/main estaban alineados en 38e56c8; se conservó íntegro el trabajo local anterior de Relacionadores. Se añadieron jornadas con ID estable, nombre, fecha y estado. Las ventas nuevas pueden asociarse a la jornada seleccionada; las anteriores conservan su fecha y nombre históricos sin recibir una jornada inventada. La edición de una jornada actualiza sus ventas vinculadas por ID y queda auditada.
+- Ranking por jornada, fin de semana, mes o histórico con podio de tres puestos, resto ordenado por entradas pagadas o recaudación. Se excluyen pendientes, anuladas y operaciones con ID duplicado. El filtro de jornadas permite consultar explícitamente ventas anteriores sin asignación. Buscar y Limpiar filtros funcionan en Directorio y Ranking; los inactivos se muestran por defecto para no ocultar fichas.
+- La ficha cierra al cambiar de pestaña y separa datos personales, métricas, ventas y consumos; el encabezado y acciones permanecen visibles al desplazarse. Solo se definió un contrato opcional para futura asignación de entradas, disponibilidad y rendición, sin mover cupos, deuda, cobros ni Caja.
+- Verificaciones: Nocturna 65/65, Restaurante 46/46, Plataforma 47/47, typecheck, ESLint focal y build de emulador aprobados. Navegador local: creación de jornada, venta pagada vinculada, podio, cambio de pestaña, reinicio demo a dos registros y navegación móvil sin desborde. Build productivo bloqueado por seis variables Firebase ausentes; lint global conserva 263 errores existentes y 9 advertencias. Persistencia de Relacionadores sigue limitada a demo/Studio: producción Nightclub carece del repositorio y permisos operacionales. Sin commit ni push.
+
+## Relacionadores Nightclub en demo y Studio (08/10/2026, trabajo local sin commit)
+
+- La rama cambios-dario comenzó limpia y alineada con origin/main 7cf2ff0. Durante la tarea origin/main avanzó a 38e56c8; se respaldó el trabajo local en un stash recuperable, se integró por fast-forward y se restauró el contenido resolviendo los solapamientos sin perder las nuevas funciones de comisiones, pago rápido y cocina. Se añadió Relacionadores a la experiencia canónica Nocturna y al menú para Administración y Caja, con búsqueda y paginación de 20 fichas.
+- Administración crea, edita, desactiva y elimina fichas sin movimientos; las fichas con ventas o consumos solo pueden desactivarse para preservar trazabilidad. El cumpleaños es fecha de calendario opcional. Caja puede registrar y corregir ventas de entradas; cada corrección exige motivo, conserva el valor anterior y queda auditada. Las ventas pendientes o anuladas no suman al ranking. Los consumos administrativos separan cortesías asignadas de compras propias y no modifican Caja, ventas operativas ni inventario.
+- Ranking por evento, fin de semana (viernes a domingo), mes e histórico, con búsqueda y orden por entradas, recaudación o nombre. La ficha muestra datos, ventas, posiciones, consumos por período e historial. El dataset completo demo incorpora solamente dos relacionadores ficticios; el dataset vacío no incorpora ninguno. Se corrigió Restablecer demo para limpiar también la clave pública de Nocturna sin tocar otros proyectos.
+- Persistencia actual: controlador local de demo/Studio, con migración no destructiva de snapshots antiguos. Producción Nightclub sigue fail-closed porque la experiencia tenant todavía carece de repositorio operacional conectado; no se sembraron datos ficticios ni se habilitó escritura productiva de relacionadores. Para activar este módulo en producción faltan gateway, comandos servidor, Rules y pruebas de aislamiento dedicadas.
+- Verificaciones: pruebas de dominio de creación manual del tercero, edición, desactivación, eliminación segura, ventas pendientes/pagadas/anuladas, correcciones, duplicados, filtros, 90 fichas efímeras de prueba, consumos y roles. Prueba headless local en escritorio y móvil: 2 fichas iniciales, crear tercera, restablecer a 2, modal, ranking y navegación móvil sin desbordamiento. Build de emulador, typecheck, ESLint focal, Nightclub 63/63, Restaurante 46/46 y Plataforma 47/47 aprobados tras integrar main. El build productivo local requiere seis variables Firebase ausentes; lint global presenta 263 errores preexistentes y 10 advertencias. Sin commit, push ni despliegue.
+
+
+## Integración de cambios de Darío con main (08/10/2026)
+
+- En cambios-dario se preservó en commit local el trabajo de clientes, incidentes, cumpleaños, fidelización y asociación de cliente por ronda. Se integró origin/main 2cf5655 sin descartar la plantilla Hamburguesería ni los cambios pagados de producto en Nightclub.
+- Los cuatro conflictos se resolvieron conservando el flujo canónico Barra → Listo → Servicio → Entregado, la atribución por pedido y la operación de cambio pagado. Un cambio de producto conserva el cliente de la ronda; cobros adicionales y devoluciones en efectivo ajustan su consumo y ranking sin inflarlos.
+- Verificaciones: Nightclub 56/56, Plataforma 47/47, Restaurante 44/44, aislamiento multiempresa y Rules 46/46, typecheck, ESLint focal, build de Rules y build de emulador aprobados. El build productivo requiere seis variables Firebase ausentes de esta máquina. Lint global conserva 263 errores preexistentes y 10 advertencias.
+- Limitación previa: Clientes e incidentes Nightclub persisten en demo/Studio; no existe aún adaptador productivo ni comando de servidor para esas operaciones, y la escritura directa Firestore permanece denegada. La comprobación visual interactiva del modal no se repitió en esta integración.
+
+## Modal de Clientes y responsable de incidentes Nightclub (07/10/2026, trabajo local sin commit)
+
+- La ficha de Clientes conserva título y botón X en un encabezado fijo dentro del modal; solo el contenido desplaza. El modal queda por encima de la barra y navegación. La barra Nightclub mide la altura de la barra pública para ajustar sticky y evitar solapamientos en Clientes/Fidelización.
+- Se eliminó el selector de personal ficticio como responsable. El comando de incidentes ignora cualquier responsable incluido en el formulario y toma UID/nombre visible de la identidad de sesión entregada por el controlador. En demo, sin identidad real, guarda responsable sin UID y muestra Usuario demo; los incidentes anteriores sin nombre verificable se etiquetan como tales.
+- Nightclub 53/53, Platform 47/47, typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes. La verificación visual interactiva no pudo ejecutarse porque el navegador automatizado no arrancó; start-dario.ps1 impide abrir localhost mientras origin/main siga sin integrar. El fetch final avanzó origin/main a 2cf5655 (cuatro commits por delante de HEAD), con solapamiento en archivos Nightclub; no se hizo merge ni commit. Los cambios locales permanecen y no hubo commit ni push.
+## Convivencia, incidentes y fidelización Nightclub (07/10/2026, trabajo local sin commit)
+
+- En cambios-dario se preservó el trabajo local y se actualizó la referencia de origin/main a 4b69750. La rama aún diverge 2 commits de main; integrar sin commit dejaría un merge inconcluso, por lo que se mantiene pendiente.
+- Clientes muestra estado manual Verde/Amarillo/Rojo y ficha con consumo vinculado efectivamente pagado, visitas verificables, cumpleaños e incidentes para Administración. Los incidentes se crean, editan y eliminan con confirmación y auditoría; el estado nunca cambia automáticamente. Fidelización filtra ranking por mes/año, marca frecuentes desde 3 visitas verificables y muestra cumpleaños del mes/próximos 30 días.
+- Demo/Studio persisten incidentes en el controlador local. La ruta Firestore separada nightclubCustomerIncidents solo permite lectura administrativa del tenant y sucursal; escritura de cliente denegada. Falta un comando servidor y adaptador productivo de Clientes, por lo que no se debe registrar información real sensible en la demo ni considerar completa la persistencia productiva.
+- Pruebas: Nightclub 53/53, Platform 47/47, aislamiento multiempresa y Rules 46/46, typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes; lint global conserva 263 errores ajenos al cambio. Sin commit, push ni despliegue.
+## Cumpleaños opcional en Clientes Nightclub (07/10/2026, trabajo local sin commit)
+
+- En cambios-dario, origin/main 16daabf estaba integrado al implementar; el fetch final detectó 4b69750, aún sin integrar porque diverge y esta tarea prohíbe commits. Se conservó el trabajo local previo. Clientes permite registrar, editar, quitar y consultar una fecha de cumpleaños opcional.
+- El modelo guarda birthday como texto de calendario YYYY-MM-DD validado, sin conversiones horarias. La clave MM-DD queda disponible para consultas futuras; no se añadieron fidelización ni notificaciones.
+- Pruebas: Nightclub 50/50, Platform 47/47, typecheck, ESLint focal y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes. La persistencia productiva Nightclub sigue pendiente del adaptador tenant preexistente; demo/Studio usa el controlador canónico con almacenamiento local.
+
+## Cliente por ronda/pedido en POS Nightclub (07/10/2026, trabajo local sin commit)
+
+- Rama `cambios-dario` con `origin/main` `16daabf` integrado y árbol inicialmente limpio. No se hizo commit ni push en esta tarea.
+- POS permite buscar clientes registrados por nombre o teléfono, registrar uno rápidamente y elegir explícitamente «Sin cliente asociado» para cada ronda de Mesa o pedido en Barra. La selección se reinicia tras enviar, sin heredar el cliente de la cuenta o de la ronda anterior.
+- Cada ronda guarda `customerId` y nombre histórico; cada pago confirmado guarda asignaciones por ronda en centavos, incluidas cuotas parciales y porciones anónimas. Clientes suma solo pagos vigentes, no rondas impagas ni canceladas. Reintentos con el mismo ID pero cliente/destino diferente se rechazan.
+- Cuentas e Historial muestran el cliente de cada ronda; Historial detalla la distribución de cada pago. Permanecen intactos envío, cobro posterior, Barra, Servicio, inventario y cortesías.
+- Pruebas: Nightclub 46/46 (Mesa con dos clientes y anónimo, Barra, abonos, cancelación, persistencia y reintento), Platform 47/47, typecheck y build de emulador aprobados. Build productivo bloqueado por seis variables Firebase ausentes. La experiencia productiva Nightclub continúa fail-closed sin adaptador tenant; este cambio se verificó en el controlador canónico de demo/Studio.
 
 ## Integración semántica de cambios de Darío sobre main canónico (07/10/2026)
 
@@ -1087,3 +1144,47 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Pendiente conserva la cuenta abierta y no registra ingreso en Caja. Una cortesía queda cerrada, no crea pagos ni ingresos, conserva valor comercial, autorizador y timestamp, libera la mesa y descuenta existencias como movimiento `courtesy` separado de una venta.
 - Historial muestra responsable y valor comercial de la cortesía. En Studio, el rol Equipo conserva capacidades de caja y autorización de cortesías del dataset completo; los demás roles siguen limitados por sus capacidades.
 - Validación: `typecheck` y `test:restaurant` (27) aprobaron; build de emulador en ejecución antes de integrar.
+
+## Cambio de producto pagado Nightclub (07/10/2026, cambios-dario, trabajo local sin commit)
+
+- Se agreg� en Cuentas el cambio autorizado de una l�nea pagada antes de la entrega: conserva la l�nea original como devuelta, crea una ronda de reemplazo, registra auditor�a product_exchange, actualiza existencias y solo cobra o devuelve la diferencia.
+- Un cambio m�s caro mantiene el pago original y exige el pago complementario. Uno m�s barato permite devoluci�n de efectivo �nicamente hasta el efectivo realmente recibido; para QR/tarjeta se guarda una devoluci�n electr�nica pendiente sin alterar la caja f�sica. Las rondas entregadas se bloquean. Preparaci�n admite recuperable, merma o consumo interno.
+- Falta a�n conectar este contrato a una operaci�n transaccional de Firebase para uso multiusuario real; el comportamiento validado es el dominio y persistencia local de la demo.
+- Validaci�n local: typecheck y Nightclub 45/45 aprobados; build:emulator aprobado. El lint global mantiene 262 errores heredados fuera de este cambio.
+
+
+## Comisiones de Servicio Nightclub (08/10/2026, cambios-dario, trabajo local sin commit)
+
+- Productos de tipo botella pueden marcarse como comisionables por porcentaje o monto fijo. Cada ronda guarda un snapshot de la regla para mantener el historial aunque el producto cambie luego.
+- POS permite elegir de forma opcional el responsable activo de Servicio. Una comision pasa de pendiente a ganada solo al existir pago completo y entrega; reembolsos, anulaciones y cambios invalidan la linea afectada.
+- Usuarios y roles muestra el resumen de comisiones y Administracion puede liquidarlas en efectivo, QR, tarjeta u otro. El pago de comision queda como salida de caja; solo efectivo modifica el efectivo esperado. Utilidad registra la comision al ganarse y no la duplica al liquidarla.
+- Validacion local: typecheck, lint, test:nightclub 58/58 y build:emulator aprobaron. Produccion sigue pendiente de comandos Firebase transaccionales y permisos validados en servidor.
+
+
+## Impresion de comandas Hamburgueseria (08/10/2026, cambios-dario, sin commit)
+
+- Hamburgueseria sigue usando RestaurantExperience con perfil counter_service. Al confirmar una venta crea una comanda de texto y un trabajo persistente separado; no crea una segunda venta ni vuelve a descontar inventario.
+- El ticket incluye numero de pedido, hora, tipo de entrega, cliente opcional, productos, cantidades y observaciones. Excluye precios, totales y pagos. Las adiciones y reimpresiones conservan una secuencia propia.
+- Impresoras permite configurar nombre, area, conexion, ancho de papel y modo. El navegador abre su dialogo manual; USB, red y Bluetooth requieren el agente local/nativo, que aun no existe para la demo web.
+
+## Usuarios, roles e Inicio por perfil Nocturna Demo (09/10/2026, cambios-dario, sin commit)
+
+- La demo conserva la gestión de personas en Usuarios y ubica las plantillas y roles personalizados en Configuración > Usuarios y permisos. Los roles predeterminados se mantienen; los personalizados se crean, renombran y eliminan solo si no están asignados. Los usuarios nuevos heredan la plantilla y reciben sus cambios inmediatamente; las excepciones individuales y los permisos guardados anteriormente se conservan. La matriz incluye Solo lectura, Seleccionar todos y Quitar permisos.
+- Administrador conserva acceso completo. Socio ve todas las secciones en solo lectura. La demo aplica la matriz individual al menú y a los comandos mediante el guard local; el selector Probar como usuario solo aparece al volver a Administración.
+- Inicio usa datos de la demo por perfil: Mesero/Servicio solo rondas enlazadas por ID y cuentas con nombre de responsable no ambiguo; Cajero ve caja esperada y cobros pendientes; Barra ve pendientes/listos; Inventario ve existencias, alertas y movimientos; Socio ve indicadores de lectura. Sin relación identificable se muestra estado vacío.
+- Los roles personalizados y el simulador son exclusivos de la demo local, no autenticación ni autorización de servidor. Los controles productivos y de Firebase para roles personalizados quedan pendientes de contrato, Rules/Functions y pruebas multiusuario. Los módulos operativos existentes siguen sin cambios de negocio.
+- Verificación: typecheck, build:emulator, test:nightclub 82/82, test:platform 47/47, test:restaurant 46/46, lint focal y prueba de navegador de perfiles/rol aprobaron. Build estándar bloqueado por variables VITE_FIREBASE_* ausentes; lint global mantiene 263 errores heredados. Localhost servido desde cambios-dario en http://localhost:5190/.
+
+
+## Comisiones para Meseros Nightclub (09/10/2026, cambios-dario, trabajo local sin commit)
+
+- La demo usa Mesero para Valeria y Marco; la migracion local solo corrige esos dos IDs conocidos si aun estaban guardados como Servicio. Los demas usuarios y las comisiones historicas conservan sus identidades.
+- POS identifica al mesero que realizo la venta por ID. Servicio puede preparar/entregar sin recibir la comision. Las rondas sin vendedor identificable no generan comision y POS lo advierte.
+- La comision se confirma al completarse el pago de una venta valida con regla de producto guardada en la ronda; no depende de la entrega. La conciliacion usa IDs deterministas, conserva el historial y anula la comision de una venta reembolsada sin repetir cobros ni descontar inventario.
+- Administracion consulta por mesero, fechas y estado, y liquida parcialmente o por completo las comisiones pendientes visibles con un operationId idempotente; la demo Mesero solo consulta sus propias comisiones y pagos. La liquidacion conserva la salida de Caja existente, sin alterar la venta.
+- Verificacion: typecheck, test:nightclub 87/87, test:platform 47/47, test:restaurant 46/46, build:emulator, lint focal y prueba local de navegador aprobados. Build estandar bloqueado por las seis variables VITE_FIREBASE_* ausentes. Lint global mantiene 263 errores y 9 warnings preexistentes. Produccion sigue pendiente de repositorio, autorizacion y transacciones Firebase para comisiones; la simulacion local no equivale a autenticacion real.
+
+## Texto UTF-8 del POS Nocturna (09/10/2026, cambios-dario)
+
+- Se corrigio el literal visible \u00abAsignar autom?ticamente si corresponde\u00bb a \u00abAsignar autom\u00e1ticamente si corresponde\u00bb. La revision de NightclubPOS no encontro otros textos espanoles danados; el archivo decodifica como UTF-8 sin BOM ni caracteres de reemplazo. No hubo cambios funcionales, de logica o diseno en esta correccion.
+- Validacion: build:emulator, test:nightclub 87/87, test:platform 47/47, test:restaurant 46/46, build:functions-core, build:rules y lint focal aprobaron. Localhost 5190 responde HTTP 200 y sirve el texto corregido. Build estandar requiere las seis variables VITE_FIREBASE_* no presentes. Las pruebas directas con los emuladores demo ya activos aprobaron: aislamiento multiempresa 59/59, onboarding 16/16 y ordenes Nightclub (6 escenarios).

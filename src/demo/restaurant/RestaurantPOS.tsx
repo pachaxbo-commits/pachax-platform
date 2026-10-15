@@ -4,7 +4,7 @@ import type { RestaurantTable } from '../mocks/restaurantMock'
 import { makeRestaurantOrderItem } from '../../modules/restaurant/domain/restaurantOperations'
 import type { RestaurantCustomer } from '../../modules/restaurant/domain/restaurantCustomers'
 
-export function RestaurantPOS({ categories, products, quickExtras, orders, onAddOrder, onSetOrderStatus, onCancelOrder, onConfirmPayment, enabled = true, tables = [], customers = [], userRole = 'cashier', userName }: {
+export function RestaurantPOS({ categories, products, quickExtras, orders, onAddOrder, onSetOrderStatus, onCancelOrder, onConfirmPayment, enabled = true, tables = [], customers = [], userRole = 'cashier', userName, counterServiceMode = false }: {
   categories: CatalogCategory[]
   products: Product[]
   quickExtras: ProductExtra[]
@@ -18,6 +18,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
   customers?: RestaurantCustomer[]
   userRole?: string
   userName: string
+  counterServiceMode?: boolean
 }) {
   const nextSeq = Math.max(44, ...orders.map(order => order.sequence || 0)) + 1
 
@@ -47,10 +48,13 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
     const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
     const order: Order = {
       id: crypto.randomUUID(), sequence: nextSeq, displayNumber: String(nextSeq).padStart(3, '0'),
-      status: 'pending', orderSource: input.orderSource, fulfillmentType: input.fulfillmentType,
-      tableId: input.tableId, tableInfo: input.tableInfo,
+      status: 'pending',
+      orderSource: counterServiceMode ? 'local' : input.orderSource,
+      fulfillmentType: counterServiceMode ? 'pickup' : input.fulfillmentType,
+      tableId: counterServiceMode ? undefined : input.tableId,
+      tableInfo: counterServiceMode ? undefined : input.tableInfo,
       customerId: input.customerId, customerName: input.customerName || 'Cliente', customerPhone: input.customerPhone,
-      deliveryAddress: input.deliveryAddress, total, productSubtotal: total,
+      deliveryAddress: counterServiceMode ? undefined : input.deliveryAddress, total, productSubtotal: total,
       payment: input.payment, paymentStatus: input.paymentStatus,
       paymentMethod: input.paymentMethod, expectedPaymentMethod: input.expectedPaymentMethod,
       items, createdAt: at, createdBy: userName,
@@ -78,6 +82,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
       onSetOrderStatus={onSetOrderStatus}
       operationsDisabled={!enabled} restaurantTables={tables} botManagementEnabled={false} orderEditingEnabled={false}
       restaurantCustomers={customers}
+      counterServiceMode={counterServiceMode}
     />
   </div>
 }

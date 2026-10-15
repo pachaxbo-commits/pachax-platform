@@ -27,6 +27,8 @@ import { customerName, legacyCustomersFromOrders, normalizeCustomerPhone } from 
 import type { CustomerDraft } from './RestaurantCustomerForm'
 import type { DemoDatasetMode } from '../datasets/types'
 import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeColors } from '../../modules/restaurant/views/restaurantTheme'
+import { buildKitchenTicketPrintDocument, buildKitchenTicketText, type KitchenTicketJob } from '../../modules/restaurant/domain/kitchenPrint'
+import { DEFAULT_KITCHEN_PRINTER_CONFIG, type KitchenPrinterConfig } from './kitchenPrinterConfig'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -43,6 +45,45 @@ type Batch = { id: string; sequence: number; createdAt: string; printedAt?: stri
 const STORAGE_KEY = 'pachax:restaurant-demo:operations:v2'
 const LEGACY_KEY = 'pachax:restaurant-demo:operations:v1'
 const THEME_KEY = 'pachax:restaurant-demo:theme:v1'
+
+const HAMBURGER_CATEGORIES = [
+  { id: 'cat-entradas', name: 'Extras', emoji: '', sortOrder: 1, isVisible: true, isActive: true },
+  { id: 'cat-fuertes', name: 'Hamburguesas y combos', emoji: '', sortOrder: 2, isVisible: true, isActive: true },
+  { id: 'cat-bebidas', name: 'Bebidas', emoji: '', sortOrder: 3, isVisible: true, isActive: true },
+  { id: 'cat-postres', name: 'Postres', emoji: '', sortOrder: 4, isVisible: true, isActive: true },
+]
+
+function hamburgerCatalog(products: Product[]): Product[] {
+  const names: Record<string, Partial<Product>> = {
+    'prod-1': { name: 'Hamburguesa cl\u00e1sica', description: 'Carne, queso, vegetales y papas', price: 38, categoryId: 'cat-fuertes' },
+    'prod-2': { name: 'Hamburguesa doble', description: 'Doble carne, queso y papas', price: 48, categoryId: 'cat-fuertes' },
+    'prod-3': { name: 'Combo hamburguesa', description: 'Hamburguesa, papas y bebida', price: 55, categoryId: 'cat-fuertes' },
+    'prod-4': { name: 'Gaseosa', description: 'Bebida fr\u00eda', price: 12, categoryId: 'cat-bebidas', preparationArea: 'Barra' },
+    'prod-5': { name: 'Limonada', description: 'Limonada fresca', price: 15, categoryId: 'cat-bebidas', preparationArea: 'Barra' },
+    'prod-6': { name: 'Brownie', description: 'Postre de chocolate', price: 18, categoryId: 'cat-postres' },
+    'prod-7': { name: 'Papas extra', description: 'Porci\u00f3n de papas', price: 10, categoryId: 'cat-entradas' },
+  }
+  return products.map((product) => names[product.id] ? { ...product, ...names[product.id] } : product)
+}
+
+function hamburgerOrders(orders: Order[], products: Product[]): Order[] {
+  const byId = new Map(products.map((product) => [product.id, product]))
+  return orders.filter((order) => order.fulfillmentType === 'pickup').map((order) => {
+    const items = order.items.map((item) => {
+      const product = item.productId ? byId.get(item.productId) : undefined
+      const basePrice = product?.price ?? item.basePrice
+      return { ...item, name: product?.name ?? item.name, basePrice, lineTotal: basePrice * item.quantity }
+    })
+    const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
+    return {
+      ...order,
+      items,
+      total,
+      productSubtotal: total,
+      payment: order.payment ? { ...order.payment, cashAmount: order.payment.method === 'cash' ? total : order.payment.cashAmount, cashReceived: order.payment.method === 'cash' ? total : order.payment.cashReceived } : order.payment,
+    }
+  })
+}
 
 function readSaved<T>(key: string, fallback: T): T {
   try {
@@ -118,29 +159,35 @@ function migrateWineMeasurements(movements: RestaurantStockMovement[], shift: Sh
   return { movements: nextMovements, shift: { ...shift, stockSnapshot: snapshot, inventoryCounts } }
 }
 
-function loadInitialState(datasetMode: DemoDatasetMode) {
-  const savedMode = restaurantStorage.getItem(`${STORAGE_KEY}:dataset-mode`)
+function loadInitialState(datasetMode: DemoDatasetMode, storageKey: string, legacyKey: string, profile: 'restaurant' | 'counter_service') {
+  const savedMode = restaurantStorage.getItem(`${storageKey}:dataset-mode`)
   if ((savedMode && savedMode !== datasetMode) || (datasetMode === 'empty' && !savedMode)) {
     for (const key of restaurantStorage.keys()) {
-      if (key.startsWith('pachax:restaurant-demo:')) restaurantStorage.removeItem(key)
+      if (key.startsWith(storageKey.slice(0, storageKey.lastIndexOf(':operations:') + 1))) restaurantStorage.removeItem(key)
     }
   }
-  const hasCurrent = ['2', '3', '4', '5', '6'].includes(restaurantStorage.getItem(`${STORAGE_KEY}:schemaVersion`) || '')
-  const hasLegacy = restaurantStorage.getItem(`${LEGACY_KEY}:orders`) !== null
+  const hasCurrent = ['2', '3', '4', '5', '6'].includes(restaurantStorage.getItem(`${storageKey}:schemaVersion`) || '')
+  const hasLegacy = restaurantStorage.getItem(`${legacyKey}:orders`) !== null
   if (!hasCurrent && !hasLegacy) {
     const dataset = createRestaurantDataset(datasetMode)
-    const linked = reconcileTableOrders(dataset.orders, dataset.tables)
-    const state = { ...linked, sectors: dataset.sectors, products: dataset.products, shift: dataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
+    const initialDataset = profile === 'counter_service'
+      ? (() => {
+          const products = hamburgerCatalog(dataset.products)
+          return { ...dataset, tables: [], sectors: [], products, orders: hamburgerOrders(dataset.orders, products) }
+        })()
+      : dataset
+    const linked = reconcileTableOrders(initialDataset.orders, initialDataset.tables)
+    const state = { ...linked, sectors: initialDataset.sectors, products: initialDataset.products, shift: initialDataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
     for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
-      restaurantStorage.setItem(`${STORAGE_KEY}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
+      restaurantStorage.setItem(`${storageKey}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
     }
-    restaurantStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
-    restaurantStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
-    restaurantStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
-    restaurantStorage.setItem(`${STORAGE_KEY}:seeded`, 'false')
+    restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+    restaurantStorage.setItem(`${storageKey}:schemaVersion`, '6')
+    restaurantStorage.setItem(`${storageKey}:dataset-mode`, datasetMode)
+    restaurantStorage.setItem(`${storageKey}:seeded`, 'false')
     return state
   }
-  const source = hasCurrent ? STORAGE_KEY : LEGACY_KEY
+  const source = hasCurrent ? storageKey : legacyKey
   const hadOrders = restaurantStorage.getItem(`${source}:orders`) !== null
   const savedOrders = readSaved<Order[]>(`${source}:orders`, []).map(order => order.items.length > 0 && order.items.every(item => item.quantity === 0) && order.paymentStatus !== 'paid' && order.status !== 'cancelled' ? { ...order, status: 'cancelled' as const, accountStatus: 'closed' as const, cancelledReason: 'Todos los productos cancelados' } : order)
   const savedTables = hadOrders
@@ -163,12 +210,12 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
     return saved ? { ...product, stockBase: saved.currentStock * factor, minimumStockBase: saved.minStock * factor, unitCost: saved.unitCost / factor } : product
   })
   const assembledProducts = [...catalog.filter(product => product.restaurantType !== 'ingredient'), ...ingredients, ...catalog.filter(product => product.restaurantType === 'ingredient' && !ingredients.some(item => item.id === product.id))]
-  const storedInventory = readSaved<{ products: Product[]; movements: RestaurantStockMovement[] } | null>(`${STORAGE_KEY}:inventory-store:v1`, null)
+  const storedInventory = readSaved<{ products: Product[]; movements: RestaurantStockMovement[] } | null>(`${storageKey}:inventory-store:v1`, null)
   const storedProducts = storedInventory && Array.isArray(storedInventory.products) ? storedInventory.products : assembledProducts
   const products = migrateInventoryProducts(storedProducts)
   let stockMovements = storedInventory && Array.isArray(storedInventory.movements) ? storedInventory.movements : readSaved<RestaurantStockMovement[]>(`${source}:stock-movements`, [])
   const normalizedOrders = reconciled.orders.map(order => ({ ...order, items: order.items.map(line => ({ ...line, productArea: line.productArea || products.find(product => product.id === line.productId)?.preparationArea || 'Cocina' })) }))
-  const seeded = hasCurrent ? readSaved<boolean>(`${STORAGE_KEY}:seeded`, false) : false
+  const seeded = hasCurrent ? readSaved<boolean>(`${storageKey}:seeded`, false) : false
   const savedShift = readSaved<Shift | null>(`${source}:shift`, null)
   const migratedMeasurements = migrateWineMeasurements(stockMovements, savedShift, storedProducts)
   stockMovements = migratedMeasurements.movements
@@ -181,21 +228,21 @@ function loadInitialState(datasetMode: DemoDatasetMode) {
   if (!hasCurrent) {
     for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
       const storageName = key === 'stockMovements' ? 'stock-movements' : key
-      restaurantStorage.setItem(`${STORAGE_KEY}:${storageName}`, JSON.stringify(state[key]))
+      restaurantStorage.setItem(`${storageKey}:${storageName}`, JSON.stringify(state[key]))
     }
-    restaurantStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
-    restaurantStorage.setItem(`${STORAGE_KEY}:seeded`, JSON.stringify(seeded))
+    restaurantStorage.setItem(`${storageKey}:schemaVersion`, '6')
+    restaurantStorage.setItem(`${storageKey}:seeded`, JSON.stringify(seeded))
   }
   if (hasCurrent) {
-    restaurantStorage.setItem(`${STORAGE_KEY}:orders`, JSON.stringify(state.orders))
-    restaurantStorage.setItem(`${STORAGE_KEY}:tables`, JSON.stringify(state.tables))
-    restaurantStorage.setItem(`${STORAGE_KEY}:sectors`, JSON.stringify(state.sectors))
-    restaurantStorage.setItem(`${STORAGE_KEY}:schemaVersion`, '6')
+    restaurantStorage.setItem(`${storageKey}:orders`, JSON.stringify(state.orders))
+    restaurantStorage.setItem(`${storageKey}:tables`, JSON.stringify(state.tables))
+    restaurantStorage.setItem(`${storageKey}:sectors`, JSON.stringify(state.sectors))
+    restaurantStorage.setItem(`${storageKey}:schemaVersion`, '6')
   }
-  restaurantStorage.setItem(`${STORAGE_KEY}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
-  restaurantStorage.setItem(`${STORAGE_KEY}:stock-movements`, JSON.stringify(state.stockMovements))
-  if (shift && (JSON.stringify(shift) !== JSON.stringify(savedShift))) restaurantStorage.setItem(`${STORAGE_KEY}:shift`, JSON.stringify(shift))
-  restaurantStorage.setItem(`${STORAGE_KEY}:dataset-mode`, datasetMode)
+  restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+  restaurantStorage.setItem(`${storageKey}:stock-movements`, JSON.stringify(state.stockMovements))
+  if (shift && (JSON.stringify(shift) !== JSON.stringify(savedShift))) restaurantStorage.setItem(`${storageKey}:shift`, JSON.stringify(shift))
+  restaurantStorage.setItem(`${storageKey}:dataset-mode`, datasetMode)
   return state
 }
 
@@ -228,6 +275,7 @@ export function RestaurantDemo({
   datasetMode = 'full',
   resetKey = 0,
   initialModule,
+  profile = 'restaurant',
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
@@ -238,12 +286,16 @@ export function RestaurantDemo({
   datasetMode?: DemoDatasetMode
   resetKey?: number
   initialModule?: import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId
+  profile?: 'restaurant' | 'counter_service'
 }) {
+  const storageKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:v1' : STORAGE_KEY
+  const legacyKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:legacy' : LEGACY_KEY
+  const themeKey = profile === 'counter_service' ? 'pachax:hamburger-demo:theme:v1' : THEME_KEY
   const urlModule = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('module') as import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId | null) : null
   const effectiveInitialModule = initialModule || urlModule || undefined
-  const [initial] = useState(() => loadInitialState(datasetMode))
+  const [initial] = useState(() => loadInitialState(datasetMode, storageKey, legacyKey, profile))
   const [themeColors, setThemeColors] = useState<RestaurantThemeColors>(() => {
-    const saved = readSaved<RestaurantThemeColors>(THEME_KEY, DEFAULT_RESTAURANT_THEME)
+    const saved = readSaved<RestaurantThemeColors>(themeKey, DEFAULT_RESTAURANT_THEME)
     return studioThemeColors || (validRestaurantColor(saved?.primary) && validRestaurantColor(saved?.accent) ? saved : DEFAULT_RESTAURANT_THEME)
   })
   const [themeEditedInDemo, setThemeEditedInDemo] = useState(false)
@@ -254,7 +306,7 @@ export function RestaurantDemo({
   const [sectors, setSectors] = useState<RestaurantSector[]>(initial.sectors)
   const [products, setProducts] = useState<Product[]>(initial.products)
   const [customers, setCustomers] = useState<RestaurantCustomer[]>(() => {
-    const key = `${STORAGE_KEY}:customers:v1`
+    const key = `${storageKey}:customers:v1`
     if (restaurantStorage.getItem(key) !== null) return readSaved<RestaurantCustomer[]>(key, [])
     const migrated = legacyCustomersFromOrders(initial.orders)
     restaurantStorage.setItem(key, JSON.stringify(migrated))
@@ -264,7 +316,7 @@ export function RestaurantDemo({
   const inventoryRef = useRef({ products: initial.products, movements: initial.stockMovements })
   useEffect(() => {
     const syncInventory = (event: StorageEvent) => {
-      if (event.key !== restaurantStorageKey(`${STORAGE_KEY}:inventory-store:v1`) || !event.newValue) return
+      if (event.key !== restaurantStorageKey(`${storageKey}:inventory-store:v1`) || !event.newValue) return
       try {
         const next = JSON.parse(event.newValue) as { products: Product[]; movements: RestaurantStockMovement[] }
         if (!Array.isArray(next.products) || !Array.isArray(next.movements)) return
@@ -275,20 +327,22 @@ export function RestaurantDemo({
     }
     window.addEventListener('storage', syncInventory)
     return () => window.removeEventListener('storage', syncInventory)
-  }, [])
+  }, [storageKey])
   const [shift, setShift] = useState<Shift | null>(initial.shift)
-  const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => readSaved<Shift[]>(`${STORAGE_KEY}:shift-history`, []))
+  const [shiftHistory, setShiftHistory] = useState<Shift[]>(() => readSaved<Shift[]>(`${storageKey}:shift-history`, []))
   const [audit, setAudit] = useState<AuditEvent[]>(initial.audit)
+  const [kitchenPrinterConfig, setKitchenPrinterConfig] = useState<KitchenPrinterConfig>(() => readSaved<KitchenPrinterConfig>(`${storageKey}:kitchen-printer:v1`, DEFAULT_KITCHEN_PRINTER_CONFIG))
+  const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>(() => readSaved<KitchenTicketJob[]>(`${storageKey}:kitchen-print-jobs:v1`, []))
   void resetKey
   const [cashierName, setCashierName] = useState(
-    `Cajero ${simulatedRole === 'waiter' ? 'Ana' : 'Bistró Demo'}`
+    `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'}`
   )
   const submissionLock = useRef(false)
   void audit
 
   const persist = <T,>(key: string, value: T) => {
     try {
-      restaurantStorage.setItem(`${STORAGE_KEY}:${key}`, JSON.stringify(value))
+      restaurantStorage.setItem(`${storageKey}:${key}`, JSON.stringify(value))
     } catch {
       /* Private mode may disable storage. */
     }
@@ -304,6 +358,82 @@ export function RestaurantDemo({
       persist('audit', next)
       return next
     })
+  }
+
+  const saveKitchenPrintJobs = (next: KitchenTicketJob[]) => {
+    setKitchenPrintJobs(next)
+    persist('kitchen-print-jobs:v1', next)
+  }
+
+  const patchKitchenPrintJob = (jobId: string, patch: Partial<KitchenTicketJob>) => {
+    setKitchenPrintJobs((previous) => {
+      const next = previous.map((item) => item.id === jobId ? { ...item, ...patch } : item)
+      persist('kitchen-print-jobs:v1', next)
+      return next
+    })
+  }
+
+  const sendKitchenTicket = (job: KitchenTicketJob) => {
+    const printWithBrowser = () => {
+      const popup = window.open('', '_blank', 'width=420,height=620')
+      if (!popup) {
+        patchKitchenPrintJob(job.id, { status: 'error', error: 'El navegador bloqueó la ventana de impresión.' })
+        return
+      }
+      popup.document.write(buildKitchenTicketPrintDocument(job.text, kitchenPrinterConfig.paperWidth === 'A4' ? '80mm' : kitchenPrinterConfig.paperWidth))
+      popup.document.close()
+      popup.focus()
+      window.setTimeout(() => popup.print(), 100)
+      patchKitchenPrintJob(job.id, { status: 'sent', sentAt: new Date().toISOString(), error: undefined })
+    }
+    if (!kitchenPrinterConfig.name.trim()) {
+      patchKitchenPrintJob(job.id, { status: 'error', error: 'Configura una impresora de cocina antes de imprimir.' })
+      return
+    }
+    if (kitchenPrinterConfig.connection !== 'browser') {
+      patchKitchenPrintJob(job.id, { status: 'error', error: 'Esta demo no incluye un agente local activo para enviar trabajos a USB, red o Bluetooth. Usa Navegador o instala el agente local.' })
+      return
+    }
+    printWithBrowser()
+  }
+
+  const createKitchenPrintJob = (order: Order, lines: Order['items'], kind: 'new' | 'addition' | 'reprint' = 'new', sequence = ((order.submittedBatches as Batch[] | undefined)?.length || 0) + 1): KitchenTicketJob => {
+    const createdAt = new Date().toISOString()
+    const batchId = crypto.randomUUID()
+    const text = buildKitchenTicketText({ order, sequence, lines, createdAt, kind, businessName: companyName || (profile === 'counter_service' ? 'Hamburguesería' : 'Restaurante') })
+    return { id: crypto.randomUUID(), idempotencyKey: `kitchen:${order.displayNumber}:${batchId}`, orderId: order.id, batchId, sequence, kind, status: 'pending', text, createdAt, retries: 0, createdBy: cashierName }
+  }
+
+  const saveKitchenPrinterConfig = (next: KitchenPrinterConfig) => {
+    setKitchenPrinterConfig(next)
+    persist('kitchen-printer:v1', next)
+  }
+
+  const retryKitchenPrint = (jobId: string) => {
+    const current = kitchenPrintJobs.find((job) => job.id === jobId)
+    if (!current) return
+    const retry = { ...current, status: 'retry' as const, retries: current.retries + 1, error: undefined }
+    const next = kitchenPrintJobs.map((job) => job.id === jobId ? retry : job)
+    saveKitchenPrintJobs(next)
+    sendKitchenTicket(retry)
+  }
+
+  const reprintLatestKitchenTicket = () => {
+    const original = kitchenPrintJobs[0]
+    const order = original ? orders.find((item) => item.id === original.orderId) : undefined
+    if (!original || !order) return
+    const reprint = { ...createKitchenPrintJob(order, order.items.filter((item) => original.text.includes(item.name)), 'reprint', original.sequence), idempotencyKey: `${original.idempotencyKey}:reprint:${Date.now()}`, kind: 'reprint' as const }
+    const next = [reprint, ...kitchenPrintJobs]
+    saveKitchenPrintJobs(next)
+    sendKitchenTicket(reprint)
+    record({ type: 'kitchen_ticket_reprinted', orderId: order.id, details: { originalJobId: original.id, jobId: reprint.id } })
+  }
+
+  const printKitchenTest = () => {
+    const test: KitchenTicketJob = { id: crypto.randomUUID(), idempotencyKey: `kitchen:test:${Date.now()}`, orderId: 'test', batchId: 'test', sequence: 1, kind: 'new', status: 'pending', text: 'COCINA\n--------------------------------\nPRUEBA DE IMPRESION\n\nSi puedes leer esto, la configuración funciona.\n', createdAt: new Date().toISOString(), retries: 0, createdBy: cashierName }
+    const next = [test, ...kitchenPrintJobs]
+    saveKitchenPrintJobs(next)
+    sendKitchenTicket(test)
   }
 
   const updateOrders = (updater: (previous: Order[]) => Order[]) => {
@@ -826,17 +956,32 @@ export function RestaurantDemo({
         : requestedPaymentStatus === 'gift'
           ? completeRestaurantGift(placed.orders, placed.tables, placed.order.id, cashierName, timestamp)
           : { orders: placed.orders, tables: placed.tables, order: placed.order }
+      let finalOrder = settled.order
+      let finalOrders = settled.orders
+      let kitchenJob: KitchenTicketJob | undefined
+      if (profile === 'counter_service') {
+        const existingBatches = (settled.order.submittedBatches as Batch[] | undefined) || []
+        const batch: Batch = { id: crypto.randomUUID(), sequence: existingBatches.length + 1, createdAt: timestamp, printedAt: undefined, itemIds: ticketItems.map((item) => item.id) }
+        finalOrder = { ...settled.order, submittedBatches: [...existingBatches, batch] }
+        finalOrders = settled.orders.map((item) => item.id === finalOrder.id ? finalOrder : item)
+        kitchenJob = createKitchenPrintJob(finalOrder, ticketItems, existingBatches.length ? 'addition' : 'new', batch.sequence)
+      }
       saveInventory(consumption.products, consumption.movements)
-      updateOrders(() => settled.orders)
+      updateOrders(() => finalOrders)
       updateTables(() => settled.tables)
       record({
         type: placed.added ? 'product_added' : requestedPaymentStatus === 'gift' ? 'order_gifted' : 'order_created',
-        orderId: settled.order.id,
-        tableId: settled.order.tableId,
-        details: { total: settled.order.total, paymentStatus: requestedPaymentStatus, itemIds: ticketItems.map(item => item.id) },
+        orderId: finalOrder.id,
+        tableId: finalOrder.tableId,
+        details: { total: finalOrder.total, paymentStatus: requestedPaymentStatus, itemIds: ticketItems.map(item => item.id) },
       })
-      if (requestedPaymentStatus === 'paid') record({ type: 'payment_confirmed', orderId: settled.order.id, tableId: settled.order.tableId, details: { total: settled.order.total, method: order.paymentMethod, change: settled.order.payment.change } })
-      if (consumption.appended.length) record({ type: requestedPaymentStatus === 'gift' ? 'inventory_courtesy' : 'inventory_sale', orderId: settled.order.id, tableId: settled.order.tableId, details: { movementIds: consumption.appended.map(item => item.id) } })
+      if (requestedPaymentStatus === 'paid') record({ type: 'payment_confirmed', orderId: finalOrder.id, tableId: finalOrder.tableId, details: { total: finalOrder.total, method: order.paymentMethod, change: finalOrder.payment.change } })
+      if (consumption.appended.length) record({ type: requestedPaymentStatus === 'gift' ? 'inventory_courtesy' : 'inventory_sale', orderId: finalOrder.id, tableId: finalOrder.tableId, details: { movementIds: consumption.appended.map(item => item.id) } })
+      if (kitchenJob) {
+        saveKitchenPrintJobs([kitchenJob, ...kitchenPrintJobs])
+        record({ type: 'kitchen_ticket_queued', orderId: finalOrder.id, details: { jobId: kitchenJob.id, batch: kitchenJob.sequence, status: kitchenJob.status } })
+        if (kitchenPrinterConfig.mode === 'automatic') sendKitchenTicket(kitchenJob)
+      }
       return true
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'No se pudo crear el pedido.')
@@ -1000,7 +1145,7 @@ export function RestaurantDemo({
 
   const session: RestaurantSession = {
     tenantId: 'demo-restaurant',
-    restaurantName: companyName || 'Bistró Demo',
+    restaurantName: companyName || (profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'),
     uid: 'demo-cashier-uid',
     userName: cashierName,
     role: mode === 'team' ? 'team' : simulatedRole || 'admin',
@@ -1012,9 +1157,10 @@ export function RestaurantDemo({
       session={session}
       logoUrl={logoUrl}
       companyName={companyName}
+      profile={profile}
       themeColors={activeThemeColors}
       onSaveTheme={async (colors) => {
-        restaurantStorage.setItem(THEME_KEY, JSON.stringify(colors))
+        restaurantStorage.setItem(themeKey, JSON.stringify(colors))
         setThemeColors(colors)
         setThemeEditedInDemo(true)
       }}
@@ -1025,7 +1171,7 @@ export function RestaurantDemo({
       customers={customers}
       shift={shift}
       shiftHistory={shiftHistory}
-      categories={RESTAURANT_CATEGORIES}
+      categories={profile === 'counter_service' ? HAMBURGER_CATEGORIES : RESTAURANT_CATEGORIES}
       quickExtras={RESTAURANT_EXTRAS}
       onStartShift={startShift}
       onCloseShift={closeShift}
@@ -1050,11 +1196,17 @@ export function RestaurantDemo({
       onAssignCustomer={assignCustomer}
       onSaveProducts={handleSaveProducts}
       stockMovements={stockMovements}
+      kitchenPrinterConfig={kitchenPrinterConfig}
+      kitchenPrintJobs={kitchenPrintJobs}
+      onSaveKitchenPrinterConfig={saveKitchenPrinterConfig}
+      onPrintKitchenTest={printKitchenTest}
+      onRetryKitchenPrint={retryKitchenPrint}
+      onReprintLatestKitchenTicket={reprintLatestKitchenTicket}
       onInventoryMovement={handleInventoryMovement}
       onCountInventoryItem={handleCountInventoryItem}
       onResetDemo={() => {
         if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return
-        for (const key of restaurantStorage.keys()) if (key.startsWith('pachax:restaurant-demo:')) restaurantStorage.removeItem(key)
+        for (const key of restaurantStorage.keys()) if (key.startsWith(storageKey.slice(0, storageKey.lastIndexOf(':operations:') + 1))) restaurantStorage.removeItem(key)
         restaurantStorage.removeItem('cocina-tickets-impresos')
         window.location.reload()
       }}

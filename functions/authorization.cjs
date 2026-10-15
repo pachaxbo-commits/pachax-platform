@@ -13,6 +13,7 @@ function authenticated(request) {
 function hasPermission(tenant, membership, permission) {
   if (membership?.status !== 'active' || membership.tenantId !== tenant.tenantId) return false;
   const template = getTemplate(tenant.businessType);
+  if (tenant.businessType === 'nightclub_lounge' && permission === 'users.manage' && Array.isArray(membership.nightclubPermissions) && membership.nightclubPermissions.includes('special.manageUsers')) return tenant.configuration.features.users === true;
   const role = template.roles.find(item => item.id === membership.roleId);
   if (!role?.permissions.includes(permission)) return false;
   const capability = { sales: 'sales', orders: 'orders', inventory: 'inventory', products: 'inventory', customers: 'customers', credits: 'credits', reports: 'reports', users: 'users', settings: 'settings', dispatch: 'dispatch', route: 'routes', cash: 'cash' }[permission.split('.')[0]];

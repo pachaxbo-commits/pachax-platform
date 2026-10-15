@@ -84,6 +84,11 @@
   .restaurant-top-navigation button { display: flex; min-width: 68px; min-height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 12px; padding: 4px 7px; color: var(--rk-muted); font-size: 10px; font-weight: 750; line-height: 1.15; }
   .restaurant-top-navigation button:hover,.restaurant-top-navigation button:focus-visible { background: var(--primary-soft); color: var(--primary); outline: none; }
   .restaurant-top-navigation button.is-active { background: var(--primary-soft); color: var(--primary); }
+  /* Mostrador needs its core operations always one click away. */
+  .restaurant-header.is-counter-service { min-height: 132px; padding-bottom: 72px; }
+  .restaurant-header.is-counter-service .restaurant-top-navigation { position: absolute; top: calc(var(--safe-top) + 60px); opacity: 1; transform: none; pointer-events: auto; box-shadow: none; }
+  .restaurant-header.is-counter-service .restaurant-menu-toggle { display: none; }
+  .restaurant-header.is-counter-service .restaurant-nav-hotspot { display: none; }
 }
 
 .restaurant-pos-frame { min-width: 0; width: 100%; }

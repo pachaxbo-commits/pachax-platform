@@ -28,6 +28,7 @@ export function RestaurantApp({
   accentColor,
   onSignOut,
   onOpenPrinterSettings,
+  profile = 'restaurant',
 }: {
   tenantId: string
   restaurantName: string
@@ -40,6 +41,7 @@ export function RestaurantApp({
   accentColor?: string
   onSignOut: () => Promise<void>
   onOpenPrinterSettings?: () => void
+  profile?: 'restaurant' | 'counter_service'
 }) {
   const definition = getBusinessTypeDefinition('restaurant')
   const [themeColors, setThemeColors] = useState<RestaurantThemeColors>({
@@ -92,6 +94,7 @@ export function RestaurantApp({
       onFloorAction={() => ({ ok: false, error: 'Configuración disponible al conectar el proveedor de datos.' })}
       onSignOut={onSignOut}
       onOpenPrinterSettings={onOpenPrinterSettings}
+      profile={profile}
     />
   )
 }

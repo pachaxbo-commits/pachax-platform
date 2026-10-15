@@ -40,6 +40,8 @@ import { RestaurantUsers } from '../../../demo/restaurant/RestaurantUsers'
 import { RestaurantReports } from '../../../demo/restaurant/RestaurantReports'
 import { RestaurantSettings } from '../../../demo/restaurant/RestaurantSettings'
 import { RestaurantPrinters } from '../../../demo/restaurant/RestaurantPrinters'
+import type { KitchenPrinterConfig } from '../../../demo/restaurant/kitchenPrinterConfig'
+import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import {
   RESTAURANT_CATEGORIES,
   RESTAURANT_EXTRAS,
@@ -48,6 +50,8 @@ import {
 import type { Order, OrderStatus, Product } from '../../../types'
 import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
 import './restaurantKiosk.css'
+
+export type RestaurantExperienceProfile = 'restaurant' | 'counter_service'
 
 export type RestaurantModuleId =
   | 'dashboard'
@@ -136,10 +140,17 @@ export interface RestaurantExperienceProps {
   onSelectRole?: (roleId: string) => void
   onSignOut?: () => void | Promise<void>
   onOpenPrinterSettings?: () => void
+  kitchenPrinterConfig?: KitchenPrinterConfig
+  kitchenPrintJobs?: KitchenTicketJob[]
+  onSaveKitchenPrinterConfig?: (config: KitchenPrinterConfig) => void
+  onPrintKitchenTest?: () => void
+  onRetryKitchenPrint?: (jobId: string) => void
+  onReprintLatestKitchenTicket?: () => void
   initialModule?: RestaurantModuleId
   onModuleChange?: (module: RestaurantModuleId) => void
   themeColors?: RestaurantThemeColors
   onSaveTheme?: (colors: RestaurantThemeColors) => Promise<void> | void
+  profile?: RestaurantExperienceProfile
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -204,13 +215,21 @@ export function RestaurantExperience({
   onSelectRole,
   onSignOut,
   onOpenPrinterSettings,
+  kitchenPrinterConfig,
+  kitchenPrintJobs,
+  onSaveKitchenPrinterConfig,
+  onPrintKitchenTest,
+  onRetryKitchenPrint,
+  onReprintLatestKitchenTicket,
   initialModule,
   onModuleChange,
   themeColors = DEFAULT_RESTAURANT_THEME,
   onSaveTheme,
+  profile = 'restaurant',
 }: RestaurantExperienceProps) {
+  const isCounterService = profile === 'counter_service'
   const [currentModule, setCurrentModule] = useState<RestaurantModuleId>(
-    initialModule ?? 'dashboard'
+    initialModule ?? (isCounterService ? 'pos' : 'dashboard')
   )
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
@@ -221,11 +240,14 @@ export function RestaurantExperience({
   // Módulos visibles según el rol del usuario (o todos en admin/owner/team)
   const visibleModules = useMemo(() => {
     const role = session.role || 'admin'
+    const modules = isCounterService
+      ? MODULE_DEFINITIONS.filter((module) => ['pos', 'cash', 'kitchen', 'customers', 'inventory', 'products', 'history', 'printers'].includes(module.id))
+      : MODULE_DEFINITIONS
     if (role === 'admin' || role === 'owner' || role === 'team') {
-      return MODULE_DEFINITIONS
+      return modules
     }
-    return MODULE_DEFINITIONS.filter((m) => m.roles.includes(role))
-  }, [session.role])
+    return modules.filter((m) => m.roles.includes(role))
+  }, [session.role, isCounterService])
 
   const activeModule = visibleModules.some((m) => m.id === currentModule)
     ? currentModule
@@ -266,7 +288,7 @@ export function RestaurantExperience({
       ? 'Cocina'
       : session.role === 'inventory'
       ? 'Inventario'
-      : 'Restaurante'
+      : isCounterService ? 'Mostrador' : 'Restaurante'
 
   const displayName = companyName || session.restaurantName || 'Bistró Demo'
 
@@ -275,7 +297,7 @@ export function RestaurantExperience({
       className="restaurant-shell flex min-h-[100dvh] w-full min-w-0 flex-col"
       style={restaurantThemeStyle(themeColors)}
     >
-      <header className="restaurant-header">
+      <header className={`restaurant-header ${isCounterService ? 'is-counter-service' : ''}`}>
         <div className="restaurant-nav-hotspot" onMouseEnter={() => setIsDesktopNavOpen(true)} aria-hidden="true" />
         <div className="restaurant-header-inner">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -305,8 +327,8 @@ export function RestaurantExperience({
           </div>
         </div>
         <nav
-          aria-label="Secciones de Restaurante"
-          className={`restaurant-top-navigation ${isDesktopNavOpen ? 'is-open' : ''}`}
+          aria-label={isCounterService ? 'Secciones de Hamburgueser\u00eda' : 'Secciones de Restaurante'}
+          className={`restaurant-top-navigation ${isCounterService || isDesktopNavOpen ? 'is-open' : ''} ${isCounterService ? 'is-counter-service' : ''}`}
           onMouseEnter={() => setIsDesktopNavOpen(true)}
           onMouseLeave={(event) => { if (!event.currentTarget.contains(document.activeElement)) setIsDesktopNavOpen(false) }}
           onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDesktopNavOpen(false) }}
@@ -314,7 +336,7 @@ export function RestaurantExperience({
         >
           {visibleModules.map((module) => {
             const Icon = module.icon
-            return <button key={module.id} type="button" tabIndex={isDesktopNavOpen ? 0 : -1} aria-current={module.id === activeModule ? 'page' : undefined} onClick={() => selectModule(module.id)} className={module.id === activeModule ? 'is-active' : ''}><Icon size={18} /><span>{module.label}</span></button>
+            return <button key={module.id} type="button" tabIndex={isCounterService || isDesktopNavOpen ? 0 : -1} aria-current={module.id === activeModule ? 'page' : undefined} onClick={() => selectModule(module.id)} className={module.id === activeModule ? 'is-active' : ''}><Icon size={18} /><span>{module.label}</span></button>
           })}
           {onSignOut && <button type="button" tabIndex={isDesktopNavOpen ? 0 : -1} onClick={() => { setIsDesktopNavOpen(false); setIsSignOutOpen(true) }}><LogOut size={18} /><span>Salir</span></button>}
         </nav>
@@ -349,8 +371,11 @@ export function RestaurantExperience({
               userRole={session.role}
               userName={session.userName}
               enabled={!!shift}
-              tables={visibleTables(tables)}
+              tables={isCounterService ? [] : visibleTables(tables)}
+
               customers={customers}
+
+              counterServiceMode={isCounterService}
             />
           )}
           {activeModule === 'tables' && (
@@ -416,7 +441,7 @@ export function RestaurantExperience({
           )}
           {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
           {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} />}
-          {activeModule === 'printers' && <RestaurantPrinters />}
+          {activeModule === 'printers' && <RestaurantPrinters config={kitchenPrinterConfig} jobs={kitchenPrintJobs} onSave={onSaveKitchenPrinterConfig} onPrintTest={onPrintKitchenTest} onRetry={onRetryKitchenPrint} onReprintLatest={onReprintLatestKitchenTicket} />}
         </main>
       </div>
 
