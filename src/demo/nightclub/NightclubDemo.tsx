@@ -14,7 +14,9 @@ export function NightclubDemo({ datasetMode = 'full', resetKey = 0, simulatedRol
   const permissions = isStudio ? null : demoPermissionSet(controller.data, selectedUser, selectedUserId)
   const guarded = guardNightclubDemoController(controller, permissions, selectedUser)
   const selectUser = (id: string) => { const user = controller.data.staff?.find(item => item.id === id && item.active); if (id && !user) return; setSelectedUserId(id); setSelectedName(user?.name || 'Equipo Demo') }
+  const onSaveBranding = (value: Parameters<typeof controller.onSaveBranding>[0]) => {
     guarded.onSaveBranding(value)
     if (isStudio) window.parent.postMessage({ type: 'PACHAX_STUDIO_BRANDING', templateId: 'nightclub', branding: { companyName: value.businessName, logoUrl: value.logoDataUrl, primaryColor: value.primaryColor, accentColor: value.accentColor, surfaceColor: value.surfaceColor, theme: value.theme } }, window.location.origin)
+  }
   return <NightclubExperience companyName={companyName || 'Nocturna Demo'} logoUrl={logoUrl} studioBranding={studioBranding} userName={selectedUser?.name || (selectedUserId ? 'Usuario inactivo' : 'Equipo Demo')} role={selectedUser?.role || (selectedUserId ? 'restricted' : simulatedRole)} {...guarded} demoPermissions={isStudio ? undefined : permissions} demoUserId={selectedUserId} onSelectDemoUser={isStudio ? undefined : selectUser} onSaveBranding={onSaveBranding} />
 }

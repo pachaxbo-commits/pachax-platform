@@ -69,6 +69,7 @@ export function NightclubExperience(props: Props) {
   const mobileModules = mobilePriority.map(id => visibleModules.find(item => item.id === id)).filter((item): item is (typeof allModules)[number] => !!item)
   const moreModules = visibleModules.filter(item => !mobileModules.some(primary => primary.id === item.id))
   const currentModule = visibleModules.some(item => item.id === activeModule) ? activeModule : visibleModules[0]?.id || 'dashboard'
+  const savedBranding = data.branding || { businessName: companyName, subtitle: 'Club nocturno / Lounge', logoDataUrl: logoUrl, primaryColor: '#d8a84e', accentColor: '#35d0a0', surfaceColor: '#0d1720' }
   const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor, theme: props.studioBranding.theme || savedBranding.theme } : savedBranding
 
   const [localTheme, setLocalTheme] = useState<'dark' | 'light' | null>(null)
