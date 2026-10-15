@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 
@@ -6,18 +7,23 @@ if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) {
   throw new Error('QA permitido solo en demo-pachax-platform.')
 }
 process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8185'
+process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9195'
 
 const require = createRequire(new URL('../../functions/package.json', import.meta.url))
 const { initializeApp } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
+const { getAuth } = require('firebase-admin/auth')
 const { getTemplate } = require('./generated/templates.js')
 const { executeRestaurantCommand } = require('./restaurant.cjs')
+const { manageMember } = require('./tenants.cjs')
+const { completeOnboarding } = require('./onboarding.cjs')
 
 const suffix = Date.now().toString(36)
 const tenantId = `rest_${suffix}`
 const otherTenantId = `other_${suffix}`
 const app = initializeApp({ projectId }, `restaurant-operations-${suffix}`)
 const db = getFirestore(app)
+const auth = getAuth(app)
 const root = db.doc(`tenants/${tenantId}`)
 const otherRoot = db.doc(`tenants/${otherTenantId}`)
 
@@ -34,7 +40,8 @@ try {
   const template = getTemplate('restaurant_pos')
 
   // Setup Tenant Principal (Restaurante)
-  await root.set({ tenantId, businessType: 'restaurant_pos', configuration: template.defaults })
+  await root.set({ tenantId, name: 'Restaurante QA', businessType: 'restaurant_pos', configuration: template.defaults })
+  await root.collection('branches').doc('main').set({ id: 'main', name: 'Principal', active: true })
   for (const role of template.roles) {
     await root.collection('roles').doc(role.id).set({ ...role, tenantId })
   }
@@ -57,7 +64,7 @@ try {
   }
 
   // Setup Other Tenant (Aislamiento)
-  await otherRoot.set({ tenantId: otherTenantId, businessType: 'restaurant_pos', configuration: template.defaults })
+  await otherRoot.set({ tenantId: otherTenantId, name: 'Otro Restaurante QA', businessType: 'restaurant_pos', configuration: template.defaults })
   for (const role of template.roles) {
     await otherRoot.collection('roles').doc(role.id).set({ ...role, tenantId: otherTenantId })
   }
@@ -363,8 +370,174 @@ try {
   await call('cashier_user', 'closeShift', 'close-shift-2', { countedCash: 200 })
   console.log('PASS Stock devuelto automáticamente con movimiento cancellation_return y turno cerrado.')
 
+  // 21. Validación estricta de contraseña en creación de empleados (backend)
+  console.log('21. Validación estricta de contraseña en creación de miembros...')
+  await assert.rejects(
+    () => manageMember(db, auth, {
+      auth: { uid: 'admin_user' },
+      data: {
+        action: 'createMember',
+        tenantId,
+        operationId: 'bad-pass-empty',
+        email: 'staff_empty@example.test',
+        displayName: 'Sin Contraseña',
+        roleId: 'waiter',
+        password: '',
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Contraseña vacía debe ser rechazada con invalid-argument'
+  )
+
+  await assert.rejects(
+    () => manageMember(db, auth, {
+      auth: { uid: 'admin_user' },
+      data: {
+        action: 'createMember',
+        tenantId,
+        operationId: 'bad-pass-short',
+        email: 'staff_short@example.test',
+        displayName: 'Corta',
+        roleId: 'waiter',
+        password: '1234567',
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Contraseña menor a 8 caracteres debe ser rechazada con invalid-argument'
+  )
+
+  await assert.rejects(
+    () => manageMember(db, auth, {
+      auth: { uid: 'admin_user' },
+      data: {
+        action: 'createMember',
+        tenantId,
+        operationId: 'bad-pass-null',
+        email: 'staff_null@example.test',
+        displayName: 'Nula',
+        roleId: 'waiter',
+        password: null,
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Contraseña nula o no string debe ser rechazada'
+  )
+  console.log('PASS Contraseñas inválidas (< 8 caracteres, vacías o nulas) rechazadas por el backend.')
+
+  // 22. Control de permisos: usuario sin permiso no puede crear personal
+  console.log('22. Control de permisos: mesero no puede crear personal...')
+  await assert.rejects(
+    () => manageMember(db, auth, {
+      auth: { uid: 'waiter_user' },
+      data: {
+        action: 'createMember',
+        tenantId,
+        operationId: 'waiter-create-staff',
+        email: 'staff_unauth@example.test',
+        displayName: 'Intento Mesero',
+        roleId: 'waiter',
+        password: 'SecurePassword123!',
+      },
+    }),
+    err => err.code === 'permission-denied',
+    'Usuario sin permiso users.manage debe ser rechazado'
+  )
+  console.log('PASS Permiso users.manage validado estrictamente en backend.')
+
+  // 23. Creación exitosa de personal con contraseña válida (>= 8 caracteres)
+  console.log('23. Creación exitosa de personal con contraseña >= 8 caracteres...')
+  const newStaffRes = await manageMember(db, auth, {
+    auth: { uid: 'admin_user' },
+    data: {
+      action: 'createMember',
+      tenantId,
+      operationId: 'staff-valid-1',
+      email: `staff_${suffix}@example.test`,
+      displayName: 'Mesero Verificado',
+      roleId: 'waiter',
+      password: 'SecureStaffPassword2026!',
+    },
+  })
+  assert.ok(newStaffRes.uid)
+  const authUser = await auth.getUser(newStaffRes.uid)
+  assert.equal(authUser.email, `staff_${suffix}@example.test`)
+  assert.equal(authUser.displayName, 'Mesero Verificado')
+  console.log('PASS Usuario creado exitosamente en Auth.')
+
+  // 24. Verificación de seguridad: no persistencia de contraseña, auditoría segura y ausencia de fallback fijo
+  console.log('24. Verificación de seguridad de contraseña y ausencia de fallback fijo...')
+  const memberDoc = (await root.collection('members').doc(newStaffRes.uid).get()).data()
+  assert.ok(memberDoc)
+  assert.equal('password' in memberDoc, false, 'La contraseña NUNCA debe guardarse en Firestore')
+  assert.equal('credential' in memberDoc, false, 'No deben existir credenciales en Firestore')
+  assert.equal(memberDoc.roleId, 'waiter')
+  assert.equal(memberDoc.status, 'active')
+
+  const auditLogs = await root.collection('auditLogs').where('action', '==', 'member.created').get()
+  assert.ok(auditLogs.size > 0)
+  for (const doc of auditLogs.docs) {
+    const rawAudit = JSON.stringify(doc.data())
+    assert.equal(rawAudit.includes('SecureStaffPassword2026!'), false, 'La contraseña jamás debe aparecer en logs de auditoría')
+  }
+
+  // Comprobar ausencia absoluta de fallback Pachax123! en código fuente de frontend
+  const repoFiles = ['src/demo/restaurant/RestaurantUsers.tsx', 'src/services/restaurant/restaurantRepository.ts', 'src/public/register/PublicRegisterView.tsx']
+  for (const file of repoFiles) {
+    if (fs.existsSync(file)) {
+      const content = fs.readFileSync(file, 'utf8')
+      assert.equal(content.includes('Pachax123!'), false, `El archivo ${file} no debe contener la contraseña default Pachax123!`)
+    }
+  }
+  console.log('PASS Contraseña no persistida en base de datos ni auditoría, y fallback eliminado del código.')
+
+  // 25. Verificación de Onboarding Reanudable e Idempotente para Restaurante
+  console.log('25. Verificación de onboarding seguro y reanudable...')
+  const onbUid = `onb_user_${suffix}`
+  await auth.createUser({
+    uid: onbUid,
+    email: `owner_${suffix}@example.test`,
+    password: 'OwnerPassword2026!',
+    displayName: 'Owner Restaurante',
+  })
+
+  // Caso A: Primer onboarding
+  const onbRes1 = await completeOnboarding(db, auth, {
+    auth: { uid: onbUid },
+    data: {
+      action: 'completeOnboarding',
+      requestId: `onb-req-1-${suffix}`,
+      companyName: 'Restaurante El Valle',
+      businessType: 'restaurant_pos',
+      branding: { primary: '#20383a', accent: '#b58a55' },
+    },
+  })
+  assert.ok(onbRes1.tenantId)
+  assert.equal(onbRes1.template.businessType, 'restaurant_pos')
+  assert.equal(onbRes1.membership.roleId, 'owner')
+
+  const onbTenantData = (await db.doc(`tenants/${onbRes1.tenantId}`).get()).data()
+  assert.equal(onbTenantData.planKey, null, 'No debe autoasignar plan pago')
+  assert.equal(onbTenantData.subscriptionStatus, 'trial', 'Debe iniciar en período de prueba (trial)')
+  assert.equal(onbTenantData.businessType, 'restaurant_pos')
+
+  // Caso B: Reintento/Reanudación con la misma cuenta existente (idempotente)
+  const onbRes2 = await completeOnboarding(db, auth, {
+    auth: { uid: onbUid },
+    data: {
+      action: 'completeOnboarding',
+      requestId: `onb-req-retry-${suffix}`,
+      companyName: 'Restaurante El Valle',
+      businessType: 'restaurant_pos',
+      branding: { primary: '#20383a', accent: '#b58a55' },
+    },
+  })
+  assert.equal(onbRes2.tenantId, onbRes1.tenantId, 'El reintento debe devolver el mismo tenant determinístico')
+  assert.equal(onbRes2.onboarding.status, 'complete')
+
+  console.log('PASS Onboarding reanudable, idempotente, con trial y sin auto-paid plan.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (25/25)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {

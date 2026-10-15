@@ -17,7 +17,7 @@ type Props = {
   shift: RestaurantShift | null
   movements: InventoryMovement[]
   onSaveProducts: (products: Product[]) => void
-  onInventoryMovement?: (productId: string, nextStock: number, type: ManualType, reason: string) => { ok: boolean; error?: string }
+  onInventoryMovement?: (productId: string, nextStock: number, type: ManualType, reason: string) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
 }
 
 const movementNames: Record<InventoryMovementType, string> = {
@@ -82,6 +82,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
   const [menu, setMenu] = useState<string | null>(null)
   const [movementProduct, setMovementProduct] = useState<Product | null>(null)
   const [movementType, setMovementType] = useState<ManualType>('purchase')
+  const [savingMovement, setSavingMovement] = useState(false)
   const [movementAmount, setMovementAmount] = useState('')
   const [movementUnit, setMovementUnit] = useState<'unit' | 'g' | 'kg' | 'ml' | 'l'>('unit')
   const [reason, setReason] = useState('')
@@ -135,17 +136,19 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
     setEditing(null)
     setNotice(form.id ? stockChanged ? 'Insumo actualizado. El cambio de stock quedó registrado.' : 'Insumo actualizado correctamente.' : 'Insumo creado con stock inicial registrado.')
   }
-  const saveMovement = () => {
-    if (!movementProduct || !onInventoryMovement) return
+  const saveMovement = async () => {
+    if (!movementProduct || !onInventoryMovement || savingMovement) return
+    setSavingMovement(true)
     try {
       const amount = convertInventoryQuantity(Number(movementAmount), movementUnit, movementProduct.baseUnit)
       if (movementAmount === '' || (amount <= 0 && movementType !== 'manual_adjustment')) throw new Error('Ingresa una cantidad mayor a cero.')
       const nextStock = movementType === 'manual_adjustment' ? amount : (movementProduct.stockBase || 0) + (['purchase', 'initial_stock'].includes(movementType) ? amount : -amount)
-      const result = onInventoryMovement(movementProduct.id, nextStock, movementType, reason)
+      const result = await onInventoryMovement(movementProduct.id, nextStock, movementType, reason)
       if (!result.ok) throw new Error(result.error || 'No se pudo registrar el movimiento.')
       setMovementProduct(null)
       setNotice('Movimiento registrado y stock actualizado.')
     } catch (error) { setMovementError(error instanceof Error ? error.message : 'Cantidad inválida.') }
+    finally { setSavingMovement(false) }
   }
   const activate = (item: Product) => { onSaveProducts(products.map(value => value.id === item.id ? { ...value, isActive: true, isVisible: value.restaurantType === 'ingredient' ? false : true } : value)); setNotice(`${item.name} activado.`); setMenu(null) }
   const actions = (item: Product) => <div className="relative flex items-center gap-1" onClick={event => event.stopPropagation()}>
@@ -532,7 +535,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
       <p className="text-sm text-slate-700">Se conservarán el stock y todos los movimientos históricos. El insumo dejará de ofrecerse para nuevas operaciones.</p>
     </Modal>
 
-    <Modal isOpen={!!movementProduct} onClose={() => setMovementProduct(null)} title={`Movimiento · ${movementProduct?.name || ''}`} footer={<button type="button" onClick={saveMovement} className="w-full rounded-xl bg-slate-900 p-3 font-bold text-white shadow-xs">Registrar movimiento</button>}>
+    <Modal isOpen={!!movementProduct} onClose={() => setMovementProduct(null)} title={`Movimiento · ${movementProduct?.name || ''}`} footer={<button type="button" disabled={savingMovement} onClick={saveMovement} className="w-full rounded-xl bg-slate-900 p-3 font-bold text-white shadow-xs disabled:opacity-50">{savingMovement ? 'Registrando...' : 'Registrar movimiento'}</button>}>
       <div className="grid gap-3">
         <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
           Stock actual: <strong className="tabular-nums text-slate-900">{movementProduct ? stockText(movementProduct) : '—'}</strong>

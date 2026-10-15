@@ -8,9 +8,11 @@ type Shift = { id: string; openedAt: string; openedBy: string; openingFloat: num
 const fmt = (amount: number) => `Bs ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const date = (value: string) => new Date(value).toLocaleString('es-BO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-export function RestaurantDashboard({ orders, tables, shift, userName, onStartShift, onCloseShift, onNavigate, onOpenTable }: { orders: Order[]; tables: RestaurantTable[]; shift: Shift | null; userName: string; onStartShift: (amount: number, openedAt: string, openedBy: string) => void; onCloseShift: () => boolean; onNavigate: (module: string) => void; onOpenTable: (table: RestaurantTable) => void }) {
+export function RestaurantDashboard({ orders, tables, shift, userName, onStartShift, onCloseShift, onNavigate, onOpenTable }: { orders: Order[]; tables: RestaurantTable[]; shift: Shift | null; userName: string; onStartShift: (amount: number, openedAt: string, openedBy: string) => void | Promise<void>; onCloseShift: () => boolean | Promise<boolean>; onNavigate: (module: string) => void; onOpenTable: (table: RestaurantTable) => void }) {
   const [opening, setOpening] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
+  const [isClosing, setIsClosing] = useState(false)
   const [floatInput, setFloatInput] = useState('')
   const [cashier, setCashier] = useState(userName)
   const [error, setError] = useState('')
@@ -24,15 +26,31 @@ export function RestaurantDashboard({ orders, tables, shift, userName, onStartSh
   const openedAccounts = tables.filter((table) => table.activeOrderId && table.status !== 'available')
   const metricsOrders = shift ? orders.filter((order) => order.shiftId === shift.id) : []
 
-  const start = () => {
+  const start = async () => {
     const amount = Number(floatInput)
-    if (!Number.isFinite(amount) || amount < 0 || !cashier.trim()) return
-    onStartShift(amount, new Date().toISOString(), cashier.trim())
-    setOpening(false)
+    if (!Number.isFinite(amount) || amount < 0 || !cashier.trim() || isStarting) return
+    setIsStarting(true)
+    try {
+      await onStartShift(amount, new Date().toISOString(), cashier.trim())
+      setOpening(false)
+    } finally {
+      setIsStarting(false)
+    }
   }
-  const close = () => {
-    if (openedAccounts.length) { setError('No puedes cerrar el turno mientras existan cuentas abiertas.'); return }
-    onCloseShift(); setClosing(false); setError('')
+  const close = async () => {
+    if (openedAccounts.length || isClosing) { setError('No puedes cerrar el turno mientras existan cuentas abiertas.'); return }
+    setIsClosing(true)
+    try {
+      const ok = await onCloseShift()
+      if (ok) {
+        setClosing(false)
+        setError('')
+      } else {
+        setError('No se pudo cerrar el turno.')
+      }
+    } finally {
+      setIsClosing(false)
+    }
   }
 
   return (
@@ -309,11 +327,12 @@ export function RestaurantDashboard({ orders, tables, shift, userName, onStartSh
           </label>
           <button
             type="button"
+            disabled={isStarting}
             onClick={start}
-            className="w-full rounded-xl py-3 text-xs font-extrabold text-white shadow-xs transition hover:opacity-95"
+            className="w-full rounded-xl py-3 text-xs font-extrabold text-white shadow-xs transition hover:opacity-95 disabled:opacity-50"
             style={{ backgroundColor: 'var(--primary)' }}
           >
-            Confirmar e Iniciar Turno
+            {isStarting ? 'Iniciando turno...' : 'Confirmar e Iniciar Turno'}
           </button>
         </Dialog>
       )}
@@ -339,11 +358,11 @@ export function RestaurantDashboard({ orders, tables, shift, userName, onStartSh
           {error && <p role="alert" className="text-xs font-bold text-rose-600">{error}</p>}
           <button
             type="button"
-            disabled={openedAccounts.length > 0}
+            disabled={openedAccounts.length > 0 || isClosing}
             onClick={close}
             className="w-full rounded-xl bg-slate-900 py-3 text-xs font-extrabold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Confirmar y Cerrar Turno
+            {isClosing ? 'Cerrando turno...' : 'Confirmar y Cerrar Turno'}
           </button>
         </Dialog>
       )}

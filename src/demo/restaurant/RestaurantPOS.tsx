@@ -9,10 +9,10 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
   products: Product[]
   quickExtras: ProductExtra[]
   orders: Order[]
-  onAddOrder: (order: Order) => boolean
+  onAddOrder: (order: Order) => boolean | Promise<boolean>
   onSetOrderStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
-  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
+  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void | Promise<void>
   enabled?: boolean
   tables?: RestaurantTable[]
   customers?: RestaurantCustomer[]
@@ -59,14 +59,14 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
       paymentMethod: input.paymentMethod, expectedPaymentMethod: input.expectedPaymentMethod,
       items, createdAt: at, createdBy: userName,
     }
-    return onAddOrder(order)
+    return await onAddOrder(order)
   }
 
   const handleConfirmPayment = async (orderId: string, input: { paymentStatus: 'paid'; paymentMethod: PaymentMethod; payment: PaymentSummary; paidBy: string }) => {
     const order = orders.find(item => item.id === orderId)
     if (!enabled || !order || order.paymentStatus === 'paid') return
     const { payment } = input
-    onConfirmPayment(orderId, { method: input.paymentMethod === 'mixed' ? 'mixed' : input.paymentMethod === 'qr' ? 'qr' : input.paymentMethod === 'card' ? 'card' : 'cash', received: payment.cashReceived, cashAmount: payment.cashAmount, qrAmount: payment.qrAmount, cardAmount: payment.cardAmount })
+    await onConfirmPayment(orderId, { method: input.paymentMethod === 'mixed' ? 'mixed' : input.paymentMethod === 'qr' ? 'qr' : input.paymentMethod === 'card' ? 'card' : 'cash', received: payment.cashReceived, cashAmount: payment.cashAmount, qrAmount: payment.qrAmount, cardAmount: payment.cardAmount })
   }
 
   return <div className="restaurant-pos-frame">

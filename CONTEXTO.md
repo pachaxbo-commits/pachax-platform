@@ -1,5 +1,44 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Espera Asíncrona de Confirmación, Protección contra Doble Submit y Pruebas Permanentes de Seguridad en PACHAX Restaurante (15/10/2026)
+
+- **Rama**: `cambios-dario` (verificada con `origin/cambios-dario` y `origin/main` en `60a62a046db92c6f61401af4c230501edb3a8fa4`).
+- **Problema Abordado**:
+  - En la integración inicial de `RestaurantApp`, ciertas operaciones ejecutaban una Promise pero retornaban éxito de forma optimista inmediata (`return true`), creando el riesgo de que la UI afirmara éxito cuando el backend aún estaba en progreso o fallaba.
+  - Varios componentes operativos no contaban con bloqueo contra doble click/doble submit en operaciones críticas como cobro, apertura/cierre de turno, creación de pedidos, anulación de ítems, movimientos de inventario y administración de personal.
+- **Acciones y Solución Implementada**:
+  1. **Contratos Asíncronos en la Experiencia Canónica (`RestaurantExperience.tsx`)**:
+     - Las firmas de callbacks operativos (`onStartShift`, `onCloseShift`, `onAddOrder`, `onCancelOrderItem`, `onPayment`, `onOpenTableOrder`, `onFloorAction`, `onInventoryMovement`, `onSaveCustomer`, `onArchiveCustomer`, `onAddProduct`) fueron ampliadas para admitir `Promise<...>` preservando compatibilidad retroactiva síncrona para Demo y Studio.
+  2. **Espera Real de Confirmación en `RestaurantApp.tsx`**:
+     - Se removieron todos los retornos optimistas instantáneos (`return true`, `return { ok: true }`).
+     - Todas las acciones operativas ahora esperan de forma estricta (`await`) la resolución o rechazo del comando transaccional en el backend antes de considerar la acción finalizada.
+     - Se añadió manejo de estado de sincronización (`syncError`) en suscripciones Firestore en tiempo real (`subscribeOperationalState`, `subscribeShiftHistory`, `subscribeTables`, `subscribeSectors`, `subscribeOrders`, `subscribeProducts`, `subscribeCustomers`, `subscribeInventoryMovements`, `subscribeMembers`), desplegando un banner de advertencia visual en la cabecera si hay pérdida de permisos o error de red.
+  3. **Protección contra Doble Submit en Componentes Operativos**:
+     - `RestaurantTables.tsx`: Banderas de estado `openingTable`, `addingProducts`, `payingState`, `cancellingState`, y espera asíncrona de asignación/guardado rápido de clientes.
+     - `RestaurantCash.tsx`: Guardas `isStartingShift` e `isClosingShift` con feedback visual ("Abriendo turno...", "Cerrando turno...").
+     - `RestaurantDashboard.tsx`: Guardas `isStarting` e `isClosing` deshabilitando botones de acción inmediata durante la ejecución de comandos.
+     - `RestaurantPOS.tsx`: Espera asíncrona y deshabilitación durante envío de orden (`handleSubmitOrder`) y confirmación de cobro (`handleConfirmPayment`).
+     - `RestaurantInventory.tsx`: Guarda `savingMovement` deshabilitando el botón mientras se procesa el ajuste manual de inventario.
+     - `RestaurantFloorManager.tsx`: Guarda `running` deshabilitando botones al crear, editar o eliminar mesas y sectores.
+     - `RestaurantUsers.tsx`: Guardas `submitting` y `deleting` deshabilitando controles durante alta o baja de miembros.
+     - `RestaurantCustomers.tsx` y `RestaurantCustomerForm.tsx`: Espera asíncrona de `onSave` y `onArchiveCustomer` con prevención de envíos concurrentes.
+  4. **Suite Permanente de Seguridad y Onboarding (`restaurantOperations.test.mjs`)**:
+     - Pruebas 21 a 25 incorporadas permanentemente:
+       - Prueba 21: Rechazo estricto por el backend (`manageMember`) de contraseñas vacías, nulas o con menos de 8 caracteres (`invalid-argument`).
+       - Prueba 22: Rechazo de intento de creación de miembros por usuarios sin permiso `users.manage` (`permission-denied`).
+       - Prueba 23: Creación exitosa en Auth emulator y documento de membresía en Firestore con contraseña válida >= 8 caracteres.
+       - Prueba 24: Verificación de que la contraseña NUNCA se persiste en Firestore ni en logs de auditoría (`auditLogs`), y comprobación estática de ausencia absoluta del fallback `Pachax123!` en el frontend.
+       - Prueba 25: Verificación de onboarding seguro y reanudable para Restaurante (Casos A, B y C: inicialización en `trial`, `planKey: null`, template canónico y reintento idempotente sin duplicación).
+- **Validaciones Ejecutadas**:
+  - `npm run typecheck`: 0 errores de TypeScript.
+  - `npm run test:restaurant`: 46/46 pruebas de dominio aprobadas.
+  - `npm run test:restaurant-backend`: 25/25 pruebas en emuladores aprobadas.
+  - `npm run test:onboarding`: 16/16 comprobaciones aprobadas.
+  - `npm run test:tenant-core`: 59/59 comprobaciones multi-tenant aprobadas.
+  - `node scripts/test-restaurant-browser.mjs`: Pruebas de navegador headless en escritorio (1366x768) y móvil (390x844) aprobadas.
+  - `npm run build`: Compilación de producción exitosa en 4.36s.
+  - `git diff --check`: 0 errores.
+
 ## Checkpoint: Seguridad en Autenticación de Personal, Ocultamiento de Asistencia Local y Registro Reanudable (15/10/2026)
 
 - **Rama**: `cambios-dario` (verificada con `origin/cambios-dario` y `origin/main` en `60a62a046db92c6f61401af4c230501edb3a8fa4`).

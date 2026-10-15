@@ -111,33 +111,33 @@ export interface RestaurantExperienceProps {
   shiftHistory?: RestaurantShift[]
   categories?: typeof RESTAURANT_CATEGORIES
   quickExtras?: typeof RESTAURANT_EXTRAS
-  onStartShift: (amount: number, openedAt: string, openedBy: string) => void
-  onCloseShift: (countedCash?: number) => boolean
-  onAddOrder: (order: Order) => boolean
+  onStartShift: (amount: number, openedAt: string, openedBy: string) => void | Promise<void>
+  onCloseShift: (countedCash?: number) => boolean | Promise<boolean>
+  onAddOrder: (order: Order) => boolean | Promise<boolean>
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
   onAdvanceItemStatus?: (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered') => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
-  onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
-  onOpenTableOrder: (table: RestaurantTable & { customerId?: string; customerName?: string; customerPhone?: string }) => void
-  onSaveCustomer?: (draft: CustomerDraft, id?: string) => RestaurantCustomer | null
-  onArchiveCustomer?: (id: string) => void
-  onAssignCustomer?: (orderId: string, customerId: string | undefined) => void
-  onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void
-  onRequestBill: (tableId: string) => void
-  onReopenBill: (tableId: string) => void
-  onAddProduct: (orderId: string, input: { productId: string; quantity: number; note: string }) => void
-  onPrintBatch: (orderId: string) => boolean
+  onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void | Promise<void>
+  onOpenTableOrder: (table: RestaurantTable & { customerId?: string; customerName?: string; customerPhone?: string }) => void | Promise<void>
+  onSaveCustomer?: (draft: CustomerDraft, id?: string) => (RestaurantCustomer | null) | Promise<RestaurantCustomer | null>
+  onArchiveCustomer?: (id: string) => void | Promise<void>
+  onAssignCustomer?: (orderId: string, customerId: string | undefined) => void | Promise<void>
+  onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void | Promise<void>
+  onRequestBill: (tableId: string) => void | Promise<void>
+  onReopenBill: (tableId: string) => void | Promise<void>
+  onAddProduct: (orderId: string, input: { productId: string; quantity: number; note: string }) => void | Promise<void>
+  onPrintBatch: (orderId: string) => boolean | Promise<boolean>
   onCreateProduct: (
     tableId: string,
     input: { name: string; categoryName: string; price: number; preparationArea: string },
     orderId?: string
-  ) => void
-  onFloorAction: (action: FloorAction) => { ok: boolean; error?: string }
-  onSaveProducts?: (products: Product[]) => void
+  ) => void | Promise<void>
+  onFloorAction: (action: FloorAction) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
+  onSaveProducts?: (products: Product[]) => void | Promise<void>
   stockMovements?: InventoryMovement[]
-  onInventoryMovement?: (productId: string, nextStock: number, type: Exclude<InventoryMovementType, 'sale' | 'cancellation_return' | 'command_consumption' | 'migration_reconciliation'>, reason: string) => { ok: boolean; error?: string }
-  onCountInventoryItem?: (productId: string, physical: number, note?: string) => void
-  onCancelOrderItem?: (orderId: string, itemId: string, quantity: number) => boolean
+  onInventoryMovement?: (productId: string, nextStock: number, type: Exclude<InventoryMovementType, 'sale' | 'cancellation_return' | 'command_consumption' | 'migration_reconciliation'>, reason: string) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
+  onCountInventoryItem?: (productId: string, physical: number, note?: string) => void | Promise<void>
+  onCancelOrderItem?: (orderId: string, itemId: string, quantity: number) => boolean | Promise<boolean>
   onResetDemo?: () => void
   onSelectRole?: (roleId: string) => void
   onSignOut?: () => void | Promise<void>
