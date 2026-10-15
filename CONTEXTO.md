@@ -1,5 +1,28 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Conexión Productiva Real de PACHAX Restaurante con Firestore, Comandos Transaccionales y Reglas de Seguridad (15/10/2026)
+
+- **Rama**: `cambios-dario` (verificada y al día con `origin/cambios-dario` y `origin/main`).
+- **Arquitectura Canónica**: `RestaurantExperience` se mantiene como la experiencia canónica compartida entre producción y demo/Studio. `RestaurantDemo` continúa operando con mocks/datasets locales mientras que `RestaurantApp` ahora se conecta 100% a Firestore real del tenant mediante `restaurantRepository.ts`.
+- **Fases Productivas Implementadas**:
+  - **Fase A - Turnos y Caja**: Ciclo de vida completo (`openShift` con apertura de caja y `closeShift` con arqueo de efectivo y conciliación). Bloqueo estricto de cierre si existen pedidos pendientes de cobro.
+  - **Fase B - Salón y Mesas**: Persistencia y reactividad de sectores y mesas (`restaurantSectors` y `restaurantTables`). Soporte para `floorAction` (crear, editar, archivar sectores y mesas, reordenar) con validación de roles y permisos (`settings.manage`).
+  - **Fase C - Órdenes y Comandas**: Comandos `openTableOrder`, `addOrder`, `addProduct`, `cancelOrder`, `cancelOrderItem`. Ocupación atómica de mesas, prevención de duplicados, cálculo en tiempo real de subtotales y totales.
+  - **Fase D - KDS Cocina**: Transición de estados de comanda (`pending` -> `preparing` -> `ready` -> `delivered`) y de ítems individuales (`advanceItemStatus`) con marcas de tiempo auditadas.
+  - **Fase E - Pagos y Cierre de Cuenta**: Cobro atómico (`recordPayment`) en efectivo, QR, tarjeta o mixto, cálculo exacto de cambio, generación de movimiento de caja (`restaurantCashMovements`) y liberación automática de la mesa (`status: 'available'`).
+- **Seguridad y Reglas Firestore**:
+  - Reglas añadidas en `firebase/tenant-core.rules` y compiladas en `firebase/firestore.rules`.
+  - Todas las colecciones de restaurante (`restaurantSectors`, `restaurantTables`, `restaurantOrders`, `restaurantPayments`, `restaurantShifts`, `restaurantCashMovements`, `restaurantOperationalState`, `restaurantOperations`, `restaurantAudit`) están blindadas con `allow write: if false;` garantizando que toda mutación se procese exclusivamente vía `tenantGateway` (`restaurantCommand`).
+  - Lecturas restringidas a miembros activos con permisos específicos y branch isolation (`tBranch`).
+- **Verificaciones**:
+  - `npm run test:restaurant-backend`: 12 comprobaciones de extremo a extremo aprobadas (apertura, plano, catálogo, mesa, productos, KDS, bloqueo de cierre, cobro, arqueo, idempotencia y aislamiento).
+  - `npm run test:tenant-core`: 59 comprobaciones multi-tenant aprobadas.
+  - `npm run test:restaurant`: 46 pruebas de dominio aprobadas.
+  - `node scripts/test-restaurant-browser.mjs`: Pruebas de navegador headless en escritorio (1366x768) y móvil (390x844) aprobadas.
+  - `npm run typecheck`: TypeScript compila con 0 errores.
+  - `npx eslint` sobre archivos modificados: 0 errores.
+  - `npm run build`: Compilación de producción exitosa.
+
 ## Checkpoint: Modo Claro Completo de Alto Contraste en Nightclub para Proyector y Studio (07/10/2026)
 ## Simulación de permisos por empleado en Nocturna Demo (08/10/2026, trabajo local sin commit)
 

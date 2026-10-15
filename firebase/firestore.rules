@@ -883,6 +883,42 @@ service cloud.firestore {
       allow read: if tPermission(tenantId,'settings.manage','settings');
       allow write: if false;
     }
+    match /tenants/{tenantId}/restaurantSectors/{sectorId} {
+      allow read: if tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantTables/{tableId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantOrders/{orderId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantPayments/{paymentId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantShifts/{shiftId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantCashMovements/{movementId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantOperationalState/{branchId} {
+      allow read: if tBranch(tenantId,branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantOperations/{operationId} {
+      allow get: if tIsActiveMember(tenantId) && resource.data.actorUid == request.auth.uid;
+      allow list, write: if false;
+    }
+    match /tenants/{tenantId}/restaurantAudit/{eventId} {
+      allow read: if tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
 
 // Transitional distribution rule adapter. Remove legacy names when domain adapter is retired.
     function tDistAdmin(tenantId) {
