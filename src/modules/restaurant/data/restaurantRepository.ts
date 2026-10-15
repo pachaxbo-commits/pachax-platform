@@ -675,6 +675,9 @@ export async function createTenantMember(
   tenantId: string,
   input: { name: string; email: string; role: Role; active: boolean; password?: string }
 ): Promise<{ uid: string }> {
+  if (!input.password || input.password.length < 8) {
+    throw new Error('La contraseña es obligatoria y debe tener al menos 8 caracteres.')
+  }
   return gateway<{ uid: string }>('tenantGateway', {
     action: 'createMember',
     tenantId,
@@ -682,7 +685,7 @@ export async function createTenantMember(
     displayName: input.name,
     email: input.email,
     roleId: input.role,
-    password: input.password || 'Pachax123!',
+    password: input.password,
     branchIds: ['main'],
   })
 }

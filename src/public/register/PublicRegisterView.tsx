@@ -13,7 +13,7 @@ import { usePublicRouter } from '../routing/usePublicRouter'
 import '../publicExperience.css'
 import type { BusinessType } from '../../core/platform'
 import { getPublicTemplate, PUBLIC_TEMPLATES } from '../../core/publicTemplates'
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
 
@@ -69,6 +69,7 @@ export function PublicRegisterView() {
   const [selectedPalette, setSelectedPalette] = useState<ColorPreset>(BRAND_PALETTES[0])
   const [submitting, setSubmitting] = useState(false)
   const [registerError, setRegisterError] = useState<string | null>(null)
+  const [onboardingRetryNeeded, setOnboardingRetryNeeded] = useState(false)
   const [requestId] = useState(() => `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`)
 
   useEffect(() => {
@@ -86,27 +87,54 @@ export function PublicRegisterView() {
       const ctx = await getFirebaseContext()
       if (!ctx) throw new Error('No se pudo conectar con los servicios de autenticación.')
 
-      // 1. Crear usuario en Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(ctx.auth, email.trim(), password)
+      const normalizedEmail = email.trim().toLowerCase()
+      let user = ctx.auth.currentUser
 
-      // 2. Actualizar displayName si fue ingresado
-      if (fullName.trim() && userCredential.user) {
-        await updateProfile(userCredential.user, { displayName: fullName.trim() })
+      // 1. Si no existe currentUser o es de otro correo, crear o conectar la cuenta Firebase Auth
+      if (!user || user.email?.toLowerCase() !== normalizedEmail) {
+        try {
+          const userCredential = await createUserWithEmailAndPassword(ctx.auth, normalizedEmail, password)
+          user = userCredential.user
+          if (fullName.trim() && user) {
+            await updateProfile(user, { displayName: fullName.trim() })
+          }
+        } catch (authErr: unknown) {
+          const errorObj = authErr as { code?: string; message?: string }
+          if (errorObj?.code === 'auth/email-already-in-use') {
+            try {
+              const userCredential = await signInWithEmailAndPassword(ctx.auth, normalizedEmail, password)
+              user = userCredential.user
+            } catch {
+              throw authErr
+            }
+          } else {
+            throw authErr
+          }
+        }
+      } else {
+        if (fullName.trim() && user.displayName !== fullName.trim()) {
+          await updateProfile(user, { displayName: fullName.trim() }).catch(() => {})
+        }
       }
 
-      // 3. Invocar completeOnboarding vía tenantGateway
-      await gateway('tenantGateway', {
-        action: 'completeOnboarding',
-        requestId,
-        companyName: companyName.trim(),
-        businessType: selectedTemplate,
-        branding: {
-          primary: selectedPalette.primary,
-          accent: selectedPalette.accent,
-        },
-      })
+      // 2. Invocar completeOnboarding vía tenantGateway (idempotente)
+      try {
+        await gateway('tenantGateway', {
+          action: 'completeOnboarding',
+          requestId,
+          companyName: companyName.trim(),
+          businessType: selectedTemplate,
+          branding: {
+            primary: selectedPalette.primary,
+            accent: selectedPalette.accent,
+          },
+        })
+      } catch (onboardingErr: unknown) {
+        setOnboardingRetryNeeded(true)
+        throw new Error('Tu cuenta fue creada, pero no pudimos terminar de activar tu empresa. Reintentar activación.')
+      }
 
-      // 4. Redirigir a la aplicación principal
+      // 3. Redirigir a la aplicación principal
       window.location.href = '/'
     } catch (err: unknown) {
       setSubmitting(false)
@@ -240,8 +268,8 @@ export function PublicRegisterView() {
                   <input
                     type="password"
                     required
-                    minLength={6}
-                    placeholder="Mínimo 6 caracteres"
+                    minLength={8}
+                    placeholder="Mínimo 8 caracteres"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 sm:py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-slate-900 focus:bg-white transition"
@@ -251,7 +279,7 @@ export function PublicRegisterView() {
 
               <button
                 type="submit"
-                disabled={!fullName.trim() || !email.trim() || password.length < 6}
+                disabled={!fullName.trim() || !email.trim() || password.length < 8}
                 className="w-full py-3.5 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-2 mt-4"
               >
                 <span>Continuar a datos de empresa</span>
@@ -512,7 +540,11 @@ export function PublicRegisterView() {
                     submitting ? 'bg-slate-400 cursor-not-allowed opacity-90' : 'bg-slate-900 hover:bg-slate-800 cursor-pointer'
                   }`}
                 >
-                  <span>{submitting ? 'Creando tu empresa...' : 'Crear mi empresa'}</span>
+                  <span>
+                    {submitting
+                      ? (onboardingRetryNeeded ? 'Activando tu empresa...' : 'Creando tu empresa...')
+                      : (onboardingRetryNeeded ? 'Reintentar activación' : 'Crear mi empresa')}
+                  </span>
                 </button>
 
                 <p className="text-[11px] text-slate-400 text-center leading-relaxed">

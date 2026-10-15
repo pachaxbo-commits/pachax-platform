@@ -1,5 +1,29 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Seguridad en Autenticación de Personal, Ocultamiento de Asistencia Local y Registro Reanudable (15/10/2026)
+
+- **Rama**: `cambios-dario` (verificada con `origin/cambios-dario` y `origin/main` en `60a62a046db92c6f61401af4c230501edb3a8fa4`).
+- **Detalles Implementados**:
+  1. **Eliminación de Contraseña por Defecto de Empleados**:
+     - Se eliminó cualquier fallback fijo (`Pachax123!`) en `RestaurantUsers.tsx` y `restaurantRepository.ts`.
+     - Contraseña estrictamente obligatoria con mínimo 8 caracteres al crear personal; el modal bloquea el guardado e informa error claro si está vacía o tiene menos de 8 caracteres.
+     - Placeholder neutro `"Mínimo 8 caracteres"`.
+     - Nunca se persiste la contraseña en Firestore ni se expone en logs.
+  2. **Registro Reanudable en `/register`**:
+     - Se reanudó el flujo de registro evitando que el usuario quede bloqueado si la cuenta Auth se crea pero `completeOnboarding` falla temporalmente.
+     - Si `currentUser` ya corresponde al correo ingresado, no crea otra cuenta y continúa directo con `completeOnboarding`.
+     - Si el correo ya existe en Auth al enviar, intenta conectarse con las credenciales ingresadas para reanudar la activación.
+     - Si `completeOnboarding` falla, preserva el formulario y la sesión, muestra el mensaje *"Tu cuenta fue creada, pero no pudimos terminar de activar tu empresa. Reintentar activación."* y ofrece el botón *"Reintentar activación"*.
+     - Contraseña del dueño alineada a mínimo 8 caracteres en interfaz y validación.
+  3. **Aislamiento de Asistencia Local**:
+     - Cuando `RestaurantUsers` opera en modo productivo (`members` o `onCreateMember`), oculta los controles de "Registrar entrada" / "Registrar salida" y el bloque de asistencia local.
+     - La simulación local de asistencia permanece activa únicamente en Demo y Studio.
+- **Validaciones**:
+  - `npm run typecheck`: 0 errores.
+  - `npm run test:onboarding`: 16/16 comprobaciones de seguridad aprobadas.
+  - `npm run build`: Compilación de producción exitosa en 7.30s.
+  - `git diff --check`: 0 errores de sintaxis o espacios en blanco.
+
 ## Checkpoint: Cierre Productivo Integral de PACHAX Restaurante con Catálogo, Clientes, Inventario Transaccional, Personal y Onboarding Real (15/10/2026)
 
 - **Rama**: `cambios-dario` (verificada con `origin/cambios-dario` y `origin/main` en `60a62a046db92c6f61401af4c230501edb3a8fa4`).
