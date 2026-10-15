@@ -1,5 +1,35 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Cierre Productivo Integral de PACHAX Restaurante con Catálogo, Clientes, Inventario Transaccional, Personal y Onboarding Real (15/10/2026)
+
+- **Rama**: `cambios-dario` (verificada con `origin/cambios-dario` y `origin/main` en `60a62a046db92c6f61401af4c230501edb3a8fa4`).
+- **Arquitectura Canónica y Cero Mocks Productivos**:
+  - `RestaurantExperience` se mantiene como la única interfaz canónica compartida entre producción, demo pública y PACHAX Studio.
+  - `RestaurantDemo` continúa operando con mocks locales aislados para demostración y exploración.
+  - `RestaurantApp` ahora opera 100% sobre colecciones reales del tenant (`products`, `restaurantCustomers`, `restaurantInventoryMovements`, `restaurantShifts`, `restaurantTables`, `restaurantSectors`, `restaurantOrders`, `memberships`). Se eliminaron callbacks vacíos `() => {}` y fallbacks a localStorage en la aplicación de producción.
+- **Módulos Conectados a Nivel Tenant**:
+  - **Catálogo de Productos (`saveProducts`)**: Actualización y configuración en batch del catálogo por sucursal con control de inventario (`stockBase`), unidades base, precios, categorías y áreas de preparación (`kitchenArea: 'kitchen' | 'bar' | 'direct'`). Protegido por permiso `products.manage`.
+  - **Clientes (`saveCustomer`, `archiveCustomer`, `assignCustomer`)**: Registro y edición con normalización automática de teléfonos (`normalizedPhone`), archivado seguro (`active: false`) y asignación atómica a pedidos y mesas con trazabilidad histórica completa.
+  - **Inventario Transaccional y Auditoría**:
+    - Deducción atómica de inventario al registrar pedidos (`addOrder`, `addProduct`) con movimiento `type: 'sale'`.
+    - Devolución atómica de stock ante cancelación de pedido o cancelación de ítem (`cancelOrder`, `cancelOrderItem`) con movimiento `type: 'cancellation_return'`.
+    - Ajustes manuales auditados (`recordInventoryMovement`) con cálculo delta y tipo `manual_adjustment`.
+    - Conteo físico de turno (`countInventoryItem`) persistido dentro del turno activo para conciliación de cierre.
+    - Idempotencia transaccional garantizada para prevenir duplicación de movimientos ante reintentos.
+  - **Personal / Miembros de Tenant (`tenantGateway`)**: Conexión de `RestaurantUsers` a `memberships` reales vía `createTenantMember`, `updateTenantMember` y `deleteTenantMember` sin tocar contraseñas en el frontend ni duplicar lógica administrativa.
+  - **Onboarding Real en `/register`**: Integración segura de Auth Client (`createUserWithEmailAndPassword`), actualización de perfil y llamada atómica a `tenantGateway` (`completeOnboarding`) creando perfil, tenant, owner, roles, branch y auditoría sin accesos directos ni escalamiento de privilegios.
+- **Reglas Firestore**:
+  - `firebase/tenant-core.rules` y `firebase/firestore.rules` actualizadas con reglas de lectura para `restaurantCustomers` y `restaurantInventoryMovements` bajo aislamiento de sucursal y permisos específicos. Lecturas de `products` habilitadas para meseros y cocina (`sales.create`, `orders.read`). Escrituras directas denegadas (`allow write: if false;`).
+- **Verificaciones y Pruebas**:
+  - `npm run test:restaurant-backend`: 20/20 pruebas en emuladores aprobadas (flujo operativo completo + clientes + catálogo batch + ajuste de inventario + deducción automática + devolución por anulación + conteo físico en turno).
+  - `npm run test:onboarding`: 16/16 comprobaciones de seguridad y onboarding aprobadas.
+  - `npm run test:tenant-core`: 59/59 comprobaciones multi-tenant aprobadas.
+  - `npm run test:restaurant`: 46/46 pruebas de dominio aprobadas.
+  - `npm run test:cash`: Aprobado.
+  - `npm run typecheck`: 0 errores en TypeScript.
+  - `npm run build`: Compilación de producción exitosa en 6.56s.
+  - `git diff --check`: Sin errores de sintaxis ni espacios en blanco.
+
 ## Checkpoint: Conexión Productiva Real de PACHAX Restaurante con Firestore, Comandos Transaccionales y Reglas de Seguridad (15/10/2026)
 
 - **Rama**: `cambios-dario` (verificada y al día con `origin/cambios-dario` y `origin/main`).

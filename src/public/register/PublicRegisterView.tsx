@@ -13,6 +13,9 @@ import { usePublicRouter } from '../routing/usePublicRouter'
 import '../publicExperience.css'
 import type { BusinessType } from '../../core/platform'
 import { getPublicTemplate, PUBLIC_TEMPLATES } from '../../core/publicTemplates'
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
+import { getFirebaseContext } from '../../lib/firebase'
+import { gateway } from '../../services/gateway'
 
 interface ColorPreset {
   id: string
@@ -64,6 +67,9 @@ export function PublicRegisterView() {
 
   // Paleta de personalización
   const [selectedPalette, setSelectedPalette] = useState<ColorPreset>(BRAND_PALETTES[0])
+  const [submitting, setSubmitting] = useState(false)
+  const [registerError, setRegisterError] = useState<string | null>(null)
+  const [requestId] = useState(() => `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`)
 
   useEffect(() => {
     if (templateParam) {
@@ -71,6 +77,51 @@ export function PublicRegisterView() {
       if (match) setSelectedTemplate(match.businessType)
     }
   }, [templateParam])
+
+  const handleCompleteRegistration = async () => {
+    if (submitting) return
+    setRegisterError(null)
+    setSubmitting(true)
+    try {
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('No se pudo conectar con los servicios de autenticación.')
+
+      // 1. Crear usuario en Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(ctx.auth, email.trim(), password)
+
+      // 2. Actualizar displayName si fue ingresado
+      if (fullName.trim() && userCredential.user) {
+        await updateProfile(userCredential.user, { displayName: fullName.trim() })
+      }
+
+      // 3. Invocar completeOnboarding vía tenantGateway
+      await gateway('tenantGateway', {
+        action: 'completeOnboarding',
+        requestId,
+        companyName: companyName.trim(),
+        businessType: selectedTemplate,
+        branding: {
+          primary: selectedPalette.primary,
+          accent: selectedPalette.accent,
+        },
+      })
+
+      // 4. Redirigir a la aplicación principal
+      window.location.href = '/'
+    } catch (err: unknown) {
+      setSubmitting(false)
+      const errorObj = err as { code?: string; message?: string }
+      if (errorObj?.code === 'auth/email-already-in-use') {
+        setRegisterError('Este correo electrónico ya está registrado. Inicia sesión con tu cuenta.')
+      } else if (errorObj?.code === 'auth/weak-password') {
+        setRegisterError('La contraseña debe tener al menos 8 caracteres.')
+      } else if (errorObj?.code === 'auth/invalid-email') {
+        setRegisterError('El correo electrónico no es válido.')
+      } else {
+        setRegisterError(errorObj?.message || 'Error al crear la empresa. Intenta nuevamente.')
+      }
+    }
+  }
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault()
@@ -448,22 +499,31 @@ export function PublicRegisterView() {
               </div>
 
               <div className="pt-2 space-y-3">
+                {registerError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl font-medium" role="alert">
+                    {registerError}
+                  </div>
+                )}
                 <button
                   type="button"
-                  disabled
-                  className="w-full py-3.5 text-sm font-bold text-white bg-slate-400 rounded-xl transition shadow-xs cursor-not-allowed flex items-center justify-center gap-2 opacity-90"
+                  onClick={handleCompleteRegistration}
+                  disabled={submitting}
+                  className={`w-full py-3.5 text-sm font-bold text-white rounded-xl transition shadow-xs flex items-center justify-center gap-2 ${
+                    submitting ? 'bg-slate-400 cursor-not-allowed opacity-90' : 'bg-slate-900 hover:bg-slate-800 cursor-pointer'
+                  }`}
                 >
-                  <span>Crear mi empresa</span>
+                  <span>{submitting ? 'Creando tu empresa...' : 'Crear mi empresa'}</span>
                 </button>
 
                 <p className="text-[11px] text-slate-400 text-center leading-relaxed">
-                  El registro directo y la creación automática de empresas se conectará en la siguiente fase de despliegue.
+                  Al crear tu empresa, se inicializará automáticamente tu entorno seguro y roles de acceso.
                 </p>
 
                 <div className="text-center pt-1">
                   <button
                     type="button"
                     onClick={() => setCurrentStep(1)}
+                    disabled={submitting}
                     className="text-xs text-slate-600 hover:text-slate-950 font-semibold underline cursor-pointer"
                   >
                     Editar datos configurados

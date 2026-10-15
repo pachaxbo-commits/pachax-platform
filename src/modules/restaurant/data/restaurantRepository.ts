@@ -13,6 +13,10 @@ import type { Order, OrderStatus, Product } from '../../../types'
 import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
 import type { FloorAction } from '../domain/restaurantFloor'
 import type { RestaurantShift } from '../views/RestaurantExperience'
+import type { RestaurantCustomer } from '../domain/restaurantCustomers'
+import type { CustomerDraft } from '../../../demo/restaurant/RestaurantCustomerForm'
+import type { InventoryMovement, InventoryMovementType } from '../domain/inventoryEngine'
+import type { RestaurantMember, Role } from '../../../demo/restaurant/RestaurantUsers'
 
 export interface RestaurantOperationalState {
   activeShiftId: string | null
@@ -327,6 +331,124 @@ export function subscribeProducts(
   }
 }
 
+export function subscribeCustomers(
+  tenantId: string,
+  onNext: (customers: RestaurantCustomer[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  let unsub: (() => void) | null = null
+  let active = true
+
+  getFirebaseContext().then(ctx => {
+    if (!active || !ctx) return
+    const col = collection(ctx.db, 'tenants', tenantId, 'restaurantCustomers')
+    unsub = onSnapshot(
+      col,
+      snap => {
+        if (!active) return
+        const customers: RestaurantCustomer[] = snap.docs.map(d => ({
+          ...d.data(),
+          id: d.id,
+        } as RestaurantCustomer))
+        onNext(customers)
+      },
+      err => {
+        if (active && onError) onError(err)
+      }
+    )
+  }).catch(err => {
+    if (active && onError) onError(err)
+  })
+
+  return () => {
+    active = false
+    if (unsub) unsub()
+  }
+}
+
+export function subscribeInventoryMovements(
+  tenantId: string,
+  branchId: string,
+  onNext: (movements: InventoryMovement[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  let unsub: (() => void) | null = null
+  let active = true
+
+  getFirebaseContext().then(ctx => {
+    if (!active || !ctx) return
+    const col = collection(ctx.db, 'tenants', tenantId, 'restaurantInventoryMovements')
+    const q = query(
+      col,
+      where('branchId', '==', branchId || 'main'),
+      orderBy('createdAt', 'desc'),
+      limit(100)
+    )
+    unsub = onSnapshot(
+      q,
+      snap => {
+        if (!active) return
+        const movements: InventoryMovement[] = snap.docs.map(d => ({
+          ...d.data(),
+          id: d.id,
+        } as InventoryMovement))
+        onNext(movements)
+      },
+      err => {
+        if (active && onError) onError(err)
+      }
+    )
+  }).catch(err => {
+    if (active && onError) onError(err)
+  })
+
+  return () => {
+    active = false
+    if (unsub) unsub()
+  }
+}
+
+export function subscribeMembers(
+  tenantId: string,
+  onNext: (members: RestaurantMember[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  let unsub: (() => void) | null = null
+  let active = true
+
+  getFirebaseContext().then(ctx => {
+    if (!active || !ctx) return
+    const col = collection(ctx.db, 'tenants', tenantId, 'members')
+    unsub = onSnapshot(
+      col,
+      snap => {
+        if (!active) return
+        const members: RestaurantMember[] = snap.docs.map(d => {
+          const data = d.data()
+          return {
+            id: d.id,
+            name: data.displayName || data.email || 'Usuario',
+            email: data.email || '',
+            role: data.roleId || 'waiter',
+            active: data.status === 'active',
+          }
+        })
+        onNext(members)
+      },
+      err => {
+        if (active && onError) onError(err)
+      }
+    )
+  }).catch(err => {
+    if (active && onError) onError(err)
+  })
+
+  return () => {
+    active = false
+    if (unsub) unsub()
+  }
+}
+
 // Operational Mutations
 export async function openShift(
   tenantId: string,
@@ -479,5 +601,113 @@ export async function createProduct(
       price: input.price,
       preparationArea: input.preparationArea,
     },
+  })
+}
+
+export async function saveProducts(
+  tenantId: string,
+  branchId: string,
+  products: Product[]
+): Promise<{ ok: boolean; count: number }> {
+  return dispatchCommand<{ ok: boolean; count: number }>(tenantId, branchId, 'saveProducts', { products })
+}
+
+export async function saveCustomer(
+  tenantId: string,
+  branchId: string,
+  customer: CustomerDraft,
+  customerId?: string
+): Promise<{ customerId: string; customer: RestaurantCustomer }> {
+  return dispatchCommand<{ customerId: string; customer: RestaurantCustomer }>(tenantId, branchId, 'saveCustomer', {
+    customer: { ...customer, id: customerId },
+  })
+}
+
+export async function archiveCustomer(
+  tenantId: string,
+  branchId: string,
+  customerId: string
+): Promise<{ customerId: string; active: boolean }> {
+  return dispatchCommand<{ customerId: string; active: boolean }>(tenantId, branchId, 'archiveCustomer', { customerId })
+}
+
+export async function assignCustomer(
+  tenantId: string,
+  branchId: string,
+  orderId: string,
+  customerId: string | undefined
+): Promise<void> {
+  await dispatchCommand(tenantId, branchId, 'assignCustomer', { orderId, customerId })
+}
+
+export async function recordInventoryMovement(
+  tenantId: string,
+  branchId: string,
+  productId: string,
+  nextStock: number,
+  type: Exclude<InventoryMovementType, 'sale' | 'cancellation_return' | 'command_consumption' | 'migration_reconciliation'>,
+  reason: string
+): Promise<{ ok: boolean; movementId: string; nextStock: number }> {
+  return dispatchCommand<{ ok: boolean; movementId: string; nextStock: number }>(
+    tenantId,
+    branchId,
+    'recordInventoryMovement',
+    { productId, nextStock, type, reason }
+  )
+}
+
+export async function countInventoryItem(
+  tenantId: string,
+  branchId: string,
+  productId: string,
+  physical: number,
+  note?: string
+): Promise<{ ok: boolean; productId: string; physical: number }> {
+  return dispatchCommand<{ ok: boolean; productId: string; physical: number }>(
+    tenantId,
+    branchId,
+    'countInventoryItem',
+    { productId, physical, note }
+  )
+}
+
+export async function createTenantMember(
+  tenantId: string,
+  input: { name: string; email: string; role: Role; active: boolean; password?: string }
+): Promise<{ uid: string }> {
+  return gateway<{ uid: string }>('tenantGateway', {
+    action: 'createMember',
+    tenantId,
+    operationId: generateOpId(),
+    displayName: input.name,
+    email: input.email,
+    roleId: input.role,
+    password: input.password || 'Pachax123!',
+    branchIds: ['main'],
+  })
+}
+
+export async function updateTenantMember(
+  tenantId: string,
+  uid: string,
+  input: { name?: string; role?: Role; active?: boolean }
+): Promise<void> {
+  await gateway('tenantGateway', {
+    action: 'updateMember',
+    tenantId,
+    uid,
+    roleId: input.role,
+    active: input.active,
+  })
+}
+
+export async function deleteTenantMember(
+  tenantId: string,
+  uid: string
+): Promise<void> {
+  await gateway('tenantGateway', {
+    action: 'deleteMember',
+    tenantId,
+    uid,
   })
 }

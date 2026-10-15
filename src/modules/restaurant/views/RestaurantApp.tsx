@@ -10,6 +10,9 @@ import {
 } from './RestaurantExperience'
 import type { Order, Product } from '../../../types'
 import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantCustomer } from '../domain/restaurantCustomers'
+import type { InventoryMovement } from '../domain/inventoryEngine'
+import type { RestaurantMember } from '../../../demo/restaurant/RestaurantUsers'
 import {
   subscribeOperationalState,
   subscribeActiveShift,
@@ -18,6 +21,9 @@ import {
   subscribeSectors,
   subscribeOrders,
   subscribeProducts,
+  subscribeCustomers,
+  subscribeInventoryMovements,
+  subscribeMembers,
   openShift,
   closeShift,
   openTableOrder,
@@ -33,6 +39,15 @@ import {
   recordPayment,
   floorAction,
   createProduct,
+  saveProducts,
+  saveCustomer,
+  archiveCustomer,
+  assignCustomer,
+  recordInventoryMovement,
+  countInventoryItem,
+  createTenantMember,
+  updateTenantMember,
+  deleteTenantMember,
   type RestaurantOperationalState,
 } from '../data/restaurantRepository'
 
@@ -76,6 +91,9 @@ export function RestaurantApp({
   const [sectors, setSectors] = useState<RestaurantSector[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [customers, setCustomers] = useState<RestaurantCustomer[]>([])
+  const [stockMovements, setStockMovements] = useState<InventoryMovement[]>([])
+  const [members, setMembers] = useState<RestaurantMember[]>([])
 
   useEffect(() => {
     applyTenantTheme(definition.theme)
@@ -91,6 +109,9 @@ export function RestaurantApp({
     const unsubSectors = subscribeSectors(tenantId, setSectors)
     const unsubOrders = subscribeOrders(tenantId, 'main', setOrders)
     const unsubProducts = subscribeProducts(tenantId, setProducts)
+    const unsubCustomers = subscribeCustomers(tenantId, setCustomers)
+    const unsubMovements = subscribeInventoryMovements(tenantId, 'main', setStockMovements)
+    const unsubMembers = subscribeMembers(tenantId, setMembers)
 
     return () => {
       unsubOpState()
@@ -99,6 +120,9 @@ export function RestaurantApp({
       unsubSectors()
       unsubOrders()
       unsubProducts()
+      unsubCustomers()
+      unsubMovements()
+      unsubMembers()
     }
   }, [tenantId])
 
@@ -133,6 +157,50 @@ export function RestaurantApp({
       tables={tables}
       sectors={sectors}
       products={products}
+      customers={customers}
+      onSaveCustomer={(draft, id) => {
+        saveCustomer(tenantId, 'main', draft, id).catch((err: Error) => {
+          window.alert(err.message || 'Error al guardar cliente.')
+        })
+        return null
+      }}
+      onArchiveCustomer={(id) => {
+        archiveCustomer(tenantId, 'main', id).catch((err: Error) => {
+          window.alert(err.message || 'Error al archivar cliente.')
+        })
+      }}
+      onAssignCustomer={(orderId, customerId) => {
+        assignCustomer(tenantId, 'main', orderId, customerId).catch((err: Error) => {
+          window.alert(err.message || 'Error al asignar cliente.')
+        })
+      }}
+      onSaveProducts={(nextProducts) => {
+        saveProducts(tenantId, 'main', nextProducts).catch((err: Error) => {
+          window.alert(err.message || 'Error al guardar productos.')
+        })
+      }}
+      stockMovements={stockMovements}
+      onInventoryMovement={(productId, nextStock, type, reason) => {
+        recordInventoryMovement(tenantId, 'main', productId, nextStock, type, reason).catch((err: Error) => {
+          window.alert(err.message || 'Error al registrar movimiento de stock.')
+        })
+        return { ok: true }
+      }}
+      onCountInventoryItem={(productId, physical, note) => {
+        countInventoryItem(tenantId, 'main', productId, physical, note).catch((err: Error) => {
+          window.alert(err.message || 'Error al registrar conteo.')
+        })
+      }}
+      members={members}
+      onCreateMember={async (data) => {
+        await createTenantMember(tenantId, data)
+      }}
+      onUpdateMember={async (id, data) => {
+        await updateTenantMember(tenantId, id, data)
+      }}
+      onDeleteMember={async (id) => {
+        await deleteTenantMember(tenantId, id)
+      }}
       shift={activeShift}
       shiftHistory={shiftHistory}
       onStartShift={(amount) => {

@@ -808,7 +808,7 @@ service cloud.firestore {
       allow write: if isPlatformContentOrHigher();
     }
     match /tenants/{tenantId}/products/{productId} {
-      allow read: if tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'products.manage','inventory');
+      allow read: if tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'products.manage','inventory');
       allow write: if false;
     }
     match /tenants/{tenantId}/sales/{saleId} {
@@ -917,6 +917,14 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/restaurantAudit/{eventId} {
       allow read: if tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantCustomers/{customerId} {
+      allow read: if tPermission(tenantId,'customers.read','customers') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.read','sales');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantInventoryMovements/{movementId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'inventory.read','inventory') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
 

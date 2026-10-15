@@ -18,6 +18,12 @@ const permissions = {
   recordPayment: 'sales.create',
   floorAction: 'settings.manage',
   saveProduct: 'products.manage',
+  saveProducts: 'products.manage',
+  saveCustomer: 'sales.create',
+  archiveCustomer: 'customers.manage',
+  assignCustomer: 'sales.create',
+  recordInventoryMovement: 'inventory.manage',
+  countInventoryItem: 'inventory.manage',
 }
 
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
@@ -94,7 +100,7 @@ async function executeRestaurantCommand(db, request) {
       branchId,
       actorUid: actor.uid,
       type,
-      resourceId: result.orderId || result.tableId || result.shiftId || result.paymentId || result.sectorId || null,
+      resourceId: result.orderId || result.tableId || result.shiftId || result.paymentId || result.sectorId || result.customerId || result.movementId || result.productId || null,
       createdAt: now,
     })
 
@@ -146,16 +152,127 @@ async function applyRestaurantCommand(context) {
       categoryId: p.categoryId ? id(p.categoryId) : 'cat-general',
       price: amount(p.price),
       preparationArea: p.preparationArea || 'Cocina',
+      restaurantType: p.restaurantType || 'prepared',
       availability: p.availability || 'available',
       isActive: p.isActive !== false,
       isVisible: p.isVisible !== false,
       sortOrder: Number(p.sortOrder) || 0,
       image: p.image || '',
+      baseUnit: p.baseUnit || 'unit',
+      ...(p.stockBase !== undefined ? { stockBase: Number(p.stockBase) || 0 } : {}),
+      ...(Array.isArray(p.recipe) ? { recipe: p.recipe } : {}),
       updatedAt: now,
       createdAt: p.createdAt || now,
     }
     tx.set(productRef, productData, { merge: true })
     return { productId, product: productData }
+  }
+
+  // 3b. Guardar Catálogo Completo de Productos
+  if (type === 'saveProducts') {
+    const list = Array.isArray(payload.products) ? payload.products : []
+    if (!list.length) throw new HttpsError('invalid-argument', 'Lista de productos requerida.')
+    for (const p of list) {
+      if (!p || typeof p.name !== 'string' || !p.name.trim()) continue
+      const productId = id(p.id)
+      const productRef = root.collection('products').doc(productId)
+      const productData = {
+        id: productId,
+        tenantId: actor.tenantId,
+        branchId,
+        name: text(p.name, 100),
+        categoryId: p.categoryId ? id(p.categoryId) : 'cat-general',
+        price: amount(p.price),
+        preparationArea: p.preparationArea || 'Cocina',
+        restaurantType: p.restaurantType || 'prepared',
+        availability: p.availability || 'available',
+        isActive: p.isActive !== false,
+        isVisible: p.isVisible !== false,
+        sortOrder: Number(p.sortOrder) || 0,
+        image: p.image || '',
+        baseUnit: p.baseUnit || 'unit',
+        ...(p.stockBase !== undefined ? { stockBase: Number(p.stockBase) || 0 } : {}),
+        ...(Array.isArray(p.recipe) ? { recipe: p.recipe } : {}),
+        updatedAt: now,
+      }
+      tx.set(productRef, productData, { merge: true })
+    }
+    return { ok: true, count: list.length }
+  }
+
+  // 3c. Guardar Cliente
+  if (type === 'saveCustomer') {
+    const c = payload.customer || payload
+    if (!c || typeof c !== 'object') throw new HttpsError('invalid-argument', 'Cliente requerido.')
+    const firstName = text(c.firstName || c.name || '', 80)
+    const phone = text(c.phone || '', 30)
+    const countryCode = c.countryCode ? text(c.countryCode, 10) : '591'
+    const normalizedPhone = c.normalizedPhone || (countryCode + phone.replace(/\D/g, ''))
+    const customerId = id(c.id || `cust_${operationId}`)
+    const custRef = root.collection('restaurantCustomers').doc(customerId)
+    const customerData = {
+      id: customerId,
+      tenantId: actor.tenantId,
+      branchId,
+      firstName,
+      lastName: c.lastName ? text(c.lastName, 80) : '',
+      countryCode,
+      phone,
+      normalizedPhone,
+      email: c.email ? text(c.email, 160).toLowerCase() : '',
+      birthday: c.birthday || '',
+      notes: c.notes ? text(c.notes, 500) : '',
+      active: c.active !== false,
+      updatedAt: now,
+      createdAt: c.createdAt || now,
+    }
+    tx.set(custRef, customerData, { merge: true })
+    return { customerId, customer: customerData }
+  }
+
+  // 3d. Archivar Cliente
+  if (type === 'archiveCustomer') {
+    const customerId = id(payload.customerId || payload.id)
+    const custRef = root.collection('restaurantCustomers').doc(customerId)
+    const snap = await tx.get(custRef)
+    if (!snap.exists) throw new HttpsError('not-found', 'Cliente no encontrado.')
+    tx.update(custRef, { active: false, archivedAt: now, updatedAt: now })
+    return { customerId, active: false }
+  }
+
+  // 3e. Ajuste de Inventario / Movimiento
+  if (type === 'recordInventoryMovement') {
+    const productId = id(payload.productId)
+    const productRef = root.collection('products').doc(productId)
+    const productSnap = await tx.get(productRef)
+    if (!productSnap.exists) throw new HttpsError('not-found', 'Producto no encontrado.')
+    const pData = productSnap.data()
+    const nextStock = Number(payload.nextStock)
+    if (!Number.isFinite(nextStock) || nextStock < 0) {
+      throw new HttpsError('invalid-argument', 'Stock no puede ser negativo.')
+    }
+    const previousStock = Number(pData.stockBase) || 0
+    const delta = Math.round((nextStock - previousStock + Number.EPSILON) * 1000) / 1000
+    const movementId = `mov_${operationId}`
+    const movementDoc = {
+      id: movementId,
+      operationId,
+      tenantId: actor.tenantId,
+      branchId,
+      productId,
+      productName: pData.name,
+      quantityBase: delta,
+      previousStock,
+      newStock: nextStock,
+      type: payload.type || 'manual_adjustment',
+      reason: text(payload.reason || 'Ajuste de inventario', 200),
+      shiftId: payload.shiftId || null,
+      createdAt: now,
+      createdBy: actor.uid,
+    }
+    tx.create(root.collection('restaurantInventoryMovements').doc(movementId), movementDoc)
+    tx.update(productRef, { stockBase: nextStock, updatedAt: now })
+    return { ok: true, movementId, nextStock }
   }
 
   // Comandos operativos que requieren turno activo
@@ -225,10 +342,11 @@ async function applyRestaurantCommand(context) {
     const difference = money(countedCash - expectedCash)
     const totalSales = money(cashSales + qrSales + cardSales)
 
-    tx.update(shiftRef, {
+    const shiftPatch = {
       status: 'closed',
       countedCash,
       expectedCash,
+      expectedCashAtClose: expectedCash,
       difference,
       reconciliationStatus: difference === 0 ? 'balanced' : difference > 0 ? 'surplus' : 'deficit',
       totalSales,
@@ -243,7 +361,14 @@ async function applyRestaurantCommand(context) {
         countedCash,
         difference,
       },
-    })
+    }
+    if (payload.stockSnapshot && typeof payload.stockSnapshot === 'object') {
+      shiftPatch.stockSnapshot = payload.stockSnapshot
+    }
+    if (payload.inventoryClosure && typeof payload.inventoryClosure === 'object') {
+      shiftPatch.inventoryClosure = payload.inventoryClosure
+    }
+    tx.update(shiftRef, shiftPatch)
 
     tx.set(stateRef, { activeShiftId: null, updatedAt: now }, { merge: true })
     return { shiftId, countedCash, expectedCash, difference, totalSales }
@@ -336,6 +461,13 @@ async function applyRestaurantCommand(context) {
       createdAt: now,
     })) : []
 
+    const prodIds = [...new Set(items.map(it => it.productId).filter(Boolean))]
+    const prodSnaps = await Promise.all(prodIds.map(pId => tx.get(root.collection('products').doc(pId))))
+    const prodMap = new Map()
+    for (const snap of prodSnaps) {
+      if (snap.exists) prodMap.set(snap.id, snap.data())
+    }
+
     const calculatedTotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0))
     const total = money(rawOrder.total != null ? amount(rawOrder.total) : calculatedTotal)
 
@@ -373,6 +505,38 @@ async function applyRestaurantCommand(context) {
       })
     }
 
+    for (const item of items) {
+      if (!item.productId) continue
+      const prod = prodMap.get(item.productId)
+      if (prod && prod.stockBase !== undefined) {
+        const prevStock = Number(prod.stockBase) || 0
+        const qty = Number(item.quantity) || 1
+        const nextStock = Math.round((prevStock - qty + Number.EPSILON) * 1000) / 1000
+        tx.update(root.collection('products').doc(item.productId), { stockBase: nextStock, updatedAt: now })
+        const movId = `mov_sale_${operationId}_${item.id}`
+        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
+          id: movId,
+          operationId: `sale:${orderId}:${item.id}:${item.productId}`,
+          tenantId: actor.tenantId,
+          branchId,
+          productId: item.productId,
+          productName: prod.name,
+          quantityBase: -qty,
+          soldQuantity: qty,
+          previousStock: prevStock,
+          newStock: nextStock,
+          type: 'sale',
+          reason: 'Venta de producto',
+          orderId,
+          orderItemId: item.id,
+          shiftId: activeShiftId,
+          createdAt: now,
+          createdBy: actor.uid,
+        })
+        prodMap.set(item.productId, { ...prod, stockBase: nextStock })
+      }
+    }
+
     return { orderId, order: orderDoc }
   }
 
@@ -397,11 +561,13 @@ async function applyRestaurantCommand(context) {
     if (!inputItems.length) throw new HttpsError('invalid-argument', 'No se especificaron productos.')
 
     const newLines = []
+    const lineProductData = []
     for (const item of inputItems) {
       const productId = id(item.productId)
       const quantity = Math.max(1, Number(item.quantity) || 1)
       const productDoc = await tx.get(root.collection('products').doc(productId))
       const pData = productDoc.exists ? productDoc.data() : null
+      lineProductData.push(pData)
       const unitPrice = pData ? amount(pData.price) : amount(item.price || item.unitPrice || 0)
       const name = pData?.name || item.name || 'Producto'
       const lineTotal = money(unitPrice * quantity)
@@ -429,6 +595,37 @@ async function applyRestaurantCommand(context) {
       status: 'pending',
       updatedAt: now,
     })
+
+    for (let i = 0; i < newLines.length; i++) {
+      const line = newLines[i]
+      const pData = lineProductData[i]
+      if (pData && pData.stockBase !== undefined) {
+        const prevStock = Number(pData.stockBase) || 0
+        const qty = line.quantity
+        const nextStock = Math.round((prevStock - qty + Number.EPSILON) * 1000) / 1000
+        tx.update(root.collection('products').doc(line.productId), { stockBase: nextStock, updatedAt: now })
+        const movId = `mov_sale_${operationId}_${line.id}`
+        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
+          id: movId,
+          operationId: `sale:${orderId}:${line.id}:${line.productId}`,
+          tenantId: actor.tenantId,
+          branchId,
+          productId: line.productId,
+          productName: pData.name,
+          quantityBase: -qty,
+          soldQuantity: qty,
+          previousStock: prevStock,
+          newStock: nextStock,
+          type: 'sale',
+          reason: 'Adición a comanda',
+          orderId,
+          orderItemId: line.id,
+          shiftId: activeShiftId,
+          createdAt: now,
+          createdBy: actor.uid,
+        })
+      }
+    }
 
     return { orderId, addedItems: newLines, total: newTotal }
   }
@@ -513,6 +710,13 @@ async function applyRestaurantCommand(context) {
       tableSnap = await tx.get(tableRef)
     }
 
+    const prodIds = [...new Set((order.items || []).map(it => it.productId).filter(Boolean))]
+    const prodSnaps = await Promise.all(prodIds.map(pId => tx.get(root.collection('products').doc(pId))))
+    const prodMap = new Map()
+    for (const snap of prodSnaps) {
+      if (snap.exists) prodMap.set(snap.id, snap.data())
+    }
+
     tx.update(orderRef, {
       status: 'cancelled',
       accountStatus: 'closed',
@@ -531,6 +735,38 @@ async function applyRestaurantCommand(context) {
         diners: null,
         updatedAt: now,
       })
+    }
+
+    for (const line of (order.items || [])) {
+      if (!line.productId) continue
+      const prod = prodMap.get(line.productId)
+      if (prod && prod.stockBase !== undefined) {
+        const prevStock = Number(prod.stockBase) || 0
+        const qty = Number(line.quantity) || 1
+        const nextStock = Math.round((prevStock + qty + Number.EPSILON) * 1000) / 1000
+        tx.update(root.collection('products').doc(line.productId), { stockBase: nextStock, updatedAt: now })
+        const movId = `mov_ret_${operationId}_${line.id}`
+        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
+          id: movId,
+          operationId: `return:${orderId}:${line.id}:${operationId}:${line.productId}`,
+          tenantId: actor.tenantId,
+          branchId,
+          productId: line.productId,
+          productName: prod.name,
+          quantityBase: qty,
+          soldQuantity: qty,
+          previousStock: prevStock,
+          newStock: nextStock,
+          type: 'cancellation_return',
+          reason: 'Cancelación de pedido',
+          orderId,
+          orderItemId: line.id,
+          shiftId: order.shiftId || activeShiftId,
+          createdAt: now,
+          createdBy: actor.uid,
+        })
+        prodMap.set(line.productId, { ...prod, stockBase: nextStock })
+      }
     }
 
     return { orderId, status: 'cancelled' }
@@ -552,6 +788,11 @@ async function applyRestaurantCommand(context) {
     const target = items.find(it => it.id === itemId)
     if (!target) throw new HttpsError('not-found', 'Ítem no encontrado.')
 
+    let prodSnap = null
+    if (target.productId) {
+      prodSnap = await tx.get(root.collection('products').doc(id(target.productId)))
+    }
+
     const remainingItems = items.filter(it => it.id !== itemId)
     const newTotal = money(remainingItems.reduce((sum, it) => sum + (it.lineTotal || 0), 0))
 
@@ -561,6 +802,35 @@ async function applyRestaurantCommand(context) {
       productSubtotal: newTotal,
       updatedAt: now,
     })
+
+    if (prodSnap?.exists) {
+      const prod = prodSnap.data()
+      if (prod.stockBase !== undefined) {
+        const prevStock = Number(prod.stockBase) || 0
+        const cancelQty = Math.min(Number(payload.quantity) || target.quantity, target.quantity)
+        const nextStock = Math.round((prevStock + cancelQty + Number.EPSILON) * 1000) / 1000
+        tx.update(root.collection('products').doc(target.productId), { stockBase: nextStock, updatedAt: now })
+        const movId = `mov_ret_${operationId}_${itemId}`
+        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
+          id: movId,
+          operationId: `return:${orderId}:${itemId}:${operationId}:${target.productId}`,
+          tenantId: actor.tenantId,
+          branchId,
+          productId: target.productId,
+          productName: prod.name,
+          quantityBase: cancelQty,
+          previousStock: prevStock,
+          newStock: nextStock,
+          type: 'cancellation_return',
+          reason: 'Cancelación de ítem',
+          orderId,
+          orderItemId: itemId,
+          shiftId: order.shiftId || activeShiftId,
+          createdAt: now,
+          createdBy: actor.uid,
+        })
+      }
+    }
 
     return { orderId, itemId, total: newTotal }
   }
@@ -723,6 +993,79 @@ async function applyRestaurantCommand(context) {
     }
 
     return { orderId, paymentId, total, change }
+  }
+
+  // 15. Asignar Cliente a Pedido
+  if (type === 'assignCustomer') {
+    const orderId = id(payload.orderId)
+    const orderRef = root.collection('restaurantOrders').doc(orderId)
+    const customerId = payload.customerId ? id(payload.customerId) : null
+    const custRef = customerId ? root.collection('restaurantCustomers').doc(customerId) : null
+
+    const [orderSnap, custSnap] = await Promise.all([
+      tx.get(orderRef),
+      custRef ? tx.get(custRef) : Promise.resolve(null),
+    ])
+
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'Pedido no encontrado.')
+    const order = orderSnap.data()
+    if (order.status === 'cancelled') throw new HttpsError('failed-precondition', 'El pedido está cancelado.')
+
+    let tableRef = null
+    let tableSnap = null
+    if (order.tableId) {
+      tableRef = root.collection('restaurantTables').doc(order.tableId)
+      tableSnap = await tx.get(tableRef)
+    }
+
+    const cData = custSnap?.exists ? custSnap.data() : null
+    const customerName = cData ? [cData.firstName, cData.lastName].filter(Boolean).join(' ') : (payload.customerName ? text(payload.customerName, 80) : null)
+    const customerPhone = cData ? cData.phone : (payload.customerPhone ? text(payload.customerPhone, 30) : null)
+
+    tx.update(orderRef, {
+      customerId: customerId || null,
+      customerName,
+      customerPhone,
+      updatedAt: now,
+    })
+
+    if (tableRef && tableSnap?.exists && tableSnap.data().activeOrderId === orderId) {
+      tx.update(tableRef, {
+        customerId: customerId || null,
+        customerName,
+        customerPhone,
+        updatedAt: now,
+      })
+    }
+
+    return { orderId, customerId, customerName, customerPhone }
+  }
+
+  // 16. Conteo Físico de Inventario
+  if (type === 'countInventoryItem') {
+    const productId = id(payload.productId)
+    const productRef = root.collection('products').doc(productId)
+    const shiftRef = root.collection('restaurantShifts').doc(activeShiftId)
+    const [productSnap, shiftSnap] = await Promise.all([tx.get(productRef), tx.get(shiftRef)])
+    if (!productSnap.exists) throw new HttpsError('not-found', 'Producto no encontrado.')
+    if (!shiftSnap.exists) throw new HttpsError('not-found', 'Turno no encontrado.')
+    const physical = Number(payload.physical)
+    if (!Number.isFinite(physical) || physical < 0) {
+      throw new HttpsError('invalid-argument', 'Conteo físico inválido.')
+    }
+    const countEntry = {
+      physical,
+      countedAt: now,
+      countedBy: actor.uid,
+      note: payload.note ? text(payload.note, 200) : '',
+    }
+    tx.set(shiftRef, {
+      inventoryCounts: {
+        [productId]: countEntry,
+      },
+      updatedAt: now,
+    }, { merge: true })
+    return { ok: true, productId, physical }
   }
 
   throw new HttpsError('invalid-argument', 'Comando Restaurante no implementado.')

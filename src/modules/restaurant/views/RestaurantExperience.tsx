@@ -38,7 +38,7 @@ import { RestaurantProducts } from '../../../demo/restaurant/RestaurantProducts'
 import { RestaurantCustomers } from '../../../demo/restaurant/RestaurantCustomers'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
 import type { CustomerDraft } from '../../../demo/restaurant/RestaurantCustomerForm'
-import { RestaurantUsers } from '../../../demo/restaurant/RestaurantUsers'
+import { RestaurantUsers, type RestaurantMember, type Role } from '../../../demo/restaurant/RestaurantUsers'
 import { RestaurantReports } from '../../../demo/restaurant/RestaurantReports'
 import { RestaurantSettings } from '../../../demo/restaurant/RestaurantSettings'
 import { RestaurantPrinters } from '../../../demo/restaurant/RestaurantPrinters'
@@ -153,6 +153,10 @@ export interface RestaurantExperienceProps {
   themeColors?: RestaurantThemeColors
   onSaveTheme?: (colors: RestaurantThemeColors) => Promise<void> | void
   profile?: RestaurantExperienceProfile
+  members?: RestaurantMember[]
+  onCreateMember?: (data: { name: string; email: string; role: Role; active: boolean; password?: string }) => Promise<void> | void
+  onUpdateMember?: (id: string, data: { name: string; role: Role; active: boolean }) => Promise<void> | void
+  onDeleteMember?: (id: string) => Promise<void> | void
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -248,6 +252,10 @@ export function RestaurantExperience({
   themeColors = DEFAULT_RESTAURANT_THEME,
   onSaveTheme,
   profile = 'restaurant',
+  members,
+  onCreateMember,
+  onUpdateMember,
+  onDeleteMember,
 }: RestaurantExperienceProps) {
   const isCounterService = profile === 'counter_service'
   const [currentModule, setCurrentModule] = useState<RestaurantModuleId>(
@@ -564,7 +572,14 @@ export function RestaurantExperience({
           )}
           {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={['owner', 'admin', 'team'].includes(session.role)} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} />}
           {activeModule === 'users' && (
-            <RestaurantUsers currentRole={session.role} onSelectRole={onSelectRole} />
+            <RestaurantUsers
+              currentRole={session.role}
+              onSelectRole={onSelectRole}
+              members={members}
+              onCreateMember={onCreateMember}
+              onUpdateMember={onUpdateMember}
+              onDeleteMember={onDeleteMember}
+            />
           )}
           {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
           {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} />}

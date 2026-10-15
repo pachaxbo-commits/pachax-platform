@@ -262,6 +262,107 @@ try {
   )
   console.log('PASS Aislamiento tenant verificado: ningún cruce entre empresas ni roles externos.')
 
+  // 13. Guardar Cliente y Normalizar Teléfono
+  console.log('13. Creación de cliente y normalización...')
+  const custRes = await call('cashier_user', 'saveCustomer', 'cust-op-1', {
+    customer: { firstName: 'Mario', lastName: 'Guzmán', phone: '70712345', countryCode: '591' },
+  })
+  assert.ok(custRes.customerId)
+  assert.equal(custRes.customer.firstName, 'Mario')
+  assert.equal(custRes.customer.normalizedPhone, '59170712345')
+  const custInDb = (await root.collection('restaurantCustomers').doc(custRes.customerId).get()).data()
+  assert.equal(custInDb.firstName, 'Mario')
+  assert.equal(custInDb.normalizedPhone, '59170712345')
+  assert.equal(custInDb.active, true)
+  console.log('PASS Cliente creado y persistido con teléfono normalizado.')
+
+  // 14. Archivar Cliente
+  console.log('14. Archivo de cliente...')
+  const archRes = await call('admin_user', 'archiveCustomer', 'cust-arch-1', {
+    customerId: custRes.customerId,
+  })
+  assert.equal(archRes.active, false)
+  const custArchived = (await root.collection('restaurantCustomers').doc(custRes.customerId).get()).data()
+  assert.equal(custArchived.active, false)
+  console.log('PASS Cliente archivado correctamente.')
+
+  // 15. Guardar Catálogo de Productos por Lote
+  console.log('15. Guardado de catálogo con control de inventario...')
+  await call('admin_user', 'saveProducts', 'prods-batch-1', {
+    products: [
+      { id: 'burger-special', name: 'Hamburguesa Especial', price: 45, stockBase: 20, preparationArea: 'Cocina' },
+    ],
+  })
+  const burgerInDb = (await root.collection('products').doc('burger-special').get()).data()
+  assert.equal(burgerInDb.stockBase, 20)
+  assert.equal(burgerInDb.price, 45)
+  console.log('PASS Catálogo guardado en batch con stock base configurado.')
+
+  // 16. Ajuste Manual de Inventario
+  console.log('16. Ajuste manual de inventario...')
+  const movRes = await call('admin_user', 'recordInventoryMovement', 'inv-mov-1', {
+    productId: 'burger-special',
+    nextStock: 25,
+    type: 'manual_adjustment',
+    reason: 'Ingreso inicial por conteo',
+  })
+  assert.equal(movRes.nextStock, 25)
+  const burgerAfterAdj = (await root.collection('products').doc('burger-special').get()).data()
+  assert.equal(burgerAfterAdj.stockBase, 25)
+
+  const movDoc = (await root.collection('restaurantInventoryMovements').doc(movRes.movementId).get()).data()
+  assert.equal(movDoc.type, 'manual_adjustment')
+  assert.equal(movDoc.quantityBase, 5)
+  assert.equal(movDoc.newStock, 25)
+  console.log('PASS Movimiento manual de inventario registrado y stock recalculado.')
+
+  // 17. Apertura de Segundo Turno y Venta con Deducción de Stock
+  console.log('17. Deducción de stock automática en pedido...')
+  const shift2 = await call('cashier_user', 'openShift', 'shift-op-2', { openingFloat: 200 })
+  const ord2 = await call('waiter_user', 'addOrder', 'ord-stock-1', {
+    order: {
+      displayNumber: '#2001',
+      items: [{ productId: 'burger-special', name: 'Hamburguesa Especial', price: 45, quantity: 2 }],
+    },
+  })
+  const burgerAfterSale = (await root.collection('products').doc('burger-special').get()).data()
+  assert.equal(burgerAfterSale.stockBase, 23) // 25 - 2 = 23
+  console.log('PASS Stock deducido atómicamente al confirmar pedido.')
+
+  // 18. Asignar Cliente a la Orden
+  console.log('18. Asignar cliente a pedido...')
+  const assignRes = await call('waiter_user', 'assignCustomer', 'assign-cust-1', {
+    orderId: ord2.orderId,
+    customerId: custRes.customerId,
+  })
+  assert.equal(assignRes.customerId, custRes.customerId)
+  const ordWithCust = (await root.collection('restaurantOrders').doc(ord2.orderId).get()).data()
+  assert.equal(ordWithCust.customerId, custRes.customerId)
+  assert.equal(ordWithCust.customerName, 'Mario Guzmán')
+  console.log('PASS Cliente asignado al pedido con datos consolidados.')
+
+  // 19. Conteo Físico de Turno
+  console.log('19. Registro de conteo físico en turno...')
+  await call('admin_user', 'countInventoryItem', 'count-item-1', {
+    productId: 'burger-special',
+    physical: 23,
+    note: 'Conteo validado en turno',
+  })
+  const shiftWithCount = (await root.collection('restaurantShifts').doc(shift2.shiftId).get()).data()
+  assert.equal(shiftWithCount.inventoryCounts['burger-special'].physical, 23)
+  console.log('PASS Conteo físico persistido dentro del turno activo.')
+
+  // 20. Devolución de Stock al Anular Pedido
+  console.log('20. Retorno de stock por anulación de pedido...')
+  await call('waiter_user', 'cancelOrder', 'cancel-ord-stock', {
+    orderId: ord2.orderId,
+    reason: 'Cancelado antes de producción',
+  })
+  const burgerAfterCancel = (await root.collection('products').doc('burger-special').get()).data()
+  assert.equal(burgerAfterCancel.stockBase, 25) // 23 + 2 = 25 restaurado
+  await call('cashier_user', 'closeShift', 'close-shift-2', { countedCash: 200 })
+  console.log('PASS Stock devuelto automáticamente con movimiento cancellation_return y turno cerrado.')
+
   console.log('\n==================================================')
   console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON')
   console.log('==================================================\n')
