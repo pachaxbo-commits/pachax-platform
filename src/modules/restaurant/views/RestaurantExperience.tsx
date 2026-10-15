@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -16,6 +16,8 @@ import {
   Printer,
   LogOut,
   Menu,
+  ChevronDown,
+  MoreHorizontal,
 } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
 import { useBackButtonBridge } from '../../../hooks/useBackHandler'
@@ -160,19 +162,39 @@ const MODULE_DEFINITIONS: Array<{
   roles: string[]
 }> = [
   { id: 'dashboard', label: 'Inicio', icon: LayoutDashboard, roles: ['owner', 'admin', 'cashier'] },
-  { id: 'pos', label: 'POS / Caja', icon: ShoppingCart, roles: ['owner', 'admin', 'cashier', 'waiter'] },
+  { id: 'pos', label: 'POS', icon: ShoppingCart, roles: ['owner', 'admin', 'cashier', 'waiter'] },
   { id: 'orders', label: 'Pedidos', icon: ClipboardList, roles: ['owner', 'admin', 'cashier', 'waiter', 'kitchen'] },
   { id: 'tables', label: 'Mesas', icon: Grid2X2, roles: ['owner', 'admin', 'cashier', 'waiter'] },
   { id: 'kitchen', label: 'Cocina', icon: ChefHat, roles: ['owner', 'admin', 'kitchen'] },
-  { id: 'history', label: 'Historial', icon: History, roles: ['owner', 'admin', 'cashier'] },
-  { id: 'cash', label: 'Caja / Turnos', icon: Wallet, roles: ['owner', 'admin', 'cashier'] },
+  { id: 'cash', label: 'Caja', icon: Wallet, roles: ['owner', 'admin', 'cashier'] },
   { id: 'inventory', label: 'Inventario', icon: Boxes, roles: ['owner', 'admin', 'inventory', 'kitchen'] },
   { id: 'products', label: 'Productos', icon: Package, roles: ['owner', 'admin', 'inventory'] },
   { id: 'customers', label: 'Clientes', icon: Users, roles: ['owner', 'admin', 'cashier', 'waiter'] },
-  { id: 'users', label: 'Usuarios', icon: UserCheck, roles: ['owner', 'admin'] },
   { id: 'reports', label: 'Reportes', icon: BarChart3, roles: ['owner', 'admin'] },
+  { id: 'history', label: 'Historial', icon: History, roles: ['owner', 'admin', 'cashier'] },
+  { id: 'users', label: 'Usuarios', icon: UserCheck, roles: ['owner', 'admin'] },
   { id: 'settings', label: 'Configuración', icon: Settings, roles: ['owner', 'admin'] },
   { id: 'printers', label: 'Impresoras', icon: Printer, roles: ['owner', 'admin', 'cashier'] },
+]
+
+const PRIMARY_MODULE_IDS: RestaurantModuleId[] = [
+  'dashboard',
+  'pos',
+  'orders',
+  'tables',
+  'kitchen',
+  'cash',
+  'inventory',
+  'products',
+  'customers',
+  'reports',
+]
+
+const SECONDARY_MODULE_IDS: RestaurantModuleId[] = [
+  'history',
+  'users',
+  'settings',
+  'printers',
 ]
 
 export function RestaurantExperience({
@@ -233,9 +255,30 @@ export function RestaurantExperience({
   )
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
-  const [isDesktopNavOpen, setIsDesktopNavOpen] = useState(false)
+  const [isMoreDesktopOpen, setIsMoreDesktopOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
+  const moreDropdownRef = useRef<HTMLDivElement>(null)
   const saleProducts = useMemo(() => stockAwareProducts(products), [products])
+
+  useEffect(() => {
+    if (!isMoreDesktopOpen) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreDropdownRef.current && !moreDropdownRef.current.contains(event.target as Node)) {
+        setIsMoreDesktopOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMoreDesktopOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isMoreDesktopOpen])
 
   // Módulos visibles según el rol del usuario (o todos en admin/owner/team)
   const visibleModules = useMemo(() => {
@@ -249,9 +292,23 @@ export function RestaurantExperience({
     return modules.filter((m) => m.roles.includes(role))
   }, [session.role, isCounterService])
 
+  const primaryModules = useMemo(() => {
+    if (isCounterService) return visibleModules
+    return visibleModules.filter((m) => PRIMARY_MODULE_IDS.includes(m.id))
+  }, [visibleModules, isCounterService])
+
+  const secondaryModules = useMemo(() => {
+    if (isCounterService) return []
+    return visibleModules.filter((m) => SECONDARY_MODULE_IDS.includes(m.id))
+  }, [visibleModules, isCounterService])
+
   const activeModule = visibleModules.some((m) => m.id === currentModule)
     ? currentModule
     : visibleModules[0]?.id ?? 'dashboard'
+
+  const isSecondaryActive = useMemo(() => {
+    return secondaryModules.some((m) => m.id === activeModule)
+  }, [secondaryModules, activeModule])
 
   useBackButtonBridge(() => {
     if (activeModule !== visibleModules[0]?.id) {
@@ -265,7 +322,7 @@ export function RestaurantExperience({
 
   const selectModule = (id: RestaurantModuleId) => {
     setIsMoreOpen(false)
-    setIsDesktopNavOpen(false)
+    setIsMoreDesktopOpen(false)
     if (id === 'printers' && onOpenPrinterSettings) {
       onOpenPrinterSettings()
       return
@@ -298,7 +355,6 @@ export function RestaurantExperience({
       style={restaurantThemeStyle(themeColors)}
     >
       <header className={`restaurant-header ${isCounterService ? 'is-counter-service' : ''}`}>
-        <div className="restaurant-nav-hotspot" onMouseEnter={() => setIsDesktopNavOpen(true)} aria-hidden="true" />
         <div className="restaurant-header-inner">
           <div className="flex min-w-0 items-center gap-2.5">
             <img
@@ -321,24 +377,95 @@ export function RestaurantExperience({
             <span className={`restaurant-shift-status ${shift ? 'is-open' : 'is-closed'}`}>
               {shift ? 'Turno abierto' : 'Turno cerrado'}
             </span>
-            <button type="button" className="restaurant-menu-toggle" aria-label="Abrir menú" aria-expanded={isDesktopNavOpen || isMoreOpen} onClick={() => { if (window.matchMedia('(min-width: 1024px)').matches) setIsDesktopNavOpen(value => !value); else setIsMoreOpen(true) }}>
-              <Menu size={19} /><span>Menú</span>
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={() => setIsSignOutOpen(true)}
+                className="restaurant-signout-btn inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 transition"
+                title="Cerrar sesión"
+              >
+                <LogOut size={14} />
+                <span className="hidden sm:inline">Salir</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="restaurant-menu-toggle"
+              aria-label="Abrir menú"
+              aria-expanded={isMoreOpen}
+              onClick={() => setIsMoreOpen(true)}
+            >
+              <Menu size={19} />
+              <span>Menú</span>
             </button>
           </div>
         </div>
+
+        {/* Navegación de escritorio: SIEMPRE VISIBLE y fija bajo el header en PC */}
         <nav
-          aria-label={isCounterService ? 'Secciones de Hamburgueser\u00eda' : 'Secciones de Restaurante'}
-          className={`restaurant-top-navigation ${isCounterService || isDesktopNavOpen ? 'is-open' : ''} ${isCounterService ? 'is-counter-service' : ''}`}
-          onMouseEnter={() => setIsDesktopNavOpen(true)}
-          onMouseLeave={(event) => { if (!event.currentTarget.contains(document.activeElement)) setIsDesktopNavOpen(false) }}
-          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDesktopNavOpen(false) }}
-          onKeyDown={(event) => { if (event.key === 'Escape') { setIsDesktopNavOpen(false); document.querySelector<HTMLButtonElement>('.restaurant-menu-toggle')?.focus() } }}
+          aria-label={isCounterService ? 'Secciones de Mostrador' : 'Navegación principal de restaurante'}
+          className="restaurant-desktop-nav-bar"
         >
-          {visibleModules.map((module) => {
-            const Icon = module.icon
-            return <button key={module.id} type="button" tabIndex={isCounterService || isDesktopNavOpen ? 0 : -1} aria-current={module.id === activeModule ? 'page' : undefined} onClick={() => selectModule(module.id)} className={module.id === activeModule ? 'is-active' : ''}><Icon size={18} /><span>{module.label}</span></button>
-          })}
-          {onSignOut && <button type="button" tabIndex={isDesktopNavOpen ? 0 : -1} onClick={() => { setIsDesktopNavOpen(false); setIsSignOutOpen(true) }}><LogOut size={18} /><span>Salir</span></button>}
+          <div className="restaurant-nav-items-container">
+            {primaryModules.map((module) => {
+              const Icon = module.icon
+              const isActive = module.id === activeModule
+              return (
+                <button
+                  key={module.id}
+                  type="button"
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => selectModule(module.id)}
+                  className={`restaurant-nav-btn ${isActive ? 'is-active' : ''}`}
+                >
+                  <Icon size={15} />
+                  <span>{module.label}</span>
+                </button>
+              )
+            })}
+
+            {secondaryModules.length > 0 && (
+              <div className="restaurant-more-container relative" ref={moreDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsMoreDesktopOpen((prev) => !prev)}
+                  className={`restaurant-nav-btn restaurant-nav-more ${isSecondaryActive ? 'is-active' : ''}`}
+                  aria-expanded={isMoreDesktopOpen}
+                  aria-haspopup="true"
+                >
+                  <MoreHorizontal size={15} />
+                  <span>Más</span>
+                  <ChevronDown
+                    size={12}
+                    className={`transition-transform duration-150 ${isMoreDesktopOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {isMoreDesktopOpen && (
+                  <div className="restaurant-more-dropdown shadow-xl">
+                    {secondaryModules.map((module) => {
+                      const Icon = module.icon
+                      const isActive = module.id === activeModule
+                      return (
+                        <button
+                          key={module.id}
+                          type="button"
+                          onClick={() => {
+                            setIsMoreDesktopOpen(false)
+                            selectModule(module.id)
+                          }}
+                          className={`restaurant-dropdown-item ${isActive ? 'is-active' : ''}`}
+                          aria-current={isActive ? 'page' : undefined}
+                        >
+                          <Icon size={15} />
+                          <span>{module.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </nav>
       </header>
       <div className="restaurant-workspace">

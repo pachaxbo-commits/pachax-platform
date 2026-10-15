@@ -78,7 +78,7 @@ export function RestaurantCash({ shift, orders, tables, products, stockMovements
     setClosing(false)
     setNotice(difference === 0 ? 'Turno cerrado. Caja cuadrada.' : `Turno cerrado con ${difference < 0 ? 'faltante' : 'sobrante'} de ${money(Math.abs(difference))}.`)
   }
-  return <div className="mx-auto max-w-6xl space-y-5 pb-8 text-slate-900">
+  return <div className="w-full space-y-5 pb-8 text-slate-900">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-teal-700">Operación del turno</p>
