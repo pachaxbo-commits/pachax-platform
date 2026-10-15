@@ -276,6 +276,7 @@ export function RestaurantDemo({
   resetKey = 0,
   initialModule,
   profile = 'restaurant',
+  isStudioEmbed = false,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
@@ -287,6 +288,7 @@ export function RestaurantDemo({
   resetKey?: number
   initialModule?: import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId
   profile?: 'restaurant' | 'counter_service'
+  isStudioEmbed?: boolean
 }) {
   const storageKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:v1' : STORAGE_KEY
   const legacyKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:legacy' : LEGACY_KEY
@@ -1146,10 +1148,15 @@ export function RestaurantDemo({
     record({ type: 'table_status_changed', tableId, details: { status } })
   }
 
+  const isStudio = isStudioEmbed || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === 'studio')
+  const sessionTenantId = isStudio
+    ? (profile === 'counter_service' ? 'studio-hamburger' : 'studio-restaurant')
+    : (profile === 'counter_service' ? 'demo-hamburger' : 'demo-restaurant')
+
   const session: RestaurantSession = {
-    tenantId: 'demo-restaurant',
+    tenantId: sessionTenantId,
     restaurantName: companyName || (profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'),
-    uid: 'demo-cashier-uid',
+    uid: isStudio ? 'studio-cashier-uid' : 'demo-cashier-uid',
     userName: cashierName,
     role: mode === 'team' ? 'team' : simulatedRole || 'admin',
   }
@@ -1211,6 +1218,9 @@ export function RestaurantDemo({
         if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return
         for (const key of restaurantStorage.keys()) if (key.startsWith(storageKey.slice(0, storageKey.lastIndexOf(':operations:') + 1))) restaurantStorage.removeItem(key)
         restaurantStorage.removeItem('cocina-tickets-impresos')
+        try {
+          localStorage.removeItem(`pachax:printers:${sessionTenantId}:main`)
+        } catch {}
         window.location.reload()
       }}
       onSelectRole={onSelectRole}

@@ -53,8 +53,8 @@ export function DemoRuntime({
     try {
       for (const key of Object.keys(localStorage)) {
         if (
-          (templateId === 'restaurant' && key.startsWith('pachax:restaurant-studio:')) ||
-          (templateId === 'hamburger' && key.startsWith('pachax:hamburger-studio:')) ||
+          (templateId === 'restaurant' && (key.startsWith('pachax:restaurant-studio:') || key.startsWith('pachax:printers:studio-restaurant:'))) ||
+          (templateId === 'hamburger' && (key.startsWith('pachax:hamburger-studio:') || key.startsWith('pachax:printers:studio-hamburger:'))) ||
           (templateId === 'nightclub' && (key.startsWith('pachax:nightclub-studio:') || key.startsWith('pachax:nightclub-demo:')))
         ) {
           localStorage.removeItem(key)
@@ -172,6 +172,7 @@ export function DemoRuntime({
             themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
+            isStudioEmbed={isStudioEmbed}
           />
         )}
         {templateId === 'hamburger' && (
@@ -186,6 +187,7 @@ export function DemoRuntime({
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
             profile="counter_service"
+            isStudioEmbed={isStudioEmbed}
           />
         )}
         {templateId === 'distribution' && (
@@ -321,6 +323,7 @@ export function DemoRuntime({
             themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
+            isStudioEmbed={isStudioEmbed}
           />
         )}
         {templateId === 'hamburger' && (
@@ -335,6 +338,7 @@ export function DemoRuntime({
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
             profile="counter_service"
+            isStudioEmbed={isStudioEmbed}
           />
         )}
         {templateId === 'distribution' && (

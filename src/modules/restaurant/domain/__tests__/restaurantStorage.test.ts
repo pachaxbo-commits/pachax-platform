@@ -32,3 +32,21 @@ test('Restaurant Studio y demo pública usan claves distintas y reset solo toca 
     globalThis.localStorage = previousStorage
   }
 })
+
+test('Claves de impresoras aisladas estrictamente entre Producción, Studio y Demo', async () => {
+  const { getPrinterStorageKey } = await import('../../../../services/printing/printerProfiles.ts')
+  const prodKey = getPrinterStorageKey('tenant-real-abc', 'main')
+  const studioKey = getPrinterStorageKey('studio-restaurant', 'main')
+  const demoKey = getPrinterStorageKey('demo-restaurant', 'main')
+  const studioCounterKey = getPrinterStorageKey('studio-hamburger', 'main')
+  const demoCounterKey = getPrinterStorageKey('demo-hamburger', 'main')
+
+  assert.equal(prodKey, 'pachax:printers:tenant-real-abc:main')
+  assert.equal(studioKey, 'pachax:printers:studio-restaurant:main')
+  assert.equal(demoKey, 'pachax:printers:demo-restaurant:main')
+  assert.equal(studioCounterKey, 'pachax:printers:studio-hamburger:main')
+  assert.equal(demoCounterKey, 'pachax:printers:demo-hamburger:main')
+
+  const allKeys = new Set([prodKey, studioKey, demoKey, studioCounterKey, demoCounterKey])
+  assert.equal(allKeys.size, 5, 'Cada entorno y perfil cuenta con clave de impresora única y aislada')
+})

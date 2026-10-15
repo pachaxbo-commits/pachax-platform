@@ -1,5 +1,32 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: R8 - Separación Estricta y Aislamiento de Entornos: Producción, Studio y Demo en PACHAX Restaurante (15/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `a6e8948` antes de este bloque).
+- **Objetivo Cumplido**: Garantizar que `RestaurantExperience` opere como la experiencia canónica compartida única, mientras los 3 entornos mantienen aislamiento absoluto de datos, sesiones, almacenamiento y hardware:
+  1. **Producción (`RestaurantApp.tsx`)**:
+     - Utiliza `tenantId` real, autenticación Firebase real, transacciones backend (`restaurantCommand`), membresías auditadas, branding de tenant en Firestore y perfiles de impresoras aislados por clave `pachax:printers:${tenantId}:main`.
+     - No importa ni inicializa mocks (`INITIAL_RESTAURANT_ORDERS`, `INITIAL_TABLES`, `INITIAL_SECTORS`, `RESTAURANT_PRODUCTS`, `RESTAURANT_STAFF`) ni `restaurantStorage` de demo.
+  2. **Studio (`DemoRuntime.tsx` con `isStudioEmbed`)**:
+     - Opera en sandbox local sin escribir al tenant productivo.
+     - Modos Full y Empty verificados (Empty inicia realmente sin mesas, sectores, órdenes ni productos).
+     - La conmutación de roles simulados (`simulatedRole`) actualiza `session.role` reactivamente sin recargar ni perder el estado local.
+     - Impresoras de Studio se aíslan bajo clave `pachax:printers:studio-restaurant:main` (o `studio-hamburger`).
+     - El cambio de marca y colores en Studio no modifica Firestore de ninguna empresa real.
+  3. **Demo Pública (`RestaurantDemo.tsx`)**:
+     - Funciona exclusivamente con datasets locales/demo sin requerir login.
+     - Claves de `localStorage` aisladas con prefijo `pachax:restaurant-demo:`, sin colisión con Studio (`pachax:restaurant-studio:`) ni Producción.
+     - Impresoras de Demo Pública aisladas bajo clave `pachax:printers:demo-restaurant:main` (o `demo-hamburger`).
+     - Botón de reset de demo limpia únicamente sus claves demo correspondientes.
+  4. **Perfil `counter_service` (Hamburguesería)**:
+     - Arquitectura `RestaurantExperience` con `profile="counter_service"` permanece intacta en `App.tsx`, `DemoRuntime.tsx`, `RestaurantDemo.tsx` y `RestaurantApp.tsx`.
+- **Verificaciones Ejecutadas**:
+  - `npm run typecheck`: 0 errores.
+  - `npm run test:restaurant`: 53/53 pruebas aprobadas (incluyendo prueba de claves aisladas de impresora y demo vs studio).
+  - `npm run build`: Compilación de producción exitosa en 5.08s.
+  - `git diff --check`: 0 errores de formato.
+  - `node scripts/test-restaurant-browser.mjs`: Smoke test de navegador headless en escritorio (1366x768) y móvil (390x844) aprobado.
+
 ## Checkpoint: R7 - Impresión Real Canónica con PrintEngineService, Browser Dialog Térmico y Aislamiento por Tenant (15/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `afd4b9e` antes de este bloque).
