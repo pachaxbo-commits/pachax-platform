@@ -39,6 +39,175 @@ const text = (value, max = 200) => {
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value
 const fingerprint = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')
 
+const RESTAURANT_BUSINESS_TYPES = new Set([
+  'restaurant_pos',
+  'hamburger_shop',
+])
+
+async function validateRecipe(tx, root, actor, productId, rawRecipe, localProductsList = []) {
+  if (!Array.isArray(rawRecipe) || rawRecipe.length === 0) return []
+  const seen = new Set()
+  const validated = []
+  for (const part of rawRecipe) {
+    if (!part || typeof part !== 'object') throw new HttpsError('invalid-argument', 'Línea de receta inválida.')
+    const ingredientId = id(part.ingredientId)
+    if (ingredientId === productId) {
+      throw new HttpsError('invalid-argument', 'Un producto no puede ser insumo de su propia receta.')
+    }
+    if (seen.has(ingredientId)) {
+      throw new HttpsError('invalid-argument', 'Ingrediente duplicado en la receta.')
+    }
+    seen.add(ingredientId)
+
+    const qtyBase = Number(part.quantityBase)
+    if (!Number.isFinite(qtyBase) || qtyBase <= 0) {
+      throw new HttpsError('invalid-argument', 'La cantidad base del insumo debe ser mayor a cero.')
+    }
+
+    const localIng = localProductsList.find(p => p.id === ingredientId)
+    if (!localIng) {
+      const ingSnap = await tx.get(root.collection('products').doc(ingredientId))
+      if (!ingSnap.exists) {
+        throw new HttpsError('not-found', `El insumo ${ingredientId} no existe en este tenant.`)
+      }
+      const ingData = ingSnap.data()
+      if (ingData.tenantId !== actor.tenantId) {
+        throw new HttpsError('permission-denied', 'No se permiten insumos de otro tenant.')
+      }
+    }
+
+    validated.push({
+      ingredientId,
+      quantityBase: Math.round((qtyBase + Number.EPSILON) * 1000) / 1000,
+      ...(part.displayUnit ? { displayUnit: text(part.displayUnit, 20) } : {}),
+    })
+  }
+  return validated
+}
+
+async function resolveProductsAndIngredients(tx, root, items) {
+  const directIds = [...new Set(items.map(it => it.productId).filter(Boolean).map(id))]
+  const directSnaps = await Promise.all(directIds.map(pId => tx.get(root.collection('products').doc(pId))))
+  const prodMap = new Map()
+  for (const snap of directSnaps) {
+    if (snap.exists) prodMap.set(snap.id, snap.data())
+  }
+
+  const ingredientIds = new Set()
+  for (const [_, prod] of prodMap) {
+    if (Array.isArray(prod.recipe) && prod.recipe.length > 0) {
+      for (const part of prod.recipe) {
+        if (part.ingredientId && !prodMap.has(part.ingredientId)) {
+          ingredientIds.add(part.ingredientId)
+        }
+      }
+    }
+  }
+
+  if (ingredientIds.size > 0) {
+    const ingSnaps = await Promise.all([...ingredientIds].map(pId => tx.get(root.collection('products').doc(pId))))
+    for (const snap of ingSnaps) {
+      if (snap.exists) prodMap.set(snap.id, snap.data())
+    }
+  }
+
+  return prodMap
+}
+
+function computeItemInventoryRequirements(items, prodMap) {
+  const requirements = []
+  const totalPerProduct = new Map()
+
+  for (const item of items) {
+    if (!item.productId) continue
+    const prod = prodMap.get(item.productId)
+    if (!prod) continue
+    const itemQty = Math.max(1, Number(item.quantity) || 1)
+
+    if (Array.isArray(prod.recipe) && prod.recipe.length > 0) {
+      // A) Producto con receta: descuenta ingredientes únicamente
+      for (const part of prod.recipe) {
+        const ingredientId = part.ingredientId
+        const ingProd = prodMap.get(ingredientId)
+        if (!ingProd) {
+          throw new HttpsError('failed-precondition', `Insumo ${ingredientId} no encontrado para ${prod.name}.`)
+        }
+        const consumed = Math.round((Number(part.quantityBase) * itemQty + Number.EPSILON) * 1000) / 1000
+        requirements.push({
+          itemId: item.id,
+          targetProductId: ingredientId,
+          quantityBase: consumed,
+          soldQuantity: itemQty,
+          isRecipe: true,
+          parentName: prod.name,
+        })
+        totalPerProduct.set(ingredientId, Math.round(((totalPerProduct.get(ingredientId) || 0) + consumed + Number.EPSILON) * 1000) / 1000)
+      }
+    } else if (prod.stockBase !== undefined && prod.stockBase !== null) {
+      // B) Producto sin receta: descuenta producto final si gestiona stockBase
+      requirements.push({
+        itemId: item.id,
+        targetProductId: prod.id,
+        quantityBase: itemQty,
+        soldQuantity: itemQty,
+        isRecipe: false,
+        parentName: prod.name,
+      })
+      totalPerProduct.set(prod.id, Math.round(((totalPerProduct.get(prod.id) || 0) + itemQty + Number.EPSILON) * 1000) / 1000)
+    }
+  }
+
+  return { requirements, totalPerProduct }
+}
+
+function checkSufficientStock(totalPerProduct, prodMap, allowNegativeStock) {
+  if (allowNegativeStock) return
+  for (const [targetId, needed] of totalPerProduct) {
+    const prod = prodMap.get(targetId)
+    const available = Number(prod?.stockBase) || 0
+    if (available < needed) {
+      const name = prod?.name || targetId
+      const unit = prod?.baseUnit || 'unidades'
+      throw new HttpsError('failed-precondition', `Stock insuficiente para ${name}: disponible ${available} ${unit}, requerido ${needed} ${unit}.`)
+    }
+  }
+}
+
+function applyInventoryDeduction({ tx, root, actor, branchId, activeShiftId, orderId, operationId, now, requirements, prodMap }) {
+  for (const req of requirements) {
+    const target = prodMap.get(req.targetProductId)
+    const prevStock = Number(target.stockBase) || 0
+    const nextStock = Math.round((prevStock - req.quantityBase + Number.EPSILON) * 1000) / 1000
+    target.stockBase = nextStock
+
+    tx.update(root.collection('products').doc(req.targetProductId), {
+      stockBase: nextStock,
+      updatedAt: now,
+    })
+
+    const movId = `mov_sale_${operationId}_${req.itemId}_${req.targetProductId}`
+    tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
+      id: movId,
+      operationId: `sale:${orderId}:${req.itemId}:${req.targetProductId}`,
+      tenantId: actor.tenantId,
+      branchId,
+      productId: req.targetProductId,
+      productName: target.name,
+      quantityBase: -req.quantityBase,
+      soldQuantity: req.soldQuantity,
+      previousStock: prevStock,
+      newStock: nextStock,
+      type: 'sale',
+      reason: req.isRecipe ? `Consumo por receta: ${req.parentName}` : 'Venta de producto',
+      orderId,
+      orderItemId: req.itemId,
+      shiftId: activeShiftId,
+      createdAt: now,
+      createdBy: actor.uid,
+    })
+  }
+}
+
 async function executeRestaurantCommand(db, request) {
   const input = request.data || {}
   const type = input.commandType || input.action
@@ -47,8 +216,8 @@ async function executeRestaurantCommand(db, request) {
 
   const operationId = id(input.operationId)
   const actor = await tenantActor(db, request, permission)
-  if (actor.tenant.businessType !== 'restaurant_pos') {
-    throw new HttpsError('failed-precondition', 'La empresa no usa la plantilla Restaurante.')
+  if (!RESTAURANT_BUSINESS_TYPES.has(actor.tenant.businessType)) {
+    throw new HttpsError('failed-precondition', 'La empresa no usa una plantilla compatible con Restaurante.')
   }
 
   const branchId = id(input.branchId || 'main')
@@ -144,6 +313,7 @@ async function applyRestaurantCommand(context) {
     if (!p || typeof p.name !== 'string' || !p.name.trim()) throw new HttpsError('invalid-argument', 'Producto inválido.')
     const productId = id(p.id || `prod_${operationId}`)
     const productRef = root.collection('products').doc(productId)
+    const validatedRecipe = await validateRecipe(tx, root, actor, productId, p.recipe)
     const productData = {
       id: productId,
       tenantId: actor.tenantId,
@@ -160,7 +330,7 @@ async function applyRestaurantCommand(context) {
       image: p.image || '',
       baseUnit: p.baseUnit || 'unit',
       ...(p.stockBase !== undefined ? { stockBase: Number(p.stockBase) || 0 } : {}),
-      ...(Array.isArray(p.recipe) ? { recipe: p.recipe } : {}),
+      ...(Array.isArray(p.recipe) ? { recipe: validatedRecipe } : {}),
       updatedAt: now,
       createdAt: p.createdAt || now,
     }
@@ -176,6 +346,7 @@ async function applyRestaurantCommand(context) {
       if (!p || typeof p.name !== 'string' || !p.name.trim()) continue
       const productId = id(p.id)
       const productRef = root.collection('products').doc(productId)
+      const validatedRecipe = await validateRecipe(tx, root, actor, productId, p.recipe, list)
       const productData = {
         id: productId,
         tenantId: actor.tenantId,
@@ -192,7 +363,7 @@ async function applyRestaurantCommand(context) {
         image: p.image || '',
         baseUnit: p.baseUnit || 'unit',
         ...(p.stockBase !== undefined ? { stockBase: Number(p.stockBase) || 0 } : {}),
-        ...(Array.isArray(p.recipe) ? { recipe: p.recipe } : {}),
+        ...(Array.isArray(p.recipe) ? { recipe: validatedRecipe } : {}),
         updatedAt: now,
       }
       tx.set(productRef, productData, { merge: true })
@@ -461,12 +632,10 @@ async function applyRestaurantCommand(context) {
       createdAt: now,
     })) : []
 
-    const prodIds = [...new Set(items.map(it => it.productId).filter(Boolean))]
-    const prodSnaps = await Promise.all(prodIds.map(pId => tx.get(root.collection('products').doc(pId))))
-    const prodMap = new Map()
-    for (const snap of prodSnaps) {
-      if (snap.exists) prodMap.set(snap.id, snap.data())
-    }
+    const prodMap = await resolveProductsAndIngredients(tx, root, items)
+    const { requirements, totalPerProduct } = computeItemInventoryRequirements(items, prodMap)
+    const allowNegativeStock = actor.tenant.configuration?.allowNegativeStock === true
+    checkSufficientStock(totalPerProduct, prodMap, allowNegativeStock)
 
     const calculatedTotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0))
     const total = money(rawOrder.total != null ? amount(rawOrder.total) : calculatedTotal)
@@ -505,37 +674,7 @@ async function applyRestaurantCommand(context) {
       })
     }
 
-    for (const item of items) {
-      if (!item.productId) continue
-      const prod = prodMap.get(item.productId)
-      if (prod && prod.stockBase !== undefined) {
-        const prevStock = Number(prod.stockBase) || 0
-        const qty = Number(item.quantity) || 1
-        const nextStock = Math.round((prevStock - qty + Number.EPSILON) * 1000) / 1000
-        tx.update(root.collection('products').doc(item.productId), { stockBase: nextStock, updatedAt: now })
-        const movId = `mov_sale_${operationId}_${item.id}`
-        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
-          id: movId,
-          operationId: `sale:${orderId}:${item.id}:${item.productId}`,
-          tenantId: actor.tenantId,
-          branchId,
-          productId: item.productId,
-          productName: prod.name,
-          quantityBase: -qty,
-          soldQuantity: qty,
-          previousStock: prevStock,
-          newStock: nextStock,
-          type: 'sale',
-          reason: 'Venta de producto',
-          orderId,
-          orderItemId: item.id,
-          shiftId: activeShiftId,
-          createdAt: now,
-          createdBy: actor.uid,
-        })
-        prodMap.set(item.productId, { ...prod, stockBase: nextStock })
-      }
-    }
+    applyInventoryDeduction({ tx, root, actor, branchId, activeShiftId, orderId, operationId, now, requirements, prodMap })
 
     return { orderId, order: orderDoc }
   }
@@ -560,14 +699,13 @@ async function applyRestaurantCommand(context) {
           : []
     if (!inputItems.length) throw new HttpsError('invalid-argument', 'No se especificaron productos.')
 
+    const prodMap = await resolveProductsAndIngredients(tx, root, inputItems)
+
     const newLines = []
-    const lineProductData = []
     for (const item of inputItems) {
       const productId = id(item.productId)
       const quantity = Math.max(1, Number(item.quantity) || 1)
-      const productDoc = await tx.get(root.collection('products').doc(productId))
-      const pData = productDoc.exists ? productDoc.data() : null
-      lineProductData.push(pData)
+      const pData = prodMap.get(productId)
       const unitPrice = pData ? amount(pData.price) : amount(item.price || item.unitPrice || 0)
       const name = pData?.name || item.name || 'Producto'
       const lineTotal = money(unitPrice * quantity)
@@ -584,6 +722,10 @@ async function applyRestaurantCommand(context) {
       })
     }
 
+    const { requirements, totalPerProduct } = computeItemInventoryRequirements(newLines, prodMap)
+    const allowNegativeStock = actor.tenant.configuration?.allowNegativeStock === true
+    checkSufficientStock(totalPerProduct, prodMap, allowNegativeStock)
+
     const addedSubtotal = money(newLines.reduce((sum, line) => sum + line.lineTotal, 0))
     const newTotal = money(order.total + addedSubtotal)
     const newSubtotal = money((order.productSubtotal || order.total) + addedSubtotal)
@@ -596,36 +738,7 @@ async function applyRestaurantCommand(context) {
       updatedAt: now,
     })
 
-    for (let i = 0; i < newLines.length; i++) {
-      const line = newLines[i]
-      const pData = lineProductData[i]
-      if (pData && pData.stockBase !== undefined) {
-        const prevStock = Number(pData.stockBase) || 0
-        const qty = line.quantity
-        const nextStock = Math.round((prevStock - qty + Number.EPSILON) * 1000) / 1000
-        tx.update(root.collection('products').doc(line.productId), { stockBase: nextStock, updatedAt: now })
-        const movId = `mov_sale_${operationId}_${line.id}`
-        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
-          id: movId,
-          operationId: `sale:${orderId}:${line.id}:${line.productId}`,
-          tenantId: actor.tenantId,
-          branchId,
-          productId: line.productId,
-          productName: pData.name,
-          quantityBase: -qty,
-          soldQuantity: qty,
-          previousStock: prevStock,
-          newStock: nextStock,
-          type: 'sale',
-          reason: 'Adición a comanda',
-          orderId,
-          orderItemId: line.id,
-          shiftId: activeShiftId,
-          createdAt: now,
-          createdBy: actor.uid,
-        })
-      }
-    }
+    applyInventoryDeduction({ tx, root, actor, branchId, activeShiftId, orderId, operationId, now, requirements, prodMap })
 
     return { orderId, addedItems: newLines, total: newTotal }
   }
@@ -710,12 +823,8 @@ async function applyRestaurantCommand(context) {
       tableSnap = await tx.get(tableRef)
     }
 
-    const prodIds = [...new Set((order.items || []).map(it => it.productId).filter(Boolean))]
-    const prodSnaps = await Promise.all(prodIds.map(pId => tx.get(root.collection('products').doc(pId))))
-    const prodMap = new Map()
-    for (const snap of prodSnaps) {
-      if (snap.exists) prodMap.set(snap.id, snap.data())
-    }
+    const prodMap = await resolveProductsAndIngredients(tx, root, order.items || [])
+    const { requirements } = computeItemInventoryRequirements(order.items || [], prodMap)
 
     tx.update(orderRef, {
       status: 'cancelled',
@@ -737,36 +846,37 @@ async function applyRestaurantCommand(context) {
       })
     }
 
-    for (const line of (order.items || [])) {
-      if (!line.productId) continue
-      const prod = prodMap.get(line.productId)
-      if (prod && prod.stockBase !== undefined) {
-        const prevStock = Number(prod.stockBase) || 0
-        const qty = Number(line.quantity) || 1
-        const nextStock = Math.round((prevStock + qty + Number.EPSILON) * 1000) / 1000
-        tx.update(root.collection('products').doc(line.productId), { stockBase: nextStock, updatedAt: now })
-        const movId = `mov_ret_${operationId}_${line.id}`
-        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
-          id: movId,
-          operationId: `return:${orderId}:${line.id}:${operationId}:${line.productId}`,
-          tenantId: actor.tenantId,
-          branchId,
-          productId: line.productId,
-          productName: prod.name,
-          quantityBase: qty,
-          soldQuantity: qty,
-          previousStock: prevStock,
-          newStock: nextStock,
-          type: 'cancellation_return',
-          reason: 'Cancelación de pedido',
-          orderId,
-          orderItemId: line.id,
-          shiftId: order.shiftId || activeShiftId,
-          createdAt: now,
-          createdBy: actor.uid,
-        })
-        prodMap.set(line.productId, { ...prod, stockBase: nextStock })
-      }
+    for (const req of requirements) {
+      const target = prodMap.get(req.targetProductId)
+      const prevStock = Number(target.stockBase) || 0
+      const nextStock = Math.round((prevStock + req.quantityBase + Number.EPSILON) * 1000) / 1000
+      target.stockBase = nextStock
+
+      tx.update(root.collection('products').doc(req.targetProductId), {
+        stockBase: nextStock,
+        updatedAt: now,
+      })
+
+      const movId = `mov_ret_${operationId}_${req.itemId}_${req.targetProductId}`
+      tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
+        id: movId,
+        operationId: `return:${orderId}:${req.itemId}:${operationId}:${req.targetProductId}`,
+        tenantId: actor.tenantId,
+        branchId,
+        productId: req.targetProductId,
+        productName: target.name,
+        quantityBase: req.quantityBase,
+        soldQuantity: req.soldQuantity,
+        previousStock: prevStock,
+        newStock: nextStock,
+        type: 'cancellation_return',
+        reason: req.isRecipe ? `Devolución por cancelación (receta: ${req.parentName})` : 'Cancelación de pedido',
+        orderId,
+        orderItemId: req.itemId,
+        shiftId: order.shiftId || activeShiftId,
+        createdAt: now,
+        createdBy: actor.uid,
+      })
     }
 
     return { orderId, status: 'cancelled' }
@@ -788,51 +898,64 @@ async function applyRestaurantCommand(context) {
     const target = items.find(it => it.id === itemId)
     if (!target) throw new HttpsError('not-found', 'Ítem no encontrado.')
 
-    let prodSnap = null
-    if (target.productId) {
-      prodSnap = await tx.get(root.collection('products').doc(id(target.productId)))
+    const cancelQty = Math.min(Number(payload.quantity) || target.quantity, target.quantity)
+    if (cancelQty <= 0) throw new HttpsError('invalid-argument', 'Cantidad a anular inválida.')
+
+    let updatedItems = []
+    if (cancelQty >= target.quantity) {
+      updatedItems = items.filter(it => it.id !== itemId)
+    } else {
+      const remainingQty = target.quantity - cancelQty
+      const newLineTotal = money(target.basePrice * remainingQty)
+      updatedItems = items.map(it => it.id === itemId ? { ...it, quantity: remainingQty, lineTotal: newLineTotal } : it)
     }
 
-    const remainingItems = items.filter(it => it.id !== itemId)
-    const newTotal = money(remainingItems.reduce((sum, it) => sum + (it.lineTotal || 0), 0))
+    const newTotal = money(updatedItems.reduce((sum, it) => sum + (it.lineTotal || 0), 0))
+    const fakeItem = { ...target, quantity: cancelQty }
+    const prodMap = await resolveProductsAndIngredients(tx, root, [fakeItem])
+    const { requirements } = computeItemInventoryRequirements([fakeItem], prodMap)
 
     tx.update(orderRef, {
-      items: remainingItems,
+      items: updatedItems,
       total: newTotal,
       productSubtotal: newTotal,
       updatedAt: now,
     })
 
-    if (prodSnap?.exists) {
-      const prod = prodSnap.data()
-      if (prod.stockBase !== undefined) {
-        const prevStock = Number(prod.stockBase) || 0
-        const cancelQty = Math.min(Number(payload.quantity) || target.quantity, target.quantity)
-        const nextStock = Math.round((prevStock + cancelQty + Number.EPSILON) * 1000) / 1000
-        tx.update(root.collection('products').doc(target.productId), { stockBase: nextStock, updatedAt: now })
-        const movId = `mov_ret_${operationId}_${itemId}`
-        tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
-          id: movId,
-          operationId: `return:${orderId}:${itemId}:${operationId}:${target.productId}`,
-          tenantId: actor.tenantId,
-          branchId,
-          productId: target.productId,
-          productName: prod.name,
-          quantityBase: cancelQty,
-          previousStock: prevStock,
-          newStock: nextStock,
-          type: 'cancellation_return',
-          reason: 'Cancelación de ítem',
-          orderId,
-          orderItemId: itemId,
-          shiftId: order.shiftId || activeShiftId,
-          createdAt: now,
-          createdBy: actor.uid,
-        })
-      }
+    for (const req of requirements) {
+      const targetProd = prodMap.get(req.targetProductId)
+      const prevStock = Number(targetProd.stockBase) || 0
+      const nextStock = Math.round((prevStock + req.quantityBase + Number.EPSILON) * 1000) / 1000
+      targetProd.stockBase = nextStock
+
+      tx.update(root.collection('products').doc(req.targetProductId), {
+        stockBase: nextStock,
+        updatedAt: now,
+      })
+
+      const movId = `mov_ret_${operationId}_${itemId}_${req.targetProductId}`
+      tx.create(root.collection('restaurantInventoryMovements').doc(movId), {
+        id: movId,
+        operationId: `return:${orderId}:${itemId}:${operationId}:${req.targetProductId}`,
+        tenantId: actor.tenantId,
+        branchId,
+        productId: req.targetProductId,
+        productName: targetProd.name,
+        quantityBase: req.quantityBase,
+        soldQuantity: cancelQty,
+        previousStock: prevStock,
+        newStock: nextStock,
+        type: 'cancellation_return',
+        reason: req.isRecipe ? `Devolución de ítem (receta: ${req.parentName})` : 'Cancelación de ítem',
+        orderId,
+        orderItemId: itemId,
+        shiftId: order.shiftId || activeShiftId,
+        createdAt: now,
+        createdBy: actor.uid,
+      })
     }
 
-    return { orderId, itemId, total: newTotal }
+    return { orderId, itemId, total: newTotal, cancelledQuantity: cancelQty }
   }
 
   // 12. Actualizar Estado de Mesa
@@ -903,20 +1026,21 @@ async function applyRestaurantCommand(context) {
     }
 
     const total = money(order.total)
-    const method = text(payload.method, 20)
+    const rawMethod = payload.method || payload.payment?.method
+    const method = text(rawMethod, 20)
     if (!['cash', 'qr', 'card', 'mixed'].includes(method)) {
       throw new HttpsError('invalid-argument', 'Método de pago no reconocido.')
     }
 
-    const cashAmount = amount(method === 'cash' ? total : method === 'mixed' ? payload.cashAmount || 0 : 0)
-    const qrAmount = amount(method === 'qr' ? total : method === 'mixed' ? payload.qrAmount || 0 : 0)
-    const cardAmount = amount(method === 'card' ? total : method === 'mixed' ? payload.cardAmount || 0 : 0)
+    const cashAmount = amount(method === 'cash' ? total : method === 'mixed' ? (payload.cashAmount ?? payload.payment?.cashAmount ?? 0) : 0)
+    const qrAmount = amount(method === 'qr' ? total : method === 'mixed' ? (payload.qrAmount ?? payload.payment?.qrAmount ?? 0) : 0)
+    const cardAmount = amount(method === 'card' ? total : method === 'mixed' ? (payload.cardAmount ?? payload.payment?.cardAmount ?? 0) : 0)
 
     if (money(cashAmount + qrAmount + cardAmount) !== total) {
       throw new HttpsError('invalid-argument', 'El desglose del pago no coincide con el total.')
     }
 
-    const received = amount(payload.received ?? (method === 'cash' ? total : cashAmount))
+    const received = amount(payload.received ?? payload.payment?.received ?? payload.payment?.cashReceived ?? (method === 'cash' ? total : cashAmount))
     if (received < cashAmount) {
       throw new HttpsError('invalid-argument', 'Efectivo recibido insuficiente.')
     }

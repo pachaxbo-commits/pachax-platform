@@ -536,8 +536,307 @@ try {
 
   console.log('PASS Onboarding reanudable, idempotente, con trial y sin auto-paid plan.')
 
+  // 26. Rechazo de tenant con businessType ajeno a la familia Restaurante
+  console.log('26. Verificando que businessType ajeno (ej. route_distribution) es rechazado...')
+  const distTenantId = `dist_${suffix}`
+  const distRoot = db.doc(`tenants/${distTenantId}`)
+  const distTemplate = getTemplate('route_distribution')
+  await distRoot.set({ tenantId: distTenantId, name: 'Distribuidora QA', businessType: 'route_distribution', configuration: distTemplate.defaults })
+  await distRoot.collection('branches').doc('main').set({ id: 'main', name: 'Principal', active: true })
+  for (const role of distTemplate.roles) {
+    await distRoot.collection('roles').doc(role.id).set({ ...role, tenantId: distTenantId })
+  }
+  await distRoot.collection('members').doc('dist_owner').set({
+    uid: 'dist_owner',
+    tenantId: distTenantId,
+    roleId: 'owner',
+    status: 'active',
+    branchIds: ['main'],
+  })
+  await assert.rejects(
+    () => call('dist_owner', 'saveProduct', 'prod-dist-fail', { product: { id: 'dist_p1', name: 'Insumo Distribuidora', price: 10 } }, distTenantId),
+    err => err.code === 'failed-precondition' && err.message.includes('compatible con Restaurante'),
+    'Tenant route_distribution debe ser rechazado por restaurantCommand'
+  )
+  console.log('PASS Tenant ajeno a Restaurante rechazado correctamente.')
+
+  // 27. Setup de Tenant hamburger_shop (Restaurante de Servicio Rápido)
+  console.log('27. Setup y apertura de turno en tenant hamburger_shop...')
+  const hambTenantId = `hamb_${suffix}`
+  const hambRoot = db.doc(`tenants/${hambTenantId}`)
+  const hambTemplate = getTemplate('hamburger_shop')
+  await hambRoot.set({ tenantId: hambTenantId, name: 'Burger Express QA', businessType: 'hamburger_shop', configuration: hambTemplate.defaults })
+  await hambRoot.collection('branches').doc('main').set({ id: 'main', name: 'Principal', active: true })
+  for (const role of hambTemplate.roles) {
+    await hambRoot.collection('roles').doc(role.id).set({ ...role, tenantId: hambTenantId })
+  }
+  for (const [uid, roleId] of [
+    ['hamb_owner', 'owner'],
+    ['hamb_cashier', 'cashier'],
+    ['hamb_kitchen', 'kitchen'],
+    ['hamb_inventory', 'inventory'],
+  ]) {
+    await hambRoot.collection('members').doc(uid).set({
+      uid,
+      tenantId: hambTenantId,
+      roleId,
+      status: 'active',
+      branchIds: ['main'],
+    })
+  }
+
+  const hambCall = (uid, commandType, operationId, payload = {}) =>
+    executeRestaurantCommand(db, {
+      auth: { uid },
+      data: { tenantId: hambTenantId, branchId: 'main', commandType, operationId, payload },
+    })
+
+  // Abrir turno en hamburger_shop
+  const hambShift = await hambCall('hamb_cashier', 'openShift', 'hamb-shift-1', { openingFloat: 100 })
+  assert.ok(hambShift.shiftId)
+  console.log('PASS Turno abierto con éxito en tenant hamburger_shop.')
+
+  // 28. Validación de Recetas e Insumos en saveProduct
+  console.log('28. Validación estricta de recetas e insumos...')
+  // Auto-referencia prohibida
+  await assert.rejects(
+    () => hambCall('hamb_inventory', 'saveProduct', 'prod-self-ref', {
+      product: {
+        id: 'prod_burger_self',
+        name: 'Burger Loop',
+        price: 30,
+        recipe: [{ ingredientId: 'prod_burger_self', quantityBase: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Un producto no puede ser insumo de sí mismo'
+  )
+
+  // Insumo inexistente prohibido
+  await assert.rejects(
+    () => hambCall('hamb_inventory', 'saveProduct', 'prod-ing-missing', {
+      product: {
+        id: 'prod_burger_ghost',
+        name: 'Burger Fantasma',
+        price: 30,
+        recipe: [{ ingredientId: 'ing_inexistente', quantityBase: 1 }],
+      },
+    }),
+    err => err.code === 'not-found',
+    'Insumo debe existir en el tenant'
+  )
+
+  // Crear insumos reales
+  await hambCall('hamb_inventory', 'saveProduct', 'save-ing-pan', {
+    product: { id: 'ing_pan', name: 'Pan de Hamburguesa', price: 0, stockBase: 10, restaurantType: 'ingredient', baseUnit: 'unit' },
+  })
+  await hambCall('hamb_inventory', 'saveProduct', 'save-ing-carne', {
+    product: { id: 'ing_carne', name: 'Carne de Res 150g', price: 0, stockBase: 10, restaurantType: 'ingredient', baseUnit: 'unit' },
+  })
+  await hambCall('hamb_inventory', 'saveProduct', 'save-ing-queso', {
+    product: { id: 'ing_queso', name: 'Queso Cheddar', price: 0, stockBase: 10, restaurantType: 'ingredient', baseUnit: 'unit' },
+  })
+  // Crear producto directo sin receta (Gaseosa)
+  await hambCall('hamb_inventory', 'saveProduct', 'save-prod-soda', {
+    product: { id: 'prod_soda', name: 'Gaseosa 500ml', price: 10, stockBase: 20, restaurantType: 'beverage', baseUnit: 'unit' },
+  })
+  // Crear producto preparado con receta
+  await hambCall('hamb_inventory', 'saveProduct', 'save-prod-burger', {
+    product: {
+      id: 'prod_burger_clasica',
+      name: 'Hamburguesa Clásica',
+      price: 35,
+      restaurantType: 'prepared',
+      recipe: [
+        { ingredientId: 'ing_pan', quantityBase: 1 },
+        { ingredientId: 'ing_carne', quantityBase: 1 },
+        { ingredientId: 'ing_queso', quantityBase: 1 },
+      ],
+    },
+  })
+  console.log('PASS Insumos y producto con receta creados y validados correctamente.')
+
+  // 29. Crear Punto de Entrega y Pedido counter_service con Mesa de Referencia
+  console.log('29. Pedido counter_service con punto de entrega referencial y deducción de receta...')
+  await hambCall('hamb_owner', 'floorAction', 'floor-add-sec', {
+    action: { type: 'sector.create', id: 'sec_delivery', name: 'Puntos de Entrega', active: true },
+  })
+  await hambCall('hamb_owner', 'floorAction', 'floor-add-point', {
+    action: { type: 'table.create', id: 'tbl_ref_10', name: 'Entrega 10', sectorId: 'sec_delivery', capacity: 4, shape: 'square', active: true },
+  })
+
+  // Venta de 2 Hamburguesas Clásicas (debe consumir 2 Pan, 2 Carne, 2 Queso)
+  const orderRes = await hambCall('hamb_cashier', 'addOrder', 'hamb-order-1', {
+    order: {
+      id: 'ord_hamb_1',
+      displayNumber: '#H01',
+      fulfillmentType: 'table',
+      tableId: 'tbl_ref_10',
+      tableInfo: 'Entrega 10',
+      referenceOnly: true,
+      isReferenceTable: true,
+      status: 'pending',
+      paymentStatus: 'pending',
+      items: [
+        {
+          id: 'line_hamb_1',
+          productId: 'prod_burger_clasica',
+          name: 'Hamburguesa Clásica',
+          basePrice: 35,
+          quantity: 2,
+          lineTotal: 70,
+        },
+      ],
+      total: 70,
+    },
+  })
+  assert.equal(orderRes.orderId, 'ord_hamb_1')
+
+  // Verificar que la mesa NO fue ocupada
+  const tblSnap = await hambRoot.collection('restaurantTables').doc('tbl_ref_10').get()
+  assert.equal(tblSnap.data().status, 'available', 'La mesa de referencia debe permanecer available')
+  assert.ok(!tblSnap.data().activeOrderId, 'activeOrderId no debe estar asignado en mesa de referencia')
+
+  // Verificar descuento de insumos: Pan 10 -> 8, Carne 10 -> 8, Queso 10 -> 8
+  const [panDoc, carneDoc, quesoDoc, burgerDoc] = await Promise.all([
+    hambRoot.collection('products').doc('ing_pan').get(),
+    hambRoot.collection('products').doc('ing_carne').get(),
+    hambRoot.collection('products').doc('ing_queso').get(),
+    hambRoot.collection('products').doc('prod_burger_clasica').get(),
+  ])
+  assert.equal(panDoc.data().stockBase, 8)
+  assert.equal(carneDoc.data().stockBase, 8)
+  assert.equal(quesoDoc.data().stockBase, 8)
+  assert.equal(burgerDoc.data().stockBase, undefined, 'No debe descontar stockBase del producto preparado')
+
+  // Verificar movimientos de inventario tipo sale para los ingredientes
+  const hambMovs = await hambRoot.collection('restaurantInventoryMovements').where('orderId', '==', 'ord_hamb_1').get()
+  assert.equal(hambMovs.docs.length, 3)
+  for (const mDoc of hambMovs.docs) {
+    const m = mDoc.data()
+    assert.equal(m.type, 'sale')
+    assert.equal(m.quantityBase, -2)
+    assert.equal(m.soldQuantity, 2)
+    assert.ok(['ing_pan', 'ing_carne', 'ing_queso'].includes(m.productId))
+    assert.ok(m.reason.includes('Hamburguesa Clásica'))
+  }
+  console.log('PASS Mesa referencial disponible, stock de insumos descontado (-2 c/u) y movimientos registrados.')
+
+  // 30. Producto sin receta, KDS completo, cobro y entrega
+  console.log('30. Flujo KDS, cobro y entrega...')
+  // Pedido con producto directo (Gaseosa)
+  await hambCall('hamb_cashier', 'addOrder', 'hamb-order-soda', {
+    order: {
+      id: 'ord_soda_1',
+      displayNumber: '#S01',
+      fulfillmentType: 'pickup',
+      customerName: 'Mario',
+      customerPhone: '71112233',
+      status: 'pending',
+      paymentStatus: 'pending',
+      items: [
+        { id: 'line_soda_1', productId: 'prod_soda', name: 'Gaseosa 500ml', basePrice: 10, quantity: 2, lineTotal: 20 },
+      ],
+      total: 20,
+    },
+  })
+  const sodaAfter = (await hambRoot.collection('products').doc('prod_soda').get()).data()
+  assert.equal(sodaAfter.stockBase, 18, 'Gaseosa sin receta debe descontar de su propio stock (20 - 2 = 18)')
+
+  // KDS en hamb-order-1: pending -> preparing -> ready -> delivered
+  await hambCall('hamb_kitchen', 'advanceStatus', 'kds-hamb-1', { orderId: 'ord_hamb_1', status: 'preparing' })
+  await hambCall('hamb_kitchen', 'advanceStatus', 'kds-hamb-2', { orderId: 'ord_hamb_1', status: 'ready' })
+  await hambCall('hamb_kitchen', 'advanceStatus', 'kds-hamb-3', { orderId: 'ord_hamb_1', status: 'delivered' })
+  const hambOrderDelivered = (await hambRoot.collection('restaurantOrders').doc('ord_hamb_1').get()).data()
+  assert.equal(hambOrderDelivered.status, 'delivered')
+  assert.ok(hambOrderDelivered.deliveredAt)
+
+  // Cobro
+  await hambCall('hamb_cashier', 'recordPayment', 'pay-hamb-1', {
+    orderId: 'ord_hamb_1',
+    method: 'cash',
+    received: 100,
+  })
+  const paidHamb = (await hambRoot.collection('restaurantOrders').doc('ord_hamb_1').get()).data()
+  assert.equal(paidHamb.paymentStatus, 'paid')
+  console.log('PASS KDS, producto sin receta, cobro y entrega completados.')
+
+  // 31. Cancelación simétrica total y parcial con receta
+  console.log('31. Cancelación simétrica total y parcial de recetas...')
+  // Pedido nuevo con 1 burger para anular completo: Pan pasa de 8 a 7, Carne 8 a 7, Queso 8 a 7
+  await hambCall('hamb_cashier', 'addOrder', 'hamb-order-cancel-all', {
+    order: {
+      id: 'ord_to_cancel',
+      displayNumber: '#C01',
+      fulfillmentType: 'pickup',
+      items: [{ id: 'line_to_cancel', productId: 'prod_burger_clasica', name: 'Hamburguesa Clásica', basePrice: 35, quantity: 1, lineTotal: 35 }],
+      total: 35,
+    },
+  })
+  assert.equal((await hambRoot.collection('products').doc('ing_pan').get()).data().stockBase, 7)
+
+  // Cancelar pedido completo
+  await hambCall('hamb_owner', 'cancelOrder', 'cancel-op-full', { orderId: 'ord_to_cancel', reason: 'Cliente desistió' })
+  assert.equal((await hambRoot.collection('products').doc('ing_pan').get()).data().stockBase, 8, 'Pan devuelto a 8')
+  assert.equal((await hambRoot.collection('products').doc('ing_carne').get()).data().stockBase, 8, 'Carne devuelta a 8')
+  assert.equal((await hambRoot.collection('products').doc('ing_queso').get()).data().stockBase, 8, 'Queso devuelto a 8')
+
+  // Cancelación parcial de ítem: pedir 3 burgers (Pan: 8 -> 5, Carne: 8 -> 5, Queso: 8 -> 5)
+  await hambCall('hamb_cashier', 'addOrder', 'hamb-order-partial', {
+    order: {
+      id: 'ord_partial',
+      displayNumber: '#P01',
+      fulfillmentType: 'pickup',
+      items: [{ id: 'line_partial', productId: 'prod_burger_clasica', name: 'Hamburguesa Clásica', basePrice: 35, quantity: 3, lineTotal: 105 }],
+      total: 105,
+    },
+  })
+  assert.equal((await hambRoot.collection('products').doc('ing_pan').get()).data().stockBase, 5)
+
+  // Anular 1 hamburguesa del pedido de 3
+  const cancelItemRes = await hambCall('hamb_owner', 'cancelOrderItem', 'cancel-op-partial', {
+    orderId: 'ord_partial',
+    itemId: 'line_partial',
+    quantity: 1,
+  })
+  assert.equal(cancelItemRes.total, 70, 'Nuevo total debe ser 70 por las 2 restantes')
+  assert.equal((await hambRoot.collection('products').doc('ing_pan').get()).data().stockBase, 6, 'Pan devuelto proporcionalmente (+1 -> 6)')
+  assert.equal((await hambRoot.collection('products').doc('ing_carne').get()).data().stockBase, 6, 'Carne devuelta proporcionalmente (+1 -> 6)')
+  assert.equal((await hambRoot.collection('products').doc('ing_queso').get()).data().stockBase, 6, 'Queso devuelto proporcionalmente (+1 -> 6)')
+  console.log('PASS Cancelación total y parcial devolvieron stock proporcionalmente de forma simétrica.')
+
+  // 32. Stock insuficiente rechaza toda la transacción
+  console.log('32. Rechazo atómico por stock insuficiente...')
+  // Reducir carne a 0
+  await hambCall('hamb_inventory', 'recordInventoryMovement', 'zero-carne', {
+    productId: 'ing_carne',
+    nextStock: 0,
+    reason: 'Agotado en cocina',
+  })
+  assert.equal((await hambRoot.collection('products').doc('ing_carne').get()).data().stockBase, 0)
+
+  // Intentar pedir 1 hamburguesa (Pan tiene 6, Queso tiene 6, Carne tiene 0)
+  await assert.rejects(
+    () => hambCall('hamb_cashier', 'addOrder', 'hamb-order-fail-stock', {
+      order: {
+        id: 'ord_fail_stock',
+        displayNumber: '#F01',
+        fulfillmentType: 'pickup',
+        items: [{ id: 'line_fail', productId: 'prod_burger_clasica', name: 'Hamburguesa Clásica', basePrice: 35, quantity: 1, lineTotal: 35 }],
+        total: 35,
+      },
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('Stock insuficiente para Carne de Res 150g'),
+    'Debe rechazar la transacción completa indicando el insumo faltante'
+  )
+
+  // Verificar que Pan y Queso NO fueron descontados (se mantuvieron en 6)
+  assert.equal((await hambRoot.collection('products').doc('ing_pan').get()).data().stockBase, 6)
+  assert.equal((await hambRoot.collection('products').doc('ing_queso').get()).data().stockBase, 6)
+  console.log('PASS Transacción rechazada atómicamente por stock insuficiente sin tocar insumos.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (25/25)')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (32/32)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {
