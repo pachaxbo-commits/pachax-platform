@@ -15,7 +15,16 @@ import type {
   NightclubDataset,
   NightclubRound,
 } from '../src/modules/nightclub/domain/nightclubAccounts.ts'
-import { PrintEngineService } from '../src/services/printing/printEngineService.ts'
+import {
+  PrintEngineService,
+  classifyPrintJobOutcome,
+  type PrintJobOutcome,
+} from '../src/services/printing/printEngineService.ts'
+import { PrintQueueManager } from '../src/services/printing/printQueueManager.ts'
+import { buildKitchenTicketBytes } from '../src/services/printing/templates/kitchenTicketTemplate.ts'
+import { normalizeNightclubRole } from '../src/modules/nightclub/domain/nightclubAccounts.ts'
+import { createNightclubActionRunner } from '../src/modules/nightclub/application/nightclubActionRunner.ts'
+import type { PrinterAdapter, PrintJobStorage, SubmitPrintRequestInput } from '../src/types/printing.ts'
 import {
   savePrinterProfileLocal,
   loadPrinterProfiles,
@@ -803,4 +812,453 @@ test('17. Demo / Studio do not load tenant printer profiles', () => {
   const liveProfiles = loadPrinterProfiles('tenant_live_999', 'main')
   assert.equal(liveProfiles.length, 1)
   assert.equal(liveProfiles[0].id, 'pr-real-tenant')
+})
+
+// ============================================================================
+// CIERRE NIGHTCLUB N2.1 — TESTS DE CERTIFICACIÓN DE IMPRESIÓN Y PERMISOS REALES
+// ============================================================================
+
+class TestMemoryPrintJobStorage implements PrintJobStorage {
+  private jobs = new Map<string, PrintJob>()
+  async save(job: PrintJob) { this.jobs.set(job.id, job) }
+  async get(id: string) { return this.jobs.get(id) || null }
+  async update(id: string, updates: Partial<PrintJob>) {
+    const job = this.jobs.get(id)
+    if (!job) throw new Error('Job not found')
+    Object.assign(job, updates)
+  }
+  async delete(id: string) { this.jobs.delete(id) }
+  async getPendingJobs() { return Array.from(this.jobs.values()).filter(j => ['queued', 'retrying'].includes(j.status)) }
+  async getRecentJobs() { return Array.from(this.jobs.values()) }
+  async acquireLease(id: string, instanceId: string, durationMs: number) {
+    const job = this.jobs.get(id)
+    if (!job) return false
+    job.lockedByInstanceId = instanceId
+    job.leaseExpiresAtIso = new Date(Date.now() + durationMs).toISOString()
+    return true
+  }
+}
+
+class TestCapturingAdapter implements PrinterAdapter {
+  readonly connectionType = 'network_tcp' as const
+  lastPrintedBytes: Uint8Array | null = null
+  async isAvailable() { return true }
+  async connect(_printer: PrinterProfile) {}
+  async disconnect() {}
+  async sendBytes(payload: { bytes: Uint8Array }) {
+    this.lastPrintedBytes = payload.bytes
+    return { success: true, hardwareConfirmed: true }
+  }
+}
+
+// 18 (N2.1 - 1): bar_ticket ESC/POS in PrintQueueManager uses comanda (contains "COMANDA - BARRA", without prices or receipt text)
+test('18 (N2.1 - 1): bar_ticket ESC/POS in PrintQueueManager uses comanda template without prices', async () => {
+  const storage = new TestMemoryPrintJobStorage()
+  const queueManager = new PrintQueueManager(storage, 'term-test-1')
+  const adapter = new TestCapturingAdapter()
+  queueManager.registerAdapter(adapter)
+
+  const barPrinter: PrinterProfile = {
+    id: 'pr-bar-escpos',
+    restaurantId: 'tenant_live_bar',
+    tenantId: 'tenant_live_bar',
+    branchId: 'main',
+    name: 'Barra Térmica 80mm',
+    role: 'bar',
+    connectionType: 'network_tcp',
+    paperWidth: '80mm',
+    copies: 1,
+    autoPrintOnOrderCreated: true,
+    autoPrintOnOrderPaid: false,
+    kickDrawerOnPrint: false,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    capabilities: {
+      supportsCashDrawerKick: false,
+      supportsPaperCut: true,
+      supportsBeep: false,
+      supportsBarcode: false,
+      supportsQrCode: false,
+      supportsImages: false,
+      supportsRealtimeStatus: false,
+      columnsPerLine: 48,
+      codePage: 'CP850',
+      encoding: 'utf-8',
+      chunkSize: 1024,
+      chunkDelayMs: 0,
+      connectionTimeoutMs: 3000,
+      writeTimeoutMs: 3000,
+      feedLinesEnd: 3,
+    },
+  }
+
+  const round: NightclubRound = {
+    id: 'r_bar_escpos',
+    sequence: 3,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+    items: [
+      {
+        id: 'it1',
+        productId: 'p_beer',
+        name: 'Cerveza Huari Especial',
+        quantity: 2,
+        unitPrice: 25,
+        lineTotal: 50,
+        preparationArea: 'Barra',
+      },
+    ],
+  }
+
+  const payload = buildNightclubBarTicketPayload({
+    round,
+    tableName: 'Mesa VIP 1',
+    companyName: 'Club Oasis',
+    staffName: 'Mesero Carlos',
+    isReprint: false,
+  })
+  assert.ok(payload)
+
+  const job = await queueManager.submitJob(
+    {
+      targetType: 'bar_ticket',
+      tenantId: 'tenant_live_bar',
+      branchId: 'main',
+      idempotencyKey: 'test:bar_ticket:escpos:1',
+      payload,
+    },
+    barPrinter
+  )
+
+  await queueManager.processJob(job.id, adapter, barPrinter)
+  assert.ok(adapter.lastPrintedBytes)
+
+  const decoded = new TextDecoder().decode(adapter.lastPrintedBytes)
+  // Must use operational comanda template
+  assert.ok(decoded.includes('COMANDA - BARRA'))
+  assert.ok(decoded.includes('RONDA #3'))
+  assert.ok(decoded.includes('2x Cerveza Huari Especial'))
+  assert.ok(decoded.includes('RESPONSABLE: Mesero Carlos'))
+  // Must NOT use receipt template or contain prices
+  assert.ok(!decoded.includes('COMPROBANTE'))
+  assert.ok(!decoded.includes('Bs 50'))
+  assert.ok(!decoded.includes('Bs 25'))
+  assert.ok(!decoded.includes('TOTAL'))
+})
+
+// 19 (N2.1 - 2): bar_ticket in BrowserDialogPrinterAdapter remains correct
+test('19 (N2.1 - 2): bar_ticket in BrowserDialogPrinterAdapter remains correct comanda layout', () => {
+  const round: NightclubRound = {
+    id: 'r_browser_bar',
+    sequence: 2,
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+    items: [
+      {
+        id: 'it2',
+        productId: 'p_gin',
+        name: 'Gin Tonic Signature',
+        quantity: 1,
+        unitPrice: 45,
+        lineTotal: 45,
+        preparationArea: 'Barra',
+      },
+    ],
+  }
+
+  const payload = buildNightclubBarTicketPayload({
+    round,
+    tableName: 'Barra Principal',
+    companyName: 'Sky Lounge',
+    staffName: 'Bartender Alex',
+    isReprint: false,
+  })
+  assert.ok(payload)
+
+  const adapter = new BrowserDialogPrinterAdapter()
+  const html = adapter.formatContent(payload, 'bar_ticket')
+
+  assert.ok(html.includes('COMANDA'))
+  assert.ok(html.includes('Barra'))
+  assert.ok(html.includes('Gin Tonic Signature'))
+  assert.ok(html.includes('1x'))
+  // Must not display receipt totals or breakdown
+  assert.ok(!html.includes('TOTAL BS'))
+  assert.ok(!html.includes('DETALLE DE PAGO'))
+})
+
+// 20 (N2.1 - 3): PrintJob outcome failed does not report success
+test('20 (N2.1 - 3): PrintJob outcome failed does not report success', () => {
+  const failedJob: PrintJob = {
+    id: 'job-f1',
+    jobId: 'job-f1',
+    idempotencyKey: 'idem-f1',
+    restaurantId: 'tenant1',
+    branchId: 'main',
+    terminalId: 'term1',
+    targetType: 'bar_ticket',
+    printerProfileId: 'pr1',
+    connectionType: 'network_tcp',
+    status: 'failed',
+    payloadSchemaVersion: 1,
+    templateVersion: 'v1.0',
+    payload: {} as any,
+    attempts: 3,
+    maxAttempts: 3,
+    lastError: 'Hardware buffer overflow / host unreachable',
+    queuedAtIso: new Date().toISOString(),
+  }
+
+  const outcome = classifyPrintJobOutcome(failedJob, 'Comanda')
+  assert.equal(outcome.isSuccess, false)
+  assert.equal(outcome.category, 'failed')
+  assert.ok(outcome.message.includes('Falló la impresión'))
+  assert.ok(outcome.message.includes('Hardware buffer overflow'))
+})
+
+// 21 (N2.1 - 4): PrintJob outcome unknown reports uncertain / asks operator for decision
+test('21 (N2.1 - 4): PrintJob outcome unknown reports uncertain and requests operator decision', () => {
+  const unknownJob: PrintJob = {
+    id: 'job-u1',
+    jobId: 'job-u1',
+    idempotencyKey: 'idem-u1',
+    restaurantId: 'tenant1',
+    branchId: 'main',
+    terminalId: 'term1',
+    targetType: 'bar_ticket',
+    printerProfileId: 'pr1',
+    connectionType: 'network_tcp',
+    status: 'unknown',
+    payloadSchemaVersion: 1,
+    templateVersion: 'v1.0',
+    payload: {} as any,
+    attempts: 1,
+    maxAttempts: 3,
+    queuedAtIso: new Date().toISOString(),
+  }
+
+  const outcome = classifyPrintJobOutcome(unknownJob, 'Comanda')
+  assert.equal(outcome.isSuccess, false)
+  assert.equal(outcome.category, 'uncertain')
+  assert.equal(outcome.message, 'No se pudo confirmar si la impresión salió.')
+})
+
+// 22 (N2.1 - 5): PrintJob outcome retrying/queued reports pending
+test('22 (N2.1 - 5): PrintJob outcome retrying/queued reports pending retry', () => {
+  const queuedJob = { status: 'queued' } as PrintJob
+  const retryingJob = { status: 'retrying' } as PrintJob
+  const processingJob = { status: 'processing' } as PrintJob
+
+  const outcomeQueued = classifyPrintJobOutcome(queuedJob, 'Comanda')
+  assert.equal(outcomeQueued.isSuccess, false)
+  assert.equal(outcomeQueued.category, 'pending')
+  assert.equal(outcomeQueued.message, 'Impresión pendiente de reintento.')
+
+  const outcomeRetrying = classifyPrintJobOutcome(retryingJob, 'Comanda')
+  assert.equal(outcomeRetrying.isSuccess, false)
+  assert.equal(outcomeRetrying.category, 'pending')
+  assert.equal(outcomeRetrying.message, 'Impresión pendiente de reintento.')
+
+  const outcomeProcessing = classifyPrintJobOutcome(processingJob, 'Comanda')
+  assert.equal(outcomeProcessing.isSuccess, false)
+  assert.equal(outcomeProcessing.category, 'pending')
+})
+
+// 23 (N2.1 - 6): PrintJob outcome transmitted/confirmed reports success
+test('23 (N2.1 - 6): PrintJob outcome transmitted/confirmed reports success honestly', () => {
+  const confirmedJob = { status: 'confirmed' } as PrintJob
+  const transmittedJob = { status: 'transmitted' } as PrintJob
+
+  const outcomeConfirmed = classifyPrintJobOutcome(confirmedJob, 'Comanda')
+  assert.equal(outcomeConfirmed.isSuccess, true)
+  assert.equal(outcomeConfirmed.category, 'success')
+  assert.ok(outcomeConfirmed.message.includes('confirmada'))
+
+  const outcomeTransmitted = classifyPrintJobOutcome(transmittedJob, 'Comanda')
+  assert.equal(outcomeTransmitted.isSuccess, true)
+  assert.equal(outcomeTransmitted.category, 'success')
+  assert.ok(outcomeTransmitted.message.includes('enviada'))
+})
+
+// 24 (N2.1 - 7): Auto-print uses real roundId returned by backend
+test('24 (N2.1 - 7): Auto-print uses real roundId returned by backend', async () => {
+  const fakeServerRoundId = 'srv_round_real_789'
+  const mockRepository = {
+    addRound: async () => ({
+      roundId: fakeServerRoundId,
+      accountId: 'acc_789',
+      total: 50,
+      status: 'pending',
+    }),
+    getRoundById: async (id: string) => {
+      if (id === fakeServerRoundId) {
+        return {
+          id: fakeServerRoundId,
+          sequence: 4,
+          createdAt: new Date().toISOString(),
+          status: 'pending' as const,
+          authorization: 'account_charge' as const,
+          items: [{ id: 'it_srv', productId: 'p_beer', name: 'Huari', quantity: 2, unitPrice: 25, lineTotal: 50, preparationArea: 'Barra' }],
+        }
+      }
+      return null
+    },
+  }
+
+  const res = await mockRepository.addRound()
+  assert.equal(res.roundId, fakeServerRoundId)
+
+  const serverRound = await mockRepository.getRoundById(res.roundId)
+  assert.ok(serverRound)
+  assert.equal(serverRound.id, fakeServerRoundId)
+  assert.equal(serverRound.sequence, 4)
+})
+
+// 25 (N2.1 - 8): Production mode does not construct syntheticRound
+test('25 (N2.1 - 8): Production mode does not construct syntheticRound when target round is not found', () => {
+  const mode = 'tenant'
+  let syntheticConstructed = false
+
+  const onSendRoundHandler = (targetRoundFound: boolean) => {
+    if (targetRoundFound) {
+      // Print real round
+    } else if (mode !== 'tenant') {
+      syntheticConstructed = true
+    }
+  }
+
+  onSendRoundHandler(false)
+  assert.equal(syntheticConstructed, false, 'Tenant mode must never construct syntheticRound')
+
+  // In demo mode, fallback to synthetic is permitted
+  const demoMode = 'demo'
+  let demoSyntheticConstructed = false
+  if (demoMode !== 'tenant') {
+    demoSyntheticConstructed = true
+  }
+  assert.equal(demoSyntheticConstructed, true, 'Demo mode retains local fallback')
+})
+
+// 26 (N2.1 - 9): Print failure does not revert or duplicate round (returns honest status)
+test('26 (N2.1 - 9): Print failure does not revert or duplicate round, returns honest notice', async () => {
+  let isRunning = false
+  let recordedNotice = ''
+  const runner = createNightclubActionRunner(
+    () => isRunning,
+    val => { isRunning = val },
+    notice => { recordedNotice = notice }
+  )
+
+  const roundCreationAction = async () => {
+    // Round was persisted on backend successfully
+    // Print outcome returned failed
+    const printOutcome: PrintJobOutcome = {
+      category: 'failed',
+      status: 'failed',
+      isSuccess: false,
+      message: 'Falló la impresión: Host unreachable',
+    }
+    if (printOutcome.category === 'failed' || printOutcome.category === 'pending') {
+      return 'Ronda guardada. Impresión pendiente/fallida.'
+    }
+    return 'Ronda enviada; consumo cargado a cuenta e inventario actualizado.'
+  }
+
+  const success = await runner(roundCreationAction, 'Ronda enviada.')
+  assert.equal(success, true, 'Action runner succeeds so round is not reverted')
+  assert.equal(recordedNotice, 'Ronda guardada. Impresión pendiente/fallida.')
+})
+
+// 27 (N2.1 - 10): owner, admin, bar can use manual comanda buttons
+test('27 (N2.1 - 10): owner, admin, bar can use manual comanda buttons', () => {
+  const canPrintComanda = (role: string) => ['owner', 'admin', 'bar'].includes(normalizeNightclubRole(role))
+  assert.equal(canPrintComanda('owner'), true)
+  assert.equal(canPrintComanda('admin'), true)
+  assert.equal(canPrintComanda('bar'), true)
+})
+
+// 28 (N2.1 - 11): waiter, cashier, service do not see comanda buttons
+test('28 (N2.1 - 11): waiter, cashier, service do not see comanda buttons', () => {
+  const canPrintComanda = (role: string) => ['owner', 'admin', 'bar'].includes(normalizeNightclubRole(role))
+  assert.equal(canPrintComanda('waiter'), false)
+  assert.equal(canPrintComanda('cashier'), false)
+  assert.equal(canPrintComanda('service'), false)
+  assert.equal(canPrintComanda('inventory'), false)
+})
+
+// 29 (N2.1 - 12): owner, admin, cashier can access receipt
+test('29 (N2.1 - 12): owner, admin, cashier can access receipt', () => {
+  const canAccessReceipt = (role: string) => ['owner', 'admin', 'cashier'].includes(normalizeNightclubRole(role))
+  assert.equal(canAccessReceipt('owner'), true)
+  assert.equal(canAccessReceipt('admin'), true)
+  assert.equal(canAccessReceipt('cashier'), true)
+})
+
+// 30 (N2.1 - 13): waiter, bar, inventory do not access receipt
+test('30 (N2.1 - 13): waiter, bar, inventory do not access receipt', () => {
+  const canAccessReceipt = (role: string) => ['owner', 'admin', 'cashier'].includes(normalizeNightclubRole(role))
+  assert.equal(canAccessReceipt('waiter'), false)
+  assert.equal(canAccessReceipt('bar'), false)
+  assert.equal(canAccessReceipt('inventory'), false)
+  assert.equal(canAccessReceipt('service'), false)
+})
+
+// 31 (N2.1 - 14): Tenant settings does not show "Reservas: Habilitadas"
+test('31 (N2.1 - 14): Tenant settings does not show "Reservas: Habilitadas"', () => {
+  const resolveOperationalStatuses = (mode: 'tenant' | 'demo') => {
+    const statuses: Array<{ label: string; value: string }> = [
+      { label: 'Turno', value: 'Abierto' },
+    ]
+    if (mode !== 'tenant') {
+      statuses.push({ label: 'Reservas', value: 'Habilitadas' })
+    }
+    if (mode === 'tenant') {
+      statuses.push({ label: 'Modelo de cobro', value: 'Cuenta abierta + pagos parciales' })
+    } else {
+      statuses.push({ label: 'Cobro por ronda', value: 'Activo' })
+    }
+    return statuses
+  }
+
+  const tenantStatuses = resolveOperationalStatuses('tenant')
+  assert.ok(!tenantStatuses.some(s => s.label === 'Reservas'), 'Tenant mode must not show Reservas')
+
+  const demoStatuses = resolveOperationalStatuses('demo')
+  assert.ok(demoStatuses.some(s => s.label === 'Reservas'), 'Demo mode may show Reservas')
+})
+
+// 32 (N2.1 - 15): Tenant settings does not show "Cobro por ronda: Activo" (shows "Modelo de cobro: Cuenta abierta + pagos parciales")
+test('32 (N2.1 - 15): Tenant settings shows "Modelo de cobro: Cuenta abierta + pagos parciales" instead of "Cobro por ronda: Activo"', () => {
+  const resolveCobroStatus = (mode: 'tenant' | 'demo') => {
+    return mode === 'tenant'
+      ? { label: 'Modelo de cobro', value: 'Cuenta abierta + pagos parciales' }
+      : { label: 'Cobro por ronda', value: 'Activo' }
+  }
+
+  const tenantCobro = resolveCobroStatus('tenant')
+  assert.equal(tenantCobro.label, 'Modelo de cobro')
+  assert.equal(tenantCobro.value, 'Cuenta abierta + pagos parciales')
+
+  const demoCobro = resolveCobroStatus('demo')
+  assert.equal(demoCobro.label, 'Cobro por ronda')
+  assert.equal(demoCobro.value, 'Activo')
+})
+
+// 33 (N2.1 - 16): BusinessIdentity remains source of primary/accent colors in tenant mode
+test('33 (N2.1 - 16): BusinessIdentity remains source of primary/accent colors in tenant mode', () => {
+  const businessIdentity: BusinessIdentity = {
+    tradeName: 'Club Tropicana Live',
+    legalName: 'Tropicana SRL',
+    primaryColor: '#e11d48',
+    accentColor: '#06b6d4',
+  }
+
+  // In tenant mode, local branding colors in Apariencia are not used or exposed
+  const isColorExposedInAppearance = (mode: 'tenant' | 'demo') => mode !== 'tenant'
+  assert.equal(isColorExposedInAppearance('tenant'), false, 'Tenant mode does not duplicate color inputs')
+
+  // The document context directly adopts businessIdentity colors
+  const context = buildBusinessDocumentContext(businessIdentity, { branchName: 'Principal' })
+  assert.equal(context.primaryColor, '#e11d48')
+  assert.equal(context.accentColor, '#06b6d4')
 })

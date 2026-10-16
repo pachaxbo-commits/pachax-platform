@@ -6,6 +6,7 @@ import type {
   PrintJob,
   PrintJobPayload,
   PrintJobResolution,
+  PrintJobStatus,
   PrintJobStorage,
   PrintJobTarget,
   RequestReprintInput,
@@ -14,6 +15,70 @@ import type {
 import { getActiveTenant } from '../../store/activeTenant.ts'
 import { DiagnosticPrinterAdapter } from './diagnosticPrinterAdapter.ts'
 import { PrintQueueManager } from './printQueueManager.ts'
+
+export type PrintJobOutcomeCategory = 'success' | 'pending' | 'uncertain' | 'failed'
+
+export interface PrintJobOutcome {
+  category: PrintJobOutcomeCategory
+  status: PrintJobStatus
+  isSuccess: boolean
+  message: string
+  job?: PrintJob
+}
+
+export function classifyPrintJobOutcome(job: PrintJob, contextLabel: string = 'Impresión'): PrintJobOutcome {
+  switch (job.status) {
+    case 'confirmed':
+      return {
+        category: 'success',
+        status: job.status,
+        isSuccess: true,
+        message: `${contextLabel} confirmada por hardware.`,
+        job,
+      }
+    case 'transmitted':
+    case 'resolved':
+      return {
+        category: 'success',
+        status: job.status,
+        isSuccess: true,
+        message: `${contextLabel} enviada a la impresora.`,
+        job,
+      }
+    case 'queued':
+    case 'routing':
+    case 'formatting':
+    case 'processing':
+    case 'connecting':
+    case 'transmitting':
+    case 'retrying':
+      return {
+        category: 'pending',
+        status: job.status,
+        isSuccess: false,
+        message: 'Impresión pendiente de reintento.',
+        job,
+      }
+    case 'unknown':
+      return {
+        category: 'uncertain',
+        status: job.status,
+        isSuccess: false,
+        message: 'No se pudo confirmar si la impresión salió.',
+        job,
+      }
+    case 'failed':
+    case 'cancelled':
+    default:
+      return {
+        category: 'failed',
+        status: job.status,
+        isSuccess: false,
+        message: `Falló la impresión${job.lastError ? `: ${job.lastError}` : '.'}`,
+        job,
+      }
+  }
+}
 
 export class PrintEngineService {
   private static instance: PrintEngineService | null = null

@@ -16,7 +16,7 @@ export function CanonicalReceiptModal({
   onClose: () => void
   documentContext: BusinessDocumentContext
   receiptData: CanonicalReceiptData
-  onPrint?: () => void | Promise<void>
+  onPrint?: () => unknown | Promise<unknown>
 }) {
   const [sharing, setSharing] = useState(false)
   const [printing, setPrinting] = useState(false)
@@ -48,8 +48,14 @@ export function CanonicalReceiptModal({
     setPrinting(true)
     setStatusMessage(null)
     try {
-      await onPrint()
-      setStatusMessage('Ticket enviado a impresión')
+      const res = await onPrint()
+      if (typeof res === 'string' && res.trim().length > 0) {
+        setStatusMessage(res)
+      } else if (res && typeof res === 'object' && 'message' in res && typeof (res as any).message === 'string') {
+        setStatusMessage((res as any).message)
+      } else {
+        setStatusMessage('Ticket enviado a impresión')
+      }
       setTimeout(() => setStatusMessage(null), 3000)
     } catch (_err: unknown) {
       setStatusMessage('Fallo al enviar a impresora')

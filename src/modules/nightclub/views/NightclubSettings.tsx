@@ -64,6 +64,16 @@ export function NightclubSettings({
   const [message, setMessage] = useState('')
 
   const saveBranding = async () => {
+    if (mode === 'tenant') {
+      try {
+        if (branding.theme) localStorage.setItem('pachax:nightclub-theme', branding.theme)
+        if (branding.surfaceColor) localStorage.setItem('pachax:nightclub-surface', branding.surfaceColor)
+      } catch {
+        // ignore in private browsing
+      }
+      setMessage('Preferencias visuales guardadas localmente.')
+      return
+    }
     if (await onSaveBranding(branding)) {
       setMessage('Preferencias visuales guardadas.')
     }
@@ -178,16 +188,20 @@ export function NightclubSettings({
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
-            <ColorField
-              label="Dorado principal"
-              value={branding.primaryColor}
-              onChange={(value) => setBranding({ ...branding, primaryColor: value })}
-            />
-            <ColorField
-              label="Estado positivo"
-              value={branding.accentColor}
-              onChange={(value) => setBranding({ ...branding, accentColor: value })}
-            />
+            {mode !== 'tenant' && (
+              <>
+                <ColorField
+                  label="Dorado principal"
+                  value={branding.primaryColor}
+                  onChange={(value) => setBranding({ ...branding, primaryColor: value })}
+                />
+                <ColorField
+                  label="Estado positivo"
+                  value={branding.accentColor}
+                  onChange={(value) => setBranding({ ...branding, accentColor: value })}
+                />
+              </>
+            )}
             <ColorField
               label="Superficie"
               value={branding.surfaceColor}
@@ -237,8 +251,12 @@ export function NightclubSettings({
       <Accordion icon={SlidersHorizontal} title="Operación" description="Estado del turno y reglas activas">
         <div className="grid gap-3 sm:grid-cols-3">
           <Status label="Turno" value={data.shift?.status === 'open' ? 'Abierto' : 'Cerrado'} />
-          <Status label="Reservas" value="Habilitadas" />
-          <Status label="Cobro por ronda" value="Activo" />
+          {mode !== 'tenant' && <Status label="Reservas" value="Habilitadas" />}
+          {mode === 'tenant' ? (
+            <Status label="Modelo de cobro" value="Cuenta abierta + pagos parciales" />
+          ) : (
+            <Status label="Cobro por ronda" value="Activo" />
+          )}
         </div>
         <p className="mt-3 text-xs text-slate-500">
           Los cambios de turno se realizan en Caja. Los estados de mesa se administran desde Zonas para conservar la trazabilidad.

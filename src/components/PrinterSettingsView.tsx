@@ -14,7 +14,7 @@ import {
   Play,
   Monitor,
 } from 'lucide-react'
-import { PrintEngineService } from '../services/printing/printEngineService'
+import { PrintEngineService, classifyPrintJobOutcome } from '../services/printing/printEngineService'
 import { PrintMigrationService, type PrintingEngineVersion } from '../services/printing/printMigrationService'
 import { AndroidNetworkTcpPrinterAdapter } from '../adapters/printing/androidNetworkTcpPrinterAdapter'
 import { AndroidBluetoothSppAdapter } from '../adapters/printing/androidBluetoothSppAdapter'
@@ -215,7 +215,7 @@ export function PrinterSettingsView({
         createdIso: new Date().toISOString(),
       }
 
-      await engine.submitPrintRequest({
+      const job = await engine.submitPrintRequest({
         targetType: 'test',
         printerProfileId: profile.id,
         tenantId: effectiveTenantId,
@@ -224,7 +224,16 @@ export function PrinterSettingsView({
         payload,
       })
 
-      setStatusMessage(`Prueba enviada con éxito a "${profile.name}".`)
+      const outcome = classifyPrintJobOutcome(job, 'Prueba de impresión')
+      if (outcome.isSuccess) {
+        setStatusMessage(`Prueba enviada con éxito a "${profile.name}".`)
+      } else if (outcome.category === 'uncertain') {
+        setTestError(`No se pudo confirmar si la prueba salió en "${profile.name}".`)
+      } else if (outcome.category === 'pending') {
+        setStatusMessage(`Prueba pendiente de reintento en "${profile.name}".`)
+      } else {
+        setTestError(`Fallo al enviar prueba a "${profile.name}": ${outcome.message}`)
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al imprimir'
       setTestError(`Fallo al enviar prueba a "${profile.name}": ${msg}`)

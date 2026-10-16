@@ -1,6 +1,46 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: N2.1 - Cierre Nightclub: Impresión Real y Permisos Honestos (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `5e06bee` al iniciar este bloque).
+- **Objetivo Cumplido**: Cierre definitivo de la fase N2.1 en Nightclub resolviendo los 7 puntos identificados tras la revisión de N2:
+  1. **Plantilla Operacional ESC/POS de Comanda de Barra (`src/services/printing/templates/kitchenTicketTemplate.ts`, `src/services/printing/printQueueManager.ts`)**:
+     - `PrintQueueManager.processJob` enrutaba `bar_ticket` erróneamente a la plantilla de recibo en adaptadores Bluetooth SPP y TCP.
+     - Se extendió `buildKitchenTicketBytes(payload, paperWidth, areaLabel)` (alias `buildOperationalTicketBytes`) para admitir `areaLabel: 'BARRA'`.
+     - En ESC/POS para barra imprime `COMANDA - BARRA`, número de ronda/orden, mesa/destino, responsable, cantidades, productos y observaciones, estrictamente SIN precios.
+  2. **Clasificación Honesta de Resultados de Impresión (`src/services/printing/printEngineService.ts`, `PrinterSettingsView.tsx`, `CanonicalReceiptModal.tsx`, `NightclubExperience.tsx`)**:
+     - Introducido `classifyPrintJobOutcome(job, contextLabel)` con estados canónicos: `success` (`confirmed`, `transmitted`), `pending` (`queued`, `retrying`, `processing`), `uncertain` (`unknown`) y `failed` (`failed`).
+     - Ya no se confunde una `Promise` resuelta con una impresión exitosa.
+     - Aplicado en prueba de impresora, autoimpresión de barra, reimpresión manual de comanda y recibo térmico.
+  3. **Autoimpresión Basada en Ronda Servidor Real (`tenantNightclubActions.ts`, `useTenantNightclubController.ts`, `NightclubExperience.tsx`, `tenantNightclubRepository.ts`)**:
+     - Eliminada la construcción de `syntheticRound` en modo tenant.
+     - `onSendRound` y `onSettleRound` devuelven el ACK del servidor con `{ success, roundId, ... }`.
+     - `TenantNightclubRepository.getRoundById` consulta la ronda persistida en Firestore tras el commit del backend.
+  4. **Fallo de Impresión No Bloqueante con Notificación Honesta**:
+     - Si la autoimpresión falla o queda en reintento, la UI no bloquea ni revierte ni duplica la ronda en Firestore.
+     - Retorna notificación honesta: `"Ronda guardada. Impresión pendiente/fallida: ..."`.
+  5. **Permisos Honestos de Impresión por Rol (`NightclubExperience.tsx`, `NightclubAccounts.tsx`, `NightclubBar.tsx`, `NightclubBarHistory.tsx`)**:
+     - Impresión/Reimpresión manual de comanda restringida a: `owner`, `admin`, `bar`. Meseros, cajeros y servicio no ven ni pueden invocar la acción.
+     - Recibo digital/térmico restringido a: `owner`, `admin`, `cashier`. Barra, mesero e inventario no ven ni tienen acceso a la acción de cobro/recibo.
+  6. **Alineación de Configuración y Marca en Modo Tenant (`NightclubSettings.tsx`)**:
+     - En modo tenant se ocultan los inputs redundantes de colores (`primaryColor`, `accentColor`) en "Apariencia", delegando la identidad visual y comercial estrictamente a `BusinessIdentity`.
+     - Las preferencias visuales de experiencia (`theme`, `surfaceColor`) se guardan localmente (`localStorage`).
+  7. **Limpieza de Textos Operacionales Falsos en Modo Tenant**:
+     - Se eliminó "Reservas: Habilitadas" en Configuración.
+     - Se sustituyó "Cobro por ronda: Activo" por "Modelo de cobro: Cuenta abierta + pagos parciales" en Configuración.
+     - Se suprimió la métrica "Reservas confirmadas" del Dashboard en modo tenant.
+  8. **Suite de Pruebas Automatizadas (`tests/nightclubPrintingAndBusinessIdentity.test.ts`)**:
+     - 33 pruebas completas (17 de N2 + 16 de N2.1) cubriendo todos los casos de aislamiento, plantillas ESC/POS, autoimpresión real, manejo de errores y matriz de permisos.
+- **Verificaciones Ejecutadas**:
+  - `npx tsx --test tests/nightclubPrintingAndBusinessIdentity.test.ts`: 33/33 pruebas aprobadas.
+  - `npm run test:nightclub`: 87/87 pruebas aprobadas.
+  - `npm run test:platform`: 99/99 pruebas aprobadas.
+  - `npm run typecheck`: 0 errores (`tsc -b` limpio).
+  - `npm run build`: Compilación de producción exitosa en 5.22s.
+  - `git diff --check`: 0 errores de formato.
+
 ## Checkpoint: N1.1 - Cierre Técnico de Nightclub: Integración Productiva Honesta (16/10/2026)
+
 
 - **Rama**: `cambios-dario` (HEAD verificado en `6372db9` al iniciar este bloque).
 - **Objetivo Cumplido**: Consolidación honesta de la integración productiva de `NightclubExperience` con Firebase/Functions y Firestore, eliminando toasts optimistas prematuros, asegurando confirmación síncrona/async del backend con propagación de errores de gateway, protegiendo contra doble envío, asegurando continuidad en el modelo de lectura para cuentas e historial de turnos cerrados, ocultando capacidades no conectadas en modo tenant e implementando la creación real de personal con credenciales seguras.

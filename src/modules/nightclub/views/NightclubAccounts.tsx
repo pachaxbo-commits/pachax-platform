@@ -35,6 +35,7 @@ export function NightclubAccounts({
   onOpenReceipt,
   onPrintComanda,
   canPrintComanda = true,
+  canAccessReceipt = true,
   mode = 'demo',
 }: {
   data: NightclubDataset
@@ -52,6 +53,7 @@ export function NightclubAccounts({
   onOpenReceipt?: (account: NightclubAccount) => void
   onPrintComanda?: (accountId: string, roundId: string, isReprint?: boolean) => void | Promise<void>
   canPrintComanda?: boolean
+  canAccessReceipt?: boolean
   mode?: 'tenant' | 'demo' | 'studio'
 }) {
   const [search, setSearch] = useState('')
@@ -236,7 +238,7 @@ export function NightclubAccounts({
                     </button>
                   </>
                 )}
-                {paidTotal > 0 && onOpenReceipt && (
+                {paidTotal > 0 && onOpenReceipt && canAccessReceipt && (
                   <button
                     type="button"
                     onClick={() => onOpenReceipt(account)}

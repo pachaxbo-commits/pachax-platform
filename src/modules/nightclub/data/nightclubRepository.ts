@@ -66,6 +66,7 @@ export interface NightclubRepository {
   saveProduct(input: { operationId: string; product: NightclubProduct }): Promise<void>
   saveInventory(input: { operationId: string; item: NightclubInventoryItem }): Promise<void>
   saveCustomer(input: { operationId: string; customer: NightclubCustomer }): Promise<void>
+  getRoundById?(roundId: string): Promise<NightclubRound | null>
 }
 
 export const nightclubTenantPaths = (tenantId: string) => ({

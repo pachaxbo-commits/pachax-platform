@@ -11,13 +11,14 @@ const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFr
 const when = (at: string) => new Date(at).toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' })
 const initialFilters = (shiftId: string): NightclubHistoryFilters => ({ shiftId, from: '', to: '', query: '', table: '', waiter: '', product: '', category: '', paymentMethod: '', status: 'all', user: '' })
 
-export function NightclubBarHistory({ data, role, actor, onRefundRound, canRefundOverride, onOpenReceipt }: {
+export function NightclubBarHistory({ data, role, actor, onRefundRound, canRefundOverride, onOpenReceipt, canAccessReceipt = true }: {
   data: NightclubDataset
   role: string
   actor: string
   onRefundRound: (accountId: string, roundId: string, reason: string) => boolean | void | Promise<boolean | void>
   canRefundOverride?: boolean
   onOpenReceipt?: (account: NightclubAccount) => void
+  canAccessReceipt?: boolean
 }) {
   const [filters, setFilters] = useState<NightclubHistoryFilters>(() => initialFilters(data.shift?.id || 'all'))
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -67,7 +68,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound, canRefun
     {view === 'accounts' ? <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{result.accounts.map(row => <button key={row.account.id} onClick={() => setSelectedId(row.account.id)} className="rounded-xl border border-slate-700 bg-[#121b20] p-4 text-left hover:border-amber-400"><strong className="block text-base">{row.label}</strong><span className="mt-1 block text-xs text-slate-400">{when(row.account.openedAt)} · {row.account.rounds.length} ronda(s) · {row.account.status === 'closed' ? 'Cerrado' : 'Abierto'}</span>{canSeePayments && <span className="mt-2 block text-sm text-emerald-300">Pagado {money(nightclubPaidTotal(row.account))}</span>}</button>)}{!result.accounts.length && <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">No hay pedidos para estos filtros.</p>}</div> : <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{result.productLocations.map(item => <article key={item.productId} className="rounded-xl border border-slate-700 bg-[#121b20] p-4"><strong>{item.name}</strong><span className="ml-2 text-amber-300">{item.quantity} u.</span><p className="mt-2 text-xs text-slate-400">{item.places.map(place => `${place.label}: ${place.quantity}`).join(' · ')}</p></article>)}{!result.productLocations.length && <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">Sin productos para estos filtros.</p>}</div>}
     {selected && <div className="fixed inset-0 z-50 bg-black/65" onClick={() => setSelectedId(null)}><aside role="dialog" aria-modal="true" aria-label={`Historial de ${selected.label}`} className="absolute inset-y-0 right-0 w-full max-w-2xl overflow-y-auto border-l border-slate-700 bg-[#10191e] p-4 pb-20 sm:p-6" onClick={event => event.stopPropagation()}><div className="flex items-start justify-between gap-2"><div><span className="text-xs font-bold uppercase text-amber-300">Historial auditable</span><h2 className="text-2xl font-black">{selected.label}</h2><p className="text-sm text-slate-400">{selected.account.status === 'closed' ? 'Cerrado' : 'Abierto'} · Jornada {selected.shift ? when(selected.shift.openedAt) : 'sin identificar'}</p></div><button aria-label="Cerrar historial" onClick={() => setSelectedId(null)} className="grid h-11 w-11 place-items-center rounded-xl border border-slate-700"><X size={18} /></button></div>
       <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3"><Detail label="Tipo" value={nightclubAccountTableId(selected.account) ? 'Mesa' : 'Venta directa en Barra'} /><Detail label="Apertura" value={when(selected.account.openedAt)} /><Detail label="Cierre" value={selected.account.paidAt ? when(selected.account.paidAt) : 'Todavía abierto'} /><Detail label="Mesero" value={selected.account.waiterName || selected.account.openedBy} /><Detail label="Referencia de cuenta" value={data.customers.find(item => item.id === selected.account.customerId)?.name || selected.account.customerDisplayName || 'Sin cliente'} />{canSeePayments && <><Detail label="Consumo" value={money(selected.account.subtotal)} /><Detail label="Pagado" value={money(nightclubPaidTotal(selected.account))} /><Detail label="Saldo" value={money(nightclubBalance(selected.account))} /><Detail label="Métodos" value={(selected.account.payments || (selected.account.payment ? [selected.account.payment] : [])).map(payment => payment.method.toUpperCase()).join(' + ') || 'Sin pagos'} /></>}</div>
-      {canSeePayments && onOpenReceipt && nightclubPaidTotal(selected.account) > 0 && (
+      {canSeePayments && canAccessReceipt && onOpenReceipt && nightclubPaidTotal(selected.account) > 0 && (
         <div className="mt-3">
           <button
             type="button"

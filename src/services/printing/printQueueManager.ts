@@ -125,7 +125,9 @@ export class PrintQueueManager {
     // Build raw ESC/POS bytes according to targetType
     let bytes: Uint8Array
     if (job.targetType === 'kitchen_ticket') {
-      bytes = buildKitchenTicketBytes(job.payload, printer.paperWidth)
+      bytes = buildKitchenTicketBytes(job.payload, printer.paperWidth, 'COCINA')
+    } else if (job.targetType === 'bar_ticket') {
+      bytes = buildKitchenTicketBytes(job.payload, printer.paperWidth, 'BARRA')
     } else if (job.targetType === 'drawer_kick') {
       bytes = new EscPosBuilder().init().kickCashDrawer(printer.capabilities.drawerPin || 'pin2').build()
     } else {

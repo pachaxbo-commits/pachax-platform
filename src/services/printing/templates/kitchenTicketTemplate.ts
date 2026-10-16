@@ -1,7 +1,11 @@
 import type { PrintJobPayload } from '../../../types/printing.ts'
 import { EscPosBuilder } from '../escPosFormatter.ts'
 
-export function buildKitchenTicketBytes(payload: PrintJobPayload, paperWidth: '58mm' | '80mm' = '80mm'): Uint8Array {
+export function buildKitchenTicketBytes(
+  payload: PrintJobPayload,
+  paperWidth: '58mm' | '80mm' = '80mm',
+  areaLabel: 'COCINA' | 'BARRA' = 'COCINA'
+): Uint8Array {
   const cols = paperWidth === '58mm' ? 32 : 48
   const builder = new EscPosBuilder()
 
@@ -13,9 +17,16 @@ export function buildKitchenTicketBytes(payload: PrintJobPayload, paperWidth: '5
     builder.doubleSize(false).separator(cols, '=')
   }
 
-  // Large Order / Table Header for Kitchen staff
+  // Large Order / Table Header for Kitchen or Bar staff
   builder.bold(true).doubleSize(true)
-  builder.line(`COMANDA ${payload.displayNumber || '#000'}`)
+  if (areaLabel === 'BARRA') {
+    builder.line('COMANDA - BARRA')
+    if (payload.displayNumber) {
+      builder.line(`RONDA #${payload.displayNumber}`)
+    }
+  } else {
+    builder.line(`COMANDA ${payload.displayNumber || '#000'}`)
+  }
   builder.doubleSize(false)
 
   if (payload.tableInfo) {
@@ -23,12 +34,17 @@ export function buildKitchenTicketBytes(payload: PrintJobPayload, paperWidth: '5
   }
 
   builder.alignLeft().separator(cols)
-  builder.line(`HORA: ${new Date(payload.createdIso).toLocaleTimeString('es-BO')}`)
-  if (payload.fulfillmentType) builder.line(`TIPO: ${payload.fulfillmentType.toUpperCase()}`)
+  builder.line(`HORA: ${new Date(payload.createdIso || Date.now()).toLocaleTimeString('es-BO')}`)
+  if (payload.customerName) {
+    builder.line(`RESPONSABLE: ${payload.customerName}`)
+  }
+  if (payload.fulfillmentType) {
+    builder.line(`TIPO: ${payload.fulfillmentType.toUpperCase()}`)
+  }
 
   builder.separator(cols)
 
-  // Items for Kitchen
+  // Items for Kitchen / Bar (WITHOUT PRICES)
   payload.items.forEach((item) => {
     builder.bold(true).doubleSize(true)
     builder.line(`${item.quantity}x ${item.name}`)
@@ -52,3 +68,5 @@ export function buildKitchenTicketBytes(payload: PrintJobPayload, paperWidth: '5
 
   return builder.build()
 }
+
+export const buildOperationalTicketBytes = buildKitchenTicketBytes

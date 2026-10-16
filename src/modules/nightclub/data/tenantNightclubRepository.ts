@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   limit as fsLimit,
   onSnapshot,
@@ -596,5 +597,13 @@ export class TenantNightclubRepository implements NightclubRepository {
 
   async saveCustomer(input: { operationId: string; customer: NightclubCustomer }): Promise<void> {
     await this.dispatch('saveCustomer', input.operationId, { customer: input.customer })
+  }
+
+  async getRoundById(roundId: string): Promise<NightclubRound | null> {
+    const ctx = await getFirebaseContext()
+    if (!ctx) return null
+    const snap = await getDoc(doc(ctx.db, 'tenants', this.tenantId, 'nightclubRounds', roundId))
+    if (!snap.exists()) return null
+    return { id: snap.id, ...(snap.data() as Omit<NightclubRound, 'id'>) }
   }
 }

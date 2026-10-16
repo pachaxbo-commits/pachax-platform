@@ -11,8 +11,12 @@ export function createNightclubActionRunner(
     if (getIsRunning()) return false
     try {
       setRunningAction(true)
-      await action()
-      setNotice(message)
+      const result = await action()
+      if (typeof result === 'string' && result.trim().length > 0) {
+        setNotice(result)
+      } else {
+        setNotice(message)
+      }
       return true
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'No se pudo completar la acción.')

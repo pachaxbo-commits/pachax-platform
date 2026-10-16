@@ -44,6 +44,7 @@ export interface TenantNightclubActionsDeps {
     saveInventory: (payload: any) => Promise<any>
     saveProduct: (payload: any) => Promise<any>
     saveCustomer: (payload: any) => Promise<any>
+    getRoundById?: (roundId: string) => Promise<any>
   }
   gatewayFn: (name: 'tenantGateway' | 'platformGateway', payload: Record<string, unknown>) => Promise<any>
 }
@@ -113,15 +114,15 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       operationId: string = crypto.randomUUID(),
       customerId: string | null = null,
       serviceStaffId?: string
-    ): Promise<boolean> => {
-      await repository.addRound({
+    ): Promise<any> => {
+      const res = await repository.addRound({
         operationId,
         accountId,
         items,
         customerId,
         serviceStaffId,
       })
-      return true
+      return res || true
     },
 
     onSettleRound: async (
@@ -129,14 +130,21 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       items: NightclubRoundDraft[],
       payment: NightclubPaymentDraft,
       operationId: string = crypto.randomUUID()
-    ): Promise<boolean> => {
-      await repository.settleRound({
+    ): Promise<any> => {
+      const res = await repository.settleRound({
         operationId,
         accountId,
         items,
         payment,
       })
-      return true
+      return res || true
+    },
+
+    onGetRound: async (roundId: string) => {
+      if (repository.getRoundById) {
+        return repository.getRoundById(roundId)
+      }
+      return null
     },
 
     onRequestBill: async (accountId: string): Promise<boolean> => {
