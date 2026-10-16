@@ -2,6 +2,13 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { tenantActor, hasPermission } = require('./authorization.cjs')
 const { applyPaidRoundCommand } = require('./nightclubPaidRounds.cjs')
+const {
+  planNightclubInventoryConsumption,
+  calculateNightclubStockUpdates,
+  applyNightclubStockUpdates,
+  prepareNightclubInventoryReversal,
+  applyNightclubInventoryReversal,
+} = require('./nightclubInventoryHelper.cjs')
 
 const id = value => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(value)) {
@@ -9,6 +16,22 @@ const id = value => {
   }
   return value
 }
+
+const CANONICAL_EXPENSE_CATEGORIES = [
+  'supplies',
+  'inventory_purchase',
+  'payroll',
+  'commissions',
+  'services',
+  'rent',
+  'maintenance',
+  'transport',
+  'advertising',
+  'cleaning',
+  'security',
+  'administrative',
+  'other',
+]
 
 const permissions = {
   openShift: 'cash.close',
@@ -46,13 +69,13 @@ const permissions = {
   saveBottleInventory: 'inventory.manage',
   openBottle: 'orders.manage',
   bottleExit: 'orders.manage',
-  saveMember: 'customers.read',
+  saveMember: 'settings.manage',
   registerCourtesy: 'orders.manage',
-  cancelCourtesy: 'orders.manage',
-  payCommissions: 'cash.close',
-  setCustomerStatus: 'customers.read',
-  saveCustomerIncident: 'customers.read',
-  deleteCustomerIncident: 'customers.read',
+  cancelCourtesy: 'settings.manage',
+  payCommissions: 'settings.manage',
+  setCustomerStatus: 'settings.manage',
+  saveCustomerIncident: 'settings.manage',
+  deleteCustomerIncident: 'settings.manage',
   assignCustomer: 'orders.manage',
 }
 
@@ -292,6 +315,7 @@ async function applyCommand(context) {
     const customerId = id(c.id || `cust_${operationId}`)
     const custRef = root.collection('nightclubCustomers').doc(customerId)
     const existing = await tx.get(custRef)
+    if (existing.exists && existing.data().branchId !== branchId) throw new HttpsError('not-found', 'Cliente no encontrado en esta sucursal.')
     const data = {
       id: customerId,
       tenantId: actor.tenantId,
@@ -783,7 +807,7 @@ async function applyCommand(context) {
     if (!['green', 'yellow', 'red'].includes(status)) throw new HttpsError('invalid-argument', 'Estado de convivencia inválido.')
     const custRef = root.collection('nightclubCustomers').doc(customerId)
     const custSnap = await tx.get(custRef)
-    if (!custSnap.exists) throw new HttpsError('not-found', 'Cliente no encontrado.')
+    if (!custSnap.exists || custSnap.data().branchId !== branchId) throw new HttpsError('not-found', 'Cliente no encontrado en esta sucursal.')
     tx.update(custRef, { convivenciaStatus: status, updatedAt: now })
     return { customerId, status }
   }
@@ -794,7 +818,7 @@ async function applyCommand(context) {
     const customerId = id(inc.customerId)
     const custRef = root.collection('nightclubCustomers').doc(customerId)
     const custSnap = await tx.get(custRef)
-    if (!custSnap.exists) throw new HttpsError('not-found', 'Cliente no encontrado.')
+    if (!custSnap.exists || custSnap.data().branchId !== branchId) throw new HttpsError('not-found', 'Cliente no encontrado en esta sucursal.')
     const date = text(inc.date, 10)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpsError('invalid-argument', 'Fecha de incidente inválida.')
     const severity = inc.severity
@@ -1129,21 +1153,27 @@ async function applyCommand(context) {
     const productIds = [...new Set(drafts.map(item => id(item.productId)))]
     const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
     const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
-    const requirements = new Map()
+
+    let sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null
+    if (sellerStaffId) {
+      sellerStaffId = id(sellerStaffId)
+      const staffSnap = await tx.get(root.collection('members').doc(sellerStaffId))
+      if (!staffSnap.exists || staffSnap.data().status !== 'active' || !['waiter', 'service'].includes(staffSnap.data().roleId || staffSnap.data().role)) {
+        throw new HttpsError('failed-precondition', 'El mesero especificado no está activo o no es válido.')
+      }
+    }
+
+    const requirementsMap = planNightclubInventoryConsumption(products, drafts, branchId)
+    const inventoryIds = [...requirementsMap.keys()]
+    const inventoryRefs = inventoryIds.map(inventoryId => root.collection('nightclubInventory').doc(inventoryId))
+    const stocks = await Promise.all(inventoryRefs.map(ref => tx.get(ref)))
+    const stocksMap = new Map(inventoryIds.map((invId, idx) => [invId, stocks[idx]]))
+    const stockUpdates = calculateNightclubStockUpdates(stocksMap, requirementsMap, branchId)
+
     let total = 0
-    const sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null
     const commissionCreations = []
     const lines = drafts.map((draft, index) => {
       const product = products.get(draft.productId)
-      if (!product || product.branchId !== branchId || product.active === false || !Number.isFinite(product.price) || product.price < 0) {
-        throw new HttpsError('invalid-argument', 'Producto inválido o sin precio configurado.')
-      }
-      const recipe = product.inventoryMode === 'none' ? [] : (product.recipe?.length ? product.recipe : (product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : (product.bottlePresentation?.inventoryId ? [{ inventoryId: product.bottlePresentation.inventoryId, quantity: product.bottlePresentation.kind === 'pour' ? (product.bottlePresentation.millilitres || 50) : 1, unit: product.bottlePresentation.kind === 'pour' ? 'ml' : 'unit' }] : [])))
-      for (const part of recipe) {
-        if (!Number.isFinite(part.quantity) || part.quantity <= 0) throw new HttpsError('invalid-argument', 'Receta inválida.')
-        const inventoryId = id(part.inventoryId)
-        requirements.set(inventoryId, (requirements.get(inventoryId) || 0) + part.quantity * draft.quantity)
-      }
       const lineTotal = money(product.price * draft.quantity)
       total += lineTotal
 
@@ -1183,69 +1213,21 @@ async function applyCommand(context) {
       }
     })
     total = money(total)
-    const inventoryIds = [...requirements.keys()]
-    const inventoryRefs = inventoryIds.map(inventoryId => root.collection('nightclubInventory').doc(inventoryId))
-    const stocks = await Promise.all(inventoryRefs.map(ref => tx.get(ref)))
-    stocks.forEach((snap, index) => {
-      if (!snap.exists || snap.data().branchId !== branchId || !Number.isFinite(snap.data().current)) {
-        throw new HttpsError('aborted', `Insumo no configurado: ${snap.data()?.name || inventoryIds[index]}.`)
-      }
-      const stock = snap.data()
-      const reqQty = requirements.get(inventoryIds[index])
-      if (stock.bottleCapacityMl && (stock.openBottleMl !== undefined)) {
-        const openMl = stock.openBottleMl || 0
-        if (openMl < reqQty) {
-          const neededBottles = Math.ceil((reqQty - openMl) / stock.bottleCapacityMl)
-          if (stock.current < neededBottles) {
-            throw new HttpsError('aborted', `Stock insuficiente para ${stock.name}.`)
-          }
-        }
-      } else if (stock.current < reqQty) {
-        throw new HttpsError('aborted', `Stock insuficiente para ${stock.name || inventoryIds[index]}.`)
-      }
-    })
     const roundId = `round_${operationId}`
     const hasBar = lines.some(item => item.preparationArea !== 'Directo')
     const status = hasBar ? 'pending' : 'ready'
-    const consumption = []
-    stocks.forEach((snap, index) => {
-      const inventoryId = inventoryIds[index]
-      const quantity = requirements.get(inventoryId)
-      const stock = snap.data()
-      let current = stock.current
-      let openBottleMl = stock.openBottleMl
-      if (stock.bottleCapacityMl && openBottleMl !== undefined) {
-        if (openBottleMl >= quantity) {
-          openBottleMl = money(openBottleMl - quantity)
-        } else {
-          const neededBottles = Math.ceil((quantity - openBottleMl) / stock.bottleCapacityMl)
-          current = money(current - neededBottles)
-          openBottleMl = money(openBottleMl + neededBottles * stock.bottleCapacityMl - quantity)
-        }
-        tx.update(inventoryRefs[index], { current, openBottleMl, updatedAt: now })
-      } else {
-        const previous = stock.current
-        current = money(previous - quantity)
-        tx.update(inventoryRefs[index], { current, updatedAt: now })
-      }
-      tx.create(root.collection('nightclubInventoryMovements').doc(`${operationId}_${inventoryId}`), {
-        id: `${operationId}_${inventoryId}`,
-        operationId,
-        tenantId: actor.tenantId,
-        branchId,
-        shiftId: activeShiftId,
-        accountId,
-        roundId,
-        inventoryId,
-        quantity: -quantity,
-        previous: stock.current,
-        current,
-        type: 'sale',
-        actorUid: actor.uid,
-        createdAt: now,
-      })
-      consumption.push({ inventoryId, quantity })
-    })
+    const consumption = applyNightclubStockUpdates(
+      tx,
+      root,
+      actor,
+      branchId,
+      activeShiftId,
+      accountId,
+      roundId,
+      operationId,
+      now,
+      stockUpdates
+    )
     tx.create(root.collection('nightclubRounds').doc(roundId), {
       id: roundId,
       operationId,
@@ -1479,32 +1461,25 @@ async function applyCommand(context) {
     if ((account.data()?.paidTotal || 0) > 0 && account.data()?.balance < round.data().total) {
       throw new HttpsError('failed-precondition', 'No se anula directamente una ronda ya cobrada. Usa reembolso.')
     }
-    const refs = (round.data().consumption || []).map(row => root.collection('nightclubInventory').doc(row.inventoryId))
-    const stocks = await Promise.all(refs.map(r => tx.get(r)))
+    const itemsToRevert = await prepareNightclubInventoryReversal(tx, root, branchId, roundId)
     const roundComms = await tx.get(
       root.collection('nightclubCommissions')
         .where('roundId', '==', roundId)
         .where('branchId', '==', branchId)
     )
-    refs.forEach((stockRef, index) => {
-      const consumed = round.data().consumption[index]
-      const before = stocks[index].data().current
-      const current = money(before + consumed.quantity)
-      tx.update(stockRef, { current, updatedAt: now })
-      tx.create(root.collection('nightclubInventoryMovements').doc(`${operationId}_${stockRef.id}`), {
-        operationId,
-        inventoryId: stockRef.id,
-        quantity: consumed.quantity,
-        previous: before,
-        current,
-        type: 'reversal',
-        reason: payload.reason,
-        actorUid: actor.uid,
-        createdAt: now,
-        tenantId: actor.tenantId,
-        branchId,
-      })
-    })
+    applyNightclubInventoryReversal(
+      tx,
+      root,
+      actor,
+      branchId,
+      account.data().shiftId,
+      round.data().accountId,
+      roundId,
+      operationId,
+      now,
+      payload.reason,
+      itemsToRevert
+    )
     const total = money(round.data().total || round.data().items.reduce((sum, row) => sum + row.lineTotal, 0))
     tx.update(ref, {
       status: 'cancelled',
@@ -1564,6 +1539,9 @@ async function applyCommand(context) {
     if (!['cash', 'qr', 'card'].includes(method)) throw new HttpsError('invalid-argument', 'Método de pago inválido.')
     const description = text(mov.description, 200)
     const category = mov.category ? text(mov.category, 50) : null
+    if (movType === 'expense' && (!category || !CANONICAL_EXPENSE_CATEGORIES.includes(category))) {
+      throw new HttpsError('invalid-argument', 'Categoría de gasto inválida.')
+    }
     const notes = mov.notes ? text(mov.notes, 200) : null
     const movementId = id(mov.id || `cash_mov_${operationId}`)
     const movRef = root.collection('nightclubCashMovements').doc(movementId)
@@ -1597,7 +1575,7 @@ async function applyCommand(context) {
     if (payload.customerId) {
       customerId = id(payload.customerId)
       const custSnap = await tx.get(root.collection('nightclubCustomers').doc(customerId))
-      if (!custSnap.exists) throw new HttpsError('not-found', 'Cliente no encontrado.')
+      if (!custSnap.exists || custSnap.data().branchId !== branchId) throw new HttpsError('not-found', 'Cliente no encontrado en esta sucursal.')
       customerDisplayName = custSnap.data().name
     }
     tx.update(accRef, { customerId, customerDisplayName, updatedAt: now })

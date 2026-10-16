@@ -1,4 +1,12 @@
 const { HttpsError } = require('firebase-functions/v2/https')
+const {
+  planNightclubInventoryConsumption,
+  calculateNightclubStockUpdates,
+  applyNightclubStockUpdates,
+  prepareNightclubInventoryReversal,
+  applyNightclubInventoryReversal,
+} = require('./nightclubInventoryHelper.cjs')
+
 const id = value => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(value)) {
     throw new HttpsError('invalid-argument', 'Identificador inválido.')
@@ -30,20 +38,27 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     const productIds = [...new Set(drafts.map(item => id(item.productId)))]
     const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
     const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
-    const requirements = new Map()
+
+    let sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null
+    if (sellerStaffId) {
+      sellerStaffId = id(sellerStaffId)
+      const staffSnap = await tx.get(root.collection('members').doc(sellerStaffId))
+      if (!staffSnap.exists || staffSnap.data().status !== 'active' || !['waiter', 'service'].includes(staffSnap.data().roleId || staffSnap.data().role)) {
+        fail('El mesero especificado no está activo o no es válido.')
+      }
+    }
+
+    const requirementsMap = planNightclubInventoryConsumption(products, drafts, branchId)
+    const inventoryIds = [...requirementsMap.keys()]
+    const inventoryRefs = inventoryIds.map(inventoryId => root.collection('nightclubInventory').doc(inventoryId))
+    const stocks = await Promise.all(inventoryRefs.map(ref => tx.get(ref)))
+    const stocksMap = new Map(inventoryIds.map((invId, idx) => [invId, stocks[idx]]))
+    const stockUpdates = calculateNightclubStockUpdates(stocksMap, requirementsMap, branchId)
+
     let total = 0
-    const sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null
     const commissionCreations = []
     const items = drafts.map((draft, index) => {
       const product = products.get(draft.productId)
-      if (!product || product.branchId !== branchId || product.active === false || !Number.isFinite(product.price) || product.price <= 0) fail('Producto sin precio positivo; registra una cortesía aparte.')
-      const recipe = product.inventoryMode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : []
-      if (product.inventoryMode !== 'none' && !recipe.length) fail('El producto necesita inventario configurado.')
-      for (const part of recipe) {
-        if (!Number.isFinite(part.quantity) || part.quantity <= 0) fail('Receta inválida.')
-        const inventoryId = id(part.inventoryId)
-        requirements.set(inventoryId, (requirements.get(inventoryId) || 0) + part.quantity * draft.quantity)
-      }
       const lineTotal = money(product.price * draft.quantity)
       total += lineTotal
       let commissionSnapshot = null
@@ -79,13 +94,23 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     if ([cashAmount, qrAmount, cardAmount].some(value => !Number.isFinite(value) || value < 0) || cents(cashAmount + qrAmount + cardAmount) !== cents(total) || (payment.amount !== undefined && cents(payment.amount) !== cents(total))) fail('El pago debe cubrir exactamente esta ronda.')
     const received = payment.received === undefined ? cashAmount : money(payment.received)
     if (!Number.isFinite(received) || received < cashAmount) fail('Efectivo recibido insuficiente.')
-    const inventoryIds = [...requirements.keys()]
-    const inventoryRefs = inventoryIds.map(inventoryId => root.collection('nightclubInventory').doc(inventoryId))
-    const stocks = await Promise.all(inventoryRefs.map(ref => tx.get(ref)))
-    stocks.forEach((snap, index) => { if (!snap.exists || snap.data().branchId !== branchId || !Number.isFinite(snap.data().current) || snap.data().current < requirements.get(inventoryIds[index])) fail('Stock insuficiente o insumo no configurado.') })
+
     const roundId = `round_${operationId}`, paymentId = `payment_${operationId}`
     const hasBar = items.some(item => item.preparationArea !== 'Directo')
-    tx.create(root.collection('nightclubRounds').doc(roundId), { id: roundId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null, sequence: (account.roundCount || 0) + 1, items, total, status: hasBar ? 'pending' : 'ready', authorization: 'payment', paymentId, createdAt: now, paidAt: now, sentAt: now, readyAt: hasBar ? null : now, createdBy: actor.uid, paidBy: actor.uid, sellerStaffId })
+    const consumption = applyNightclubStockUpdates(
+      tx,
+      root,
+      actor,
+      branchId,
+      account.shiftId,
+      accountId,
+      roundId,
+      operationId,
+      now,
+      stockUpdates
+    )
+
+    tx.create(root.collection('nightclubRounds').doc(roundId), { id: roundId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null, sequence: (account.roundCount || 0) + 1, items, consumption, total, status: hasBar ? 'pending' : 'ready', authorization: 'payment', paymentId, createdAt: now, paidAt: now, sentAt: now, readyAt: hasBar ? null : now, createdBy: actor.uid, paidBy: actor.uid, sellerStaffId })
     for (const comm of commissionCreations) {
       const commId = `commission:${roundId}:${comm.itemId}`
       tx.create(root.collection('nightclubCommissions').doc(commId), {
@@ -111,11 +136,6 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
       })
     }
     tx.create(root.collection('nightclubPayments').doc(paymentId), { id: paymentId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, status: 'confirmed', method: payment.method, amount: total, cashAmount, qrAmount, cardAmount, received, change: money(received - cashAmount), createdAt: now, actorUid: actor.uid })
-    stocks.forEach((snap, index) => {
-      const inventoryId = inventoryIds[index], quantity = requirements.get(inventoryId), previous = snap.data().current
-      tx.update(inventoryRefs[index], { current: money(previous - quantity), updatedAt: now })
-      tx.create(root.collection('nightclubInventoryMovements').doc(`${operationId}_${inventoryId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, inventoryId, quantity: -quantity, previous, current: money(previous - quantity), type: 'sale', actorUid: actor.uid, createdAt: now })
-    })
     if (cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`cash_${operationId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, type: 'sale', amount: cashAmount, actorUid: actor.uid, createdAt: now })
     tx.update(accountRef, { subtotal: money((account.subtotal || 0) + total), paidTotal: money((account.paidTotal || 0) + total), balance: 0, roundCount: (account.roundCount || 0) + 1, updatedAt: now })
     return { accountId, roundId, paymentId, total, status: hasBar ? 'pending' : 'ready' }
@@ -129,20 +149,25 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     if (round.authorization !== 'payment' || ['delivered', 'cancelled'].includes(round.status)) fail('La devolución requiere revisión física o ya fue procesada.')
     const paymentRef = root.collection('nightclubPayments').doc(id(round.paymentId)), payment = await tx.get(paymentRef)
     if (payment.data()?.status !== 'confirmed' || payment.data()?.roundId !== roundId) fail('Pago no disponible para reembolso.')
-    const movements = await tx.get(root.collection('nightclubInventoryMovements').where('roundId', '==', roundId).where('type', '==', 'sale'))
-    const stockRefs = movements.docs.map(snap => root.collection('nightclubInventory').doc(id(snap.data().inventoryId)))
-    const stocks = await Promise.all(stockRefs.map(ref => tx.get(ref)))
-    stocks.forEach(snap => { if (!snap.exists) fail('Falta un insumo; requiere revisión manual.') })
+    const itemsToRevert = await prepareNightclubInventoryReversal(tx, root, branchId, roundId)
     const roundComms = await tx.get(
       root.collection('nightclubCommissions')
         .where('roundId', '==', roundId)
         .where('branchId', '==', branchId)
     )
-    movements.docs.forEach((snap, index) => {
-      const previous = stocks[index].data().current, quantity = -snap.data().quantity, current = money(previous + quantity)
-      tx.update(stockRefs[index], { current, updatedAt: now })
-      tx.create(root.collection('nightclubInventoryMovements').doc(`refund_${roundId}_${snap.data().inventoryId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, inventoryId: snap.data().inventoryId, quantity, previous, current, type: 'reversal', reason: payload.reason.trim(), actorUid: actor.uid, createdAt: now })
-    })
+    applyNightclubInventoryReversal(
+      tx,
+      root,
+      actor,
+      branchId,
+      account.shiftId,
+      accountId,
+      roundId,
+      operationId,
+      now,
+      payload.reason.trim(),
+      itemsToRevert
+    )
     tx.update(paymentRef, { status: 'refunded', refundedAt: now, refundedBy: actor.uid, refundReason: payload.reason.trim() })
     tx.update(roundRef, { status: 'cancelled', cancelledAt: now, cancelledBy: actor.uid, cancellationReason: payload.reason.trim() })
     for (const cDoc of roundComms.docs) {

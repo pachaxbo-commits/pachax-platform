@@ -233,7 +233,7 @@ try {
   // D. Stock insuficiente
   await assert.rejects(
     () => call('waiter', 'addRound', 'neg-stock', { accountId: accT1, items: [{ productId: 'cerveza', quantity: 999 }] }),
-    err => err.code === 'aborted'
+    err => err.code === 'aborted' || err.code === 'failed-precondition'
   )
 
   // Añadir ronda válida para pruebas de rol
@@ -963,6 +963,303 @@ try {
   await call('cashier', 'closeShift', 'close-shift5-op', { shiftId: shift5Id, countedCash: 100 })
 
   console.log('PASS: Test 7 (Suite negativa N3B) completado exitosamente.')
+
+  console.log('=== TEST 8: N3B.1 INVENTARIO FÍSICO, SNAPSHOTS, REVERSIONES Y PERMISOS ESTRICTOS ===')
+  const shift8Op = await call('cashier', 'openShift', 'shift8-op', { openingFloat: 100 })
+  const shift8Id = shift8Op.shiftId
+  assert.ok(shift8Id)
+
+  // Mesa VIP8 y barra para pedidos
+  await root.collection('nightclubTables').doc('VIP8').set({ id: 'VIP8', branchId: 'main', name: 'Mesa VIP8', status: 'available' })
+
+  // Setup Caso A y B: Tequila
+  await root.collection('nightclubInventory').doc('inv-tequila').set({
+    id: 'inv-tequila',
+    branchId: 'main',
+    name: 'Tequila Don Julio',
+    category: 'Licores',
+    unit: 'unit',
+    current: 10,
+    openBottleMl: 500,
+    bottleCapacityMl: 750,
+  })
+  await root.collection('nightclubProducts').doc('tequila-botella').set({
+    id: 'tequila-botella',
+    branchId: 'main',
+    name: 'Tequila Don Julio - Botella',
+    category: 'Licores',
+    price: 350,
+    active: true,
+    preparationArea: 'Directo',
+    inventoryMode: 'recipe',
+    recipe: [{ inventoryId: 'inv-tequila', quantity: 1, unit: 'unit' }],
+  })
+  await root.collection('nightclubProducts').doc('tequila-shot').set({
+    id: 'tequila-shot',
+    branchId: 'main',
+    name: 'Tequila Don Julio - Shot',
+    category: 'Licores',
+    price: 35,
+    active: true,
+    preparationArea: 'Directo',
+    inventoryMode: 'recipe',
+    recipe: [{ inventoryId: 'inv-tequila', quantity: 50, unit: 'ml' }],
+  })
+
+  // CASO A: Venta de botella cerrada (unit='unit') -> resta 1 botella cerrada, openBottleMl intacto
+  const openVip8A = await call('waiter', 'openAccount', 'acc-vip8a-op', { target: { type: 'table', tableId: 'VIP8' } })
+  const round8A = await call('waiter', 'addRound', 'round8a-op', {
+    accountId: openVip8A.accountId,
+    items: [{ productId: 'tequila-botella', quantity: 1 }],
+  })
+  assert.equal(round8A.status, 'ready')
+  const stockTequilaAfterA = await data('nightclubInventory/inv-tequila')
+  assert.equal(stockTequilaAfterA.current, 9, 'Debe restar 1 botella cerrada')
+  assert.equal(stockTequilaAfterA.openBottleMl, 500, 'openBottleMl debe permanecer intacto')
+  const movA = await data(`nightclubInventoryMovements/round8a-op_inv-tequila`)
+  assert.equal(movA.closedBottlesBefore, 10)
+  assert.equal(movA.closedBottlesAfter, 9)
+  assert.equal(movA.openBottleMlBefore, 500)
+  assert.equal(movA.openBottleMlAfter, 500)
+  assert.equal(movA.consumedQuantity, 1)
+  assert.equal(movA.consumedUnit, 'unit')
+
+  // CASO B: Venta shot (unit='ml') usando openBottleMl existente -> resta ml, botellas cerradas intactas
+  const round8B = await call('waiter', 'addRound', 'round8b-op', {
+    accountId: openVip8A.accountId,
+    items: [{ productId: 'tequila-shot', quantity: 1 }],
+  })
+  assert.equal(round8B.status, 'ready')
+  const stockTequilaAfterB = await data('nightclubInventory/inv-tequila')
+  assert.equal(stockTequilaAfterB.current, 9, 'Botellas cerradas deben permanecer intactas')
+  assert.equal(stockTequilaAfterB.openBottleMl, 450, 'openBottleMl debe descontar 50 ml')
+  const movB = await data(`nightclubInventoryMovements/round8b-op_inv-tequila`)
+  assert.equal(movB.closedBottlesBefore, 9)
+  assert.equal(movB.closedBottlesAfter, 9)
+  assert.equal(movB.openBottleMlBefore, 500)
+  assert.equal(movB.openBottleMlAfter, 450)
+  assert.equal(movB.consumedQuantity, 50)
+  assert.equal(movB.consumedUnit, 'ml')
+
+  // Limpiar mesa VIP8 para siguientes casos
+  await call('waiter', 'cancelRound', 'cancel8b-op', { roundId: round8B.roundId, reason: 'Test setup' })
+  await call('waiter', 'cancelRound', 'cancel8a-op', { roundId: round8A.roundId, reason: 'Test setup' })
+  await call('waiter', 'finishOccupancy', 'finish-vip8a-op', { accountId: openVip8A.accountId })
+
+  // CASO C: Venta shot que agota openBottleMl y abre siguiente botella automáticamente
+  // Insumo Ron: 3 botellas cerradas, 30 ml abiertos, capacidad 750 ml
+  await root.collection('nightclubInventory').doc('inv-rum').set({
+    id: 'inv-rum',
+    branchId: 'main',
+    name: 'Ron Flor de Caña',
+    category: 'Licores',
+    unit: 'unit',
+    current: 3,
+    openBottleMl: 30,
+    bottleCapacityMl: 750,
+  })
+  await root.collection('nightclubProducts').doc('rum-shot').set({
+    id: 'rum-shot',
+    branchId: 'main',
+    name: 'Ron Shot 50ml',
+    category: 'Licores',
+    price: 30,
+    active: true,
+    preparationArea: 'Directo',
+    inventoryMode: 'recipe',
+    recipe: [{ inventoryId: 'inv-rum', quantity: 50, unit: 'ml' }],
+  })
+  const openVip8C = await call('waiter', 'openAccount', 'acc-vip8c-op', { target: { type: 'table', tableId: 'VIP8' } })
+  const round8C = await call('waiter', 'addRound', 'round8c-op', {
+    accountId: openVip8C.accountId,
+    items: [{ productId: 'rum-shot', quantity: 1 }],
+  })
+  assert.equal(round8C.status, 'ready')
+  const stockRumAfterC = await data('nightclubInventory/inv-rum')
+  assert.equal(stockRumAfterC.current, 2, 'Debe abrir 1 botella cerrada (3 -> 2)')
+  assert.equal(stockRumAfterC.openBottleMl, 730, 'openBottleMl debe ser 30 + 750 - 50 = 730 ml')
+  const movC = await data(`nightclubInventoryMovements/round8c-op_inv-rum`)
+  assert.equal(movC.closedBottlesBefore, 3)
+  assert.equal(movC.closedBottlesAfter, 2)
+  assert.equal(movC.openBottleMlBefore, 30)
+  assert.equal(movC.openBottleMlAfter, 730)
+  assert.equal(movC.consumedQuantity, 50)
+  assert.equal(movC.consumedUnit, 'ml')
+
+  // CASO D: Cancelación de ronda restaura snapshot físico exacto
+  await call('waiter', 'cancelRound', 'cancel8c-op', { roundId: round8C.roundId, reason: 'Devolución mesa' })
+  const stockRumAfterCancel = await data('nightclubInventory/inv-rum')
+  assert.equal(stockRumAfterCancel.current, 3, 'Debe restaurar 3 botellas cerradas')
+  assert.equal(stockRumAfterCancel.openBottleMl, 30, 'Debe restaurar exactamente los 30 ml abiertos')
+  const revC = await data(`nightclubInventoryMovements/reversal_cancel8c-op_inv-rum`)
+  assert.equal(revC.type, 'reversal')
+  assert.equal(revC.current, 3)
+  assert.equal(revC.closedBottlesAfter, 3)
+  assert.equal(revC.openBottleMlAfter, 30)
+  await call('waiter', 'finishOccupancy', 'finish-vip8c-op', { accountId: openVip8C.accountId })
+
+  // CASO E: Intento de cancelar ronda cuando hubo movimiento posterior incompatible -> rechaza
+  await root.collection('nightclubInventory').doc('inv-vodka').set({
+    id: 'inv-vodka',
+    branchId: 'main',
+    name: 'Vodka Absolut',
+    category: 'Licores',
+    unit: 'unit',
+    current: 5,
+    openBottleMl: 700,
+    bottleCapacityMl: 750,
+  })
+  await root.collection('nightclubProducts').doc('vodka-shot').set({
+    id: 'vodka-shot',
+    branchId: 'main',
+    name: 'Vodka Shot',
+    category: 'Licores',
+    price: 25,
+    active: true,
+    preparationArea: 'Directo',
+    inventoryMode: 'recipe',
+    recipe: [{ inventoryId: 'inv-vodka', quantity: 50, unit: 'ml' }],
+  })
+  const openVip8E = await call('waiter', 'openAccount', 'acc-vip8e-op', { target: { type: 'table', tableId: 'VIP8' } })
+  // Ronda 1: vende 50 ml (openBottleMl: 700 -> 650)
+  const round8E1 = await call('waiter', 'addRound', 'round8e1-op', {
+    accountId: openVip8E.accountId,
+    items: [{ productId: 'vodka-shot', quantity: 1 }],
+  })
+  assert.equal((await data('nightclubInventory/inv-vodka')).openBottleMl, 650)
+
+  // Ronda 2: vende 50 ml posteriores (openBottleMl: 650 -> 600)
+  const round8E2 = await call('waiter', 'addRound', 'round8e2-op', {
+    accountId: openVip8E.accountId,
+    items: [{ productId: 'vodka-shot', quantity: 1 }],
+  })
+  assert.equal((await data('nightclubInventory/inv-vodka')).openBottleMl, 600)
+
+  // Intentar cancelar Ronda 1 teniendo movimientos posteriores en inv-vodka
+  await assert.rejects(
+    () => call('waiter', 'cancelRound', 'cancel-round8e1-neg', { roundId: round8E1.roundId, reason: 'Error cliente' }),
+    err => err.code === 'failed-precondition' && err.message.includes('El inventario tuvo movimientos posteriores; requiere revisión manual.')
+  )
+  // Verificar que el inventario no fue corrompido
+  const stockVodkaSafe = await data('nightclubInventory/inv-vodka')
+  assert.equal(stockVodkaSafe.current, 5)
+  assert.equal(stockVodkaSafe.openBottleMl, 600)
+
+  // Limpiar Ronda 2 (última) y luego Ronda 1 en orden inverso
+  await call('waiter', 'cancelRound', 'cancel8e2-ok', { roundId: round8E2.roundId, reason: 'Limpieza LIFO' })
+  assert.equal((await data('nightclubInventory/inv-vodka')).openBottleMl, 650)
+  await call('waiter', 'cancelRound', 'cancel8e1-ok', { roundId: round8E1.roundId, reason: 'Limpieza Ronda 1' })
+  assert.equal((await data('nightclubInventory/inv-vodka')).openBottleMl, 700)
+  await call('waiter', 'finishOccupancy', 'finish-vip8e-op', { accountId: openVip8E.accountId })
+
+  // CASO F: sellerStaffId inexistente o inactivo -> rechaza
+  const openVip8F = await call('waiter', 'openAccount', 'acc-vip8f-op', { target: { type: 'table', tableId: 'VIP8' } })
+  await assert.rejects(
+    () => call('waiter', 'addRound', 'round8f-invalid-seller', {
+      accountId: openVip8F.accountId,
+      items: [{ productId: 'vodka-shot', quantity: 1 }],
+      sellerStaffId: 'staff-inexistente',
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('mesero')
+  )
+  // Crear miembro con rol no permitido (cajero)
+  await root.collection('members').doc('member-cashier-seller').set({
+    uid: 'member-cashier-seller',
+    tenantId,
+    roleId: 'cashier',
+    status: 'active',
+    branchIds: ['main'],
+  })
+  await assert.rejects(
+    () => call('waiter', 'addRound', 'round8f-non-waiter-seller', {
+      accountId: openVip8F.accountId,
+      items: [{ productId: 'vodka-shot', quantity: 1 }],
+      sellerStaffId: 'member-cashier-seller',
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('mesero')
+  )
+  // Crear mesero inactivo
+  await root.collection('members').doc('waiter-inactive').set({
+    uid: 'waiter-inactive',
+    tenantId,
+    roleId: 'waiter',
+    status: 'inactive',
+    branchIds: ['main'],
+  })
+  await assert.rejects(
+    () => call('waiter', 'addRound', 'round8f-inactive-seller', {
+      accountId: openVip8F.accountId,
+      items: [{ productId: 'vodka-shot', quantity: 1 }],
+      sellerStaffId: 'waiter-inactive',
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('mesero')
+  )
+  await call('waiter', 'finishOccupancy', 'finish-vip8f-op', { accountId: openVip8F.accountId })
+
+  // CASO G: Mesero / Cajero intentando operaciones reservadas a Administración -> permission-denied
+  // setCustomerStatus
+  await assert.rejects(
+    () => call('waiter', 'setCustomerStatus', 'neg-waiter-status', { customerId: 'cust-carlos', status: 'red' }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('cashier', 'setCustomerStatus', 'neg-cashier-status', { customerId: 'cust-carlos', status: 'red' }),
+    err => err.code === 'permission-denied'
+  )
+  // cancelCourtesy
+  await assert.rejects(
+    () => call('waiter', 'cancelCourtesy', 'neg-waiter-cancel-courtesy', { courtesyId: 'courtesy_test' }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('cashier', 'cancelCourtesy', 'neg-cashier-cancel-courtesy', { courtesyId: 'courtesy_test' }),
+    err => err.code === 'permission-denied'
+  )
+  // payCommissions
+  await assert.rejects(
+    () => call('waiter', 'payCommissions', 'neg-waiter-pay-comm', { draft: { staffId: 'waiter', amount: 10 } }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('cashier', 'payCommissions', 'neg-cashier-pay-comm', { draft: { staffId: 'waiter', amount: 10 } }),
+    err => err.code === 'permission-denied'
+  )
+
+  // VALIDACIÓN CROSS-BRANCH: Clientes de otra sucursal
+  await root.collection('nightclubCustomers').doc('cust-other-branch').set({
+    id: 'cust-other-branch',
+    tenantId,
+    branchId: 'branch-2',
+    name: 'Cliente Sucursal 2',
+    active: true,
+  })
+  await assert.rejects(
+    () => call('admin', 'setCustomerStatus', 'neg-cross-branch-cust', { customerId: 'cust-other-branch', status: 'red' }),
+    err => err.code === 'not-found' && err.message.includes('esta sucursal')
+  )
+  await assert.rejects(
+    () => call('admin', 'saveCustomerIncident', 'neg-cross-branch-inc', {
+      incident: { customerId: 'cust-other-branch', date: '2026-10-16', severity: 'low', description: 'Incidente cross-branch' }
+    }),
+    err => err.code === 'not-found' && err.message.includes('esta sucursal')
+  )
+
+  // VALIDACIÓN DE CATEGORÍA CANÓNICA EN GASTOS DE CAJA
+  await assert.rejects(
+    () => call('cashier', 'recordCashMovement', 'neg-invalid-expense-cat', {
+      movement: { type: 'expense', amount: 50, method: 'cash', description: 'Gasto inválido', category: 'categoria_falsa' }
+    }),
+    err => err.code === 'invalid-argument' && err.message.includes('Categoría de gasto inválida')
+  )
+  const validCommExpense = await call('cashier', 'recordCashMovement', 'pos-comm-expense', {
+    movement: { type: 'expense', amount: 25, method: 'cash', description: 'Pago comisión turno', category: 'commissions' }
+  })
+  assert.equal(validCommExpense.movement.category, 'commissions')
+
+  // Cierre de turno 8
+  await call('cashier', 'closeShift', 'close-shift8-op', { shiftId: shift8Id, countedCash: 75 })
+
+  console.log('PASS: Test 8 (N3B.1 Inventario físico, snapshots, reversiones y permisos) completado exitosamente.')
 } finally {
   await deleteApp(app)
 }

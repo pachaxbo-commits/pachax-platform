@@ -1,5 +1,37 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: N3B.1 - Nightclub: Inventario Físico, Snapshots y Permisos Server-Side (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD base `5d78a22`).
+- **Objetivo Cumplido**: Cierre definitivo de los aspectos de inventario físico embotellado, reversiones seguras, validación de personal vendedor y endurecimiento de permisos server-side para Nightclub productivo.
+- **Detalles Técnicos Implementados**:
+  1. **Preservación Estricta de Unidades en Recetas (`functions/nightclubInventoryHelper.cjs`)**:
+     - `planNightclubInventoryConsumption` separa y preserva explícitamente requerimientos por insumo: `unitsNeeded`, `mlNeeded` y `otherNeeded`.
+     - Evita la pérdida o combinación de unidades incompatibles (ej. 1 botella no se confunde con 1 ml ni 50 ml con 50 botellas).
+  2. **Consumo Canónico de Botellas Completas y por Mililitros**:
+     - `unit = 'unit'` sobre stock embotellado: descuenta botellas cerradas (`current -= 1`), manteniendo `openBottleMl` exactamente intacto.
+     - `unit = 'ml'` sobre stock embotellado: consume primero el contenido abierto (`openBottleMl`). Si es insuficiente, abre automáticamente la cantidad entera necesaria de botellas cerradas (`current -= N`) y acumula el saldo en `openBottleMl`. Nunca permite stock negativo.
+  3. **Helper Server-Side Compartido (`functions/nightclubInventoryHelper.cjs`)**:
+     - Extraído e integrado idénticamente en `functions/nightclub.cjs` (`addRound`, `cancelRound`) y `functions/nightclubPaidRounds.cjs` (`settleRound`, `refundRound`). Cero duplicación de lógica física.
+  4. **Snapshots Físicos en Movimientos de Inventario**:
+     - Cada movimiento `sale` conserva: `closedBottlesBefore`, `closedBottlesAfter`, `openBottleMlBefore`, `openBottleMlAfter`, `consumedQuantity`, `consumedUnit`, `unitsConsumed`, `mlConsumed`, `previous`, `current`.
+  5. **Reversión Física Segura y Validación de Movimientos Posteriores**:
+     - `prepareNightclubInventoryReversal` y `applyNightclubInventoryReversal`: restauran el snapshot físico exacto consumido.
+     - Si hubo movimientos posteriores incompatibles (ventas posteriores activas o alteración del estado físico del ítem), rechaza con: `'El inventario tuvo movimientos posteriores; requiere revisión manual.'`.
+  6. **Validación Real de `sellerStaffId`**:
+     - Valida contra `tenants/{tenantId}/members/{sellerStaffId}`: debe existir, estar activo y tener rol permitido (`waiter` o `service`). Si no es válido, rechaza con `failed-precondition`. Si se omite, no se crea comisión.
+  7. **Endurecimiento de Permisos Server-Side y Aislamiento por Sucursal**:
+     - `setCustomerStatus`, `saveCustomerIncident`, `deleteCustomerIncident`, `saveMember`, `cancelCourtesy`, `payCommissions`: protegidos con permiso `settings.manage` y rol de Administración/Dueño.
+     - Validación cruzada de sucursal: clientes e incidentes deben pertenecer estrictamente al `branchId` activo (`not-found` si es de otra sucursal).
+     - Validación estricta de categorías de gasto de caja contra `CANONICAL_EXPENSE_CATEGORIES` (incorporando `commissions` y `supplies`).
+  8. **Verificación de Pruebas**:
+     - `test:nightclub-orders-backend`: 8 suites completas en emulador, incluyendo Casos A, B, C, D, E, F, G, cross-branch y gastos de caja.
+     - `test:nightclub`: 87/87 pruebas aprobadas.
+     - `test:platform`: 99/99 pruebas aprobadas.
+     - `test:tenant-core`: 59/59 comprobaciones multiempresa aprobadas.
+     - `npm run typecheck` y `npm run build`: 0 errores.
+     - `git diff --check`: 0 errores.
+
 ## Checkpoint: N3B - Nightclub: Cierre Funcional Productivo Multi-tenant (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `e3eb18e` al iniciar este bloque).
