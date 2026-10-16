@@ -13,8 +13,9 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
   const account = accountSnap.data()
   if (account.shiftId !== activeShiftId) fail('La cuenta pertenece a otro turno.')
   const direct = account.serviceTarget?.type === 'bar' || account.serviceTarget?.type === 'customer'
-  if (direct && (account.tableId || account.serviceTarget.tableId || account.orderType && account.orderType !== 'BAR')) fail('Un pedido en barra no puede estar vinculado a una mesa.')
+  if (direct && (account.tableId || account.serviceTarget.tableId || (account.orderType && account.orderType !== 'BAR'))) fail('Un pedido en barra no puede estar vinculado a una mesa.')
   if (account.serviceTarget?.type === 'table' && account.orderType && account.orderType !== 'TABLE') fail('El tipo de pedido no coincide con la mesa.')
+
   if (type === 'settleRound') {
     if (account.status !== 'open' || cents(account.balance || 0) !== 0) fail('La ocupación necesita regularizar su saldo anterior antes de nuevos pedidos.')
     const shift = await tx.get(root.collection('nightclubShifts').doc(id(account.shiftId)))
@@ -46,7 +47,7 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     const cashAmount = payment.method === 'cash' ? total : payment.method === 'mixed' ? money(payment.cashAmount || 0) : 0
     const qrAmount = payment.method === 'qr' ? total : payment.method === 'mixed' ? money(payment.qrAmount || 0) : 0
     const cardAmount = payment.method === 'card' ? total : payment.method === 'mixed' ? money(payment.cardAmount || 0) : 0
-    if ([cashAmount, qrAmount, cardAmount].some(value => !Number.isFinite(value) || value < 0) || cents(cashAmount + qrAmount + cardAmount) !== cents(total) || payment.amount !== undefined && cents(payment.amount) !== cents(total)) fail('El pago debe cubrir exactamente esta ronda.')
+    if ([cashAmount, qrAmount, cardAmount].some(value => !Number.isFinite(value) || value < 0) || cents(cashAmount + qrAmount + cardAmount) !== cents(total) || (payment.amount !== undefined && cents(payment.amount) !== cents(total))) fail('El pago debe cubrir exactamente esta ronda.')
     const received = payment.received === undefined ? cashAmount : money(payment.received)
     if (!Number.isFinite(received) || received < cashAmount) fail('Efectivo recibido insuficiente.')
     const inventoryIds = [...requirements.keys()]
@@ -66,52 +67,32 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     tx.update(accountRef, { subtotal: money((account.subtotal || 0) + total), paidTotal: money((account.paidTotal || 0) + total), balance: 0, roundCount: (account.roundCount || 0) + 1, updatedAt: now })
     return { accountId, roundId, paymentId, total, status: hasBar ? 'pending' : 'ready' }
   }
-  if (type === 'finishOccupancy') {
-    if (account.status !== 'open' || cents(account.balance || 0) !== 0) fail('La mesa tiene saldo o ya está cerrada.')
-    const rounds = await tx.get(root.collection('nightclubRounds').where('accountId', '==', accountId))
-    if (rounds.docs.some(snap => !['delivered', 'cancelled'].includes(snap.data().status))) fail('Hay pedidos pendientes de entrega.')
-    const tableRef = account.serviceTarget?.type === 'table' ? root.collection('nightclubTables').doc(id(account.serviceTarget.tableId)) : null
-    if (tableRef) {
-      const table = await tx.get(tableRef)
-      if (table.data()?.activeAccountId !== accountId) fail('La mesa no coincide con la ocupación.')
-      tx.update(tableRef, { status: 'available', activeAccountId: null, updatedAt: now })
-    }
-    tx.update(accountRef, { status: 'closed', closedAt: now, closedBy: actor.uid, updatedAt: now })
-    return { accountId, status: 'closed' }
+
+  if (type === 'refundRound') {
+    if (String(payload.reason || '').trim().length < 4) throw new HttpsError('invalid-argument', 'Indica el motivo del reembolso.')
+    const roundId = id(payload.roundId), roundRef = root.collection('nightclubRounds').doc(roundId), roundSnap = await tx.get(roundRef)
+    if (!roundSnap.exists || roundSnap.data().branchId !== branchId || roundSnap.data().accountId !== accountId) fail('Pedido no encontrado en esta mesa.')
+    const round = roundSnap.data()
+    if (round.authorization !== 'payment' || ['delivered', 'cancelled'].includes(round.status)) fail('La devolución requiere revisión física o ya fue procesada.')
+    const paymentRef = root.collection('nightclubPayments').doc(id(round.paymentId)), payment = await tx.get(paymentRef)
+    if (payment.data()?.status !== 'confirmed' || payment.data()?.roundId !== roundId) fail('Pago no disponible para reembolso.')
+    const movements = await tx.get(root.collection('nightclubInventoryMovements').where('roundId', '==', roundId).where('type', '==', 'sale'))
+    const stockRefs = movements.docs.map(snap => root.collection('nightclubInventory').doc(id(snap.data().inventoryId)))
+    const stocks = await Promise.all(stockRefs.map(ref => tx.get(ref)))
+    stocks.forEach(snap => { if (!snap.exists) fail('Falta un insumo; requiere revisión manual.') })
+    movements.docs.forEach((snap, index) => {
+      const previous = stocks[index].data().current, quantity = -snap.data().quantity, current = money(previous + quantity)
+      tx.update(stockRefs[index], { current, updatedAt: now })
+      tx.create(root.collection('nightclubInventoryMovements').doc(`refund_${roundId}_${snap.data().inventoryId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, inventoryId: snap.data().inventoryId, quantity, previous, current, type: 'reversal', reason: payload.reason.trim(), actorUid: actor.uid, createdAt: now })
+    })
+    tx.update(paymentRef, { status: 'refunded', refundedAt: now, refundedBy: actor.uid, refundReason: payload.reason.trim() })
+    tx.update(roundRef, { status: 'cancelled', cancelledAt: now, cancelledBy: actor.uid, cancellationReason: payload.reason.trim() })
+    if (payment.data().cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`refund_${roundId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, type: 'refund', amount: -payment.data().cashAmount, actorUid: actor.uid, createdAt: now })
+    tx.update(accountRef, { subtotal: money((account.subtotal || 0) - round.total), paidTotal: money((account.paidTotal || 0) - round.total), balance: 0, updatedAt: now })
+    return { accountId, roundId, status: 'refunded', amount: round.total }
   }
-  const roundId = id(payload.roundId), roundRef = root.collection('nightclubRounds').doc(roundId), roundSnap = await tx.get(roundRef)
-  if (!roundSnap.exists || roundSnap.data().branchId !== branchId || roundSnap.data().accountId !== accountId) fail('Pedido no encontrado en esta mesa.')
-  const round = roundSnap.data()
-  if (type === 'advanceRound') {
-    if (!['payment', 'courtesy'].includes(round.authorization) || !['pending', 'preparing'].includes(round.status)) fail('Solo se preparan pedidos autorizados.')
-    const status = round.status === 'pending' ? 'preparing' : 'ready'
-    tx.update(roundRef, { status, [status === 'preparing' ? 'startedAt' : 'readyAt']: now, [status === 'preparing' ? 'startedBy' : 'readyBy']: actor.uid })
-    return { accountId, roundId, status }
-  }
-  if (type === 'deliverRound') {
-    if (!['payment', 'courtesy'].includes(round.authorization) || round.status !== 'ready') fail('El pedido todavía no está listo.')
-    tx.update(roundRef, { status: 'delivered', deliveredAt: now, deliveredBy: actor.uid })
-    return { accountId, roundId, status: 'delivered' }
-  }
-  if (type !== 'refundRound') fail('Comando desconocido.')
-  if (String(payload.reason || '').trim().length < 4) throw new HttpsError('invalid-argument', 'Indica el motivo del reembolso.')
-  if (round.authorization !== 'payment' || ['delivered', 'cancelled'].includes(round.status)) fail('La devolución requiere revisión física o ya fue procesada.')
-  const paymentRef = root.collection('nightclubPayments').doc(id(round.paymentId)), payment = await tx.get(paymentRef)
-  if (payment.data()?.status !== 'confirmed' || payment.data()?.roundId !== roundId) fail('Pago no disponible para reembolso.')
-  const movements = await tx.get(root.collection('nightclubInventoryMovements').where('roundId', '==', roundId).where('type', '==', 'sale'))
-  const stockRefs = movements.docs.map(snap => root.collection('nightclubInventory').doc(id(snap.data().inventoryId)))
-  const stocks = await Promise.all(stockRefs.map(ref => tx.get(ref)))
-  stocks.forEach(snap => { if (!snap.exists) fail('Falta un insumo; requiere revisión manual.') })
-  movements.docs.forEach((snap, index) => {
-    const previous = stocks[index].data().current, quantity = -snap.data().quantity, current = money(previous + quantity)
-    tx.update(stockRefs[index], { current, updatedAt: now })
-    tx.create(root.collection('nightclubInventoryMovements').doc(`refund_${roundId}_${snap.data().inventoryId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, inventoryId: snap.data().inventoryId, quantity, previous, current, type: 'reversal', reason: payload.reason.trim(), actorUid: actor.uid, createdAt: now })
-  })
-  tx.update(paymentRef, { status: 'refunded', refundedAt: now, refundedBy: actor.uid, refundReason: payload.reason.trim() })
-  tx.update(roundRef, { status: 'cancelled', cancelledAt: now, cancelledBy: actor.uid, cancellationReason: payload.reason.trim() })
-  if (payment.data().cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`refund_${roundId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, type: 'refund', amount: -payment.data().cashAmount, actorUid: actor.uid, createdAt: now })
-  tx.update(accountRef, { subtotal: money((account.subtotal || 0) - round.total), paidTotal: money((account.paidTotal || 0) - round.total), balance: 0, updatedAt: now })
-  return { accountId, roundId, status: 'refunded', amount: round.total }
+
+  fail('Comando desconocido.')
 }
 
 module.exports = { applyPaidRoundCommand }

@@ -4,8 +4,8 @@ import test from 'node:test'
 
 const source = readFileSync(new URL('../src/modules/nightclub/views/NightclubApp.tsx', import.meta.url), 'utf8')
 
-test('production Nightclub fails closed without demo fixtures or local controller', () => {
+test('production Nightclub uses canonical experience without demo fixtures or local controller', () => {
   assert.doesNotMatch(source, /createNightclubDataset|useNightclubController|localStorage/)
-  assert.match(source, /Servicio operacional todavía no conectado/)
-  assert.match(source, /No se cargarán datos ficticios/)
+  assert.match(source, /NightclubExperience/)
+  assert.match(source, /useTenantNightclubController/)
 })

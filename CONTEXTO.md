@@ -1,5 +1,54 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: N1 - Certificación Nightclub: Backend Operacional Real y Conexión Productiva Multi-tenant (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `b72026c` al iniciar este bloque).
+- **Objetivo Cumplido**: Conexión de `NightclubExperience` como experiencia canónica productiva conectada a Firebase/Functions multi-tenant, eliminando la pantalla placeholder ("Servicio operacional todavía no conectado") de `NightclubApp.tsx`. Studio y Demo continúan operando con sus datasets locales/sandbox.
+- **Detalles Técnicos Implementados**:
+  1. **Auditoría y Unificación del Backend (`functions/nightclub.cjs`, `functions/nightclubPaidRounds.cjs`)**:
+     - Establecido el flujo canónico para servicio en mesa/barra:
+       `openShift` → `openAccount` → `addRound` (sin exigir pago inmediato, autorización `account_charge`, stock descontado atómicamente por receta server-side) → `advanceRound` (Barra: `pending` → `preparing` → `ready`) → `deliverRound` (Servicio: `ready` → `delivered`; productos `Directo` pasan automáticamente a `ready`) → `requestBill` → `recordPayment` (uno o varios pagos parciales o totales en efectivo, QR, tarjeta o mixto, calculando vuelto y movimientos de caja) → saldo llega a 0 → `finishOccupancy` (libera la mesa si todos los pedidos están entregados o anulados) → `closeShift` (arqueo ciego comparando efectivo esperado vs contado).
+     - Especializado `functions/nightclubPaidRounds.cjs` para rondas cobradas al instante en barra (`settleRound`) y devoluciones/reversiones auditadas (`refundRound`).
+     - Aislamiento y validación estricta de roles del servidor en `nightclubCommand`:
+       - Barra solo prepara (`advanceRound`), rechaza entregas.
+       - Servicio solo entrega (`deliverRound`), rechaza preparar.
+       - Caja solo cobra (`recordPayment`), pide cuentas (`requestBill`), abre/cierra turnos.
+       - Administración / Dueño tienen acceso completo a configuración, zonas, mesas, productos, inventario y reembolsos.
+  2. **Contrato y Repositorio Multi-tenant (`src/modules/nightclub/data/nightclubRepository.ts`, `src/modules/nightclub/data/tenantNightclubRepository.ts`)**:
+     - Creado `TenantNightclubRepository` con suscripciones en tiempo real a colecciones Firestore aisladas por `tenantId` y `branchId`: `nightclubZones`, `nightclubTables`, `nightclubAccounts`, `nightclubRounds`, `nightclubPayments`, `nightclubProducts`, `nightclubInventory`, `nightclubInventoryMovements`, `nightclubCustomers`, `nightclubShifts`, `nightclubCashMovements`.
+     - Cumple estrictamente con `erasableSyntaxOnly` (TypeScript 5.8).
+  3. **Controlador de Aplicación de Producción (`src/modules/nightclub/application/useTenantNightclubController.ts`)**:
+     - Hook que ensambla en memoria el `NightclubDataset` reactivo a partir de los streams de Firestore, sin guardar documentos gigantes en la base de datos.
+     - Cablea todas las acciones de la UI con los comandos backend de `tenantGateway` utilizando `operationId` para idempotencia.
+  4. **Conexión en `NightclubApp.tsx` y Test de Límites (`tests/nightclubProductionBoundary.test.ts`)**:
+     - Reemplazado el placeholder por `<NightclubExperience />` conectado a `useTenantNightclubController`.
+     - Test de frontera garantiza que la app productiva de Nightclub jamás cargue mocks, fixtures de demo ni el controlador local de memoria.
+  5. **Suite de Pruebas Backend de Emulador (`firebase/tests/nightclubOrders.test.mjs`)**:
+     - Test 1: Flujo canónico mesa VIP1 con 2 Cerveza × Bs25 + 1 Agua (Directo) × Bs12 = Bs62.
+       - Descuento de stock en Cerveza (50 → 48) y Agua (30 → 29).
+       - Preparación en barra, entrega por mesero.
+       - Solicitud de cuenta, pago parcial 1 (Efectivo 40 con 50 recibido y 10 de cambio), saldo restante Bs 22.
+       - Pago 2 (QR 22), saldo llega a 0.
+       - Mesa liberada (`available`).
+       - Arqueo de turno ciego validado con efectivo esperado Bs 240 (200 apertura + 40 efectivo).
+     - Test 2: Validación de seguridad y permisos:
+       - Rechazo de actor de otro tenant o sucursal no permitida.
+       - Rechazo de apertura sobre mesa ya ocupada.
+       - Rechazo de ronda por stock insuficiente.
+       - Rechazo de avance de barra por mesero de servicio.
+       - Rechazo de entrega por personal de barra.
+       - Rechazo de sobrepago en cuenta ya saldada.
+     - Test 3: Compatibilidad con rondas directas cobradas en barra (`settleRound`) y devolución auditada (`refundRound`).
+- **Verificaciones Ejecutadas**:
+  - `npm run test:nightclub-orders-backend`: Exitoso (código 0, emulador Auth/Firestore/Functions).
+  - `npm run test:nightclub`: 87/87 pruebas aprobadas.
+  - `npm run test:tenant-core`: 59 comprobaciones multiempresa aprobadas.
+  - `npm run test:platform`: 56/56 pruebas aprobadas.
+  - `node --experimental-strip-types --test tests/nightclubProductionBoundary.test.ts`: 1/1 aprobado.
+  - `npm run typecheck`: 0 errores.
+  - `npm run build`: Compilación de producción exitosa en 5.64s.
+  - `git diff --check`: 0 errores de formato.
+
 ## Checkpoint: Simulación de Roles Restaurante, Selector de Variante en Landing y Depuración de Roles Nightclub (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `7f7317e` al iniciar, commit final `2f7700d` pusheado a `origin/cambios-dario`).
