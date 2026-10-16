@@ -398,6 +398,9 @@ export interface Order extends Partial<TenantScopedEntity> {
   /** @deprecated Use fulfillmentType instead. Kept for backward compat reads. */
   orderType?: 'table' | 'delivery'
   tableInfo?: string
+  /** Cuando true (ej. servicio rápido), la mesa sirve solo como referencia de entrega sin bloquear ni ocupar salón */
+  referenceOnly?: boolean
+  isReferenceTable?: boolean
   customerId?: string
   customerName?: string
   customerPhone?: string

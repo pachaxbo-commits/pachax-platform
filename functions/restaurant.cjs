@@ -495,7 +495,7 @@ async function applyRestaurantCommand(context) {
     }
 
     tx.create(orderRef, orderDoc)
-    if (tableRef && tableData) {
+    if (tableRef && tableData && !rawOrder.referenceOnly && !rawOrder.isReferenceTable) {
       tx.update(tableRef, {
         status: 'occupied',
         activeOrderId: orderId,

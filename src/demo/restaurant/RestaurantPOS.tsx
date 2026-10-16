@@ -46,18 +46,30 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
     })
     if (items.length !== input.cartItems.length || !items.length) return false
     const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
+    const isTable = input.fulfillmentType === 'table'
+    const isDelivery = input.fulfillmentType === 'delivery'
     const order: Order = {
       id: crypto.randomUUID(), sequence: nextSeq, displayNumber: String(nextSeq).padStart(3, '0'),
       status: 'pending',
-      orderSource: counterServiceMode ? 'local' : input.orderSource,
-      fulfillmentType: counterServiceMode ? 'pickup' : input.fulfillmentType,
-      tableId: counterServiceMode ? undefined : input.tableId,
-      tableInfo: counterServiceMode ? undefined : input.tableInfo,
-      customerId: input.customerId, customerName: input.customerName || 'Cliente', customerPhone: input.customerPhone,
-      deliveryAddress: counterServiceMode ? undefined : input.deliveryAddress, total, productSubtotal: total,
-      payment: input.payment, paymentStatus: input.paymentStatus,
-      paymentMethod: input.paymentMethod, expectedPaymentMethod: input.expectedPaymentMethod,
-      items, createdAt: at, createdBy: userName,
+      orderSource: input.orderSource || 'local',
+      fulfillmentType: input.fulfillmentType || (counterServiceMode ? 'pickup' : 'table'),
+      tableId: isTable ? input.tableId : undefined,
+      tableInfo: isTable ? (input.tableInfo || 'Mesa') : undefined,
+      customerId: input.customerId,
+      customerName: input.customerName || (isDelivery ? 'Cliente delivery' : isTable ? (input.tableInfo || 'Mesa') : 'Para llevar'),
+      customerPhone: input.customerPhone,
+      deliveryAddress: isDelivery ? input.deliveryAddress : undefined,
+      total,
+      productSubtotal: total,
+      payment: input.payment,
+      paymentStatus: input.paymentStatus,
+      paymentMethod: input.paymentMethod,
+      expectedPaymentMethod: input.expectedPaymentMethod,
+      items,
+      createdAt: at,
+      createdBy: userName,
+      referenceOnly: counterServiceMode ? true : undefined,
+      isReferenceTable: counterServiceMode && isTable ? true : undefined,
     }
     return await onAddOrder(order)
   }

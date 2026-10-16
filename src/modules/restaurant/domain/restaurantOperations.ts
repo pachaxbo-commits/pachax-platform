@@ -29,7 +29,22 @@ export function reconcileTableOrders(orders: Order[], tables: RestaurantTable[])
   return { orders: normalizedOrders, tables: normalizedTables }
 }
 
-export function placeRestaurantOrder(orders: Order[], tables: RestaurantTable[], incoming: Order) {
+export function placeRestaurantOrder(orders: Order[], tables: RestaurantTable[], incoming: Order, options?: { referenceOnly?: boolean }) {
+  if (options?.referenceOnly || incoming.referenceOnly || incoming.isReferenceTable) {
+    const table = incoming.fulfillmentType === 'table' ? resolveOrderTable(incoming, tables) : undefined
+    const placed: Order = {
+      ...incoming,
+      tableId: table?.id || incoming.tableId,
+      tableInfo: table?.name || incoming.tableInfo || (incoming.fulfillmentType === 'table' ? 'Mesa' : undefined),
+      accountStatus: incoming.accountStatus || 'open',
+    }
+    return {
+      orders: [placed, ...orders],
+      tables,
+      order: placed,
+      added: false,
+    }
+  }
   const table = incoming.fulfillmentType === 'table' ? resolveOrderTable(incoming, tables) : undefined
   if (incoming.fulfillmentType === 'table' && !table) throw new Error('Selecciona una mesa válida.')
   if (table && (table.active === false || table.archivedAt)) throw new Error('Esta mesa está desactivada.')

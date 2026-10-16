@@ -34,10 +34,18 @@ export function CocinaView({
   const lastPendingSequence = useRef<number>(0)
   const hideNoticeTimeout = useRef<number | null>(null)
 
-  // Cocina active orders: pending, preparing, or ready (legacy compatibility)
+  // Cocina active orders: pending, preparing, ready, ready_for_pickup, ready_for_dispatch
   const activeOrders = useMemo(() => {
     return orders
-      .filter((order) => (order.status === 'pending' || order.status === 'preparing' || order.status === 'ready') && (!onAdvanceItemStatus || area === 'all' || order.items.some(item => (item.productArea || 'Cocina') === area && item.status !== 'delivered')))
+      .filter((order) => {
+        const isKitchenActive =
+          order.status === 'pending' ||
+          order.status === 'preparing' ||
+          order.status === 'ready' ||
+          order.status === 'ready_for_pickup' ||
+          order.status === 'ready_for_dispatch'
+        return isKitchenActive && (!onAdvanceItemStatus || area === 'all' || order.items.some(item => (item.productArea || 'Cocina') === area && item.status !== 'delivered'))
+      })
       .sort((left, right) => {
         const leftTime = new Date(left.createdAt).getTime()
         const rightTime = new Date(right.createdAt).getTime()
@@ -289,27 +297,30 @@ export function CocinaView({
               {/* Contextual Action Button */}
               {!onAdvanceItemStatus && <div className="mt-6">
                 {(() => {
-                  const buttonText =
-                    order.fulfillmentType === 'table'
-                      ? 'SERVIR PEDIDO'
-                      : order.fulfillmentType === 'pickup'
-                        ? 'LISTO PARA RETIRAR'
-                        : 'LISTO PARA DESPACHAR'
+                  const isReady = order.status === 'ready' || order.status === 'ready_for_pickup' || order.status === 'ready_for_dispatch'
+                  const isPreparing = order.status === 'preparing'
 
-                  const nextStatus: OrderStatus =
-                    order.fulfillmentType === 'table'
-                      ? 'delivered'
-                      : order.fulfillmentType === 'pickup'
-                        ? 'ready_for_pickup'
-                        : 'ready_for_dispatch'
+                  const buttonText = isReady
+                    ? (order.fulfillmentType === 'table' ? 'SERVIR / ENTREGAR' : order.fulfillmentType === 'pickup' ? 'ENTREGAR AL CLIENTE' : 'DESPACHADO / ENTREGADO')
+                    : isPreparing
+                      ? (order.fulfillmentType === 'table' ? 'MARCAR LISTO' : order.fulfillmentType === 'pickup' ? 'LISTO PARA RETIRAR' : 'LISTO PARA DESPACHAR')
+                      : 'PASAR A PREPARACIÓN'
+
+                  const nextStatus: OrderStatus = isReady
+                    ? 'delivered'
+                    : isPreparing
+                      ? (order.fulfillmentType === 'table' ? 'ready' : order.fulfillmentType === 'pickup' ? 'ready_for_pickup' : 'ready_for_dispatch')
+                      : 'preparing'
+
+                  const tone = isReady ? 'primary' : isPreparing ? 'success' : 'warning'
 
                   return (
                     <div className="flex gap-2">
                     <Button
                       fullWidth
                       size="lg"
-                      tone="success"
-                      className="py-4 text-lg font-black tracking-wide shadow-md shadow-success/10 rounded-2xl min-h-[48px]"
+                      tone={tone as any}
+                      className="py-4 text-base font-black tracking-wide shadow-md shadow-success/10 rounded-2xl min-h-[48px]"
                       disabled={busyOrderId === order.id}
                       onClick={async () => {
                         setBusyOrderId(order.id)
@@ -328,6 +339,29 @@ export function CocinaView({
                         <>{buttonText}</>
                       )}
                     </Button>
+                    {!isReady && !isPreparing && (
+                      <Button
+                        size="lg"
+                        tone="success"
+                        className="py-4 text-xs font-black tracking-wide rounded-2xl min-h-[48px] px-3 shrink-0"
+                        title="Marcar listo directamente"
+                        disabled={busyOrderId === order.id}
+                        onClick={async () => {
+                          setBusyOrderId(order.id)
+                          const directReady: OrderStatus =
+                            order.fulfillmentType === 'table' ? 'ready' : order.fulfillmentType === 'pickup' ? 'ready_for_pickup' : 'ready_for_dispatch'
+                          const ok = await onAdvanceStatus(order.id, directReady)
+                          if (ok) {
+                            setNotice(`Pedido ${order.displayNumber} marcado como listo`)
+                            const resetTimeout = window.setTimeout(() => setNotice(null), 2500)
+                            return () => window.clearTimeout(resetTimeout)
+                          }
+                          setBusyOrderId(null)
+                        }}
+                      >
+                        Listo directo
+                      </Button>
+                    )}
                     {/* Reimprimir a mano. Es el unico modo de imprimir los pedidos que carga
                         caja, y sirve para repetir un ticket de WhatsApp si salio mal. */}
                     <Button

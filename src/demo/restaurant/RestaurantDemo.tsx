@@ -337,7 +337,7 @@ export function RestaurantDemo({
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>(() => readSaved<KitchenTicketJob[]>(`${storageKey}:kitchen-print-jobs:v1`, []))
   void resetKey
   const [cashierName, setCashierName] = useState(
-    `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'}`
+    `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'}`
   )
   const submissionLock = useRef(false)
   void audit
@@ -948,7 +948,7 @@ export function RestaurantDemo({
         createdAt: timestamp,
         submittedBatches: [],
       }
-      const placed = placeRestaurantOrder(orders, tables, candidate)
+      const placed = placeRestaurantOrder(orders, tables, candidate, { referenceOnly: profile === 'counter_service' || Boolean(candidate.referenceOnly) })
       const consumption = confirmInventoryLines(placed.order, ticketItems, inventoryRef.current.products, inventoryRef.current.movements, timestamp, cashierName, requestedPaymentStatus === 'gift' ? 'courtesy' : 'sale')
       const settled = requestedPaymentStatus === 'paid'
         ? completeRestaurantPayment(placed.orders, placed.tables, placed.order.id, {
@@ -1155,7 +1155,7 @@ export function RestaurantDemo({
 
   const session: RestaurantSession = {
     tenantId: sessionTenantId,
-    restaurantName: companyName || (profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'),
+    restaurantName: companyName || (profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'),
     uid: isStudio ? 'studio-cashier-uid' : 'demo-cashier-uid',
     userName: cashierName,
     role: mode === 'team' ? 'team' : simulatedRole || 'admin',

@@ -1,11 +1,32 @@
 import { useState } from 'react'
-import { Store, Receipt, Palette, Check } from 'lucide-react'
+import { Store, Receipt, Palette, Check, MapPin, Plus, Trash2 } from 'lucide-react'
 import { DEFAULT_RESTAURANT_THEME, RESTAURANT_THEME_PRESETS, restaurantThemeStyle, validRestaurantColor, type RestaurantThemeColors } from '../../modules/restaurant/views/restaurantTheme'
+import type { RestaurantSector, RestaurantTable } from '../mocks/restaurantMock'
+import type { FloorAction } from '../../modules/restaurant/domain/restaurantFloor'
 
-export function RestaurantSettings({ onResetDemo, themeColors = DEFAULT_RESTAURANT_THEME, onSaveTheme }: { onResetDemo?: () => void; themeColors?: RestaurantThemeColors; onSaveTheme?: (colors: RestaurantThemeColors) => Promise<void> | void }) {
+export function RestaurantSettings({
+  onResetDemo,
+  themeColors = DEFAULT_RESTAURANT_THEME,
+  onSaveTheme,
+  tables = [],
+  sectors = [],
+  onFloorAction,
+  isCounterService = false,
+}: {
+  onResetDemo?: () => void
+  themeColors?: RestaurantThemeColors
+  onSaveTheme?: (colors: RestaurantThemeColors) => Promise<void> | void
+  tables?: RestaurantTable[]
+  sectors?: RestaurantSector[]
+  onFloorAction?: (action: FloorAction) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
+  isCounterService?: boolean
+}) {
   const [draft, setDraft] = useState<RestaurantThemeColors>(themeColors)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
+  const [newTableName, setNewTableName] = useState('')
+  const [tableNotice, setTableNotice] = useState('')
+  const activeTables = tables.filter((t) => !t.archivedAt && t.active !== false)
   const valid = validRestaurantColor(draft.primary) && validRestaurantColor(draft.accent)
   const saveTheme = async () => {
     if (!valid || !onSaveTheme || saving) return
@@ -112,6 +133,90 @@ export function RestaurantSettings({ onResetDemo, themeColors = DEFAULT_RESTAURA
           </div>
         </div>
       </div>
+
+      {isCounterService && onFloorAction && (
+        <div className="restaurant-settings-panel space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-slate-700" />
+              Mesas / Puntos de Entrega
+            </h2>
+            <span className="text-xs font-bold text-slate-500">
+              {activeTables.length} punto(s) configurado(s)
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">
+            Puntos de entrega o números de mesa referenciales para llevar los pedidos a los clientes en mostrador o mesas del local.
+          </p>
+
+          <div className="flex flex-wrap gap-2">
+            {activeTables.map((table) => (
+              <div
+                key={table.id}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-xs"
+              >
+                <span className="text-xs font-bold text-slate-800">{table.name}</span>
+                <button
+                  type="button"
+                  title="Eliminar punto de entrega"
+                  className="text-slate-400 hover:text-red-600 transition"
+                  onClick={async () => {
+                    const res = await onFloorAction({ type: 'table.archive', id: table.id })
+                    if (!res.ok) setTableNotice(res.error || 'Error al eliminar punto.')
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+            {!activeTables.length && (
+              <span className="text-xs text-slate-400 italic">No hay mesas o puntos configurados aún.</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-100 max-w-md">
+            <input
+              type="text"
+              placeholder="Ej. Mesa 1, Mesa 2, Mostrador..."
+              value={newTableName}
+              onChange={(e) => {
+                setNewTableName(e.target.value)
+                setTableNotice('')
+              }}
+              className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:outline-none focus:border-slate-400"
+            />
+            <button
+              type="button"
+              disabled={!newTableName.trim()}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-40"
+              onClick={async () => {
+                const name = newTableName.trim()
+                if (!name) return
+                const fallbackSectorId = sectors?.[0]?.id || 'sector-principal'
+                const res = await onFloorAction({
+                  type: 'table.create',
+                  id: `table_${Date.now()}`,
+                  name,
+                  sectorId: fallbackSectorId,
+                  capacity: 4,
+                  shape: 'square',
+                  active: true,
+                })
+                if (res.ok) {
+                  setNewTableName('')
+                  setTableNotice('')
+                } else {
+                  setTableNotice(res.error || 'Error al agregar punto.')
+                }
+              }}
+            >
+              <Plus size={14} />
+              Agregar
+            </button>
+          </div>
+          {tableNotice && <p role="alert" className="text-xs font-bold text-rose-600">{tableNotice}</p>}
+        </div>
+      )}
     </div>
   )
 }

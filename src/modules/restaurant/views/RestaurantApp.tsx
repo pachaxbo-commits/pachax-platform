@@ -477,12 +477,74 @@ export function RestaurantApp({
         onAddOrder={async (order) => {
           try {
             await addOrder(tenantId, 'main', order)
-            return true
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Error al registrar pedido.'
             window.alert(msg)
             return false
           }
+
+          try {
+            const engine = PrintEngineService.getInstance()
+            const autoKitchenPrinters = engine
+              .listPrinterProfiles(tenantId)
+              .filter((p) => p.isActive && p.autoPrintOnOrderCreated && (p.role === 'kitchen' || p.role === 'bar'))
+
+            if (autoKitchenPrinters.length > 0 && order.items && order.items.length > 0) {
+              const now = new Date().toISOString()
+              const tableDestination =
+                order.tableInfo ||
+                (order.fulfillmentType === 'pickup'
+                  ? 'PARA LLEVAR'
+                  : order.fulfillmentType === 'delivery'
+                  ? 'DELIVERY'
+                  : 'MOSTRADOR')
+              const payload: PrintJobPayload = {
+                payloadSchemaVersion: 1,
+                templateVersion: 'v1.0',
+                restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
+                branchName: 'Principal',
+                orderId: order.id,
+                displayNumber: order.displayNumber || order.sequence?.toString() || order.id.slice(-4),
+                tableInfo: tableDestination,
+                customerName: order.customerName,
+                fulfillmentType: order.fulfillmentType || 'pickup',
+                items: order.items.map((item) => ({
+                  name: item.name,
+                  basePrice: 0,
+                  quantity: item.quantity,
+                  lineTotal: 0,
+                  modifiersText: item.modifiers ? Object.values(item.modifiers).filter((v) => typeof v === 'string' && v !== item.modifiers?.note) as string[] : undefined,
+                  note: item.modifiers?.note,
+                })),
+                subtotal: 0,
+                discountTotal: 0,
+                taxTotal: 0,
+                deliveryFee: 0,
+                grandTotal: 0,
+                isCopy: false,
+                copies: 1,
+                createdIso: now,
+              }
+              const job = await engine.submitPrintRequest({
+                targetType: 'kitchen_ticket',
+                orderId: order.id,
+                idempotencyKey: `auto-kitchen:${order.id}:${Date.now()}`,
+                payload,
+              })
+              if (job.status !== 'failed' && !job.lastError) {
+                setLastPrintedComanda(payload)
+              } else {
+                console.warn('Auto-print kitchen job notice:', job.lastError)
+                window.alert(`El pedido se guardó correctamente, pero la impresora reportó: ${job.lastError || 'Fallo de transmisión'}. Puedes reimprimir desde Pedidos.`)
+              }
+            }
+          } catch (printErr: unknown) {
+            console.warn('Auto-print exception:', printErr)
+            const msg = printErr instanceof Error ? printErr.message : 'Error al imprimir'
+            window.alert(`El pedido se guardó correctamente, pero falló la impresión automática: ${msg}. Puedes reimprimir desde Pedidos.`)
+          }
+
+          return true
         }}
         onAdvanceStatus={async (orderId, status) => {
           try {

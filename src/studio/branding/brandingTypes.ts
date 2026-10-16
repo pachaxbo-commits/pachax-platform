@@ -21,7 +21,7 @@ export const DEFAULT_RESTAURANT_BRANDING: StudioBranding = {
 }
 
 export const DEFAULT_HAMBURGER_BRANDING: StudioBranding = {
-  companyName: 'Hamburguesería Demo',
+  companyName: 'Servicio Rápido Demo',
   primaryColor: '#9A3412',
   sidebarColor: '#FFF7ED',
   accentColor: '#EA580C',

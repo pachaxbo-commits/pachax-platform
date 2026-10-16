@@ -117,14 +117,14 @@ export function DemoRuntime({
 
   const templateInfo = {
     restaurant: {
-      name: 'Restaurante',
+      name: 'Restaurante con salón',
       company: branding?.companyName || 'Bistró Demo',
-      desc: 'Pedidos, mesas, cocina, caja e inventario.',
+      desc: 'Mesas, meseros, cuentas abiertas y servicio completo.',
     },
     hamburger: {
-      name: 'Hamburguesería',
-      company: branding?.companyName || 'Hamburguesería Demo',
-      desc: 'Pedidos de mostrador, cocina, caja e inventario.',
+      name: 'Restaurante de servicio rápido',
+      company: branding?.companyName || 'Servicio Rápido Demo',
+      desc: 'Pedidos ágiles de mostrador, mesa de entrega, para llevar o delivery, con cocina, caja e inventario.',
     },
     distribution: {
       name: 'Producción y distribución',

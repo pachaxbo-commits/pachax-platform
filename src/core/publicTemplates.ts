@@ -17,8 +17,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
   {
     id: 'restaurant',
     businessType: 'restaurant_pos',
-    title: 'Restaurante & Gastronomía',
-    shortDescription: 'Organiza salón, pedidos, cocina, inventario y caja en un solo flujo.',
+    title: 'Restaurante con salón',
+    shortDescription: 'Mesas, meseros, cuentas abiertas y servicio completo.',
     demoPath: '/demo/restaurant',
     studioTemplateId: 'restaurant',
     status: 'available',
@@ -26,8 +26,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
   {
     id: 'hamburger',
     businessType: 'hamburger_shop',
-    title: 'Hamburguesería',
-    shortDescription: 'Pedidos de mostrador, cocina, caja e inventario para hamburguesas y combos.',
+    title: 'Restaurante de servicio rápido',
+    shortDescription: 'Pedidos ágiles de mostrador, mesa de entrega, para llevar o delivery, con cocina, caja e inventario.',
     demoPath: '/demo/hamburger',
     studioTemplateId: 'hamburger',
     status: 'available',

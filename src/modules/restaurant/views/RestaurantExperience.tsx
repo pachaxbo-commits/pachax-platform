@@ -291,8 +291,22 @@ export function RestaurantExperience({
   // Módulos visibles según el rol del usuario (o todos en admin/owner/team)
   const visibleModules = useMemo(() => {
     const role = session.role || 'admin'
+    const counterModules: RestaurantModuleId[] = [
+      'pos',
+      'orders',
+      'kitchen',
+      'cash',
+      'inventory',
+      'products',
+      'customers',
+      'users',
+      'reports',
+      'settings',
+      'printers',
+      'history',
+    ]
     const modules = isCounterService
-      ? MODULE_DEFINITIONS.filter((module) => ['pos', 'cash', 'kitchen', 'customers', 'inventory', 'products', 'history', 'printers'].includes(module.id))
+      ? MODULE_DEFINITIONS.filter((module) => counterModules.includes(module.id))
       : MODULE_DEFINITIONS
     if (role === 'admin' || role === 'owner' || role === 'team') {
       return modules
@@ -301,12 +315,18 @@ export function RestaurantExperience({
   }, [session.role, isCounterService])
 
   const primaryModules = useMemo(() => {
-    if (isCounterService) return visibleModules
+    if (isCounterService) {
+      const counterPrimary: RestaurantModuleId[] = ['pos', 'orders', 'kitchen', 'cash', 'inventory', 'products', 'customers']
+      return visibleModules.filter((m) => counterPrimary.includes(m.id))
+    }
     return visibleModules.filter((m) => PRIMARY_MODULE_IDS.includes(m.id))
   }, [visibleModules, isCounterService])
 
   const secondaryModules = useMemo(() => {
-    if (isCounterService) return []
+    if (isCounterService) {
+      const counterSecondary: RestaurantModuleId[] = ['users', 'reports', 'settings', 'printers', 'history']
+      return visibleModules.filter((m) => counterSecondary.includes(m.id))
+    }
     return visibleModules.filter((m) => SECONDARY_MODULE_IDS.includes(m.id))
   }, [visibleModules, isCounterService])
 
@@ -506,7 +526,7 @@ export function RestaurantExperience({
               userRole={session.role}
               userName={session.userName}
               enabled={!!shift}
-              tables={isCounterService ? [] : visibleTables(tables)}
+              tables={visibleTables(tables)}
 
               customers={customers}
 
@@ -582,7 +602,7 @@ export function RestaurantExperience({
             />
           )}
           {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
-          {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} />}
+          {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} tables={tables} sectors={sectors} onFloorAction={onFloorAction} isCounterService={isCounterService} />}
           {activeModule === 'printers' && <RestaurantPrinters tenantId={session.tenantId} branchId="main" config={kitchenPrinterConfig} jobs={kitchenPrintJobs} onSave={onSaveKitchenPrinterConfig} onPrintTest={onPrintKitchenTest} onRetry={onRetryKitchenPrint} onReprintLatest={onReprintLatestKitchenTicket} />}
         </main>
       </div>

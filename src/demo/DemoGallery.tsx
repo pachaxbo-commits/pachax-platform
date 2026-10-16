@@ -9,7 +9,7 @@ export function DemoGallery() {
       highlights: ['Comandas en tiempo real', 'Plano visual de mesas', 'Cocina KDS', 'Arqueo de turnos'],
     },
     hamburger: {
-      company: 'Hamburguesería Demo', icon: Utensils, tag: 'Mostrador & Cocina',
+      company: 'Servicio Rápido Demo', icon: Utensils, tag: 'Servicio rápido & Cocina',
       highlights: ['Pedidos rápidos', 'Cocina KDS', 'Recetas e inventario', 'Arqueo de turnos'],
     },
     distribution: {
