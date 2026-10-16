@@ -14,7 +14,19 @@ import type {
   NightclubStaff,
   NightclubTable,
   NightclubZone,
-} from '../domain/nightclubAccounts'
+} from '../domain/nightclubAccounts.ts'
+import type { ReservationDraft } from '../domain/nightclubFloor.ts'
+import type {
+  NightclubConsumptionDraft,
+  NightclubLoungeSale,
+  NightclubLoungeSaleDraft,
+  NightclubPromoter,
+  NightclubPromoterConsumption,
+  NightclubPromoterEvent,
+  NightclubSaleDraft,
+  NightclubTicketSale,
+} from '../domain/nightclubPromoters.ts'
+
 
 export interface NightclubFloorSnapshot {
   zones: NightclubZone[]
@@ -67,6 +79,22 @@ export interface NightclubRepository {
   saveInventory(input: { operationId: string; item: NightclubInventoryItem }): Promise<void>
   saveCustomer(input: { operationId: string; customer: NightclubCustomer }): Promise<void>
   getRoundById?(roundId: string): Promise<NightclubRound | null>
+  subscribeReservations?(listener: (value: NightclubReservation[]) => void): Unsubscribe
+  subscribePromoters?(listener: (value: NightclubPromoter[]) => void): Unsubscribe
+  subscribePromoterEvents?(listener: (value: NightclubPromoterEvent[]) => void): Unsubscribe
+  subscribePromoterTicketSales?(listener: (value: NightclubTicketSale[]) => void): Unsubscribe
+  subscribePromoterLoungeSales?(listener: (value: NightclubLoungeSale[]) => void): Unsubscribe
+  subscribePromoterConsumptions?(listener: (value: NightclubPromoterConsumption[]) => void): Unsubscribe
+  saveReservation?(input: { operationId: string; reservation: ReservationDraft }): Promise<{ reservationId: string }>
+  cancelReservation?(input: { operationId: string; id: string }): Promise<void>
+  arriveReservation?(input: { operationId: string; id: string }): Promise<{ reservationId: string; accountId: string }>
+  savePromoter?(input: { operationId: string; promoter: NightclubPromoter }): Promise<{ promoterId: string }>
+  deletePromoter?(input: { operationId: string; id: string }): Promise<void>
+  savePromoterEvent?(input: { operationId: string; event: Pick<NightclubPromoterEvent, 'id' | 'name' | 'date' | 'status'> }): Promise<{ eventId: string }>
+  saveTicketSale?(input: { operationId: string; sale: NightclubSaleDraft }): Promise<{ saleId: string; total: number }>
+  saveLoungeSale?(input: { operationId: string; sale: NightclubLoungeSaleDraft }): Promise<{ saleId: string }>
+  markLoungePaid?(input: { operationId: string; saleId: string }): Promise<void>
+  savePromoterConsumption?(input: { operationId: string; consumption: NightclubConsumptionDraft }): Promise<{ consumptionId: string }>
 }
 
 export const nightclubTenantPaths = (tenantId: string) => ({
@@ -86,4 +114,9 @@ export const nightclubTenantPaths = (tenantId: string) => ({
   cashMovements: `tenants/${tenantId}/nightclubCashMovements`,
   operations: `tenants/${tenantId}/nightclubOperations`,
   audit: `tenants/${tenantId}/nightclubAudit`,
+  promoters: `tenants/${tenantId}/nightclubPromoters`,
+  promoterEvents: `tenants/${tenantId}/nightclubPromoterEvents`,
+  promoterTicketSales: `tenants/${tenantId}/nightclubPromoterTicketSales`,
+  promoterLoungeSales: `tenants/${tenantId}/nightclubPromoterLoungeSales`,
+  promoterConsumptions: `tenants/${tenantId}/nightclubPromoterConsumptions`,
 })

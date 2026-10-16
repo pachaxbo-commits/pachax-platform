@@ -56,7 +56,7 @@ export function resolveNightclubVisibleModules({
 }): NightclubModuleId[] {
   let modules = ALL_NIGHTCLUB_MODULE_IDS
   if (mode === 'tenant') {
-    modules = modules.filter(id => id !== 'promoters' && id !== 'members')
+    modules = modules.filter(id => id !== 'members')
   }
   const normalizedRole = normalizeNightclubRole(role)
   return modules.filter(id =>

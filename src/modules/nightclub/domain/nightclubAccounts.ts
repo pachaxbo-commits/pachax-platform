@@ -68,7 +68,7 @@ export interface NightclubCustomRole { id: `custom:${string}`; label: string; pe
 export type NightclubCommissionStatus = 'pending' | 'earned' | 'void' | 'paid'
 export interface NightclubCommission { id: string; accountId: string; roundId: string; itemId: string; productId: string; productName: string; staffId: string; staffName: string; quantity: number; saleAmount: number; type: 'percentage' | 'fixed'; value: number; amount: number; paidAmount: number; status: NightclubCommissionStatus; shiftId?: string; createdAt: string; earnedAt?: string; voidedAt?: string; voidReason?: string; paymentIds?: string[] }
 export interface NightclubCommissionPayment { id: string; staffId: string; amount: number; method: 'cash' | 'qr' | 'card' | 'other'; at: string; actor: string; shiftId?: string; note?: string; commissionIds: string[] }
-export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled' }
+export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled' | 'no_show'; reservationDate?: string; phone?: string; customerId?: string; notes?: string; tenantId?: string; branchId?: string; createdAt?: string; updatedAt?: string }
 export interface NightclubBranding {
   businessName: string
   subtitle: string

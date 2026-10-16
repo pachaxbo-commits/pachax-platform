@@ -9,8 +9,15 @@ import type {
   NightclubShift,
   NightclubStaff,
 } from '../domain/nightclubAccounts.ts'
-import type { TableDraft, ZoneDraft } from '../domain/nightclubFloor.ts'
+import type { TableDraft, ZoneDraft, ReservationDraft } from '../domain/nightclubFloor.ts'
 import type { NightclubUserRole } from '../domain/nightclubUsers.ts'
+import type {
+  NightclubConsumptionDraft,
+  NightclubLoungeSaleDraft,
+  NightclubPromoter,
+  NightclubPromoterEvent,
+  NightclubSaleDraft,
+} from '../domain/nightclubPromoters.ts'
 
 export interface TenantNightclubActionsDeps {
   tenantId: string
@@ -45,6 +52,16 @@ export interface TenantNightclubActionsDeps {
     saveProduct: (payload: any) => Promise<any>
     saveCustomer: (payload: any) => Promise<any>
     getRoundById?: (roundId: string) => Promise<any>
+    saveReservation?: (payload: any) => Promise<any>
+    cancelReservation?: (payload: any) => Promise<any>
+    arriveReservation?: (payload: any) => Promise<any>
+    savePromoter?: (payload: any) => Promise<any>
+    deletePromoter?: (payload: any) => Promise<any>
+    savePromoterEvent?: (payload: any) => Promise<any>
+    saveTicketSale?: (payload: any) => Promise<any>
+    saveLoungeSale?: (payload: any) => Promise<any>
+    markLoungePaid?: (payload: any) => Promise<any>
+    savePromoterConsumption?: (payload: any) => Promise<any>
   }
   gatewayFn: (name: 'tenantGateway' | 'platformGateway', payload: Record<string, unknown>) => Promise<any>
 }
@@ -83,14 +100,23 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       return true
     },
 
-    onSaveReservation: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSaveReservation: async (draft: ReservationDraft): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.saveReservation) throw new Error('saveReservation no disponible en el repositorio.')
+      await repository.saveReservation({ operationId, reservation: draft })
+      return true
     },
-    onCancelReservation: async () => {
-      throw new Error('Función no conectada en producción.')
+    onCancelReservation: async (id: string): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.cancelReservation) throw new Error('cancelReservation no disponible en el repositorio.')
+      await repository.cancelReservation({ operationId, id })
+      return true
     },
-    onArriveReservation: async () => {
-      throw new Error('Función no conectada en producción.')
+    onArriveReservation: async (id: string): Promise<string> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.arriveReservation) throw new Error('arriveReservation no disponible en el repositorio.')
+      const res = await repository.arriveReservation({ operationId, id })
+      return res.accountId
     },
     onSaveBranding: async () => {
       throw new Error('Función no conectada en producción.')
@@ -365,26 +391,47 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
     onCancelCourtesy: async () => {
       throw new Error('Función no conectada en producción.')
     },
-    onSavePromoterEvent: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSavePromoterEvent: async (event: Pick<NightclubPromoterEvent, 'id' | 'name' | 'date' | 'status'>): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.savePromoterEvent) throw new Error('savePromoterEvent no disponible en el repositorio.')
+      await repository.savePromoterEvent({ operationId, event })
+      return true
     },
-    onSavePromoter: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSavePromoter: async (promoter: NightclubPromoter): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.savePromoter) throw new Error('savePromoter no disponible en el repositorio.')
+      await repository.savePromoter({ operationId, promoter })
+      return true
     },
-    onDeletePromoter: async () => {
-      throw new Error('Función no conectada en producción.')
+    onDeletePromoter: async (id: string): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.deletePromoter) throw new Error('deletePromoter no disponible en el repositorio.')
+      await repository.deletePromoter({ operationId, id })
+      return true
     },
-    onSavePromoterSale: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSavePromoterSale: async (sale: NightclubSaleDraft): Promise<boolean> => {
+      const operationId = sale.operationId || crypto.randomUUID()
+      if (!repository.saveTicketSale) throw new Error('saveTicketSale no disponible en el repositorio.')
+      await repository.saveTicketSale({ operationId, sale })
+      return true
     },
-    onSavePromoterLoungeSale: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSavePromoterLoungeSale: async (sale: NightclubLoungeSaleDraft): Promise<boolean> => {
+      const operationId = sale.operationId || crypto.randomUUID()
+      if (!repository.saveLoungeSale) throw new Error('saveLoungeSale no disponible en el repositorio.')
+      await repository.saveLoungeSale({ operationId, sale })
+      return true
     },
-    onMarkPromoterLoungePaid: async () => {
-      throw new Error('Función no conectada en producción.')
+    onMarkPromoterLoungePaid: async (saleId: string): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.markLoungePaid) throw new Error('markLoungePaid no disponible en el repositorio.')
+      await repository.markLoungePaid({ operationId, saleId })
+      return true
     },
-    onSavePromoterConsumption: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSavePromoterConsumption: async (consumption: NightclubConsumptionDraft): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.savePromoterConsumption) throw new Error('savePromoterConsumption no disponible en el repositorio.')
+      await repository.savePromoterConsumption({ operationId, consumption })
+      return true
     },
   }
 }

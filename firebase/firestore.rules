@@ -843,6 +843,27 @@ service cloud.firestore {
       allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'orders.read','orders');
       allow write: if false;
     }
+    match /tenants/{tenantId}/nightclubPromoters/{promoterId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterEvents/{eventId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterTicketSales/{saleId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterLoungeSales/{saleId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterConsumptions/{consumptionId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales'));
+      allow write: if false;
+    }
+
     match /tenants/{tenantId}/nightclubProducts/{productId} {
       allow read: if tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'products.manage','inventory');
       allow write: if false;

@@ -25,6 +25,16 @@ const permissions = {
   saveProduct: 'products.manage',
   saveInventory: 'inventory.manage',
   saveCustomer: 'customers.read',
+  saveReservation: 'orders.read',
+  cancelReservation: 'orders.read',
+  arriveReservation: 'orders.read',
+  savePromoter: 'settings.manage',
+  deletePromoter: 'settings.manage',
+  savePromoterEvent: 'settings.manage',
+  saveTicketSale: 'sales.create',
+  saveLoungeSale: 'sales.create',
+  markLoungePaid: 'sales.create',
+  savePromoterConsumption: 'settings.manage',
 }
 
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
@@ -86,10 +96,25 @@ async function executeNightclubCommand(db, request) {
     if (['openShift', 'closeShift'].includes(type) && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden gestionar turnos.')
     }
+    if (type === 'saveReservation' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para gestionar reservas.')
+    }
+    if (type === 'cancelReservation' && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden cancelar reservas.')
+    }
+    if (type === 'arriveReservation' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para registrar la llegada de reservas.')
+    }
+    if (['savePromoter', 'deletePromoter', 'savePromoterEvent', 'savePromoterConsumption'].includes(type) && !['owner', 'admin'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar relacionadores.')
+    }
+    if (['saveTicketSale', 'saveLoungeSale', 'markLoungePaid'].includes(type) && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden registrar ventas de relacionadores.')
+    }
 
     const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now })
     tx.create(operationRef, { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, requestHash, status: 'confirmed', createdAt: now, result })
-    tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.accountId || result.roundId || result.shiftId || result.movementId || result.zoneId || result.tableId || result.productId || result.customerId || null, createdAt: now })
+    tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.accountId || result.roundId || result.shiftId || result.movementId || result.zoneId || result.tableId || result.productId || result.customerId || result.reservationId || result.promoterId || result.eventId || result.saleId || result.consumptionId || null, createdAt: now })
     return result
   })
 }
@@ -237,6 +262,473 @@ async function applyCommand(context) {
     return { customerId, customer: data }
   }
 
+  if (type === 'saveReservation') {
+    const r = payload.reservation || payload.draft || payload
+    const reservationId = id(r.id || `res_${operationId}`)
+    const tableId = id(r.tableId)
+    const tableRef = root.collection('nightclubTables').doc(tableId)
+    const tableSnap = await tx.get(tableRef)
+    if (!tableSnap.exists || tableSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'La mesa seleccionada no existe.')
+    }
+    const table = tableSnap.data()
+    const reservationDate = text(r.reservationDate, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reservationDate)) {
+      throw new HttpsError('invalid-argument', 'Fecha de reserva inválida (YYYY-MM-DD).')
+    }
+    const time = text(r.time, 5)
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      throw new HttpsError('invalid-argument', 'Hora de reserva inválida (HH:mm).')
+    }
+    const customerName = text(r.customerName, 100)
+    const guests = Number(r.guests)
+    if (!Number.isInteger(guests) || guests < 1 || guests > (table.capacity || 100)) {
+      throw new HttpsError('invalid-argument', `La reserva admite entre 1 y ${table.capacity || 100} personas.`)
+    }
+
+    const existingResQuery = await tx.get(
+      root.collection('nightclubReservations')
+        .where('tableId', '==', tableId)
+        .where('branchId', '==', branchId)
+    )
+    const duplicateRes = existingResQuery.docs.find(doc => {
+      if (doc.id === reservationId) return false
+      const data = doc.data()
+      return data.status === 'confirmed' && data.reservationDate === reservationDate
+    })
+    if (duplicateRes) {
+      throw new HttpsError('failed-precondition', 'La mesa ya tiene una reserva confirmada para esa fecha.')
+    }
+
+    const existingLounges = await tx.get(
+      root.collection('nightclubPromoterLoungeSales')
+        .where('loungeId', '==', tableId)
+        .where('branchId', '==', branchId)
+    )
+    const duplicateLounge = existingLounges.docs.find(doc => {
+      const data = doc.data()
+      const lDate = data.reservationDate || data.eventDate
+      return lDate === reservationDate && ['reserved', 'paid'].includes(data.status)
+    })
+    if (duplicateLounge) {
+      throw new HttpsError('failed-precondition', 'La mesa ya está reservada o vendida para esa fecha.')
+    }
+
+    if (table.activeAccountId || table.status === 'occupied' || table.status === 'bill_requested') {
+      throw new HttpsError('failed-precondition', 'La mesa ya tiene una cuenta activa.')
+    }
+
+    const resRef = root.collection('nightclubReservations').doc(reservationId)
+    const prevRes = await tx.get(resRef)
+    const resData = {
+      id: reservationId,
+      tenantId: actor.tenantId,
+      branchId,
+      tableId,
+      customerName,
+      reservationDate,
+      time,
+      guests,
+      status: 'confirmed',
+      phone: typeof r.phone === 'string' ? r.phone.trim() : '',
+      notes: typeof r.notes === 'string' ? r.notes.trim() : '',
+      ...(r.customerId ? { customerId: id(r.customerId) } : {}),
+      createdAt: prevRes.exists ? prevRes.data().createdAt : now,
+      updatedAt: now,
+    }
+    tx.set(resRef, resData, { merge: true })
+    if (table.status === 'available') {
+      tx.update(tableRef, { status: 'reserved', reservationName: customerName, updatedAt: now })
+    }
+    return { reservationId, reservation: resData }
+  }
+
+  if (type === 'cancelReservation') {
+    const reservationId = id(payload.id || payload.reservationId)
+    const resRef = root.collection('nightclubReservations').doc(reservationId)
+    const resSnap = await tx.get(resRef)
+    if (!resSnap.exists || resSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Reserva no encontrada.')
+    }
+    const resData = resSnap.data()
+    if (resData.status !== 'confirmed') {
+      throw new HttpsError('failed-precondition', 'La reserva ya no está activa.')
+    }
+    tx.update(resRef, { status: 'cancelled', cancelledAt: now, cancelledBy: actor.uid, updatedAt: now })
+    const tableRef = root.collection('nightclubTables').doc(resData.tableId)
+    const tableSnap = await tx.get(tableRef)
+    if (tableSnap.exists && !tableSnap.data().activeAccountId && tableSnap.data().status === 'reserved') {
+      tx.update(tableRef, { status: 'available', reservationName: null, updatedAt: now })
+    }
+    return { reservationId, status: 'cancelled' }
+  }
+
+  if (type === 'savePromoter') {
+    const p = payload.promoter || payload
+    const promoterId = id(p.id || `promoter_${operationId}`)
+    const name = text(p.name, 120)
+    const phone = typeof p.phone === 'string' ? p.phone.trim() : ''
+    if (phone.length > 40) throw new HttpsError('invalid-argument', 'Teléfono demasiado largo.')
+    const joinedAt = text(p.joinedAt, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(joinedAt)) throw new HttpsError('invalid-argument', 'Fecha de ingreso inválida.')
+    const birthday = typeof p.birthday === 'string' && p.birthday.trim() ? p.birthday.trim() : null
+    const document = typeof p.document === 'string' && p.document.trim() ? p.document.trim() : null
+    const active = p.active !== false
+
+    const allPromoters = await tx.get(
+      root.collection('nightclubPromoters')
+        .where('branchId', '==', branchId)
+    )
+    const duplicate = allPromoters.docs.find(doc => {
+      if (doc.id === promoterId) return false
+      const data = doc.data()
+      return data.name.toLowerCase() === name.toLowerCase() && phone && data.phone === phone
+    })
+    if (duplicate) throw new HttpsError('already-exists', 'Ya existe un relacionador con ese nombre y teléfono.')
+
+    const promRef = root.collection('nightclubPromoters').doc(promoterId)
+    const prev = await tx.get(promRef)
+    const promData = {
+      id: promoterId,
+      tenantId: actor.tenantId,
+      branchId,
+      name,
+      phone,
+      joinedAt,
+      active,
+      ...(birthday ? { birthday } : {}),
+      ...(document ? { document } : {}),
+      createdAt: prev.exists ? prev.data().createdAt : now,
+      updatedAt: now,
+    }
+    tx.set(promRef, promData, { merge: true })
+    return { promoterId, promoter: promData }
+  }
+
+  if (type === 'deletePromoter') {
+    const promoterId = id(payload.id || payload.promoterId)
+    const promRef = root.collection('nightclubPromoters').doc(promoterId)
+    const promSnap = await tx.get(promRef)
+    if (!promSnap.exists || promSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Relacionador no encontrado.')
+    }
+    const [ticketSales, loungeSales, consumptions] = await Promise.all([
+      tx.get(root.collection('nightclubPromoterTicketSales').where('promoterId', '==', promoterId).where('branchId', '==', branchId).limit(1)),
+      tx.get(root.collection('nightclubPromoterLoungeSales').where('promoterId', '==', promoterId).where('branchId', '==', branchId).limit(1)),
+      tx.get(root.collection('nightclubPromoterConsumptions').where('promoterId', '==', promoterId).where('branchId', '==', branchId).limit(1)),
+    ])
+    if (!ticketSales.empty || !loungeSales.empty || !consumptions.empty) {
+      throw new HttpsError('failed-precondition', 'Tiene movimientos. Desactívalo para conservar la trazabilidad.')
+    }
+    tx.delete(promRef)
+    return { promoterId }
+  }
+
+  if (type === 'savePromoterEvent') {
+    const ev = payload.event || payload
+    const eventId = id(ev.id || `event_${operationId}`)
+    const name = text(ev.name, 120)
+    const date = text(ev.date, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpsError('invalid-argument', 'Fecha de evento inválida.')
+    const status = ev.status
+    if (!['planned', 'open', 'closed'].includes(status)) throw new HttpsError('invalid-argument', 'Estado de evento inválido.')
+
+    const allEvents = await tx.get(
+      root.collection('nightclubPromoterEvents')
+        .where('branchId', '==', branchId)
+    )
+    const duplicate = allEvents.docs.find(doc => doc.id !== eventId && doc.data().date === date && doc.data().name.toLowerCase() === name.toLowerCase())
+    if (duplicate) throw new HttpsError('already-exists', 'Ya existe una jornada con ese nombre y fecha.')
+
+    const evRef = root.collection('nightclubPromoterEvents').doc(eventId)
+    const prev = await tx.get(evRef)
+    const evData = {
+      id: eventId,
+      tenantId: actor.tenantId,
+      branchId,
+      name,
+      date,
+      status,
+      createdAt: prev.exists ? prev.data().createdAt : now,
+      updatedAt: now,
+    }
+    tx.set(evRef, evData, { merge: true })
+    return { eventId, event: evData }
+  }
+
+  if (type === 'saveTicketSale') {
+    const s = payload.sale || payload
+    const saleId = id(s.id || `sale_${operationId}`)
+    const promoterId = id(s.promoterId)
+    const promRef = root.collection('nightclubPromoters').doc(promoterId)
+    const promSnap = await tx.get(promRef)
+    if (!promSnap.exists || promSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Relacionador no encontrado.')
+    }
+    const saleRef = root.collection('nightclubPromoterTicketSales').doc(saleId)
+    const prevSale = await tx.get(saleRef)
+    if (!prevSale.exists && !promSnap.data().active) {
+      throw new HttpsError('failed-precondition', 'El relacionador está inactivo.')
+    }
+
+    let linkedEvent = null
+    if (s.eventId) {
+      const eventSnap = await tx.get(root.collection('nightclubPromoterEvents').doc(id(s.eventId)))
+      if (!eventSnap.exists || eventSnap.data().branchId !== branchId) {
+        throw new HttpsError('not-found', 'La jornada seleccionada no existe.')
+      }
+      linkedEvent = eventSnap.data()
+      if (!prevSale.exists && linkedEvent.status === 'closed') {
+        throw new HttpsError('failed-precondition', 'La jornada está cerrada.')
+      }
+    }
+    const eventDate = linkedEvent?.date || text(s.eventDate, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) throw new HttpsError('invalid-argument', 'Fecha de evento inválida.')
+    const eventName = linkedEvent?.name || (s.eventName ? text(s.eventName, 120) : null)
+    const ticketType = text(s.ticketType, 60)
+    const quantity = Number(s.quantity)
+    const unitPrice = Number(s.unitPrice)
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity > 10000 || !Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw new HttpsError('invalid-argument', 'Revisa tipo, cantidad y precio de entradas.')
+    }
+    const status = s.status
+    if (!['pending', 'paid', 'cancelled'].includes(status)) throw new HttpsError('invalid-argument', 'Estado de venta inválido.')
+    const total = money(quantity * unitPrice)
+
+    let corrections = prevSale.exists ? (prevSale.data().corrections || []) : []
+    if (prevSale.exists) {
+      const reason = typeof s.correctionReason === 'string' ? s.correctionReason.trim() : ''
+      if (reason.length < 4) throw new HttpsError('invalid-argument', 'Indica el motivo de la corrección.')
+      const prevData = prevSale.data()
+      corrections = [...corrections, {
+        at: now,
+        actor: actor.uid,
+        reason,
+        previous: {
+          eventId: prevData.eventId || null,
+          eventName: prevData.eventName || null,
+          eventDate: prevData.eventDate,
+          ticketType: prevData.ticketType,
+          quantity: prevData.quantity,
+          unitPrice: prevData.unitPrice,
+          total: prevData.total,
+          status: prevData.status,
+        }
+      }]
+    }
+
+    const saleData = {
+      id: saleId,
+      tenantId: actor.tenantId,
+      branchId,
+      promoterId,
+      ...(s.eventId ? { eventId: id(s.eventId) } : {}),
+      ...(eventName ? { eventName } : {}),
+      eventDate,
+      ticketType,
+      quantity,
+      unitPrice: money(unitPrice),
+      total,
+      status,
+      operationId,
+      createdAt: prevSale.exists ? prevSale.data().createdAt : now,
+      createdBy: prevSale.exists ? prevSale.data().createdBy : actor.uid,
+      ...(prevSale.exists ? { updatedAt: now, updatedBy: actor.uid, corrections } : {}),
+    }
+    tx.set(saleRef, saleData, { merge: true })
+    return { saleId, total, status }
+  }
+
+  if (type === 'saveLoungeSale') {
+    const s = payload.loungeSale || payload.sale || payload
+    const saleId = id(s.id || `lounge_${operationId}`)
+    const promoterId = id(s.promoterId)
+    const promRef = root.collection('nightclubPromoters').doc(promoterId)
+    const promSnap = await tx.get(promRef)
+    if (!promSnap.exists || promSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Relacionador no encontrado.')
+    }
+    const saleRef = root.collection('nightclubPromoterLoungeSales').doc(saleId)
+    const prevSale = await tx.get(saleRef)
+    if (!prevSale.exists && !promSnap.data().active) {
+      throw new HttpsError('failed-precondition', 'El relacionador está inactivo.')
+    }
+    if (prevSale.exists && prevSale.data().promoterId !== promoterId) {
+      throw new HttpsError('failed-precondition', 'No puedes cambiar el relacionador de una venta registrada.')
+    }
+    const reservationDate = text(s.reservationDate, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reservationDate)) throw new HttpsError('invalid-argument', 'Fecha de reserva inválida.')
+    const loungeId = id(s.loungeId)
+    const tableRef = root.collection('nightclubTables').doc(loungeId)
+    const tableSnap = await tx.get(tableRef)
+    if (!tableSnap.exists || tableSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Selecciona una mesa existente en Zonas.')
+    }
+    const table = tableSnap.data()
+    const price = Number(s.agreedPrice)
+    if (!Number.isFinite(price) || price < 0) throw new HttpsError('invalid-argument', 'Ingresa un precio acordado válido.')
+    const status = s.status
+    if (!['reserved', 'paid', 'cancelled'].includes(status)) throw new HttpsError('invalid-argument', 'Estado de lounge inválido.')
+
+    if (status !== 'cancelled') {
+      const otherLounges = await tx.get(
+        root.collection('nightclubPromoterLoungeSales')
+          .where('loungeId', '==', loungeId)
+          .where('branchId', '==', branchId)
+      )
+      const duplicateLounge = otherLounges.docs.find(doc => {
+        if (doc.id === saleId) return false
+        const d = doc.data()
+        const lDate = d.reservationDate || d.eventDate
+        return lDate === reservationDate && ['reserved', 'paid'].includes(d.status)
+      })
+      if (duplicateLounge) {
+        throw new HttpsError('failed-precondition', 'Esta mesa ya está reservada o vendida para la fecha.')
+      }
+
+      const otherReservations = await tx.get(
+        root.collection('nightclubReservations')
+          .where('tableId', '==', loungeId)
+          .where('branchId', '==', branchId)
+      )
+      const duplicateRes = otherReservations.docs.find(doc => doc.data().status === 'confirmed' && doc.data().reservationDate === reservationDate)
+      if (duplicateRes) {
+        throw new HttpsError('failed-precondition', 'La mesa no está disponible para esta fecha.')
+      }
+
+      if (table.activeAccountId || table.status === 'occupied' || table.status === 'bill_requested') {
+        throw new HttpsError('failed-precondition', 'La mesa no está disponible para esta fecha.')
+      }
+    }
+
+    let customerName = null
+    if (s.customerId) {
+      const custSnap = await tx.get(root.collection('nightclubCustomers').doc(id(s.customerId)))
+      if (custSnap.exists) customerName = custSnap.data().name
+    }
+
+    let corrections = prevSale.exists ? (prevSale.data().corrections || []) : []
+    if (prevSale.exists) {
+      const reason = typeof s.correctionReason === 'string' ? s.correctionReason.trim() : ''
+      if (reason.length < 4) throw new HttpsError('invalid-argument', 'Indica el motivo de la corrección.')
+      const prevData = prevSale.data()
+      corrections = [...corrections, {
+        at: now,
+        actor: actor.uid,
+        reason,
+        kind: 'correction',
+        previous: {
+          eventId: prevData.eventId || null,
+          eventDate: prevData.eventDate || null,
+          reservationDate: prevData.reservationDate || prevData.eventDate,
+          loungeId: prevData.loungeId,
+          loungeName: prevData.loungeName,
+          customerId: prevData.customerId || null,
+          customerName: prevData.customerName || null,
+          agreedPrice: prevData.agreedPrice,
+          status: prevData.status,
+        }
+      }]
+    }
+
+    const loungeData = {
+      id: saleId,
+      tenantId: actor.tenantId,
+      branchId,
+      promoterId,
+      ...(s.eventId ? { eventId: id(s.eventId) } : {}),
+      eventDate: reservationDate,
+      reservationDate,
+      loungeId: table.id,
+      loungeName: table.name,
+      ...(s.customerId ? { customerId: id(s.customerId) } : {}),
+      ...(customerName ? { customerName } : {}),
+      agreedPrice: money(price),
+      status,
+      operationId,
+      createdAt: prevSale.exists ? prevSale.data().createdAt : now,
+      createdBy: prevSale.exists ? prevSale.data().createdBy : actor.uid,
+      ...(prevSale.exists ? { updatedAt: now, updatedBy: actor.uid, corrections } : {}),
+    }
+    tx.set(saleRef, loungeData, { merge: true })
+    if (status !== 'cancelled' && table.status === 'available') {
+      tx.update(tableRef, { status: 'reserved', reservationName: promSnap.data().name, updatedAt: now })
+    }
+    return { saleId, loungeSaleId: saleId, status }
+  }
+
+  if (type === 'markLoungePaid') {
+    const saleId = id(payload.saleId || payload.id || payload.loungeSaleId)
+    const saleRef = root.collection('nightclubPromoterLoungeSales').doc(saleId)
+    const saleSnap = await tx.get(saleRef)
+    if (!saleSnap.exists || saleSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'La reserva no existe.')
+    }
+    const current = saleSnap.data()
+    if (current.status === 'paid') throw new HttpsError('failed-precondition', 'El lounge ya se encuentra pagado.')
+    if (current.status !== 'reserved') throw new HttpsError('failed-precondition', 'Solo una reserva pendiente puede marcarse como pagada.')
+
+    const rDate = current.reservationDate || current.eventDate
+    const otherLounges = await tx.get(
+      root.collection('nightclubPromoterLoungeSales')
+        .where('loungeId', '==', current.loungeId)
+        .where('branchId', '==', branchId)
+    )
+    const duplicate = otherLounges.docs.find(doc => doc.id !== saleId && (doc.data().reservationDate || doc.data().eventDate) === rDate && doc.data().status !== 'cancelled')
+    if (duplicate) throw new HttpsError('failed-precondition', 'Esta mesa ya tiene otra reserva para la fecha.')
+
+    const previous = {
+      eventId: current.eventId || null,
+      eventDate: current.eventDate,
+      reservationDate: current.reservationDate,
+      loungeId: current.loungeId,
+      loungeName: current.loungeName,
+      customerId: current.customerId || null,
+      customerName: current.customerName || null,
+      agreedPrice: current.agreedPrice,
+      status: current.status,
+    }
+    const corrections = [...(current.corrections || []), { at: now, actor: actor.uid, reason: '', kind: 'payment', previous }]
+    tx.update(saleRef, { status: 'paid', paidAt: now, updatedAt: now, updatedBy: actor.uid, corrections })
+    return { saleId, status: 'paid' }
+  }
+
+  if (type === 'savePromoterConsumption') {
+    const c = payload.consumption || payload
+    const consumptionId = id(c.id || `prom_cons_${operationId}`)
+    const promoterId = id(c.promoterId)
+    const promRef = root.collection('nightclubPromoters').doc(promoterId)
+    const promSnap = await tx.get(promRef)
+    if (!promSnap.exists || promSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Relacionador no encontrado.')
+    }
+    if (!promSnap.data().active) throw new HttpsError('failed-precondition', 'El relacionador está inactivo.')
+    const day = text(c.date, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new HttpsError('invalid-argument', 'Fecha de consumo inválida.')
+    const concept = text(c.concept, 150)
+    const amt = Number(c.amount)
+    if (!Number.isFinite(amt) || amt < 0) throw new HttpsError('invalid-argument', 'Monto de consumo inválido.')
+    const kind = c.kind
+    if (!['courtesy', 'own_purchase'].includes(kind)) throw new HttpsError('invalid-argument', 'Tipo de consumo inválido.')
+
+    const consRef = root.collection('nightclubPromoterConsumptions').doc(consumptionId)
+    const consData = {
+      id: consumptionId,
+      tenantId: actor.tenantId,
+      branchId,
+      promoterId,
+      date: day,
+      concept,
+      amount: money(amt),
+      kind,
+      ...(c.notes ? { notes: text(c.notes, 200) } : {}),
+      createdAt: now,
+      createdBy: actor.uid,
+    }
+    tx.set(consRef, consData, { merge: true })
+    return { consumptionId, consumption: consData }
+  }
+
   // 3. Operaciones que requieren turno activo
   const state = await tx.get(stateRef), activeShiftId = state.data()?.activeShiftId
   if (!activeShiftId) throw new HttpsError('failed-precondition', 'No hay turno activo.')
@@ -269,6 +761,57 @@ async function applyCommand(context) {
     if (tableRef) tx.update(tableRef, { activeAccountId: accountId, status: 'occupied', updatedAt: now })
     return { accountId }
   }
+
+  // Llegada de Reserva (Transición atómica a cuenta y mesa ocupada)
+  if (type === 'arriveReservation') {
+    const reservationId = id(payload.id || payload.reservationId)
+    const resRef = root.collection('nightclubReservations').doc(reservationId)
+    const resSnap = await tx.get(resRef)
+    if (!resSnap.exists || resSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Reserva no encontrada.')
+    }
+    const resData = resSnap.data()
+    if (resData.status !== 'confirmed') {
+      throw new HttpsError('failed-precondition', 'La reserva ya no está activa o ya llegó.')
+    }
+    const tableRef = root.collection('nightclubTables').doc(resData.tableId)
+    const tableSnap = await tx.get(tableRef)
+    if (!tableSnap.exists || tableSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'La mesa de la reserva ya no existe.')
+    }
+    const table = tableSnap.data()
+    if (table.activeAccountId || table.status === 'occupied' || table.status === 'bill_requested') {
+      throw new HttpsError('failed-precondition', 'La mesa ya tiene una cuenta activa.')
+    }
+    const accountId = `account_${operationId}`
+    const accountRef = root.collection('nightclubAccounts').doc(accountId)
+    const storedTarget = { type: 'table', tableId: table.id }
+    const accountValue = {
+      id: accountId,
+      tenantId: actor.tenantId,
+      branchId,
+      shiftId: activeShiftId,
+      tableId: table.id,
+      serviceTarget: storedTarget,
+      orderType: 'TABLE',
+      status: 'open',
+      subtotal: 0,
+      paidTotal: 0,
+      balance: 0,
+      roundCount: 0,
+      openedAt: now,
+      openedBy: actor.uid,
+      customerDisplayName: resData.customerName,
+      tableNameSnapshot: table.name,
+      guestCount: resData.guests || 2,
+      ...(resData.customerId ? { customerId: resData.customerId } : {}),
+    }
+    tx.create(accountRef, accountValue)
+    tx.update(tableRef, { activeAccountId: accountId, status: 'occupied', reservationName: null, updatedAt: now })
+    tx.update(resRef, { status: 'arrived', arrivedAt: now, arrivedBy: actor.uid, accountId, updatedAt: now })
+    return { reservationId, accountId }
+  }
+
 
   // Flujo Canónico: Agregar Ronda sin exigir pago inmediato
   if (type === 'addRound') {

@@ -1,5 +1,41 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: N3A - Nightclub: Reservas Reales, Relacionadores Comerciales, Jornadas y Lounges (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `a2b9b90` al iniciar este bloque).
+- **Objetivo Cumplido**: Implementación completa y segura de la fase N3A en Nightclub productivo, integrando colecciones normalizadas en Firestore (`nightclubReservations`, `nightclubPromoters`, `nightclubPromoterEvents`, `nightclubPromoterTicketSales`, `nightclubPromoterLoungeSales`, `nightclubPromoterConsumptions`), backend transaccional seguro vía `executeNightclubCommand` en Cloud Functions, reglas Firestore y reconexión honesta en la interfaz visual canónica de `NightclubZones` y `NightclubExperience`.
+- **Detalles Técnicos Implementados**:
+  1. **Aislamiento Comercial de Relacionadores (Cero Login / Cero Role 'promoter')**:
+     - Los relacionadores se modelan estrictamente como entidades comerciales de auditoría y ventas en `nightclubPromoters`.
+     - Ningún relacionador recibe usuario de autenticación Firebase (`uid`), login ni rol en `members`. La gestión de personal y roles de autenticación permanece inalterada y segura.
+  2. **Reservas Reales con `reservationDate` y Control de Concurrencia Transaccional**:
+     - Extendido el modelo de `NightclubReservation` y `ReservationDraft` con `reservationDate: YYYY-MM-DD`, `phone`, `customerId` y `notes`.
+     - Validaciones server-side de fecha (regex YYYY-MM-DD), hora (regex HH:mm), cantidad de personas (1 a capacidad de la mesa).
+     - Validación transaccional de disponibilidad compartida: rechaza doble reserva sobre la misma mesa en la misma fecha tanto en reservas estándar (`nightclubReservations`) como en lounges de relacionador (`nightclubPromoterLoungeSales`).
+     - Rechazo inmediato de reserva si la mesa ya tiene cuenta activa o estado ocupado.
+  3. **Llegada Atómica de Reserva (`arriveReservation`)**:
+     - Transición transaccional atómica de la reserva a `status: 'arrived'` con timestamp y actor.
+     - Apertura de cuenta real vinculada al turno activo (`shiftId`), ocupación de mesa (`status: 'occupied'`, `activeAccountId`), limpieza de `reservationName` y retorno de `{ reservationId, accountId }`.
+  4. **Jornadas / Eventos de Relacionadores (`nightclubPromoterEvents`)**:
+     - Ciclo de vida: `planned` -> `open` -> `closed`.
+     - Ventas bloqueadas si la jornada está cerrada (`closed`) o si el relacionador está inactivo (`active: false`).
+  5. **Venta de Entradas y Lounges con Cero Efecto en Caja/Turno**:
+     - Venta de entradas (`nightclubPromoterTicketSales`): cálculo server-side estricto de `total = quantity * unitPrice`, trazabilidad por `operationId`, idempotencia demostrada sin duplicación de registros ni montos.
+     - Venta/reserva de lounges (`nightclubPromoterLoungeSales`): bloqueo cruzado de disponibilidad de salón, marcado como pagado (`markLoungePaid`) con control de ya pagado.
+     - Estricto aislamiento financiero: ni las entradas ni los lounges ni los consumos generan movimientos en `nightclubCashMovements` ni alteran `cashIncome` / `totalSales` del arqueo o cierre del turno en `nightclubShifts`.
+  6. **Consumos de Relacionadores (`nightclubPromoterConsumptions`)**:
+     - Registro de cortesías y consumos propios de relacionadores con fines informativos y de auditoría sin impacto en stock ni caja.
+  7. **Reglas de Seguridad Firestore (`firebase/tenant-core.rules`)**:
+     - Reglas de lectura segura para miembros autorizados de la sucursal y bloqueo total de escritura directa desde cliente (`allow write: if false;`), forzando todas las mutaciones a través del gateway transaccional seguro.
+  8. **Reconexión Visual Canónica en Producción (`NightclubZones.tsx`, `NightclubExperience.tsx`, `nightclubActionRunner.ts`)**:
+     - En `NightclubZones`, habilitadas las reservas para modo `tenant`: visualización de tarjetas de reserva con fecha/hora/personas/teléfono, selector de fecha en el modal de reserva, confirmación de llegada (`Confirmar llegada`) y cancelación de reserva.
+     - En `NightclubExperience` / `resolveNightclubVisibleModules`, se volvió a exponer el módulo `promoters` en modo `tenant`, manteniendo suprimido `members` (socios/cortesías para N3B).
+  9. **Suites de Pruebas Automatizadas**:
+     - `test:nightclub-orders-backend` (Emulador Firebase): Flujo canónico VIP1 con llegada atómica, creación de Carlos, 10 entradas a Bs 50 = Bs 500 sin tocar caja, reserva de lounge VIP2 a Bs 800, bloqueo de doble reserva, marcado como pagado sin tocar caja, idempotencia por `operationId` y suite negativa completa (aislamiento tenant/branch, fechas/horas inválidas, capacidad excedida, eventos cerrados, relacionadores inactivos, doble cobro de lounge y mesero bloqueado de administración).
+     - `test:nightclub`: 87/87 pruebas aprobadas.
+     - `test:platform`: 99/99 pruebas aprobadas.
+     - `typecheck` y `build`: 0 errores, build de producción en 4.33s.
+
 ## Checkpoint: N2.1 - Cierre Nightclub: Impresión Real y Permisos Honestos (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `5e06bee` al iniciar este bloque).

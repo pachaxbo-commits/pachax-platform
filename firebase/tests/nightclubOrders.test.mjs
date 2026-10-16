@@ -303,6 +303,313 @@ try {
     countedCash: 125, // 100 float + 25 cash from T1 (bar sale was 25 cash then refunded -25)
   })
   console.log('PASS: settleRound y refundRound probados con éxito.')
+
+  console.log('=== TEST 4: N3A FLUJO CANÓNICO RESERVAS + RELACIONADORES + ENTRADAS + LOUNGES ===')
+  // Abrir turno 3 para validar que ventas de entradas/lounges NO alteran el efectivo de turno
+  const shift3Op = await call('admin', 'openShift', 'shift-qa-3', { openingFloat: 500 })
+  const shift3Id = shift3Op.shiftId
+  assert.ok(shift3Id)
+
+  // Configurar Mesas VIP1 y VIP2
+  await root.collection('nightclubTables').doc('VIP1').set({ id: 'VIP1', branchId: 'main', name: 'Mesa VIP1', capacity: 6, status: 'available' })
+  await root.collection('nightclubTables').doc('VIP2').set({ id: 'VIP2', branchId: 'main', name: 'Mesa VIP2', capacity: 8, status: 'available' })
+
+  // 1. Crear reserva para VIP1 en fecha F
+  const dateF = '2026-11-20'
+  const res1 = await call('cashier', 'saveReservation', 'res-vip1-op', {
+    draft: { tableId: 'VIP1', customerName: 'Juan Pérez', time: '22:30', guests: 4, reservationDate: dateF, phone: '70012345' }
+  })
+  assert.ok(res1.reservationId)
+  const res1Doc = await data(`nightclubReservations/${res1.reservationId}`)
+  assert.equal(res1Doc.status, 'confirmed')
+  assert.equal(res1Doc.customerName, 'Juan Pérez')
+  assert.equal(res1Doc.reservationDate, dateF)
+  const tableVip1 = await data('nightclubTables/VIP1')
+  assert.equal(tableVip1.status, 'reserved')
+  assert.equal(tableVip1.reservationName, 'Juan Pérez')
+
+  // 2. Intentar segunda reserva VIP1 para la misma fecha -> rechazo
+  await assert.rejects(
+    () => call('cashier', 'saveReservation', 'res-vip1-second', {
+      draft: { tableId: 'VIP1', customerName: 'Pedro Gómez', time: '23:00', guests: 2, reservationDate: dateF }
+    }),
+    err => (err.code === 'aborted' || err.code === 'failed-precondition') && err.message.includes('reserva')
+  )
+
+  // 3. Llegada de reserva: status -> arrived, cuenta abierta automáticamente, mesa ocupada
+  const arriveRes = await call('waiter', 'arriveReservation', 'arrive-vip1-op', {
+    reservationId: res1.reservationId
+  })
+  assert.ok(arriveRes.accountId)
+  const res1ArrivedDoc = await data(`nightclubReservations/${res1.reservationId}`)
+  assert.equal(res1ArrivedDoc.status, 'arrived')
+  assert.ok(res1ArrivedDoc.arrivedAt)
+  const accVip1 = await data(`nightclubAccounts/${arriveRes.accountId}`)
+  assert.equal(accVip1.status, 'open')
+  assert.equal(accVip1.tableId, 'VIP1')
+  const tableVip1Arrived = await data('nightclubTables/VIP1')
+  assert.equal(tableVip1Arrived.status, 'occupied')
+  assert.equal(tableVip1Arrived.activeAccountId, arriveRes.accountId)
+
+  // 4. Crear relacionador "Carlos"
+  const promoterCarlos = await call('admin', 'savePromoter', 'prom-carlos-op', {
+    promoter: { name: 'Carlos', phone: '78912345', joinedAt: dateF, active: true }
+  })
+  assert.ok(promoterCarlos.promoterId)
+  const carlosDoc = await data(`nightclubPromoters/${promoterCarlos.promoterId}`)
+  assert.equal(carlosDoc.name, 'Carlos')
+  assert.equal(carlosDoc.active, true)
+
+  // Crear jornada/evento abierto
+  const eventOp = await call('admin', 'savePromoterEvent', 'event-fiesta-op', {
+    event: { name: 'Fiesta Retro', date: dateF, status: 'open' }
+  })
+  assert.ok(eventOp.eventId)
+
+  // 5. Registrar venta de 10 entradas a Bs 50: total = 500, no crea movimiento de caja
+  const saleOp = await call('cashier', 'saveTicketSale', 'sale-carlos-10', {
+    sale: {
+      promoterId: promoterCarlos.promoterId,
+      eventId: eventOp.eventId,
+      eventName: 'Fiesta Retro',
+      eventDate: dateF,
+      ticketType: 'General',
+      quantity: 10,
+      unitPrice: 50,
+      status: 'paid'
+    }
+  })
+  assert.ok(saleOp.saleId)
+  const saleDoc = await data(`nightclubPromoterTicketSales/${saleOp.saleId}`)
+  assert.equal(saleDoc.total, 500)
+  assert.equal(saleDoc.status, 'paid')
+  assert.equal(saleDoc.quantity, 10)
+  assert.equal(saleDoc.unitPrice, 50)
+
+  // Verificar que NO se modificó la caja ni el turno
+  const shiftAfterTickets = await data(`nightclubShifts/${shift3Id}`)
+  assert.equal(shiftAfterTickets.cashIncome || 0, 0)
+  assert.equal(shiftAfterTickets.totalSales || 0, 0)
+  const cashMovements1 = await root.collection('nightclubCashMovements').where('shiftId', '==', shift3Id).get()
+  assert.equal(cashMovements1.size, 0)
+
+  // 6. Registrar reserva de lounge VIP2 a Bs 800 por Carlos:
+  // - mesa VIP2 queda reservada
+  // - no permite otra reserva de salón para VIP2
+  // - no crea movimiento de caja
+  const loungeOp = await call('cashier', 'saveLoungeSale', 'lounge-carlos-vip2', {
+    loungeSale: {
+      promoterId: promoterCarlos.promoterId,
+      reservationDate: dateF,
+      loungeId: 'VIP2',
+      agreedPrice: 800,
+      status: 'reserved'
+    }
+  })
+  assert.ok(loungeOp.loungeSaleId)
+  const loungeDoc = await data(`nightclubPromoterLoungeSales/${loungeOp.loungeSaleId}`)
+  assert.equal(loungeDoc.status, 'reserved')
+  assert.equal(loungeDoc.agreedPrice, 800)
+
+  const tableVip2 = await data('nightclubTables/VIP2')
+  assert.equal(tableVip2.status, 'reserved')
+
+  // No permite otra reserva de salón para VIP2 en la misma fecha
+  await assert.rejects(
+    () => call('cashier', 'saveLoungeSale', 'lounge-vip2-second', {
+      loungeSale: {
+        promoterId: promoterCarlos.promoterId,
+        reservationDate: dateF,
+        loungeId: 'VIP2',
+        agreedPrice: 800,
+        status: 'reserved'
+      }
+    }),
+    err => (err.code === 'aborted' || err.code === 'failed-precondition') && (err.message.includes('reservada') || err.message.includes('disponible'))
+  )
+
+  // No permite reserva estándar para VIP2 en la misma fecha (disponibilidad unificada)
+  await assert.rejects(
+    () => call('cashier', 'saveReservation', 'res-vip2-clash', {
+      draft: { tableId: 'VIP2', customerName: 'Otro Cliente', time: '23:00', guests: 4, reservationDate: dateF }
+    }),
+    err => (err.code === 'aborted' || err.code === 'failed-precondition') && (err.message.includes('reservada') || err.message.includes('reserva'))
+  )
+
+  // 7. Marcar lounge como pagado: status -> paid, no crea movimiento de caja de turno
+  const markPaidRes = await call('cashier', 'markLoungePaid', 'lounge-vip2-pay', {
+    loungeSaleId: loungeOp.loungeSaleId
+  })
+  assert.equal(markPaidRes.status, 'paid')
+  const loungePaidDoc = await data(`nightclubPromoterLoungeSales/${loungeOp.loungeSaleId}`)
+  assert.equal(loungePaidDoc.status, 'paid')
+  assert.ok(loungePaidDoc.paidAt)
+
+  // Verificar que el turno y la caja permanecen sin cambios
+  const shiftAfterLounge = await data(`nightclubShifts/${shift3Id}`)
+  assert.equal(shiftAfterLounge.cashIncome || 0, 0)
+  assert.equal(shiftAfterLounge.totalSales || 0, 0)
+  const cashMovements2 = await root.collection('nightclubCashMovements').where('shiftId', '==', shift3Id).get()
+  assert.equal(cashMovements2.size, 0)
+
+  // 8. Repetir venta de entrada con mismo operationId: debe ser idempotente
+  const repeatSale = await call('cashier', 'saveTicketSale', 'sale-carlos-10', {
+    sale: {
+      promoterId: promoterCarlos.promoterId,
+      eventId: eventOp.eventId,
+      eventName: 'Fiesta Retro',
+      eventDate: dateF,
+      ticketType: 'General',
+      quantity: 10,
+      unitPrice: 50,
+      status: 'paid'
+    }
+  })
+  assert.equal(repeatSale.saleId, saleOp.saleId)
+  assert.deepEqual(repeatSale, saleOp)
+
+  const ticketSalesCount = await root.collection('nightclubPromoterTicketSales').where('operationId', '==', 'sale-carlos-10').get()
+  assert.equal(ticketSalesCount.size, 1)
+
+  console.log('PASS: Flujo canónico N3A completado con éxito.')
+
+  console.log('=== TEST 5: N3A SUITE NEGATIVA Y DE PERMISOS ===')
+  // 1. Tenant A no puede leer/modificar reservas ni relacionadores de Tenant B
+  await assert.rejects(
+    () => call('intruder', 'saveReservation', 'neg-intruder-res', {
+      draft: { tableId: 'VIP1', customerName: 'Intruso', time: '22:00', guests: 2, reservationDate: dateF }
+    }, otherTenantId),
+    err => err.code === 'failed-precondition' || err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('intruder', 'savePromoter', 'neg-intruder-prom', {
+      promoter: { name: 'Fake Promoter' }
+    }, otherTenantId),
+    err => err.code === 'failed-precondition' || err.code === 'permission-denied'
+  )
+
+  // 2. Branch A no mezcla reservas con Branch B
+  await assert.rejects(
+    () => call('cashier', 'saveReservation', 'neg-branch-res', {
+      draft: { tableId: 'VIP1', customerName: 'Branch B Customer', time: '22:00', guests: 2, reservationDate: dateF }
+    }, tenantId, 'branch-b'),
+    err => err.code === 'permission-denied'
+  )
+
+  // 3. No se puede reservar con fecha inválida
+  await assert.rejects(
+    () => call('cashier', 'saveReservation', 'neg-invalid-date', {
+      draft: { tableId: 'VIP2', customerName: 'Test', time: '22:00', guests: 2, reservationDate: 'invalid-date' }
+    }),
+    err => err.code === 'invalid-argument'
+  )
+
+  // 4. No se puede reservar con hora inválida
+  await assert.rejects(
+    () => call('cashier', 'saveReservation', 'neg-invalid-time', {
+      draft: { tableId: 'VIP2', customerName: 'Test', time: '25:99', guests: 2, reservationDate: dateF }
+    }),
+    err => err.code === 'invalid-argument'
+  )
+
+  // 5. No se puede reservar para más personas que la capacidad de la mesa (VIP2 capacidad = 8)
+  await assert.rejects(
+    () => call('cashier', 'saveReservation', 'neg-over-capacity', {
+      draft: { tableId: 'VIP2', customerName: 'Test', time: '22:00', guests: 50, reservationDate: '2026-11-21' }
+    }),
+    err => err.code === 'invalid-argument' && (err.message.includes('personas') || err.message.includes('capacidad'))
+  )
+
+  // 6. No se puede reservar una mesa ocupada (VIP1 ocupada por llegada anterior)
+  await assert.rejects(
+    () => call('cashier', 'saveReservation', 'neg-occupied-res', {
+      draft: { tableId: 'VIP1', customerName: 'Test', time: '22:00', guests: 2, reservationDate: dateF }
+    }),
+    err => (err.code === 'aborted' || err.code === 'failed-precondition') && err.message.includes('cuenta activa')
+  )
+
+  // 7. No se puede vender entrada para evento cerrado
+  const closedEventOp = await call('admin', 'savePromoterEvent', 'event-closed-op', {
+    event: { name: 'Evento Pasado', date: '2026-10-01', status: 'closed' }
+  })
+  assert.ok(closedEventOp.eventId)
+  await assert.rejects(
+    () => call('cashier', 'saveTicketSale', 'neg-closed-event-sale', {
+      sale: {
+        promoterId: promoterCarlos.promoterId,
+        eventId: closedEventOp.eventId,
+        eventName: 'Evento Pasado',
+        eventDate: '2026-10-01',
+        ticketType: 'VIP',
+        quantity: 2,
+        unitPrice: 100,
+        status: 'paid'
+      }
+    }),
+    err => (err.code === 'aborted' || err.code === 'failed-precondition') && err.message.includes('cerrada')
+  )
+
+  // 8. No se puede registrar venta para relacionador inactivo
+  const inactivePromoter = await call('admin', 'savePromoter', 'prom-inactive-op', {
+    promoter: { name: 'Inactivo', phone: '00000', joinedAt: dateF, active: false }
+  })
+  await assert.rejects(
+    () => call('cashier', 'saveTicketSale', 'neg-inactive-prom-sale', {
+      sale: {
+        promoterId: inactivePromoter.promoterId,
+        eventId: eventOp.eventId,
+        eventName: 'Fiesta Retro',
+        eventDate: dateF,
+        ticketType: 'General',
+        quantity: 1,
+        unitPrice: 50,
+        status: 'pending'
+      }
+    }),
+    err => (err.code === 'aborted' || err.code === 'failed-precondition') && err.message.includes('inactiv')
+  )
+
+  // 9. No se puede marcar lounge como pagado dos veces
+  await assert.rejects(
+    () => call('cashier', 'markLoungePaid', 'lounge-vip2-pay-again', {
+      loungeSaleId: loungeOp.loungeSaleId
+    }),
+    err => (err.code === 'aborted' || err.code === 'failed-precondition') && err.message.includes('ya se encuentra pagado')
+  )
+
+  // 10. Mesero no puede crear ni editar relacionadores (requiere settings.manage / owner|admin)
+  await assert.rejects(
+    () => call('waiter', 'savePromoter', 'neg-waiter-promoter', {
+      promoter: { name: 'Promoter by Waiter' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // 11. Consumos de relacionador: registrar cortesía/consumo no afecta caja ni ventas
+  const consumptionOp = await call('admin', 'savePromoterConsumption', 'cons-carlos-1', {
+    consumption: {
+      promoterId: promoterCarlos.promoterId,
+      date: dateF,
+      concept: 'Cortesía de bienvenida',
+      amount: 120,
+      kind: 'courtesy',
+      notes: 'Autorizado por gerencia'
+    }
+  })
+  assert.ok(consumptionOp.consumptionId)
+  const consDoc = await data(`nightclubPromoterConsumptions/${consumptionOp.consumptionId}`)
+  assert.equal(consDoc.amount, 120)
+  assert.equal(consDoc.kind, 'courtesy')
+
+  // Finalizar cuenta de VIP1 (abierta por llegada de reserva) para permitir cierre de turno limpio
+  await call('waiter', 'finishOccupancy', 'finish-vip1-qa', { accountId: arriveRes.accountId })
+
+  // Cierre final del turno 3 sin alteraciones de caja
+  await call('admin', 'closeShift', 'close-qa-shift3', {
+    shiftId: shift3Id,
+    countedCash: 500, // exact 500 opening float, as no ticket/lounge/consumption touched cash
+  })
+  console.log('PASS: Suite negativa N3A y control de permisos aprobados con éxito.')
 } finally {
   await deleteApp(app)
 }

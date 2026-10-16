@@ -7,6 +7,13 @@ import type {
   NightclubShift,
   NightclubStaff,
 } from '../domain/nightclubAccounts'
+import type {
+  NightclubLoungeSale,
+  NightclubPromoter,
+  NightclubPromoterConsumption,
+  NightclubPromoterEvent,
+  NightclubTicketSale,
+} from '../domain/nightclubPromoters'
 import { TenantNightclubRepository } from '../data/tenantNightclubRepository'
 import type {
   NightclubCatalogSnapshot,
@@ -45,6 +52,11 @@ export function useTenantNightclubController({
   const [cashMovements, setCashMovements] = useState<NightclubCashMovement[]>([])
   const [customers, setCustomers] = useState<NightclubCustomer[]>([])
   const [staff, setStaff] = useState<NightclubStaff[]>([])
+  const [promoters, setPromoters] = useState<NightclubPromoter[]>([])
+  const [promoterEvents, setPromoterEvents] = useState<NightclubPromoterEvent[]>([])
+  const [promoterTicketSales, setPromoterTicketSales] = useState<NightclubTicketSale[]>([])
+  const [promoterLoungeSales, setPromoterLoungeSales] = useState<NightclubLoungeSale[]>([])
+  const [promoterConsumptions, setPromoterConsumptions] = useState<NightclubPromoterConsumption[]>([])
 
   // Subscriptions
   useEffect(() => {
@@ -53,6 +65,11 @@ export function useTenantNightclubController({
     const unsubShift = repository.subscribeActiveShift(setShift)
     const unsubCatalog = repository.subscribeCatalog(setCatalog)
     const unsubInv = repository.subscribeInventory(setInventorySnap)
+    const unsubPromoters = repository.subscribePromoters ? repository.subscribePromoters(setPromoters) : () => {}
+    const unsubEvents = repository.subscribePromoterEvents ? repository.subscribePromoterEvents(setPromoterEvents) : () => {}
+    const unsubSales = repository.subscribePromoterTicketSales ? repository.subscribePromoterTicketSales(setPromoterTicketSales) : () => {}
+    const unsubLounges = repository.subscribePromoterLoungeSales ? repository.subscribePromoterLoungeSales(setPromoterLoungeSales) : () => {}
+    const unsubConsumptions = repository.subscribePromoterConsumptions ? repository.subscribePromoterConsumptions(setPromoterConsumptions) : () => {}
 
     return () => {
       unsubFloor()
@@ -60,6 +77,11 @@ export function useTenantNightclubController({
       unsubShift()
       unsubCatalog()
       unsubInv()
+      unsubPromoters()
+      unsubEvents()
+      unsubSales()
+      unsubLounges()
+      unsubConsumptions()
     }
   }, [repository])
 
@@ -112,11 +134,11 @@ export function useTenantNightclubController({
     shiftHistory: shift?.status === 'closed' ? [shift] : [],
     cashMovements,
     staff,
-    promoters: [],
-    promoterEvents: [],
-    promoterTicketSales: [],
-    promoterLoungeSales: [],
-    promoterConsumptions: [],
+    promoters,
+    promoterEvents,
+    promoterTicketSales,
+    promoterLoungeSales,
+    promoterConsumptions,
     members: [],
     courtesies: [],
     commissions: [],
@@ -130,7 +152,7 @@ export function useTenantNightclubController({
       surfaceColor: '#0d1720',
       theme: 'dark',
     },
-  }), [floor, accounts, catalog, inventorySnap, customers, shift, cashMovements, staff, companyName, logoUrl])
+  }), [floor, accounts, catalog, inventorySnap, customers, shift, cashMovements, staff, promoters, promoterEvents, promoterTicketSales, promoterLoungeSales, promoterConsumptions, companyName, logoUrl])
 
   const actions = useMemo(() => createTenantNightclubActions({
     tenantId,

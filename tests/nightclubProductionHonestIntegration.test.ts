@@ -298,9 +298,9 @@ test('7. TenantNightclubRepository.subscribeOperationalAccounts includes closed 
 })
 
 // TEST 8
-test('8. mode="tenant" filters out promoters and members from visible modules in NightclubExperience', () => {
+test('8. mode="tenant" enables promoters while keeping members filtered out from visible modules', () => {
   const tenantModules = resolveNightclubVisibleModules({ mode: 'tenant', role: 'owner' })
-  assert.equal(tenantModules.includes('promoters'), false, 'Tenant mode must not expose promoters module')
+  assert.equal(tenantModules.includes('promoters'), true, 'Tenant mode now exposes promoters module in N3A')
   assert.equal(tenantModules.includes('members'), false, 'Tenant mode must not expose members module')
   assert.equal(tenantModules.includes('dashboard'), true)
   assert.equal(tenantModules.includes('floor'), true)
