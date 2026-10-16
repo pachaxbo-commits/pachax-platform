@@ -1916,7 +1916,7 @@ export function CajaView({
                   <div className="grid grid-cols-3 gap-1.5">
                     {(() => {
                       const options: Array<{ id: FulfillmentType; label: string; icon: typeof Utensils; disabled?: boolean }> = [
-                        { id: 'table', label: 'Mesa', icon: Utensils, disabled: !counterServiceMode && (userRole === 'pedidos' || orderSource === 'whatsapp') },
+                        { id: 'table', label: counterServiceMode ? 'Punto entrega' : 'Mesa', icon: Utensils, disabled: !counterServiceMode && (userRole === 'pedidos' || orderSource === 'whatsapp') },
                         { id: 'pickup', label: 'Para llevar', icon: ShoppingBag },
                         { id: 'delivery', label: 'Delivery', icon: Truck },
                       ]
@@ -1961,7 +1961,7 @@ export function CajaView({
                               setTableInfo(selected?.name || '')
                             }}
                           >
-                            <option value="">Seleccionar mesa / punto de entrega</option>
+                            <option value="">Seleccionar punto de entrega / mesa</option>
                             {restaurantTables
                               .filter((table) => !table.archivedAt && table.active !== false)
                               .map((table) => (
@@ -1973,7 +1973,7 @@ export function CajaView({
                         ) : (
                           <input
                             className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
-                            placeholder="Número o referencia de mesa / entrega (ej. Mesa 8)"
+                            placeholder="Punto de entrega o mesa (ej. Mostrador 1, Mesa 4)"
                             value={tableInfo}
                             onChange={(e) => {
                               setTableInfo(e.target.value)
@@ -2424,7 +2424,13 @@ export function CajaView({
                     </>
                   ) : (
                     <>
-                      <span>{editingOrderId ? 'Guardar Cambios' : 'Procesar Pedido'}</span>
+                      <span>
+                        {editingOrderId
+                          ? 'Guardar Cambios'
+                          : counterServiceMode
+                          ? (paymentStatus === 'paid' ? `Cobrar ${formatCurrency(cartTotal)}` : `Confirmar Pedido · ${formatCurrency(cartTotal)}`)
+                          : 'Procesar Pedido'}
+                      </span>
                       <ArrowRight size={17} strokeWidth={2.5} />
                     </>
                   )}

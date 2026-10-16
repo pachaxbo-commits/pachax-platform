@@ -178,7 +178,8 @@ export function RestaurantDashboard({ orders, tables, shift, userName, onStartSh
                 <button
                   type="button"
                   onClick={() => onNavigate('tables')}
-                  className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white shadow-xs"
+                  style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+                  className="rounded-xl px-3 py-2 text-xs font-bold shadow-xs transition hover:opacity-90"
                 >
                   Configurar salón y mesas
                 </button>
@@ -360,7 +361,8 @@ export function RestaurantDashboard({ orders, tables, shift, userName, onStartSh
             type="button"
             disabled={openedAccounts.length > 0 || isClosing}
             onClick={close}
-            className="w-full rounded-xl bg-slate-900 py-3 text-xs font-extrabold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+            className="w-full rounded-xl py-3 text-xs font-extrabold shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isClosing ? 'Cerrando turno...' : 'Confirmar y Cerrar Turno'}
           </button>

@@ -70,9 +70,10 @@ export function RestaurantOrders({
               key={key}
               type="button"
               onClick={() => setStatusFilter(key as any)}
+              style={isActive ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' } : undefined}
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
                 isActive
-                  ? 'bg-slate-900 text-white shadow-xs'
+                  ? 'shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50'
               }`}
             >
