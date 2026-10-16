@@ -8,11 +8,11 @@ import type {
   PrintJobStorage,
   RequestReprintInput,
   SubmitPrintRequestInput,
-} from '../../types/printing'
-import { IndexedDbPrintJobStorage } from './printJobStorage'
-import { buildReceiptBytes } from './templates/receiptTemplate'
-import { buildKitchenTicketBytes } from './templates/kitchenTicketTemplate'
-import { EscPosBuilder } from './escPosFormatter'
+} from '../../types/printing.ts'
+import { IndexedDbPrintJobStorage } from './printJobStorage.ts'
+import { buildReceiptBytes } from './templates/receiptTemplate.ts'
+import { buildKitchenTicketBytes } from './templates/kitchenTicketTemplate.ts'
+import { EscPosBuilder } from './escPosFormatter.ts'
 
 const LEASE_DURATION_MS = 15000 // 15s lease duration
 

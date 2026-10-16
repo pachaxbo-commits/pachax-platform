@@ -92,3 +92,8 @@ export function getActiveReceiptPrinter(tenantId?: string, branchId?: string): P
 export function getActiveKitchenPrinter(tenantId?: string, branchId?: string): PrinterProfile | null {
   return getActivePrinterForRole('kitchen', tenantId, branchId) || null
 }
+
+/** Impresora de barra activa, si hay alguna configurada. */
+export function getActiveBarPrinter(tenantId?: string, branchId?: string): PrinterProfile | null {
+  return getActivePrinterForRole('bar', tenantId, branchId) || null
+}

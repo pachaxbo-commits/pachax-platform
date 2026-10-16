@@ -66,7 +66,11 @@ export function printHtmlViaBrowser(html: string): Promise<boolean> {
   })
 }
 
-export function buildKitchenTicketHtml(payload: PrintJobPayload, paperWidth: '58mm' | '80mm' = '80mm'): string {
+export function buildKitchenTicketHtml(
+  payload: PrintJobPayload,
+  paperWidth: '58mm' | '80mm' = '80mm',
+  areaLabel: string = 'COCINA'
+): string {
   const contentWidth = paperWidth === '58mm' ? '48mm' : '72mm'
   const timeStr = payload.createdIso ? new Date(payload.createdIso).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) : ''
   const isReprint = payload.isCopy === true
@@ -75,7 +79,7 @@ export function buildKitchenTicketHtml(payload: PrintJobPayload, paperWidth: '58
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Comanda #${escapeHtml(payload.displayNumber || '')}</title>
+  <title>Comanda ${escapeHtml(areaLabel)} #${escapeHtml(payload.displayNumber || '')}</title>
   <style>
     @page { size: ${paperWidth} auto; margin: 3mm; }
     @media print { body { width: 100%; margin: 0; } }
@@ -102,14 +106,14 @@ export function buildKitchenTicketHtml(payload: PrintJobPayload, paperWidth: '58
   </style>
 </head>
 <body>
-  ${isReprint ? '<div class="text-center bold reprint-badge">*** REIMPRESION ***</div><div class="separator"></div>' : ''}
-  <div class="text-center bold headline">COMANDA #${escapeHtml(payload.displayNumber || '000')}</div>
+  ${isReprint ? '<div class="text-center bold reprint-badge">*** REIMPRESIÓN / COPIA ***</div><div class="separator"></div>' : ''}
+  <div class="text-center bold headline">COMANDA - ${escapeHtml(areaLabel.toUpperCase())}${payload.displayNumber ? ` #${escapeHtml(payload.displayNumber)}` : ''}</div>
   ${payload.restaurantName ? `<div class="text-center bold subhead">${escapeHtml(payload.restaurantName)}</div>` : ''}
   <div class="separator"></div>
-  ${payload.tableInfo ? `<div><span class="bold">MESA:</span> ${escapeHtml(payload.tableInfo)}</div>` : ''}
+  ${payload.tableInfo ? `<div><span class="bold">DESTINO / MESA:</span> ${escapeHtml(payload.tableInfo)}</div>` : ''}
   ${payload.fulfillmentType ? `<div><span class="bold">TIPO:</span> ${escapeHtml(payload.fulfillmentType.toUpperCase())}</div>` : ''}
   <div><span class="bold">HORA:</span> ${escapeHtml(timeStr)}</div>
-  ${payload.customerName && payload.customerName !== 'Cliente' ? `<div><span class="bold">CLIENTE:</span> ${escapeHtml(payload.customerName)}</div>` : ''}
+  ${payload.customerName && payload.customerName !== 'Cliente' ? `<div><span class="bold">RESPONSABLE / CLIENTE:</span> ${escapeHtml(payload.customerName)}</div>` : ''}
   <div class="separator"></div>
   <div class="bold" style="margin-bottom: 4px;">PRODUCTOS:</div>
   ${payload.items.map(item => `
@@ -121,7 +125,7 @@ export function buildKitchenTicketHtml(payload: PrintJobPayload, paperWidth: '58
     ${item.note ? `<div class="item-note">OBS: ${escapeHtml(item.note)}</div>` : ''}
   `).join('')}
   <div class="separator"></div>
-  <div class="text-center" style="font-size: 10px; margin-top: 6px;">PACHAX Restaurante</div>
+  ${payload.showManagedBy !== false ? '<div class="text-center" style="font-size: 10px; margin-top: 6px;">PACHAX Platform</div>' : ''}
 </body>
 </html>`
 }
@@ -234,14 +238,28 @@ export class BrowserDialogPrinterAdapter implements PrinterAdapter {
 
   async disconnect(): Promise<void> {}
 
+  formatContent(
+    jobOrPayload: { payload?: PrintJobPayload; targetType?: any } | PrintJobPayload,
+    targetType: string = 'bar_ticket',
+    paperWidth: '58mm' | '80mm' = '80mm'
+  ): string {
+    const payload = 'items' in jobOrPayload ? jobOrPayload : jobOrPayload.payload
+    const target = 'targetType' in jobOrPayload && jobOrPayload.targetType ? jobOrPayload.targetType : targetType
+    if (!payload) return ''
+    if (target === 'kitchen_ticket' || target === 'bar_ticket') {
+      return buildKitchenTicketHtml(payload, paperWidth, target === 'bar_ticket' ? 'BARRA' : 'COCINA')
+    }
+    return buildReceiptHtml(payload, paperWidth)
+  }
+
   async sendBytes(payload: PrintTransportPayload): Promise<PrintResult> {
     const { printer, jobPayload, targetType, bytes } = payload
     const paperWidth = printer.paperWidth || '80mm'
 
     let html = ''
     if (jobPayload) {
-      if (targetType === 'kitchen_ticket') {
-        html = buildKitchenTicketHtml(jobPayload, paperWidth)
+      if (targetType === 'kitchen_ticket' || targetType === 'bar_ticket') {
+        html = buildKitchenTicketHtml(jobPayload, paperWidth, targetType === 'bar_ticket' ? 'BARRA' : 'COCINA')
       } else if (targetType === 'receipt') {
         html = buildReceiptHtml(jobPayload, paperWidth)
       } else if (targetType === 'test') {
@@ -255,7 +273,7 @@ export class BrowserDialogPrinterAdapter implements PrinterAdapter {
           `FECHA: ${new Date().toLocaleString('es-BO')}`,
           '================================',
           'Configuración verificada con éxito.',
-          'PACHAX Restaurante',
+          'PACHAX Platform',
         ].join('\n')
         html = buildGenericPrintHtml('Prueba de Impresión', testText, paperWidth)
       } else {

@@ -1,5 +1,5 @@
-import type { PrintJobPayload } from '../../../types/printing'
-import { EscPosBuilder } from '../escPosFormatter'
+import type { PrintJobPayload } from '../../../types/printing.ts'
+import { EscPosBuilder } from '../escPosFormatter.ts'
 
 export function buildKitchenTicketBytes(payload: PrintJobPayload, paperWidth: '58mm' | '80mm' = '80mm'): Uint8Array {
   const cols = paperWidth === '58mm' ? 32 : 48

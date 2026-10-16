@@ -1508,3 +1508,42 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 
 - Se corrigio el literal visible \u00abAsignar autom?ticamente si corresponde\u00bb a \u00abAsignar autom\u00e1ticamente si corresponde\u00bb. La revision de NightclubPOS no encontro otros textos espanoles danados; el archivo decodifica como UTF-8 sin BOM ni caracteres de reemplazo. No hubo cambios funcionales, de logica o diseno en esta correccion.
 - Validacion: build:emulator, test:nightclub 87/87, test:platform 47/47, test:restaurant 46/46, build:functions-core, build:rules y lint focal aprobaron. Localhost 5190 responde HTTP 200 y sirve el texto corregido. Build estandar requiere las seis variables VITE_FIREBASE_* no presentes. Las pruebas directas con los emuladores demo ya activos aprobaron: aislamiento multiempresa 59/59, onboarding 16/16 y ordenes Nightclub (6 escenarios).
+
+## Checkpoint: N2 Nightclub — Business Identity Canónica + Impresión + Recibos (16/10/2026, cambios-dario)
+
+- **Rama**: `cambios-dario` (integrada con `origin/cambios-dario`).
+- **Objetivo Cumplido**: Conexión de Nightclub Productivo (tenant) a la infraestructura canónica de Business Identity, motor de impresión `PrintEngineService` y recibos de cliente de PACHAX Platform, unificando la experiencia con Restaurante sin duplicar código ni crear subsistemas paralelos.
+- **Detalles Técnicos Implementados**:
+  1. **Business Identity Canónica en Nightclub**:
+     - Se integró `BusinessIdentitySettings`, `updateTenantBusinessIdentity` y `uploadTenantLogoToFirebase` en `NightclubApp.tsx` y `NightclubSettings.tsx` bajo la sección "Empresa y documentos".
+     - Se eliminó el doble branding en producción: `BusinessIdentity` es la única fuente de verdad documental/comercial (`tradeName`, `legalName`, `taxId`, `phone`, `email`, `address`, `city`, `logoUrl`, etc.).
+     - Nightclub conserva únicamente las preferencias estéticas (`theme` claro/oscuro, `surfaceColor`) en su pestaña de apariencia.
+  2. **Hardening del Core de Impresión (`PrintEngineService` & `printerProfiles.ts`)**:
+     - Extensión de `SubmitPrintRequestInput` y `PrinterProfile` con `tenantId` y `branchId` opcionales explícitos.
+     - `PrintEngineService.resolveDestinationPrinters` y `listPrinterProfiles` aíslan estrictamente las impresoras por `tenantId` y `branchId`, mapeando `bar_ticket` al rol `bar`.
+     - Intento de enviar impresión a una impresora ajena a la empresa o sucursal arroja error de aislamiento inmediato en vez de emitir en impresora extraña.
+  3. **Componente Universal `PrinterSettingsView`**:
+     - Refactorizado para aceptar `tenantId`, `branchId`, `allowedRoles` (incluyendo `bar` para discotecas), `accentColor` y `canManage`.
+     - Cierre inmediato del formulario al guardar con feedback: `"Impresora vinculada correctamente"`.
+     - Renderiza tarjetas de impresoras vinculadas con acciones de Probar impresión, Editar y Desvincular.
+  4. **Branding Neutral en Adaptadores de Impresión (`browserDialogPrinterAdapter.ts`)**:
+     - Reemplazo de literales hardcodeados `"PACHAX Restaurante"` por `companyName` dinámico y pie neutral `"PACHAX Platform"`.
+  5. **Comanda Operativa para Barra (`bar_ticket`)**:
+     - Filtra estrictamente `preparationArea === 'Barra'`; ítems marcados como `Directo` no se envían a Barra.
+     - Formato sin precios (solo cantidades y notas operativas) encabezado por `COMANDA - BARRA`.
+     - Soporta `*** REIMPRESIÓN / COPIA ***` cuando `isReprint: true` o `isCopy: true`.
+  6. **Auto-Impresión No Bloqueante en POS**:
+     - Al confirmar `onSendRound` o `onSettleRound` tras el ACK del backend, se dispara la auto-impresión a Barra solo en el dispositivo emisor.
+     - Si la impresora falla o está apagada, la ronda NO se duplica ni se revierte, mostrando el aviso `"Pedido guardado, impresión pendiente/fallida"`.
+  7. **Recibo Digital Canónico (`nightclubReceipt.ts`) y Modal**:
+     - Función `nightclubAccountToReceiptData` que unifica los consumos de todas las rondas no canceladas y detalla los medios de pago (Efectivo con recibido y cambio, QR, Tarjeta).
+     - Validación del escenario canónico: Cuenta de Bs 62 cobrada con Efectivo 40 (recibe 50, cambio 10) + QR 22 emite recibo exacto de Bs 62 con su desglose.
+     - Integración de `CanonicalReceiptModal` en `NightclubExperience` con acciones de Imprimir, Compartir (Web Share / fallback) y Descargar PDF (`generateReceiptPdf`).
+  8. **Suite de 17 Pruebas Focales (`tests/nightclubPrintingAndBusinessIdentity.test.ts`)**:
+     - 17/17 pruebas aprobadas cubriendo aislamiento, auto-impresión, filtros de barra, desglose de pagos, PDF, share y retrocompatibilidad.
+- **Validaciones Ejecutadas**:
+  - `npm run typecheck`: 0 errores.
+  - `npm run build`: Compilación exitosa (`tsc -b && vite build`) en 5.26s.
+  - `npm run test:nightclub`: 87/87 pruebas aprobadas.
+  - `npm run test:platform`: 83/83 pruebas aprobadas (incluye las 17 nuevas de Nightclub Impresión & Business Identity).
+  - `git diff --check`: 0 errores de formato.

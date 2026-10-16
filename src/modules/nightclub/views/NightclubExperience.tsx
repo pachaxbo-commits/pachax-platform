@@ -27,6 +27,12 @@ import { NightclubReports } from './NightclubReports'
 import { NightclubSettings } from './NightclubSettings'
 import { NightclubZones } from './NightclubZones'
 import { createNightclubActionRunner, resolveNightclubVisibleModules } from '../application/nightclubActionRunner'
+import { buildBusinessDocumentContext, type BusinessDocumentContext, type BusinessIdentity } from '../../../core/businessIdentity'
+import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
+import { nightclubAccountToReceiptData, buildNightclubBarTicketPayload, nightclubReceiptToPrintPayload } from '../domain/nightclubReceipt'
+import { PrintEngineService } from '../../../services/printing/printEngineService'
+import { getActiveBarPrinter } from '../../../services/printing/printerBootstrap'
+import type { NightclubRound, NightclubAccount } from '../domain/nightclubAccounts'
 
 type NightclubModule = NightclubModuleId
 type ControllerContract = {
@@ -84,7 +90,23 @@ type ControllerContract = {
   onMarkPromoterLoungePaid?: (id: string) => boolean | void | Promise<boolean | void>
   onSavePromoterConsumption?: (consumption: NightclubConsumptionDraft) => boolean | void | Promise<boolean | void>
 }
-type Props = ControllerContract & { companyName: string; logoUrl?: string; studioBranding?: StudioBranding | null; userName: string; role: string; onSignOut?: () => void | Promise<void>; demoPermissions?: ReadonlySet<string> | null; demoUserId?: string; onSelectDemoUser?: (id: string) => void; mode?: 'tenant' | 'demo' | 'studio' }
+type Props = ControllerContract & {
+  companyName: string
+  logoUrl?: string
+  studioBranding?: StudioBranding | null
+  userName: string
+  role: string
+  onSignOut?: () => void | Promise<void>
+  demoPermissions?: ReadonlySet<string> | null
+  demoUserId?: string
+  onSelectDemoUser?: (id: string) => void
+  mode?: 'tenant' | 'demo' | 'studio'
+  businessIdentity?: BusinessIdentity
+  onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
+  onUploadLogo?: (file: File) => Promise<string>
+  tenantId?: string
+  branchId?: string
+}
 const allModules: Array<{ id: NightclubModule; label: string; icon: typeof Music2 }> = [
   { id: 'dashboard', label: 'Inicio', icon: BarChart3 }, { id: 'floor', label: 'Zonas', icon: LayoutGrid }, { id: 'pos', label: 'POS', icon: CircleDollarSign }, { id: 'accounts', label: 'Cuentas', icon: ReceiptText }, { id: 'bar', label: 'Barra', icon: GlassWater }, { id: 'inventory', label: 'Inventario', icon: Boxes }, { id: 'products', label: 'Productos', icon: Wine }, { id: 'cash', label: 'Caja', icon: ClipboardList }, { id: 'history', label: 'Historial', icon: Clock3 }, { id: 'customers', label: 'Clientes', icon: Users }, { id: 'promoters', label: 'Relacionadores', icon: Handshake }, { id: 'members', label: 'Socios', icon: Star }, { id: 'users', label: 'Usuarios', icon: Users }, { id: 'reports', label: 'Reportes', icon: BarChart3 }, { id: 'settings', label: 'Configuración', icon: Settings },
 ]
@@ -95,6 +117,107 @@ const roleLabels = { owner: 'Propietario', admin: 'Administración', partner: 'S
 export function NightclubExperience(props: Props) {
   const { companyName, logoUrl, userName, role, data, onSignOut } = props
   const normalizedRole = normalizeNightclubRole(role)
+  const effectiveTenantId = props.tenantId || (props.mode === 'tenant' ? 'principal' : props.mode || 'demo')
+  const effectiveBranchId = props.branchId || 'main'
+  const effectiveCompanyName = props.businessIdentity?.tradeName || companyName || 'PACHAX Platform'
+  const effectiveLogoUrl = props.businessIdentity?.showLogo !== false ? (props.businessIdentity?.logoUrl || logoUrl) : undefined
+
+  const documentContext: BusinessDocumentContext = useMemo(
+    () =>
+      buildBusinessDocumentContext(props.businessIdentity, {
+        companyName: effectiveCompanyName,
+        logoUrl: effectiveLogoUrl,
+        branchName: 'Principal',
+      }),
+    [props.businessIdentity, effectiveCompanyName, effectiveLogoUrl]
+  )
+
+  const [receiptModalAccount, setReceiptModalAccount] = useState<NightclubAccount | null>(null)
+
+  const handlePrintReceipt = async () => {
+    if (!receiptModalAccount) return
+    const receiptData = nightclubAccountToReceiptData(receiptModalAccount, data, props.businessIdentity)
+    const payload = nightclubReceiptToPrintPayload(receiptData, documentContext, receiptModalAccount.id)
+    await PrintEngineService.getInstance().submitPrintRequest({
+      targetType: 'receipt',
+      tenantId: effectiveTenantId,
+      branchId: effectiveBranchId,
+      idempotencyKey: `receipt:${effectiveTenantId}:${effectiveBranchId}:${receiptModalAccount.id}:${Date.now()}`,
+      payload,
+    })
+  }
+
+  const handleAutoPrintBar = async (round: NightclubRound, accountId: string) => {
+    try {
+      const activeBarPrinter = getActiveBarPrinter(effectiveTenantId, effectiveBranchId)
+      if (!activeBarPrinter || !activeBarPrinter.autoPrintOnOrderCreated) return
+
+      const account = data.accounts.find(a => a.id === accountId)
+      const payload = buildNightclubBarTicketPayload({
+        account,
+        round,
+        tableName: account?.tableNameSnapshot,
+        businessIdentity: props.businessIdentity,
+        companyName: effectiveCompanyName,
+        isReprint: false,
+        staffName: userName,
+      })
+      if (!payload) return
+
+      await PrintEngineService.getInstance().submitPrintRequest({
+        targetType: 'bar_ticket',
+        printerProfileId: activeBarPrinter.id,
+        tenantId: effectiveTenantId,
+        branchId: effectiveBranchId,
+        idempotencyKey: `print:${effectiveTenantId}:${effectiveBranchId}:${round.id}:original`,
+        payload,
+      })
+    } catch (err: unknown) {
+      console.warn('[Nightclub] Aviso de impresión de comanda:', err)
+      setNotice('Pedido guardado, impresión pendiente/fallida.')
+    }
+  }
+
+  const handlePrintBarComanda = async (accountId: string, roundId: string, isReprint = false) => {
+    try {
+      const account = data.accounts.find(a => a.id === accountId)
+      const round = account?.rounds.find(r => r.id === roundId)
+      if (!round) {
+        setNotice('Ronda no encontrada.')
+        return
+      }
+
+      const payload = buildNightclubBarTicketPayload({
+        account,
+        round,
+        tableName: account?.tableNameSnapshot,
+        businessIdentity: props.businessIdentity,
+        companyName: effectiveCompanyName,
+        isReprint,
+        staffName: userName,
+      })
+      if (!payload) {
+        setNotice('Esta ronda no contiene productos para Barra.')
+        return
+      }
+
+      const idempotencyKey = isReprint
+        ? `reprint:${effectiveTenantId}:${effectiveBranchId}:${round.id}:${Date.now()}`
+        : `print:${effectiveTenantId}:${effectiveBranchId}:${round.id}:original`
+
+      await PrintEngineService.getInstance().submitPrintRequest({
+        targetType: 'bar_ticket',
+        tenantId: effectiveTenantId,
+        branchId: effectiveBranchId,
+        idempotencyKey,
+        payload,
+      })
+      setNotice(isReprint ? 'Reimpresión enviada a Barra.' : 'Comanda enviada a Barra.')
+    } catch (err: unknown) {
+      setNotice(`Error al imprimir comanda: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   const visibleModules = useMemo(() => {
     const allowed = resolveNightclubVisibleModules({
       mode: props.mode,
@@ -139,8 +262,8 @@ export function NightclubExperience(props: Props) {
   const mobileModules = mobilePriority.map(id => visibleModules.find(item => item.id === id)).filter((item): item is (typeof allModules)[number] => !!item)
   const moreModules = visibleModules.filter(item => !mobileModules.some(primary => primary.id === item.id))
   const currentModule = visibleModules.some(item => item.id === activeModule) ? activeModule : visibleModules[0]?.id || 'dashboard'
-  const savedBranding = data.branding || { businessName: companyName, subtitle: 'Club nocturno / Lounge', logoDataUrl: logoUrl, primaryColor: '#d8a84e', accentColor: '#35d0a0', surfaceColor: '#0d1720' }
-  const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor, theme: props.studioBranding.theme || savedBranding.theme } : savedBranding
+  const savedBranding = data.branding || { businessName: effectiveCompanyName, subtitle: 'Club nocturno / Lounge', logoDataUrl: effectiveLogoUrl, primaryColor: props.businessIdentity?.primaryColor || '#d8a84e', accentColor: props.businessIdentity?.accentColor || '#35d0a0', surfaceColor: '#0d1720' }
+  const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor, theme: props.studioBranding.theme || savedBranding.theme } : { ...savedBranding, businessName: effectiveCompanyName, logoDataUrl: effectiveLogoUrl, primaryColor: props.businessIdentity?.primaryColor || savedBranding.primaryColor, accentColor: props.businessIdentity?.accentColor || savedBranding.accentColor }
 
   const [localTheme, setLocalTheme] = useState<'dark' | 'light' | null>(null)
   const effectiveTheme: 'dark' | 'light' = props.studioBranding?.theme || localTheme || branding.theme || (typeof window !== 'undefined' ? (localStorage.getItem('pachax:nightclub-theme') as 'dark' | 'light') : null) || 'dark'
@@ -246,9 +369,117 @@ export function NightclubExperience(props: Props) {
         <main className="min-w-0 p-4 pb-24 sm:p-6 lg:pb-6 xl:p-7">{notice && <button onClick={() => setNotice('')} role="status" className="mb-4 w-full rounded-xl border border-amber-300/25 bg-amber-300/10 p-3 text-left text-sm text-amber-100">{notice}</button>}{canDeliver && readyRounds.length > 0 && <button onClick={() => go('accounts')} className="mb-4 flex w-full items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 p-3 text-left text-sm font-bold text-emerald-100"><Bell size={16} />{readyRounds.length} pedido(s) listo(s) para recoger <ChevronRight className="ml-auto" size={16} /></button>}
           {visibleModules.length === 0 && <div className="rounded-xl border border-white/10 p-5 text-sm text-slate-300">Este usuario no tiene secciones habilitadas. Vuelve a Administrador para ajustar sus permisos.</div>}{visibleModules.length > 0 && currentModule === 'dashboard' && (props.demoUserId && normalizedRole !== 'admin' ? <PersonalDashboard data={data} role={role} userName={userName} userId={props.demoUserId} permissions={props.demoPermissions ?? new Set()} onGo={go} /> : <Dashboard data={data} activeAccounts={activeAccounts} barRounds={barRounds} sales={summary.totalSales} heroUrl={branding.heroDataUrl} isLight={isLight} onGo={go} />)}
           {currentModule === 'floor' && <NightclubZones data={data} mode={props.mode || 'demo'} onOpenAccount={async tableId => { try { const id = await props.onOpenAccount(tableId); if (id) setNotice('Cuenta abierta.'); return id } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo abrir la cuenta.'); return '' } }} onGoToPOS={id => { setSelectedAccountId(id); go('pos') }} onFinishAccount={id => run(() => props.onFinishAccount(id), 'Mesa libre.')} onDeliverRound={(id, roundId) => run(() => props.onDeliverRound(id, roundId), 'Pedido entregado.')} onSaveReservation={value => run(() => props.onSaveReservation?.(value), 'Reserva guardada.')} onCancelReservation={id => run(() => props.onCancelReservation?.(id), 'Reserva cancelada.')} onArriveReservation={async id => { try { const accountId = await props.onArriveReservation?.(id); if (accountId) setNotice('Llegada confirmada y cuenta abierta.'); return accountId || '' } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo confirmar la llegada.'); return '' } }} onAssignCustomer={(accountId, customerId) => run(() => props.onAssignCustomer?.(accountId, customerId), 'Cliente asignado.')} canDeliver={canDeliver} />}
-          {currentModule === 'pos' && <NightclubPOS data={posData} mode={props.mode || 'demo'} currentWaiterId={normalizedRole === 'waiter' ? props.demoUserId : undefined} draft={draft} selectedAccountId={selectedAccountId} onSelectAccount={setSelectedAccountId} onDraftChange={setDraft} onOpenAccount={async (target: NightclubServiceTarget) => { try { const id = await props.onOpenAccount(target); if (id) setNotice('Cuenta abierta.'); return id } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo abrir la cuenta.'); return '' } }} onSendRound={(id, items, operationId, customerId, serviceStaffId) => run(() => props.onSendRound(id, items, operationId, customerId, serviceStaffId), 'Ronda enviada; consumo cargado a cuenta e inventario actualizado.')} onSettleRound={(id, items, payment, operationId, sellerStaffId) => run(() => props.onSettleRound(id, items, payment, operationId, sellerStaffId), 'Ronda cobrada y enviada a preparación.')} onCourtesy={setCourtesyAccountId} onSaveCustomer={customer => run(() => props.onSaveCustomer(customer), 'Cliente guardado.')} />}
-          {currentModule === 'accounts' && <NightclubAccounts data={operationData} mode={props.mode || 'demo'} canDeliver={canDeliver} canRefund={canRefund} canPay={props.demoPermissions !== undefined ? demoCan(props.demoPermissions, 'cash', 'create') : ['owner', 'admin', 'cashier'].includes(normalizedRole)} onGoToPOS={account => { setSelectedAccountId(account.id); go('pos') }} onDeliverRound={(id, roundId) => run(() => props.onDeliverRound(id, roundId), 'Pedido entregado.')} onFinishAccount={id => run(() => props.onFinishAccount(id), 'Mesa libre.')} onRefundRound={(id, roundId, reason) => run(() => props.onRefundRound(id, roundId, reason), 'Pedido reembolsado.')} onExchangePaidProduct={draft => run(() => props.onExchangePaidProduct?.(draft), 'Cambio de producto registrado.')} onRequestBill={id => run(() => props.onRequestBill(id), 'Cuenta solicitada a Caja.')} onReopenBill={id => run(() => props.onReopenBill(id), 'Cuenta reabierta.')} onRecordPayment={(id, payment) => run(() => props.onRecordPayment(id, payment), 'Pago registrado en Caja.')} />}
-          {currentModule === 'bar' && <NightclubBar data={data} onAdvance={(accountId, roundId) => run(() => props.onAdvanceRound(accountId, roundId), 'Estado de Barra actualizado.')} />}
+          {currentModule === 'pos' && <NightclubPOS
+            data={posData}
+            mode={props.mode || 'demo'}
+            currentWaiterId={normalizedRole === 'waiter' ? props.demoUserId : undefined}
+            draft={draft}
+            selectedAccountId={selectedAccountId}
+            onSelectAccount={setSelectedAccountId}
+            onDraftChange={setDraft}
+            onOpenAccount={async (target: NightclubServiceTarget) => {
+              try {
+                const id = await props.onOpenAccount(target)
+                if (id) setNotice('Cuenta abierta.')
+                return id
+              } catch (error) {
+                setNotice(error instanceof Error ? error.message : 'No se pudo abrir la cuenta.')
+                return ''
+              }
+            }}
+            onSendRound={async (id, items, operationId, customerId, serviceStaffId) => {
+              return run(async () => {
+                const res = await props.onSendRound(id, items, operationId, customerId, serviceStaffId)
+                const targetAccount = data.accounts.find(a => a.id === id)
+                const targetRound = targetAccount?.rounds.find(r => r.operationId === operationId) || targetAccount?.rounds[targetAccount.rounds.length - 1]
+                if (targetRound) {
+                  void handleAutoPrintBar(targetRound, id)
+                } else {
+                  const syntheticRound: NightclubRound = {
+                    id: operationId,
+                    operationId,
+                    sequence: (targetAccount?.rounds.length || 0) + 1,
+                    createdAt: new Date().toISOString(),
+                    status: 'pending',
+                    authorization: 'account_charge',
+                    items: items.map((it, idx) => {
+                      const prod = data.products.find(p => p.id === it.productId)
+                      const unitPrice = prod?.price || 0
+                      return {
+                        id: `${operationId}_item_${idx}`,
+                        productId: it.productId,
+                        name: prod?.name || 'Producto',
+                        unitPrice,
+                        quantity: it.quantity,
+                        lineTotal: unitPrice * it.quantity,
+                        preparationArea: prod?.preparationArea || 'Barra',
+                      }
+                    }),
+                  }
+                  void handleAutoPrintBar(syntheticRound, id)
+                }
+                return res
+              }, 'Ronda enviada; consumo cargado a cuenta e inventario actualizado.')
+            }}
+            onSettleRound={async (id, items, payment, operationId, sellerStaffId) => {
+              return run(async () => {
+                const res = await props.onSettleRound(id, items, payment, operationId, sellerStaffId)
+                const targetAccount = data.accounts.find(a => a.id === id)
+                const targetRound = targetAccount?.rounds.find(r => r.operationId === operationId) || targetAccount?.rounds[targetAccount.rounds.length - 1]
+                if (targetRound) {
+                  void handleAutoPrintBar(targetRound, id)
+                } else {
+                  const syntheticRound: NightclubRound = {
+                    id: operationId,
+                    operationId,
+                    sequence: (targetAccount?.rounds.length || 0) + 1,
+                    createdAt: new Date().toISOString(),
+                    status: 'pending',
+                    authorization: 'payment',
+                    items: items.map((it, idx) => {
+                      const prod = data.products.find(p => p.id === it.productId)
+                      const unitPrice = prod?.price || 0
+                      return {
+                        id: `${operationId}_item_${idx}`,
+                        productId: it.productId,
+                        name: prod?.name || 'Producto',
+                        unitPrice,
+                        quantity: it.quantity,
+                        lineTotal: unitPrice * it.quantity,
+                        preparationArea: prod?.preparationArea || 'Barra',
+                      }
+                    }),
+                  }
+                  void handleAutoPrintBar(syntheticRound, id)
+                }
+                return res
+              }, 'Ronda cobrada y enviada a preparación.')
+            }}
+            onCourtesy={setCourtesyAccountId}
+            onSaveCustomer={customer => run(() => props.onSaveCustomer(customer), 'Cliente guardado.')}
+          />}
+          {currentModule === 'accounts' && <NightclubAccounts
+            data={operationData}
+            mode={props.mode || 'demo'}
+            canDeliver={canDeliver}
+            canRefund={canRefund}
+            canPay={props.demoPermissions !== undefined ? demoCan(props.demoPermissions, 'cash', 'create') : ['owner', 'admin', 'cashier'].includes(normalizedRole)}
+            onGoToPOS={account => { setSelectedAccountId(account.id); go('pos') }}
+            onDeliverRound={(id, roundId) => run(() => props.onDeliverRound(id, roundId), 'Pedido entregado.')}
+            onFinishAccount={id => run(() => props.onFinishAccount(id), 'Mesa libre.')}
+            onRefundRound={(id, roundId, reason) => run(() => props.onRefundRound(id, roundId, reason), 'Pedido reembolsado.')}
+            onExchangePaidProduct={draft => run(() => props.onExchangePaidProduct?.(draft), 'Cambio de producto registrado.')}
+            onRequestBill={id => run(() => props.onRequestBill(id), 'Cuenta solicitada a Caja.')}
+            onReopenBill={id => run(() => props.onReopenBill(id), 'Cuenta reabierta.')}
+            onRecordPayment={(id, payment) => run(() => props.onRecordPayment(id, payment), 'Pago registrado en Caja.')}
+            onOpenReceipt={account => setReceiptModalAccount(account)}
+            onPrintComanda={(accountId, roundId, isReprint) => handlePrintBarComanda(accountId, roundId, isReprint)}
+          />}
+          {currentModule === 'bar' && <NightclubBar
+            data={data}
+            onAdvance={(accountId, roundId) => run(() => props.onAdvanceRound(accountId, roundId), 'Estado de Barra actualizado.')}
+            onPrintComanda={(accountId, roundId, isReprint) => handlePrintBarComanda(accountId, roundId, isReprint)}
+          />}
           {currentModule === 'inventory' && <div className="space-y-5">
             {props.mode !== 'tenant' && <NightclubBottleInventory data={data} onSave={value => run(() => props.onSaveBottleInventory?.(value), bottleSavedMessage(value))} onSaveSimple={value => run(() => props.onSaveSimpleInventoryProduct?.(value), 'Producto de inventario guardado.')} onOpenBottle={id => run(() => props.onOpenBottle?.(id), 'Botella abierta.')} onExit={(id, ml, type, reason) => run(() => props.onOpenBottleExit?.(id, ml, type, reason), 'Salida registrada.')} />}
             <NightclubInventory data={data} onMovement={(id, quantity, type, reason) => run(() => props.onAdjustInventory(id, quantity, type, reason), 'Movimiento registrado.')} />
@@ -257,19 +488,48 @@ export function NightclubExperience(props: Props) {
           </div>}
           {currentModule === 'products' && <NightclubProducts data={data} onSave={product => run(() => props.onSaveProduct(product), 'Producto guardado.')} />}
           {currentModule === 'cash' && <NightclubCash data={data} onStartShift={amount => run(() => props.onStartShift(amount), 'Turno abierto.')} onCloseShift={counted => run(() => props.onCloseShift(counted), 'Turno cerrado y arqueo guardado.')} onCashMovement={value => run(() => props.onCashMovement?.(value), 'Movimiento registrado.')} onRecordPayment={(id, payment) => run(() => props.onRecordPayment(id, payment), 'Pago registrado en Caja.')} />}
-          {currentModule === 'history' && <div className="space-y-5"><Title title="Historial" subtitle="Pedidos pagados, cortesías y operaciones de cada jornada." /><NightclubBarHistory data={operationData} role={props.demoPermissions?.has('special.viewOtherEmployees') ? 'admin' : normalizedRole} canRefundOverride={canRefund} actor={userName} onRefundRound={(id, roundId, reason) => run(() => props.onRefundRound(id, roundId, reason), 'Pedido reembolsado.')} /></div>}
+          {currentModule === 'history' && <div className="space-y-5"><Title title="Historial" subtitle="Pedidos pagados, cortesías y operaciones de cada jornada." /><NightclubBarHistory data={operationData} role={props.demoPermissions?.has('special.viewOtherEmployees') ? 'admin' : normalizedRole} canRefundOverride={canRefund} actor={userName} onRefundRound={(id, roundId, reason) => run(() => props.onRefundRound(id, roundId, reason), 'Pedido reembolsado.')} onOpenReceipt={account => setReceiptModalAccount(account)} /></div>}
           {currentModule === 'members' && <NightclubMembers data={data} role={normalizedRole} canManageOverride={props.demoPermissions === undefined ? undefined : demoCan(props.demoPermissions, 'members', 'edit')} canRegisterOverride={props.demoPermissions === undefined ? undefined : demoCan(props.demoPermissions, 'members', 'create')} onSave={member => run(() => props.onSaveMember?.(member), 'Socio guardado.')} onRegister={value => run(() => props.onRegisterCourtesy?.(value), 'Cortesía registrada.')} onCancel={id => run(() => props.onCancelCourtesy?.(id), 'Cortesía anulada.')} />}
           {currentModule === 'customers' && <NightclubCustomers data={data} mode={props.mode || 'demo'} canCreate={props.demoPermissions === undefined || demoCan(props.demoPermissions, 'customers', 'create')} canEdit={props.demoPermissions === undefined || demoCan(props.demoPermissions, 'customers', 'edit')} companyName={branding.businessName} role={normalizedRole} responsibleLabel={props.incidentResponsibleLabel} onSave={customer => run(() => props.onSaveCustomer(customer), 'Cliente guardado.')} onSetStatus={(id, status) => run(() => props.onSetCustomerStatus?.(id, status), 'Estado actualizado.')} onSaveIncident={incident => run(() => props.onSaveCustomerIncident?.(incident), 'Incidente guardado.')} onDeleteIncident={(customerId, incidentId) => run(() => props.onDeleteCustomerIncident?.(customerId, incidentId), 'Incidente eliminado.')} />}
           {currentModule === 'promoters' && <NightclubPromoters data={data} role={normalizedRole} canManageOverride={props.demoPermissions === undefined ? undefined : demoCan(props.demoPermissions, 'promoters', 'edit')} canSellOverride={props.demoPermissions === undefined ? undefined : demoCan(props.demoPermissions, 'promoters', 'create')} onSaveEvent={value => run(() => props.onSavePromoterEvent?.(value), 'Jornada guardada.')} onSavePromoter={value => run(() => props.onSavePromoter?.(value), 'Relacionador guardado.')} onDeletePromoter={id => run(() => props.onDeletePromoter?.(id), 'Relacionador eliminado.')} onSaveSale={value => run(() => props.onSavePromoterSale?.(value), 'Venta de entradas guardada.')} onSaveLoungeSale={value => run(() => props.onSavePromoterLoungeSale?.(value), 'Lounge guardado.')} onMarkLoungePaid={id => run(() => props.onMarkPromoterLoungePaid?.(id), 'Lounge marcado como pagado.')} onSaveConsumption={value => run(() => props.onSavePromoterConsumption?.(value), 'Consumo administrativo guardado.')} />}
           {currentModule === 'users' && <div className="space-y-5"><Title title="Usuarios" subtitle="Personal y permisos individuales del club." /><NightclubUsers users={data.staff || []} rolePresets={data.userRolePresets} mode={props.mode === 'tenant' ? 'tenant' : 'demo'} view="people" customRoles={data.customRoles} allowCreate={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'create')} allowEdit={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'edit')} allowDelete={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'delete')} canEditPresets={canManageUsers && ['owner', 'admin'].includes(normalizedRole)} onSave={(user, initialPassword) => run(() => props.onSaveStaff(user, initialPassword), 'Usuario guardado.')} onDelete={id => run(() => props.onDeleteStaff(id), 'Acceso retirado.')} onSavePreset={(roleId, permissions) => run(() => props.onSaveUserRolePreset(roleId, permissions), 'Plantilla guardada.')} onSaveCustomRole={draft => run(() => props.onSaveCustomRole?.(draft), 'Rol guardado.')} onDeleteCustomRole={id => run(() => props.onDeleteCustomRole?.(id), 'Rol eliminado.')} />{props.mode !== 'tenant' && <NightclubCommissions data={data} viewerStaffId={normalizedRole === 'waiter' ? props.demoUserId : undefined} canPay={['owner', 'admin'].includes(normalizedRole)} onPay={value => run(() => props.onPayCommissions?.(value), 'Pago de comisión registrado.')} />}</div>}
           {currentModule === 'reports' && <div className="space-y-4"><NightclubReports data={data} companyName={branding.businessName} />{props.mode !== 'tenant' && <NightclubCourtesyReport data={data} />}</div>}
-          {currentModule === 'settings' && <NightclubSettings key={`${branding.businessName}:${branding.primaryColor}:${branding.accentColor}:${branding.surfaceColor}:${branding.theme}`} data={{ ...data, branding }} fallbackName={companyName} fallbackLogo={logoUrl} canViewFloor={props.demoPermissions === undefined ? true : demoCan(props.demoPermissions, 'floor')} readOnly={props.demoPermissions !== undefined && !demoCan(props.demoPermissions, 'settings', 'edit')} onSaveBranding={value => { if (value.theme) handleThemeChange(value.theme); return run(() => props.onSaveBranding?.(value), 'Identidad guardada.') }} onSaveZone={value => run(() => props.onSaveZone(value), 'Zona guardada.')} onSaveTable={value => run(() => props.onSaveTable(value), 'Mesa guardada.')} onDeleteZone={id => run(() => props.onDeleteZone(id), 'Zona eliminada.')} onDeleteTable={id => run(() => props.onDeleteTable(id), 'Mesa eliminada.')} usersPanel={canViewUsers ? <NightclubUsers users={data.staff || []} rolePresets={data.userRolePresets} mode={props.mode === 'tenant' ? 'tenant' : 'demo'} view="roles" customRoles={data.customRoles} allowCreate={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'create')} allowEdit={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'edit')} allowDelete={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'delete')} canEditPresets={canManageUsers && ['owner', 'admin'].includes(normalizedRole)} onSave={(user, initialPassword) => run(() => props.onSaveStaff(user, initialPassword), 'Usuario guardado.')} onDelete={id => run(() => props.onDeleteStaff(id), 'Acceso retirado.')} onSavePreset={(roleId, permissions) => run(() => props.onSaveUserRolePreset(roleId, permissions), 'Plantilla guardada.')} onSaveCustomRole={draft => run(() => props.onSaveCustomRole?.(draft), 'Rol guardado.')} onDeleteCustomRole={id => run(() => props.onDeleteCustomRole?.(id), 'Rol eliminado.')} /> : undefined} />}
+          {currentModule === 'settings' && <NightclubSettings
+            key={`${branding.businessName}:${branding.primaryColor}:${branding.accentColor}:${branding.surfaceColor}:${branding.theme}`}
+            data={{ ...data, branding }}
+            fallbackName={companyName}
+            fallbackLogo={logoUrl}
+            canViewFloor={props.demoPermissions === undefined ? true : demoCan(props.demoPermissions, 'floor')}
+            readOnly={props.demoPermissions !== undefined && !demoCan(props.demoPermissions, 'settings', 'edit')}
+            mode={props.mode || 'demo'}
+            businessIdentity={props.businessIdentity}
+            onSaveBusinessIdentity={props.onSaveBusinessIdentity}
+            onUploadLogo={props.onUploadLogo}
+            tenantId={effectiveTenantId}
+            branchId={effectiveBranchId}
+            canManageSettings={['owner', 'admin'].includes(normalizedRole)}
+            onSaveBranding={value => { if (value.theme) handleThemeChange(value.theme); return run(() => props.onSaveBranding?.(value), 'Identidad guardada.') }}
+            onSaveZone={value => run(() => props.onSaveZone(value), 'Zona guardada.')}
+            onSaveTable={value => run(() => props.onSaveTable(value), 'Mesa guardada.')}
+            onDeleteZone={id => run(() => props.onDeleteZone(id), 'Zona eliminada.')}
+            onDeleteTable={id => run(() => props.onDeleteTable(id), 'Mesa eliminada.')}
+            usersPanel={canViewUsers ? <NightclubUsers users={data.staff || []} rolePresets={data.userRolePresets} mode={props.mode === 'tenant' ? 'tenant' : 'demo'} view="roles" customRoles={data.customRoles} allowCreate={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'create')} allowEdit={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'edit')} allowDelete={canManageUsers && demoCan(props.demoPermissions ?? null, 'users', 'delete')} canEditPresets={canManageUsers && ['owner', 'admin'].includes(normalizedRole)} onSave={(user, initialPassword) => run(() => props.onSaveStaff(user, initialPassword), 'Usuario guardado.')} onDelete={id => run(() => props.onDeleteStaff(id), 'Acceso retirado.')} onSavePreset={(roleId, permissions) => run(() => props.onSaveUserRolePreset(roleId, permissions), 'Plantilla guardada.')} onSaveCustomRole={draft => run(() => props.onSaveCustomRole?.(draft), 'Rol guardado.')} onDeleteCustomRole={id => run(() => props.onDeleteCustomRole?.(id), 'Rol eliminado.')} /> : undefined}
+          />}
         </main>
       </div>
     </div>
     {moreOpen && <div className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={() => setMoreOpen(false)}><section aria-label="Más módulos" className="absolute inset-x-0 bottom-[65px] grid max-h-[65vh] grid-cols-2 gap-2 overflow-y-auto rounded-t-2xl border-t border-white/10 bg-[#0d1720] p-4" onClick={event => event.stopPropagation()}>{moreModules.map(item => <button key={item.id} onClick={() => go(item.id)} className={`flex min-h-12 items-center gap-3 rounded-xl border p-3 text-left text-sm font-semibold ${currentModule === item.id ? 'border-amber-300/40 bg-amber-300/10 text-amber-100' : 'border-white/10'}`}><item.icon size={18} />{item.label}</button>)}</section></div>}
     <nav className="fixed inset-x-0 bottom-0 z-50 grid border-t border-white/10 bg-[#07111a] p-1 pb-safe lg:hidden" style={{ gridTemplateColumns: `repeat(${mobileModules.length + (moreModules.length ? 1 : 0)}, minmax(0, 1fr))` }}>{mobileModules.map(item => <button key={item.id} onClick={() => go(item.id)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-2 text-[10px] ${currentModule === item.id ? 'bg-amber-300 text-[#07111a]' : 'text-slate-400'}`}><item.icon size={17} />{item.label}</button>)}{moreModules.length > 0 && <button onClick={() => setMoreOpen(value => !value)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-2 text-[10px] ${moreOpen || moreModules.some(item => item.id === currentModule) ? 'bg-amber-300 text-[#07111a]' : 'text-slate-400'}`}><Menu size={17} />Más</button>}</nav>
     {courtesyAccountId !== null && <NightclubCourtesyDialog data={data} accountId={courtesyAccountId} onClose={() => setCourtesyAccountId(null)} onConfirm={value => props.onRegisterCourtesy ? run(() => props.onRegisterCourtesy!(value), 'Cortesía registrada.') : false} />}
+    {receiptModalAccount && (
+      <CanonicalReceiptModal
+        isOpen={!!receiptModalAccount}
+        receiptData={nightclubAccountToReceiptData(receiptModalAccount, data, props.businessIdentity)}
+        documentContext={documentContext}
+        onClose={() => setReceiptModalAccount(null)}
+        onPrint={handlePrintReceipt}
+      />
+    )}
   </div>
 }
 

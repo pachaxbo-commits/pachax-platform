@@ -165,6 +165,7 @@ function App() {
         userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
         role={activeTenant?.role || auth.member.role}
         onSignOut={auth.signOut}
+        businessIdentity={activeTenant?.tenant?.businessIdentity}
       />
     )
   }

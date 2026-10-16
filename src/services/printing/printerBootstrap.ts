@@ -13,6 +13,7 @@ import {
   getActivePrinterForRole,
   getActiveReceiptPrinter,
   getActiveKitchenPrinter,
+  getActiveBarPrinter,
 } from './printerProfiles.ts'
 
 export {
@@ -24,6 +25,7 @@ export {
   getActivePrinterForRole,
   getActiveReceiptPrinter,
   getActiveKitchenPrinter,
+  getActiveBarPrinter,
 }
 
 let initialized = false
