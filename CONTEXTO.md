@@ -1,5 +1,43 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: P1 + P2 + P3 + P4 - Identidad de Empresa Canónica, Documentos, Recibos y Simulación Pública de Roles (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `c51f692` al iniciar este bloque).
+- **Objetivo Cumplido**: Implementación transversal y canónica de la identidad de empresa, documentos comerciales, recibos digitales y térmicos, y simulación reactiva de roles para todas las plantillas de PACHAX (`restaurant_pos`, `hamburger_shop`, `nightclub_lounge`, `route_distribution`, `gelateria_weight_cafe`):
+  1. **BusinessIdentity Canónica (`src/core/businessIdentity.ts` & `src/core/platform.ts`)**:
+     - Estructura unificada que modela: `tradeName`, `legalName`, `logoUrl`, `primaryColor`, `accentColor`, `phone`, `whatsapp`, `email`, `address`, `city`, `taxId` (NIT), `website` y banderas documentales (`receiptHeader`, `receiptFooter`, `showLogo`, `showAddress`, `showPhone`, `showTaxId`, `showManagedBy`).
+     - Función `normalizeBusinessIdentity` con retrocompatibilidad transparente con `tenant.branding` y `tenant.name`.
+     - `validateBusinessIdentity` con validación estricta de longitudes, formatos hex, contraste WCAG AA con texto blanco, y bloqueo de imágenes base64 > 1000 caracteres para proteger Firestore.
+     - `buildBusinessDocumentContext` genera el contexto documental estándar con encabezados formateados, orden de datos y respeto a toggles de visibilidad.
+  2. **Configuración Segura y Carga de Logos (`src/components/settings/BusinessIdentitySettings.tsx`, `functions/tenants.cjs`, `firebase/storage.rules`)**:
+     - Componente reutilizable "Empresa y documentos" con previsualización en vivo, colores, datos fiscales y toggles de comprobante.
+     - Backend seguro `tenants.cjs` (`settingsPatch`) valida y sanea `businessIdentity`, sincronizando automáticamente `tenant.name` y `tenant.branding` (`primary`, `accent`, `logoUrl`), exigiendo permiso `settings.manage` y auditando cada cambio.
+     - Inicialización en `functions/onboarding.cjs` desde el nombre y colores del alta inicial.
+     - Reglas de Firebase Storage para `tenants/{tenantId}/branding/*` limitadas a miembros autenticados del tenant, máximo 2 MB y tipos MIME de imagen permitidos.
+  3. **Recibo Digital Canónico y Servicio de Compartir (`src/core/receiptService.ts` & `src/components/receipt/CanonicalReceiptModal.tsx`)**:
+     - `orderToReceiptData` mapea pedidos a datos canónicos de recibo.
+     - `generateReceiptPdf` genera comprobante en PDF de 80mm usando `jspdf` con tabla de ítems, modificadores, totales, medios de pago y pie de página, tolerante a ausencia o fallo de descarga de logo.
+     - `shareReceipt` soporta compartir nativo en Android (vía `@capacitor/share` y almacenamiento temporal en `@capacitor/filesystem`), Web Share API con archivo en navegadores modernos, y fallback a descarga de PDF con enlace a WhatsApp.
+     - Modal `CanonicalReceiptModal` con diseño térmico, desglose completo y botones: `[ Imprimir recibo ]`, `[ Compartir recibo ]`, `[ Descargar archivo PDF ]`.
+  4. **Integración con Plantillas Existentes**:
+     - `RestaurantOrders`: botón `[ Recibo ]` en pedidos pagados para abrir el comprobante.
+     - `RestaurantSettings`: panel "Empresa y documentos" conectado al backend o storage de demo.
+     - `RestaurantApp` & `RestaurantExperience`: cableado completo de identidad, persistencia e impresión térmica canónica.
+     - `distributionReceiptService.ts`: adaptado para consumir `buildBusinessDocumentContext` manteniendo retrocompatibilidad exacta con el flujo de venta y despacho.
+  5. **Simulación Pública de Roles en Demo (`src/demo/DemoRuntime.tsx`)**:
+     - Las rutas `/demo/*` leen dinámicamente los roles de `BusinessTemplateRegistry` según la plantilla.
+     - Barra de simulación `"Simular vista de:"` con selector responsive para móviles y pills segmentadas en escritorio.
+     - Cambio de rol 100% reactivo en memoria: no recarga la página, no pierde datos ni estados locales, y jamás escribe al tenant productivo.
+  6. **Pruebas y Verificaciones**:
+     - `npm run typecheck`: 0 errores.
+     - `npm run test:platform`: 54/54 pruebas aprobadas (incluyendo suite focal `tests/businessIdentityAndReceipts.test.ts`).
+     - `npm run test:restaurant`: 58/58 pruebas aprobadas.
+     - `npm run test:distribution`: 55/55 pruebas aprobadas.
+     - `npm run test:nightclub`: 87/87 pruebas aprobadas.
+     - `npm run test:cash`: 1/1 prueba aprobada.
+     - `npm run build`: Compilación de producción exitosa en 5.26s.
+     - `git diff --check`: 0 errores de formato.
+
 ## Checkpoint: R8 - Separación Estricta y Aislamiento de Entornos: Producción, Studio y Demo en PACHAX Restaurante (15/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `a6e8948` antes de este bloque).

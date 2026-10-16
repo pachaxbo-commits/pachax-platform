@@ -57,6 +57,11 @@ import {
 } from '../../../services/printing/printerBootstrap'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import type { PrintJobPayload } from '../../../types/printing'
+import type { BusinessIdentity } from '../../../core/businessIdentity'
+import {
+  uploadTenantLogoToFirebase,
+  updateTenantBusinessIdentity,
+} from '../../../lib/firebase'
 
 export function RestaurantApp({
   tenantId,
@@ -71,6 +76,7 @@ export function RestaurantApp({
   onSignOut,
   onOpenPrinterSettings,
   profile = 'restaurant',
+  businessIdentity,
 }: {
   tenantId: string
   restaurantName: string
@@ -84,6 +90,7 @@ export function RestaurantApp({
   onSignOut: () => Promise<void>
   onOpenPrinterSettings?: () => void
   profile?: 'restaurant' | 'counter_service'
+  businessIdentity?: BusinessIdentity
 }) {
   const definition = getBusinessTypeDefinition('restaurant')
   const [themeColors, setThemeColors] = useState<RestaurantThemeColors>({
@@ -104,6 +111,28 @@ export function RestaurantApp({
   const [syncError, setSyncError] = useState<string | null>(null)
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>([])
   const [lastPrintedComanda, setLastPrintedComanda] = useState<PrintJobPayload | null>(null)
+  const [activeIdentity, setActiveIdentity] = useState<BusinessIdentity | undefined>(businessIdentity)
+
+  useEffect(() => {
+    if (businessIdentity) {
+      setActiveIdentity(businessIdentity)
+    }
+  }, [businessIdentity])
+
+  const handleSaveBusinessIdentity = async (newIdentity: BusinessIdentity) => {
+    await updateTenantBusinessIdentity(tenantId, newIdentity)
+    setActiveIdentity(newIdentity)
+    if (newIdentity.primaryColor && newIdentity.accentColor) {
+      setThemeColors({
+        primary: newIdentity.primaryColor,
+        accent: newIdentity.accentColor,
+      })
+    }
+  }
+
+  const handleUploadLogo = async (file: File) => {
+    return await uploadTenantLogoToFirebase(file, tenantId)
+  }
 
   useEffect(() => {
     applyTenantTheme(definition.theme)
@@ -731,6 +760,9 @@ export function RestaurantApp({
         onSignOut={onSignOut}
         onOpenPrinterSettings={onOpenPrinterSettings}
         profile={profile}
+        businessIdentity={activeIdentity}
+        onSaveBusinessIdentity={handleSaveBusinessIdentity}
+        onUploadLogo={handleUploadLogo}
       />
     </>
   )

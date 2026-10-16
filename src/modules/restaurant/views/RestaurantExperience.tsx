@@ -43,6 +43,12 @@ import { RestaurantReports } from '../../../demo/restaurant/RestaurantReports'
 import { RestaurantSettings } from '../../../demo/restaurant/RestaurantSettings'
 import { RestaurantPrinters } from '../../../demo/restaurant/RestaurantPrinters'
 import type { KitchenPrinterConfig } from '../../../demo/restaurant/kitchenPrinterConfig'
+import type { BusinessIdentity } from '../../../core/businessIdentity'
+import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
+import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
+import { orderToReceiptData } from '../../../core/receiptService'
+import { getActiveReceiptPrinter } from '../../../services/printing/printerBootstrap'
+import { PrintEngineService } from '../../../services/printing/printEngineService'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import {
   RESTAURANT_CATEGORIES,
@@ -157,6 +163,9 @@ export interface RestaurantExperienceProps {
   onCreateMember?: (data: { name: string; email: string; role: Role; active: boolean; password?: string }) => Promise<void> | void
   onUpdateMember?: (id: string, data: { name: string; role: Role; active: boolean }) => Promise<void> | void
   onDeleteMember?: (id: string) => Promise<void> | void
+  businessIdentity?: BusinessIdentity
+  onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
+  onUploadLogo?: (file: File) => Promise<string>
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -256,17 +265,34 @@ export function RestaurantExperience({
   onCreateMember,
   onUpdateMember,
   onDeleteMember,
+  businessIdentity,
+  onSaveBusinessIdentity,
+  onUploadLogo,
 }: RestaurantExperienceProps) {
   const isCounterService = profile === 'counter_service'
   const [currentModule, setCurrentModule] = useState<RestaurantModuleId>(
     initialModule ?? (isCounterService ? 'pos' : 'dashboard')
   )
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
+  const [viewingReceiptOrder, setViewingReceiptOrder] = useState<Order | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isMoreDesktopOpen, setIsMoreDesktopOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
   const moreDropdownRef = useRef<HTMLDivElement>(null)
   const saleProducts = useMemo(() => stockAwareProducts(products), [products])
+
+  const displayName = businessIdentity?.tradeName || companyName || session.restaurantName || 'Bistró Demo'
+  const effectiveLogoUrl = businessIdentity?.showLogo !== false ? (businessIdentity?.logoUrl || logoUrl) : undefined
+
+  const documentContext = useMemo(
+    () =>
+      buildBusinessDocumentContext(businessIdentity, {
+        companyName: displayName,
+        logoUrl: effectiveLogoUrl,
+        branchName: 'Principal',
+      }),
+    [businessIdentity, displayName, effectiveLogoUrl]
+  )
 
   useEffect(() => {
     if (!isMoreDesktopOpen) return
@@ -375,8 +401,6 @@ export function RestaurantExperience({
       ? 'Inventario'
       : isCounterService ? 'Mostrador' : 'Restaurante'
 
-  const displayName = companyName || session.restaurantName || 'Bistró Demo'
-
   return (
     <div
       className="restaurant-shell flex min-h-[100dvh] w-full min-w-0 flex-col"
@@ -386,7 +410,7 @@ export function RestaurantExperience({
         <div className="restaurant-header-inner">
           <div className="flex min-w-0 items-center gap-2.5">
             <img
-              src={logoUrl || '/brand/pachax-logo.png'}
+              src={effectiveLogoUrl || '/brand/pachax-logo.png'}
               alt={displayName}
               className="h-9 w-11 shrink-0 object-contain rounded-md"
             />
@@ -558,7 +582,11 @@ export function RestaurantExperience({
             />
           )}
           {activeModule === 'orders' && (
-            <RestaurantOrders orders={orders} onAdvanceStatus={onAdvanceStatus} />
+            <RestaurantOrders
+              orders={orders}
+              onAdvanceStatus={onAdvanceStatus}
+              onViewReceipt={(order) => setViewingReceiptOrder(order)}
+            />
           )}
           {activeModule === 'kitchen' && (
             <RestaurantKitchen orders={orders} onAdvanceStatus={onAdvanceStatus} onAdvanceItemStatus={onAdvanceItemStatus} />
@@ -602,7 +630,22 @@ export function RestaurantExperience({
             />
           )}
           {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
-          {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} tables={tables} sectors={sectors} onFloorAction={onFloorAction} isCounterService={isCounterService} />}
+          {activeModule === 'settings' && (
+            <RestaurantSettings
+              key={`${themeColors.primary}:${themeColors.accent}`}
+              onResetDemo={onResetDemo}
+              themeColors={themeColors}
+              onSaveTheme={onSaveTheme}
+              tables={tables}
+              sectors={sectors}
+              onFloorAction={onFloorAction}
+              isCounterService={isCounterService}
+              businessIdentity={businessIdentity}
+              onSaveBusinessIdentity={onSaveBusinessIdentity}
+              onUploadLogo={onUploadLogo}
+              canManage={['owner', 'admin'].includes(session.role)}
+            />
+          )}
           {activeModule === 'printers' && <RestaurantPrinters tenantId={session.tenantId} branchId="main" config={kitchenPrinterConfig} jobs={kitchenPrintJobs} onSave={onSaveKitchenPrinterConfig} onPrintTest={onPrintKitchenTest} onRetry={onRetryKitchenPrint} onReprintLatest={onReprintLatestKitchenTicket} />}
         </main>
       </div>
@@ -686,6 +729,66 @@ export function RestaurantExperience({
           )}
         </div>
       </Modal>
+
+      {viewingReceiptOrder && (
+        <CanonicalReceiptModal
+          isOpen={!!viewingReceiptOrder}
+          onClose={() => setViewingReceiptOrder(null)}
+          receiptData={orderToReceiptData(
+            viewingReceiptOrder,
+            customers.find((c) => c.id === viewingReceiptOrder.customerId)
+          )}
+          documentContext={documentContext}
+          onPrint={async () => {
+            const printer = getActiveReceiptPrinter(session.tenantId, 'main')
+            if (printer) {
+              await PrintEngineService.getInstance().submitPrintRequest({
+                targetType: 'receipt',
+                orderId: viewingReceiptOrder.id,
+                printerProfileId: printer.id,
+                payload: {
+                  payloadSchemaVersion: 1,
+                  templateVersion: '1.0',
+                  restaurantName: documentContext.companyName,
+                  branchName: documentContext.branchName || 'Principal',
+                  branchAddress: documentContext.address,
+                  branchPhone: documentContext.phone,
+                  logoUrl: documentContext.logoUrl,
+                  headerDetails: documentContext.formattedHeaderLines,
+                  orderId: viewingReceiptOrder.id,
+                  displayNumber: viewingReceiptOrder.displayNumber || viewingReceiptOrder.id.slice(-6).toUpperCase(),
+                  customerName: viewingReceiptOrder.customerName,
+                  customerPhone: viewingReceiptOrder.customerPhone,
+                  deliveryAddress: viewingReceiptOrder.deliveryAddress,
+                  items: viewingReceiptOrder.items.map((item) => ({
+                    productId: item.productId,
+                    name: item.name,
+                    basePrice: item.basePrice ?? (item.lineTotal / (item.quantity || 1)),
+                    quantity: item.quantity,
+                    lineTotal: item.lineTotal,
+                    modifiersText: Array.isArray(item.modifiers)
+                      ? item.modifiers
+                      : item.modifiers?.note
+                      ? [item.modifiers.note]
+                      : undefined,
+                    note: typeof item.modifiers?.note === 'string' ? item.modifiers.note : undefined,
+                  })),
+                  subtotal: viewingReceiptOrder.productSubtotal ?? viewingReceiptOrder.total,
+                  discountTotal: 0,
+                  taxTotal: 0,
+                  deliveryFee: viewingReceiptOrder.deliveryFee || 0,
+                  grandTotal: viewingReceiptOrder.total,
+                  paymentMethod: viewingReceiptOrder.paymentMethod || 'PAGADO',
+                  footerMessage: documentContext.receiptFooter,
+                  isCopy: false,
+                  copies: 1,
+                  createdIso: new Date().toISOString(),
+                },
+              })
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

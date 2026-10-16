@@ -29,10 +29,97 @@ function branding(input = {}, existing = { primary: '#20383A', accent: '#B58A55'
       result[key] = input[key];
     }
   }
+  if (input.logoUrl !== undefined) {
+    if (typeof input.logoUrl === 'string' && input.logoUrl.startsWith('data:image') && input.logoUrl.length > 1000) {
+      throw new HttpsError('invalid-argument', 'No se permite guardar imágenes en base64 en la base de datos.');
+    }
+    result.logoUrl = typeof input.logoUrl === 'string' && input.logoUrl.trim() ? input.logoUrl.trim().slice(0, 500) : undefined;
+  }
   // White text is used on primary buttons. Require WCAG AA contrast.
   const channels = result.primary.slice(1).match(/../g).map(v => parseInt(v, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
   const luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
   if (1.05 / (luminance + .05) < 4.5) throw new HttpsError('invalid-argument', 'El color principal necesita más contraste con texto blanco.');
+  return result;
+}
+function businessIdentity(input = {}, existing = {}, tenantName = '', tenantBranding = {}) {
+  const result = {
+    tradeName: tenantName || 'Mi Empresa',
+    legalName: '',
+    logoUrl: tenantBranding.logoUrl || '',
+    primaryColor: tenantBranding.primary || '#20383a',
+    accentColor: tenantBranding.accent || '#b58a55',
+    phone: '',
+    whatsapp: '',
+    email: '',
+    address: '',
+    city: '',
+    taxId: '',
+    website: '',
+    receiptHeader: '',
+    receiptFooter: '¡Gracias por su preferencia!',
+    showLogo: true,
+    showAddress: true,
+    showPhone: true,
+    showTaxId: true,
+    showManagedBy: true,
+    ...existing,
+  };
+
+  if (input.tradeName !== undefined) {
+    if (typeof input.tradeName !== 'string' || !input.tradeName.trim() || input.tradeName.trim().length > 100) {
+      throw new HttpsError('invalid-argument', 'Nombre comercial inválido (1-100 caracteres).');
+    }
+    result.tradeName = input.tradeName.trim();
+  }
+
+  if (input.legalName !== undefined) {
+    result.legalName = typeof input.legalName === 'string' ? input.legalName.trim().slice(0, 120) : '';
+  }
+
+  if (input.logoUrl !== undefined) {
+    if (typeof input.logoUrl === 'string' && input.logoUrl.startsWith('data:image') && input.logoUrl.length > 1000) {
+      throw new HttpsError('invalid-argument', 'No se permite guardar imágenes en base64 en la base de datos.');
+    }
+    result.logoUrl = typeof input.logoUrl === 'string' && input.logoUrl.trim() ? input.logoUrl.trim().slice(0, 500) : '';
+  }
+
+  if (input.primaryColor !== undefined) {
+    if (typeof input.primaryColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(input.primaryColor)) {
+      throw new HttpsError('invalid-argument', 'Color primario inválido.');
+    }
+    result.primaryColor = input.primaryColor.toLowerCase();
+    const channels = result.primaryColor.slice(1).match(/../g).map(v => parseInt(v, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
+    const luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+    if (1.05 / (luminance + .05) < 4.5) throw new HttpsError('invalid-argument', 'El color principal necesita más contraste con texto blanco.');
+  }
+
+  if (input.accentColor !== undefined) {
+    if (typeof input.accentColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(input.accentColor)) {
+      throw new HttpsError('invalid-argument', 'Color secundario inválido.');
+    }
+    result.accentColor = input.accentColor.toLowerCase();
+  }
+
+  if (input.phone !== undefined) result.phone = typeof input.phone === 'string' ? input.phone.trim().slice(0, 30) : '';
+  if (input.whatsapp !== undefined) result.whatsapp = typeof input.whatsapp === 'string' ? input.whatsapp.trim().slice(0, 30) : '';
+  if (input.email !== undefined) {
+    const em = typeof input.email === 'string' ? input.email.trim().toLowerCase().slice(0, 100) : '';
+    if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) throw new HttpsError('invalid-argument', 'Correo comercial inválido.');
+    result.email = em;
+  }
+  if (input.address !== undefined) result.address = typeof input.address === 'string' ? input.address.trim().slice(0, 200) : '';
+  if (input.city !== undefined) result.city = typeof input.city === 'string' ? input.city.trim().slice(0, 80) : '';
+  if (input.taxId !== undefined) result.taxId = typeof input.taxId === 'string' ? input.taxId.trim().slice(0, 40) : '';
+  if (input.website !== undefined) result.website = typeof input.website === 'string' ? input.website.trim().slice(0, 150) : '';
+  if (input.receiptHeader !== undefined) result.receiptHeader = typeof input.receiptHeader === 'string' ? input.receiptHeader.trim().slice(0, 120) : '';
+  if (input.receiptFooter !== undefined) result.receiptFooter = typeof input.receiptFooter === 'string' ? input.receiptFooter.trim().slice(0, 120) : '';
+
+  if (input.showLogo !== undefined) result.showLogo = Boolean(input.showLogo);
+  if (input.showAddress !== undefined) result.showAddress = Boolean(input.showAddress);
+  if (input.showPhone !== undefined) result.showPhone = Boolean(input.showPhone);
+  if (input.showTaxId !== undefined) result.showTaxId = Boolean(input.showTaxId);
+  if (input.showManagedBy !== undefined) result.showManagedBy = Boolean(input.showManagedBy);
+
   return result;
 }
 async function createTenant(db, auth, request) {
@@ -41,8 +128,10 @@ async function createTenant(db, auth, request) {
   const tenantId = `t_${hash(`${uid}:${operationId}`)}`, root = db.doc(`tenants/${tenantId}`);
   const user = await auth.getUser(uid);
   const now = new Date().toISOString();
+  const brand = branding(input.branding);
+  const ident = businessIdentity(input.businessIdentity, {}, name, brand);
   const tenant = { tenantId, name, nameKey: name.toLowerCase(), businessType: template.businessType, ownerUid: uid,
-    ownerEmail: user.email || '', status: 'active', branding: branding(input.branding), configuration: configuration(input, template.defaults),
+    ownerEmail: user.email || '', status: 'active', branding: brand, businessIdentity: ident, configuration: configuration(input, template.defaults),
     entitlements: {}, planKey: null, subscriptionStatus: 'trial', schemaVersion: 1, templateVersion: template.version,
     createdAt: now, updatedAt: now, userCount: 1, branchCount: 1 };
   await db.runTransaction(async tx => {
@@ -85,6 +174,18 @@ function settingsPatch(tenant, input) {
   const patch = { updatedAt: new Date().toISOString() };
   if (input.name !== undefined) { patch.name = text(input.name); patch.nameKey = patch.name.toLowerCase(); }
   if (input.branding !== undefined) patch.branding = branding(input.branding, tenant.branding);
+  if (input.businessIdentity !== undefined) {
+    const ident = businessIdentity(input.businessIdentity, tenant.businessIdentity, patch.name || tenant.name, patch.branding || tenant.branding);
+    patch.businessIdentity = ident;
+    patch.name = ident.tradeName;
+    patch.nameKey = ident.tradeName.toLowerCase();
+    patch.branding = {
+      ...(patch.branding || tenant.branding || {}),
+      primary: ident.primaryColor,
+      accent: ident.accentColor,
+      logoUrl: ident.logoUrl || undefined,
+    };
+  }
   patch.configuration = configuration(input, tenant.configuration);
   if (input.features !== undefined) {
     const template = getTemplate(tenant.businessType);

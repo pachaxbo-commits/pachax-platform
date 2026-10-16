@@ -123,6 +123,7 @@ export interface PrintJobPayload {
   branchName: string
   branchAddress?: string
   branchPhone?: string
+  logoUrl?: string
   headerDetails?: string[]
   orderId?: string
   sequenceNumber?: number

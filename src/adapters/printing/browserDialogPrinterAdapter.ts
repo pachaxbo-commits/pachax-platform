@@ -160,8 +160,10 @@ export function buildReceiptHtml(payload: PrintJobPayload, paperWidth: '58mm' | 
 </head>
 <body>
   ${isReprint ? '<div class="text-center bold reprint-badge">*** REIMPRESION - COPIA ***</div><div class="separator"></div>' : ''}
+  ${payload.logoUrl ? `<div class="text-center" style="margin-bottom: 4px;"><img src="${escapeHtml(payload.logoUrl)}" alt="Logo" style="max-height: 48px; max-width: 120px; margin: 0 auto; display: block; object-fit: contain;" onerror="this.style.display='none'" /></div>` : ''}
   <div class="text-center bold headline">${escapeHtml(payload.restaurantName || 'PACHAX')}</div>
   ${payload.branchName ? `<div class="text-center">${escapeHtml(payload.branchName)}</div>` : ''}
+  ${payload.headerDetails?.length ? payload.headerDetails.map(d => `<div class="text-center" style="font-size: 10px;">${escapeHtml(d)}</div>`).join('') : ''}
   ${payload.branchAddress ? `<div class="text-center" style="font-size: 10px;">${escapeHtml(payload.branchAddress)}</div>` : ''}
   ${payload.branchPhone ? `<div class="text-center" style="font-size: 10px;">Tel: ${escapeHtml(payload.branchPhone)}</div>` : ''}
   <div class="separator"></div>

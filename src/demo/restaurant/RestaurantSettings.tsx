@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Store, Receipt, Palette, Check, MapPin, Plus, Trash2 } from 'lucide-react'
+import { Palette, Check, MapPin, Plus, Trash2 } from 'lucide-react'
 import { DEFAULT_RESTAURANT_THEME, RESTAURANT_THEME_PRESETS, restaurantThemeStyle, validRestaurantColor, type RestaurantThemeColors } from '../../modules/restaurant/views/restaurantTheme'
 import type { RestaurantSector, RestaurantTable } from '../mocks/restaurantMock'
 import type { FloorAction } from '../../modules/restaurant/domain/restaurantFloor'
+import type { BusinessIdentity } from '../../core/businessIdentity'
+import { BusinessIdentitySettings } from '../../components/settings/BusinessIdentitySettings'
 
 export function RestaurantSettings({
   onResetDemo,
@@ -12,6 +14,10 @@ export function RestaurantSettings({
   sectors = [],
   onFloorAction,
   isCounterService = false,
+  businessIdentity,
+  onSaveBusinessIdentity,
+  onUploadLogo,
+  canManage = true,
 }: {
   onResetDemo?: () => void
   themeColors?: RestaurantThemeColors
@@ -20,6 +26,10 @@ export function RestaurantSettings({
   sectors?: RestaurantSector[]
   onFloorAction?: (action: FloorAction) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
   isCounterService?: boolean
+  businessIdentity?: BusinessIdentity
+  onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
+  onUploadLogo?: (file: File) => Promise<string>
+  canManage?: boolean
 }) {
   const [draft, setDraft] = useState<RestaurantThemeColors>(themeColors)
   const [saving, setSaving] = useState(false)
@@ -62,77 +72,13 @@ export function RestaurantSettings({
         </div>
       </section>
 
-      <div className="restaurant-settings-panel space-y-6">
-        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          <Store className="w-5 h-5 text-slate-700" />
-          Datos Generales del Negocio
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">Nombre del Establecimiento</label>
-            <input
-              type="text"
-              defaultValue="Bistró Demo"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">NIT / Razón Social</label>
-            <input
-              type="text"
-              defaultValue="4829102018"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">Dirección del Salón</label>
-            <input
-              type="text"
-              defaultValue="Av. Principal #450, Zona Central"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">Teléfono de Contacto</label>
-            <input
-              type="text"
-              defaultValue="71234567"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="restaurant-settings-panel space-y-6">
-        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          <Receipt className="w-5 h-5 text-slate-700" />
-          Encabezado & Pie de Comanda Térmica
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">Encabezado de Ticket</label>
-            <input
-              type="text"
-              defaultValue="BISTRO DEMO — GASTRONOMÍA"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">Pie de Comanda / Mensaje</label>
-            <input
-              type="text"
-              defaultValue="¡Gracias por su visita! Vuelva pronto."
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-            />
-          </div>
-        </div>
-      </div>
+      {/* Empresa y Documentos */}
+      <BusinessIdentitySettings
+        initialIdentity={businessIdentity}
+        canManage={canManage}
+        onSaveIdentity={onSaveBusinessIdentity || (() => {})}
+        onUploadLogo={onUploadLogo}
+      />
 
       {isCounterService && onFloorAction && (
         <div className="restaurant-settings-panel space-y-4">

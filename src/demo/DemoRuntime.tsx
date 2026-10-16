@@ -6,8 +6,10 @@ import { NightclubDemo } from './nightclub/NightclubDemo'
 import type { DemoTemplateId, DemoMode } from './demoTypes'
 import type { StudioBranding } from '../studio/branding/brandingTypes'
 import { applyStudioThemeTokens } from '../studio/branding/brandingAdapter'
-import { Sparkles, ArrowLeft, Check, X, RotateCcw } from 'lucide-react'
+import { Sparkles, ArrowLeft, Check, X, RotateCcw, UserCheck } from 'lucide-react'
 import type { DemoDatasetMode } from './datasets/types'
+import { BusinessTemplateRegistry } from '../core/templates.ts'
+import type { BusinessType } from '../core/platform.ts'
 
 export function DemoRuntime({
   templateId,
@@ -47,6 +49,18 @@ export function DemoRuntime({
     return initialDatasetMode || 'full'
   })
   const [resetKey, setResetKey] = useState(0)
+
+  const templateRoles = (function() {
+    const businessTypeMap: Record<DemoTemplateId, BusinessType> = {
+      restaurant: 'restaurant_pos',
+      hamburger: 'hamburger_shop',
+      distribution: 'route_distribution',
+      retail: 'gelateria_weight_cafe',
+      nightclub: 'nightclub_lounge',
+    }
+    const bt = businessTypeMap[templateId]
+    return BusinessTemplateRegistry[bt]?.roles || []
+  })()
 
   const clearTemplateDemo = useCallback(() => {
     if (templateId !== 'restaurant' && templateId !== 'hamburger' && templateId !== 'nightclub') return
@@ -306,6 +320,64 @@ export function DemoRuntime({
                 <span>Restablecer demo</span>
               </button>
             </div>
+          </div>
+
+          {/* Barra interactiva de Simulación de Roles en Demo Pública */}
+          <div data-demo-role-selector className="bg-slate-950 text-slate-200 px-4 sm:px-8 py-2 text-xs flex flex-wrap items-center justify-between gap-3 border-b border-slate-800">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <span className="text-[11px] uppercase tracking-wider font-bold text-teal-400 flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5" />
+                Simular vista de:
+              </span>
+
+              {/* Selector compacto para móvil */}
+              <div className="sm:hidden">
+                <select
+                  aria-label="Simular vista de rol"
+                  value={effectiveRole}
+                  onChange={(e) => {
+                    const newRole = e.target.value
+                    setActiveRole(newRole)
+                    onSelectRole?.(newRole)
+                  }}
+                  className="rounded-lg bg-slate-800 border border-slate-700 px-2 py-1 text-xs font-semibold text-white focus:outline-none"
+                >
+                  {templateRoles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Selector segmented de píldoras para PC y Tablets */}
+              <div className="hidden sm:inline-flex flex-wrap gap-1 rounded-lg bg-slate-900 p-0.5 border border-slate-800">
+                {templateRoles.map((r) => {
+                  const isSelected = effectiveRole === r.id
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveRole(r.id)
+                        onSelectRole?.(r.id)
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-teal-500 text-slate-950 font-bold shadow-xs'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {r.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400 italic">
+              Así ve el sistema este miembro de tu equipo.
+            </p>
           </div>
         </>
       )}

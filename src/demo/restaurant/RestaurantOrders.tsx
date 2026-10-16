@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { Search, ChefHat, CheckCircle2, UtensilsCrossed } from 'lucide-react'
+import { Search, ChefHat, CheckCircle2, UtensilsCrossed, Receipt } from 'lucide-react'
 import type { Order, OrderStatus } from '../../types'
 
 export function RestaurantOrders({
   orders,
   onAdvanceStatus,
+  onViewReceipt,
 }: {
   orders: Order[]
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
+  onViewReceipt?: (order: Order) => void
 }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | OrderStatus>('all')
@@ -211,6 +213,17 @@ export function RestaurantOrders({
                       <CheckCircle2 size={14} className="text-emerald-500" />
                       Entregado
                     </span>
+                  )}
+                  {onViewReceipt && ord.paymentStatus === 'paid' && (
+                    <button
+                      type="button"
+                      onClick={() => onViewReceipt(ord)}
+                      title="Ver y compartir recibo"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-extrabold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                    >
+                      <Receipt size={14} />
+                      <span>Recibo</span>
+                    </button>
                   )}
                 </div>
               </div>

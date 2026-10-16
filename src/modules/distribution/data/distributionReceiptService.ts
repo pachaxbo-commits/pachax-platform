@@ -4,6 +4,7 @@ import { getActiveReceiptPrinter } from '../../../services/printing/printerBoots
 import { round2 } from '../domain/engine'
 import type { PrintJobPayload } from '../../../types/printing'
 import type { DistSale } from '../types'
+import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
 
 /**
  * Recibo de venta de distribucion.
@@ -27,6 +28,15 @@ export interface ReceiptContext {
 }
 
 export function buildSaleReceiptPayload(sale: DistSale, context: ReceiptContext): PrintJobPayload {
+  const docContext = buildBusinessDocumentContext({
+    tradeName: context.companyName,
+    receiptHeader: context.receiptHeader,
+    receiptFooter: context.receiptFooter,
+    address: context.address,
+    phone: context.phone,
+    taxId: context.taxId,
+  }, { branchName: `RUTA: ${context.routeName}` })
+
   const paymentLabel =
     sale.paymentKind === 'cash'
       ? 'EFECTIVO'
@@ -44,10 +54,13 @@ export function buildSaleReceiptPayload(sale: DistSale, context: ReceiptContext)
   return {
     payloadSchemaVersion: 1,
     templateVersion: 'v1.0-receipt',
-    restaurantName: (context.receiptHeader || context.companyName).toUpperCase(),
-    branchName: `RUTA: ${context.routeName}`,
+    restaurantName: (context.receiptHeader || docContext.companyName).toUpperCase(),
+    branchName: docContext.branchName || `RUTA: ${context.routeName}`,
     branchAddress: `DISTRIBUIDOR: ${context.distributorName}`,
-    headerDetails: [context.taxId ? `NIT: ${context.taxId}` : '', context.address || '', context.phone ? `TEL: ${context.phone}` : ''].filter(Boolean),
+    headerDetails: docContext.formattedHeaderLines.length > 0
+      ? docContext.formattedHeaderLines
+      : [context.taxId ? `NIT: ${context.taxId}` : '', context.address || '', context.phone ? `TEL: ${context.phone}` : ''].filter(Boolean),
+    logoUrl: docContext.logoUrl,
     orderId: sale.id,
     displayNumber: sale.id.slice(-6).toUpperCase(),
     customerName: sale.customerName || 'Cliente ocasional',

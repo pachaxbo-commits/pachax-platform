@@ -149,6 +149,7 @@ function App() {
         role={activeTenant?.role || auth.member.role}
         onSignOut={auth.signOut}
         profile={canonicalBusinessType === 'hamburger_shop' ? 'counter_service' : 'restaurant'}
+        businessIdentity={activeTenant?.tenant?.businessIdentity}
       />
     )
   }

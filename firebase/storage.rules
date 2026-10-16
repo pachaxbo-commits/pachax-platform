@@ -1,7 +1,18 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Fail closed until tenant branding and its membership rules are implemented.
+    // Tenant branding assets (logos) and product images
+    match /tenants/{tenantId}/{allPaths=**} {
+      // Logos and product images can be read for storefronts and receipts
+      allow read: if true;
+      // Write allowed only for authenticated active members of the tenant
+      allow write: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid))
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|svg\\+xml)');
+    }
+
+    // Fail closed on everything else
     match /{path=**} {
       allow read, write: if false;
     }

@@ -29,6 +29,7 @@ import type { DemoDatasetMode } from '../datasets/types'
 import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeColors } from '../../modules/restaurant/views/restaurantTheme'
 import { buildKitchenTicketPrintDocument, buildKitchenTicketText, type KitchenTicketJob } from '../../modules/restaurant/domain/kitchenPrint'
 import { DEFAULT_KITCHEN_PRINTER_CONFIG, type KitchenPrinterConfig } from './kitchenPrinterConfig'
+import { normalizeBusinessIdentity, type BusinessIdentity } from '../../core/businessIdentity'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -1153,6 +1154,23 @@ export function RestaurantDemo({
     ? (profile === 'counter_service' ? 'studio-hamburger' : 'studio-restaurant')
     : (profile === 'counter_service' ? 'demo-hamburger' : 'demo-restaurant')
 
+  const [demoIdentity, setDemoIdentity] = useState<BusinessIdentity>(() => {
+    const saved = readSaved<BusinessIdentity | null>(`${storageKey}:businessIdentity`, null)
+    if (saved) return saved
+    return normalizeBusinessIdentity({
+      tradeName: companyName || (profile === 'counter_service' ? 'Servicio Rápido Demo' : 'Bistró PACHAX'),
+      logoUrl: logoUrl || '/brand/pachax-logo.png',
+      primaryColor: activeThemeColors.primary,
+      accentColor: activeThemeColors.accent,
+      address: 'Av. Las Palmas 123',
+      city: 'Santa Cruz',
+      phone: '70012345',
+      taxId: '1029384756',
+      receiptHeader: '¡Bienvenidos!',
+      receiptFooter: '¡Gracias por su visita!',
+    })
+  })
+
   const session: RestaurantSession = {
     tenantId: sessionTenantId,
     restaurantName: companyName || (profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'),
@@ -1169,6 +1187,17 @@ export function RestaurantDemo({
       companyName={companyName}
       profile={profile}
       themeColors={activeThemeColors}
+      businessIdentity={demoIdentity}
+      onSaveBusinessIdentity={async (identity) => {
+        restaurantStorage.setItem(`${storageKey}:businessIdentity`, JSON.stringify(identity))
+        setDemoIdentity(identity)
+        if (identity.primaryColor && identity.accentColor) {
+          setThemeColors({ primary: identity.primaryColor, accent: identity.accentColor })
+        }
+      }}
+      onUploadLogo={async (file) => {
+        return URL.createObjectURL(file)
+      }}
       onSaveTheme={async (colors) => {
         restaurantStorage.setItem(themeKey, JSON.stringify(colors))
         setThemeColors(colors)
