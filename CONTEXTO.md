@@ -1,5 +1,44 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: N3B - Nightclub: Cierre Funcional Productivo Multi-tenant (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `e3eb18e` al iniciar este bloque).
+- **Objetivo Cumplido**: Conexión de las últimas funciones operacionales y comerciales de Nightclub en tenant productivo, con arquitectura normalizada multi-tenant (`nightclubCashMovements`, `nightclubInventory`, `nightclubMembers`, `nightclubCourtesies`, `nightclubCommissions`, `nightclubCommissionPayments`, `nightclubCustomerIncidents`), transacciones Firestore seguras en Cloud Functions, reglas Firestore y eliminación de mensajes "Función no conectada en producción" en elementos visibles.
+- **Detalles Técnicos Implementados**:
+  1. **Movimientos Manuales de Caja (`nightclubCashMovements`)**:
+     - Tipos `income` / `expense`, métodos `cash`, `qr`, `card`.
+     - Validaciones server-side: turno activo obligatorio, amount > 0 con centavos válidos, descripción obligatoria, sucursal y permisos estrictos (`cash.close` para cajero/admin/dueño).
+     - Impacto estricto en arqueo: únicamente movimientos con método `cash` afectan `expectedCash` en el cierre ciego del turno.
+  2. **Inventario Avanzado de Botellas y Operaciones Atómicas**:
+     - `saveBottleInventory`: registra insumo físico con capacidad en ml, botellas cerradas y crea automáticamente presentaciones vendibles en `nightclubProducts` (Botella / Medida-Pour en ml con comisiones configurables).
+     - `openBottle`: decrementa 1 botella cerrada e incrementa `openBottleMl` (+capacidad) de forma transaccional atómica, sin crear ni destruir volumen.
+     - `bottleExit`: registro auditable de mermas (`waste`), cortesías o consumo interno descontando mililitros de la botella abierta con control estricto de no exceder contenido abierto.
+     - `addRound`: soporte de recetas de presentaciones pour/shot que descuentan de stock canónico.
+  3. **Socios y Cupos de Cortesías (`nightclubMembers`, `nightclubCourtesies`)**:
+     - `saveMember`: registro de socios con nombre, cupo de botellas, ciclo (`repeatDays`, `windowDays`, `anchorAt`), teléfono y notas.
+     - `registerCourtesy`: valida turno abierto, estado activo del socio y vigencia del período cíclico. Consume transaccionalmente cupo disponible y stock de botella cerrada (-1), sin alterar caja ni saldo de cuentas. Permite vincular a mesa abierta generando ronda con autorización `courtesy`.
+     - `cancelCourtesy`: anula cortesía activa devolviendo stock de inventario cerrado (+1) y liberando el cupo del período.
+  4. **Comisiones de Meseros (`nightclubCommissions`, `nightclubCommissionPayments`)**:
+     - Snapshot inmutable de comisión al registrar la ronda (`status: 'pending'`).
+     - Al pagarse la cuenta en caja (`recordPayment`), las comisiones pendientes pasan automáticamente a `status: 'earned'`. Si la ronda se reembolsa o cancela, la comisión se invalida (`status: 'void'`).
+     - `payCommissions`: liquidación parcial o total de comisiones devengadas (`earned`) para meseros. Se genera documento en `nightclubCommissionPayments` y automáticamente un egreso en `nightclubCashMovements` (`type: 'expense'`, categoría `commissions`), descontando efectivamente de la caja física cuando el pago es en `cash`.
+  5. **Convivencia, Incidentes y Privacidad (`nightclubCustomerIncidents`)**:
+     - Cambio de estado de convivencia (`convivenciaStatus`: green/yellow/red) auditado server-side.
+     - Registro y eliminación de incidencias privadas (`saveCustomerIncident`, `deleteCustomerIncident`) estrictamente reservado a administración/owner por reglas Firestore y backend (`customers.manage`/owner/admin).
+     - Oculto el banner de demo en modo tenant (`mode === 'demo'`).
+  6. **Decisiones de Alcance Honestas y Seguras**:
+     - Custom Roles: diferidos formalmente post-release por requerir motor de permisos dinámico en el Core de PACHAX. Permanecen ocultos en tenant (`mode === 'demo'`).
+     - Cambio de producto pagado (`onExchangePaidProduct`): diferido formalmente post-release; UI oculta en tenant (`mode !== 'tenant'`).
+     - Asignación de cliente a mesa (`assignCustomer`): conectado en backend y frontend para asociar cliente a la cuenta abierta.
+     - Confirmación de relacionadores: CERO login, CERO usuarios Auth, CERO rol `promoter`.
+  7. **Suites de Pruebas Automatizadas**:
+     - `test:nightclub-orders-backend`: 7 tests completos (Test 1 VIP1, Test 2 negativos, Test 3 settle/refund, Test 4 N3A canónico, Test 5 N3A negativo, Test 6 N3B canónico, Test 7 N3B negativos).
+     - `test:nightclub`: 87/87 tests aprobados.
+     - `test:platform`: 99/99 tests aprobados.
+     - `test:tenant-core`: 59/59 comprobaciones aprobadas.
+     - `npm run typecheck` y `npm run build`: 0 errores.
+     - `git diff --check`: 0 errores de whitespace.
+
 ## Checkpoint: N3A - Nightclub: Reservas Reales, Relacionadores Comerciales, Jornadas y Lounges (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `a2b9b90` al iniciar este bloque).

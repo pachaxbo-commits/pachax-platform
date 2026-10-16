@@ -1,5 +1,10 @@
 const { HttpsError } = require('firebase-functions/v2/https')
-const { id } = require('./authorization.cjs')
+const id = value => {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(value)) {
+    throw new HttpsError('invalid-argument', 'Identificador inválido.')
+  }
+  return value
+}
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
 const cents = value => Math.round(value * 100)
 const fail = message => { throw new HttpsError('failed-precondition', message) }
@@ -27,6 +32,8 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
     const requirements = new Map()
     let total = 0
+    const sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null
+    const commissionCreations = []
     const items = drafts.map((draft, index) => {
       const product = products.get(draft.productId)
       if (!product || product.branchId !== branchId || product.active === false || !Number.isFinite(product.price) || product.price <= 0) fail('Producto sin precio positivo; registra una cortesía aparte.')
@@ -39,7 +46,29 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
       }
       const lineTotal = money(product.price * draft.quantity)
       total += lineTotal
-      return { id: `${operationId}_${index}`, productId: draft.productId, name: product.name, quantity: draft.quantity, unitPrice: product.price, lineTotal, preparationArea: product.preparationArea || 'Barra' }
+      let commissionSnapshot = null
+      if (sellerStaffId && product.commission?.enabled && Number(product.commission.value) > 0) {
+        commissionSnapshot = {
+          type: product.commission.type || 'percentage',
+          value: Number(product.commission.value),
+        }
+      }
+      const itemId = `${operationId}_${index}`
+      if (commissionSnapshot) {
+        const commAmount = money(commissionSnapshot.type === 'percentage' ? lineTotal * commissionSnapshot.value / 100 : commissionSnapshot.value * draft.quantity)
+        commissionCreations.push({
+          itemId,
+          productId: product.id,
+          productName: product.name,
+          staffId: sellerStaffId,
+          quantity: draft.quantity,
+          saleAmount: lineTotal,
+          type: commissionSnapshot.type,
+          value: commissionSnapshot.value,
+          amount: commAmount,
+        })
+      }
+      return { id: itemId, productId: draft.productId, name: product.name, quantity: draft.quantity, unitPrice: product.price, lineTotal, preparationArea: product.preparationArea || 'Barra', ...(commissionSnapshot ? { commissionSnapshot } : {}) }
     })
     total = money(total)
     const payment = payload.payment || {}
@@ -56,7 +85,31 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     stocks.forEach((snap, index) => { if (!snap.exists || snap.data().branchId !== branchId || !Number.isFinite(snap.data().current) || snap.data().current < requirements.get(inventoryIds[index])) fail('Stock insuficiente o insumo no configurado.') })
     const roundId = `round_${operationId}`, paymentId = `payment_${operationId}`
     const hasBar = items.some(item => item.preparationArea !== 'Directo')
-    tx.create(root.collection('nightclubRounds').doc(roundId), { id: roundId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null, sequence: (account.roundCount || 0) + 1, items, total, status: hasBar ? 'pending' : 'ready', authorization: 'payment', paymentId, createdAt: now, paidAt: now, sentAt: now, readyAt: hasBar ? null : now, createdBy: actor.uid, paidBy: actor.uid })
+    tx.create(root.collection('nightclubRounds').doc(roundId), { id: roundId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null, sequence: (account.roundCount || 0) + 1, items, total, status: hasBar ? 'pending' : 'ready', authorization: 'payment', paymentId, createdAt: now, paidAt: now, sentAt: now, readyAt: hasBar ? null : now, createdBy: actor.uid, paidBy: actor.uid, sellerStaffId })
+    for (const comm of commissionCreations) {
+      const commId = `commission:${roundId}:${comm.itemId}`
+      tx.create(root.collection('nightclubCommissions').doc(commId), {
+        id: commId,
+        tenantId: actor.tenantId,
+        branchId,
+        accountId,
+        roundId,
+        itemId: comm.itemId,
+        productId: comm.productId,
+        productName: comm.productName,
+        staffId: comm.staffId,
+        quantity: comm.quantity,
+        saleAmount: comm.saleAmount,
+        type: comm.type,
+        value: comm.value,
+        amount: comm.amount,
+        paidAmount: 0,
+        status: 'earned',
+        earnedAt: now,
+        shiftId: account.shiftId,
+        createdAt: now,
+      })
+    }
     tx.create(root.collection('nightclubPayments').doc(paymentId), { id: paymentId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, status: 'confirmed', method: payment.method, amount: total, cashAmount, qrAmount, cardAmount, received, change: money(received - cashAmount), createdAt: now, actorUid: actor.uid })
     stocks.forEach((snap, index) => {
       const inventoryId = inventoryIds[index], quantity = requirements.get(inventoryId), previous = snap.data().current
@@ -80,6 +133,11 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     const stockRefs = movements.docs.map(snap => root.collection('nightclubInventory').doc(id(snap.data().inventoryId)))
     const stocks = await Promise.all(stockRefs.map(ref => tx.get(ref)))
     stocks.forEach(snap => { if (!snap.exists) fail('Falta un insumo; requiere revisión manual.') })
+    const roundComms = await tx.get(
+      root.collection('nightclubCommissions')
+        .where('roundId', '==', roundId)
+        .where('branchId', '==', branchId)
+    )
     movements.docs.forEach((snap, index) => {
       const previous = stocks[index].data().current, quantity = -snap.data().quantity, current = money(previous + quantity)
       tx.update(stockRefs[index], { current, updatedAt: now })
@@ -87,6 +145,12 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     })
     tx.update(paymentRef, { status: 'refunded', refundedAt: now, refundedBy: actor.uid, refundReason: payload.reason.trim() })
     tx.update(roundRef, { status: 'cancelled', cancelledAt: now, cancelledBy: actor.uid, cancellationReason: payload.reason.trim() })
+    for (const cDoc of roundComms.docs) {
+      const c = cDoc.data()
+      if (c.status !== 'paid') {
+        tx.update(cDoc.ref, { status: 'void', voidedAt: now, voidReason: payload.reason.trim(), updatedAt: now })
+      }
+    }
     if (payment.data().cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`refund_${roundId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, type: 'refund', amount: -payment.data().cashAmount, actorUid: actor.uid, createdAt: now })
     tx.update(accountRef, { subtotal: money((account.subtotal || 0) - round.total), paidTotal: money((account.paidTotal || 0) - round.total), balance: 0, updatedAt: now })
     return { accountId, roundId, status: 'refunded', amount: round.total }

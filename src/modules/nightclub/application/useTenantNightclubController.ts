@@ -2,8 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   NightclubAccount,
   NightclubCashMovement,
+  NightclubCommission,
+  NightclubCommissionPayment,
+  NightclubCourtesy,
   NightclubCustomer,
+  NightclubCustomerIncident,
   NightclubDataset,
+  NightclubMember,
   NightclubShift,
   NightclubStaff,
 } from '../domain/nightclubAccounts'
@@ -57,6 +62,11 @@ export function useTenantNightclubController({
   const [promoterTicketSales, setPromoterTicketSales] = useState<NightclubTicketSale[]>([])
   const [promoterLoungeSales, setPromoterLoungeSales] = useState<NightclubLoungeSale[]>([])
   const [promoterConsumptions, setPromoterConsumptions] = useState<NightclubPromoterConsumption[]>([])
+  const [members, setMembers] = useState<NightclubMember[]>([])
+  const [courtesies, setCourtesies] = useState<NightclubCourtesy[]>([])
+  const [commissions, setCommissions] = useState<NightclubCommission[]>([])
+  const [commissionPayments, setCommissionPayments] = useState<NightclubCommissionPayment[]>([])
+  const [customerIncidents, setCustomerIncidents] = useState<NightclubCustomerIncident[]>([])
 
   // Subscriptions
   useEffect(() => {
@@ -70,6 +80,14 @@ export function useTenantNightclubController({
     const unsubSales = repository.subscribePromoterTicketSales ? repository.subscribePromoterTicketSales(setPromoterTicketSales) : () => {}
     const unsubLounges = repository.subscribePromoterLoungeSales ? repository.subscribePromoterLoungeSales(setPromoterLoungeSales) : () => {}
     const unsubConsumptions = repository.subscribePromoterConsumptions ? repository.subscribePromoterConsumptions(setPromoterConsumptions) : () => {}
+    const unsubMembers = repository.subscribeMembers ? repository.subscribeMembers(setMembers) : () => {}
+    const unsubCourtesies = repository.subscribeCourtesies ? repository.subscribeCourtesies(setCourtesies) : () => {}
+    const unsubCommissions = repository.subscribeCommissions ? repository.subscribeCommissions(setCommissions) : () => {}
+    const unsubCommissionPayments = repository.subscribeCommissionPayments ? repository.subscribeCommissionPayments(setCommissionPayments) : () => {}
+    const isAdmin = ['owner', 'admin'].includes(role)
+    const unsubIncidents = (isAdmin && repository.subscribeCustomerIncidents)
+      ? repository.subscribeCustomerIncidents(setCustomerIncidents)
+      : () => {}
 
     return () => {
       unsubFloor()
@@ -82,8 +100,13 @@ export function useTenantNightclubController({
       unsubSales()
       unsubLounges()
       unsubConsumptions()
+      unsubMembers()
+      unsubCourtesies()
+      unsubCommissions()
+      unsubCommissionPayments()
+      unsubIncidents()
     }
-  }, [repository])
+  }, [repository, role])
 
   // Shift-dependent cash movements
   useEffect(() => {
@@ -139,9 +162,11 @@ export function useTenantNightclubController({
     promoterTicketSales,
     promoterLoungeSales,
     promoterConsumptions,
-    members: [],
-    courtesies: [],
-    commissions: [],
+    members,
+    courtesies,
+    commissions,
+    commissionPayments,
+    customerIncidents,
     audit: [],
     branding: {
       businessName: companyName,
@@ -152,7 +177,7 @@ export function useTenantNightclubController({
       surfaceColor: '#0d1720',
       theme: 'dark',
     },
-  }), [floor, accounts, catalog, inventorySnap, customers, shift, cashMovements, staff, promoters, promoterEvents, promoterTicketSales, promoterLoungeSales, promoterConsumptions, companyName, logoUrl])
+  }), [floor, accounts, catalog, inventorySnap, customers, shift, cashMovements, staff, promoters, promoterEvents, promoterTicketSales, promoterLoungeSales, promoterConsumptions, members, courtesies, commissions, commissionPayments, customerIncidents, companyName, logoUrl])
 
   const actions = useMemo(() => createTenantNightclubActions({
     tenantId,

@@ -1,5 +1,6 @@
 import type {
   NightclubCustomer,
+  NightclubCustomerStatus,
   NightclubInventoryItem,
   NightclubInventoryMovementType,
   NightclubPaymentDraft,
@@ -62,6 +63,18 @@ export interface TenantNightclubActionsDeps {
     saveLoungeSale?: (payload: any) => Promise<any>
     markLoungePaid?: (payload: any) => Promise<any>
     savePromoterConsumption?: (payload: any) => Promise<any>
+    recordCashMovement?: (payload: any) => Promise<any>
+    saveBottleInventory?: (payload: any) => Promise<any>
+    openBottle?: (payload: any) => Promise<any>
+    bottleExit?: (payload: any) => Promise<any>
+    saveMember?: (payload: any) => Promise<any>
+    registerCourtesy?: (payload: any) => Promise<any>
+    cancelCourtesy?: (payload: any) => Promise<any>
+    payCommissions?: (payload: any) => Promise<any>
+    setCustomerStatus?: (payload: any) => Promise<any>
+    saveCustomerIncident?: (payload: any) => Promise<any>
+    deleteCustomerIncident?: (payload: any) => Promise<any>
+    assignCustomer?: (payload: any) => Promise<any>
   }
   gatewayFn: (name: 'tenantGateway' | 'platformGateway', payload: Record<string, unknown>) => Promise<any>
 }
@@ -250,8 +263,26 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       return true
     },
 
-    onCashMovement: async () => {
-      throw new Error('Función no conectada en producción.')
+    onCashMovement: async (draft: {
+      type: 'income' | 'expense'
+      method: 'cash' | 'qr' | 'card'
+      amount: number
+      description: string
+      category?: string
+      notes?: string
+    }): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.recordCashMovement) throw new Error('recordCashMovement no disponible en el repositorio.')
+      await repository.recordCashMovement({
+        operationId,
+        type: draft.type,
+        method: draft.method,
+        amount: draft.amount,
+        description: draft.description,
+        category: draft.category,
+        notes: draft.notes,
+      })
+      return true
     },
 
     onAdjustInventory: async (
@@ -271,17 +302,64 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       return true
     },
 
-    onOpenBottle: async () => {
-      throw new Error('Función no conectada en producción.')
+    onOpenBottle: async (inventoryId: string): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.openBottle) throw new Error('openBottle no disponible en el repositorio.')
+      await repository.openBottle({ operationId, inventoryId })
+      return true
     },
-    onOpenBottleExit: async () => {
-      throw new Error('Función no conectada en producción.')
+    onOpenBottleExit: async (inventoryId: string, millilitres: number, exitType: 'waste' | 'courtesy' | 'internal_consumption', reason: string): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.bottleExit) throw new Error('bottleExit no disponible en el repositorio.')
+      await repository.bottleExit({ operationId, inventoryId, millilitres, exitType, reason })
+      return true
     },
-    onSaveBottleInventory: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSaveBottleInventory: async (draft: any): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.saveBottleInventory) throw new Error('saveBottleInventory no disponible en el repositorio.')
+      await repository.saveBottleInventory({ operationId, draft })
+      return true
     },
-    onSaveSimpleInventoryProduct: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSaveSimpleInventoryProduct: async (draft: {
+      name: string
+      category: string
+      quantity: number
+      minimum?: number
+      unit: string
+      cost?: number
+      price?: number
+      presentation?: string
+      sell?: boolean
+    }): Promise<boolean> => {
+      const inventoryId = `inv_${crypto.randomUUID().slice(0, 8)}`
+      const operationId = crypto.randomUUID()
+      await repository.saveInventory({
+        operationId,
+        item: {
+          id: inventoryId,
+          name: draft.name,
+          category: draft.category,
+          current: draft.quantity,
+          minimum: draft.minimum || 0,
+          unit: draft.unit || 'unit',
+          cost: draft.cost || 0,
+        },
+      })
+      if (draft.sell && Number(draft.price) > 0) {
+        const prodOpId = crypto.randomUUID()
+        await repository.saveProduct({
+          operationId: prodOpId,
+          product: {
+            id: `prod_${crypto.randomUUID().slice(0, 8)}`,
+            name: `${draft.name} - ${draft.presentation || 'Unidad'}`,
+            category: draft.category,
+            price: Number(draft.price),
+            active: true,
+            recipe: [{ inventoryId, quantity: 1 }],
+          },
+        })
+      }
+      return true
     },
 
     onSaveInventory: async (item: NightclubInventoryItem): Promise<boolean> => {
@@ -303,17 +381,30 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       return true
     },
 
-    onSetCustomerStatus: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSetCustomerStatus: async (customerId: string, status: NightclubCustomerStatus): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.setCustomerStatus) throw new Error('setCustomerStatus no disponible en el repositorio.')
+      await repository.setCustomerStatus({ operationId, customerId, status })
+      await reloadCustomers()
+      return true
     },
-    onSaveCustomerIncident: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSaveCustomerIncident: async (incident: any): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.saveCustomerIncident) throw new Error('saveCustomerIncident no disponible en el repositorio.')
+      await repository.saveCustomerIncident({ operationId, incident })
+      return true
     },
-    onDeleteCustomerIncident: async () => {
-      throw new Error('Función no conectada en producción.')
+    onDeleteCustomerIncident: async (_customerId: string, incidentId: string): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.deleteCustomerIncident) throw new Error('deleteCustomerIncident no disponible en el repositorio.')
+      await repository.deleteCustomerIncident({ operationId, incidentId })
+      return true
     },
-    onAssignCustomer: async () => {
-      throw new Error('Función no conectada en producción.')
+    onAssignCustomer: async (accountId: string, customerId: string | null): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.assignCustomer) throw new Error('assignCustomer no disponible en el repositorio.')
+      await repository.assignCustomer({ operationId, accountId, customerId: customerId || null })
+      return true
     },
 
     // Tenant Staff Management (Connected directly via tenantGateway)
@@ -379,17 +470,29 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
     onDeleteCustomRole: async () => {
       throw new Error('Función no conectada en producción.')
     },
-    onPayCommissions: async () => {
-      throw new Error('Función no conectada en producción.')
+    onPayCommissions: async (draft: any): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.payCommissions) throw new Error('payCommissions no disponible en el repositorio.')
+      await repository.payCommissions({ operationId, draft })
+      return true
     },
-    onSaveMember: async () => {
-      throw new Error('Función no conectada en producción.')
+    onSaveMember: async (member: any): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.saveMember) throw new Error('saveMember no disponible en el repositorio.')
+      await repository.saveMember({ operationId, member })
+      return true
     },
-    onRegisterCourtesy: async () => {
-      throw new Error('Función no conectada en producción.')
+    onRegisterCourtesy: async (draft: any): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.registerCourtesy) throw new Error('registerCourtesy no disponible en el repositorio.')
+      await repository.registerCourtesy({ operationId, draft })
+      return true
     },
-    onCancelCourtesy: async () => {
-      throw new Error('Función no conectada en producción.')
+    onCancelCourtesy: async (courtesyId: string): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.cancelCourtesy) throw new Error('cancelCourtesy no disponible en el repositorio.')
+      await repository.cancelCourtesy({ operationId, courtesyId })
+      return true
     },
     onSavePromoterEvent: async (event: Pick<NightclubPromoterEvent, 'id' | 'name' | 'date' | 'status'>): Promise<boolean> => {
       const operationId = crypto.randomUUID()

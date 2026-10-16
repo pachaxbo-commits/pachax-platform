@@ -1,9 +1,17 @@
 import type {
   NightclubAccount,
   NightclubCashMovement,
+  NightclubCommission,
+  NightclubCommissionPayment,
+  NightclubCommissionPaymentDraft,
+  NightclubCourtesy,
+  NightclubCourtesyDraft,
   NightclubCustomer,
+  NightclubCustomerIncident,
+  NightclubCustomerStatus,
   NightclubInventoryItem,
   NightclubInventoryMovement,
+  NightclubMember,
   NightclubPaymentDraft,
   NightclubProduct,
   NightclubReservation,
@@ -85,6 +93,11 @@ export interface NightclubRepository {
   subscribePromoterTicketSales?(listener: (value: NightclubTicketSale[]) => void): Unsubscribe
   subscribePromoterLoungeSales?(listener: (value: NightclubLoungeSale[]) => void): Unsubscribe
   subscribePromoterConsumptions?(listener: (value: NightclubPromoterConsumption[]) => void): Unsubscribe
+  subscribeMembers?(listener: (value: NightclubMember[]) => void): Unsubscribe
+  subscribeCourtesies?(listener: (value: NightclubCourtesy[]) => void): Unsubscribe
+  subscribeCommissions?(listener: (value: NightclubCommission[]) => void): Unsubscribe
+  subscribeCommissionPayments?(listener: (value: NightclubCommissionPayment[]) => void): Unsubscribe
+  subscribeCustomerIncidents?(listener: (value: NightclubCustomerIncident[]) => void): Unsubscribe
   saveReservation?(input: { operationId: string; reservation: ReservationDraft }): Promise<{ reservationId: string }>
   cancelReservation?(input: { operationId: string; id: string }): Promise<void>
   arriveReservation?(input: { operationId: string; id: string }): Promise<{ reservationId: string; accountId: string }>
@@ -95,6 +108,18 @@ export interface NightclubRepository {
   saveLoungeSale?(input: { operationId: string; sale: NightclubLoungeSaleDraft }): Promise<{ saleId: string }>
   markLoungePaid?(input: { operationId: string; saleId: string }): Promise<void>
   savePromoterConsumption?(input: { operationId: string; consumption: NightclubConsumptionDraft }): Promise<{ consumptionId: string }>
+  recordCashMovement?(input: { operationId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; category?: string; notes?: string }): Promise<{ movementId: string }>
+  saveBottleInventory?(input: { operationId: string; draft: any }): Promise<any>
+  openBottle?(input: { operationId: string; inventoryId: string }): Promise<any>
+  bottleExit?(input: { operationId: string; inventoryId: string; millilitres: number; exitType: string; reason: string }): Promise<any>
+  saveMember?(input: { operationId: string; member: NightclubMember }): Promise<any>
+  registerCourtesy?(input: { operationId: string; draft: NightclubCourtesyDraft }): Promise<any>
+  cancelCourtesy?(input: { operationId: string; courtesyId: string }): Promise<any>
+  payCommissions?(input: { operationId: string; draft: NightclubCommissionPaymentDraft }): Promise<any>
+  setCustomerStatus?(input: { operationId: string; customerId: string; status: NightclubCustomerStatus }): Promise<any>
+  saveCustomerIncident?(input: { operationId: string; incident: any }): Promise<any>
+  deleteCustomerIncident?(input: { operationId: string; incidentId: string }): Promise<any>
+  assignCustomer?(input: { operationId: string; accountId: string; customerId: string | null }): Promise<any>
 }
 
 export const nightclubTenantPaths = (tenantId: string) => ({
@@ -119,4 +144,9 @@ export const nightclubTenantPaths = (tenantId: string) => ({
   promoterTicketSales: `tenants/${tenantId}/nightclubPromoterTicketSales`,
   promoterLoungeSales: `tenants/${tenantId}/nightclubPromoterLoungeSales`,
   promoterConsumptions: `tenants/${tenantId}/nightclubPromoterConsumptions`,
+  members: `tenants/${tenantId}/nightclubMembers`,
+  courtesies: `tenants/${tenantId}/nightclubCourtesies`,
+  commissions: `tenants/${tenantId}/nightclubCommissions`,
+  commissionPayments: `tenants/${tenantId}/nightclubCommissionPayments`,
+  customerIncidents: `tenants/${tenantId}/nightclubCustomerIncidents`,
 })

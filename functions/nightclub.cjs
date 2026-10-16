@@ -1,7 +1,14 @@
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
-const { tenantActor, hasPermission, id } = require('./authorization.cjs')
+const { tenantActor, hasPermission } = require('./authorization.cjs')
 const { applyPaidRoundCommand } = require('./nightclubPaidRounds.cjs')
+
+const id = value => {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(value)) {
+    throw new HttpsError('invalid-argument', 'Identificador inválido.')
+  }
+  return value
+}
 
 const permissions = {
   openShift: 'cash.close',
@@ -35,6 +42,18 @@ const permissions = {
   saveLoungeSale: 'sales.create',
   markLoungePaid: 'sales.create',
   savePromoterConsumption: 'settings.manage',
+  recordCashMovement: 'cash.close',
+  saveBottleInventory: 'inventory.manage',
+  openBottle: 'orders.manage',
+  bottleExit: 'orders.manage',
+  saveMember: 'customers.read',
+  registerCourtesy: 'orders.manage',
+  cancelCourtesy: 'orders.manage',
+  payCommissions: 'cash.close',
+  setCustomerStatus: 'customers.read',
+  saveCustomerIncident: 'customers.read',
+  deleteCustomerIncident: 'customers.read',
+  assignCustomer: 'orders.manage',
 }
 
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
@@ -42,6 +61,7 @@ const cents = value => Math.round(value * 100)
 const amount = value => {
   const number = Number(value)
   if (!Number.isFinite(number) || number < 0) throw new HttpsError('invalid-argument', 'Monto inválido.')
+  if (Math.abs(Math.round(number * 100) - number * 100) > 0.001) throw new HttpsError('invalid-argument', 'Centavos inválidos.')
   return money(number)
 }
 const text = (value, max = 200) => {
@@ -111,10 +131,37 @@ async function executeNightclubCommand(db, request) {
     if (['saveTicketSale', 'saveLoungeSale', 'markLoungePaid'].includes(type) && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
       throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden registrar ventas de relacionadores.')
     }
+    if (type === 'recordCashMovement' && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden registrar movimientos de caja.')
+    }
+    if (type === 'saveBottleInventory' && !['owner', 'admin', 'inventory'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden registrar botellas.')
+    }
+    if (['openBottle', 'bottleExit'].includes(type) && !['owner', 'admin', 'inventory', 'bar'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Barra o Inventario pueden gestionar botellas abiertas.')
+    }
+    if (type === 'saveMember' && !['owner', 'admin'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar socios.')
+    }
+    if (type === 'registerCourtesy' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para registrar cortesías.')
+    }
+    if (type === 'cancelCourtesy' && !['owner', 'admin'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede anular cortesías.')
+    }
+    if (type === 'payCommissions' && !['owner', 'admin'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede pagar comisiones.')
+    }
+    if (['setCustomerStatus', 'saveCustomerIncident', 'deleteCustomerIncident'].includes(type) && !['owner', 'admin'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar incidentes y estado de clientes.')
+    }
+    if (type === 'assignCustomer' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(member.data().roleId)) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para asignar clientes.')
+    }
 
-    const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now })
+    const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now, member })
     tx.create(operationRef, { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, requestHash, status: 'confirmed', createdAt: now, result })
-    tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.accountId || result.roundId || result.shiftId || result.movementId || result.zoneId || result.tableId || result.productId || result.customerId || result.reservationId || result.promoterId || result.eventId || result.saleId || result.consumptionId || null, createdAt: now })
+    tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.accountId || result.roundId || result.shiftId || result.movementId || result.zoneId || result.tableId || result.productId || result.customerId || result.reservationId || result.promoterId || result.eventId || result.saleId || result.consumptionId || result.inventoryId || result.memberId || result.courtesyId || result.paymentId || result.incidentId || null, createdAt: now })
     return result
   })
 }
@@ -729,6 +776,261 @@ async function applyCommand(context) {
     return { consumptionId, consumption: consData }
   }
 
+  // 2b. N3B Operaciones de clientes, socios e inventario de botellas
+  if (type === 'setCustomerStatus') {
+    const customerId = id(payload.customerId || payload.id)
+    const status = payload.status
+    if (!['green', 'yellow', 'red'].includes(status)) throw new HttpsError('invalid-argument', 'Estado de convivencia inválido.')
+    const custRef = root.collection('nightclubCustomers').doc(customerId)
+    const custSnap = await tx.get(custRef)
+    if (!custSnap.exists) throw new HttpsError('not-found', 'Cliente no encontrado.')
+    tx.update(custRef, { convivenciaStatus: status, updatedAt: now })
+    return { customerId, status }
+  }
+
+  if (type === 'saveCustomerIncident') {
+    const inc = payload.incident || payload
+    const incidentId = id(inc.id || `incident_${operationId}`)
+    const customerId = id(inc.customerId)
+    const custRef = root.collection('nightclubCustomers').doc(customerId)
+    const custSnap = await tx.get(custRef)
+    if (!custSnap.exists) throw new HttpsError('not-found', 'Cliente no encontrado.')
+    const date = text(inc.date, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpsError('invalid-argument', 'Fecha de incidente inválida.')
+    const severity = inc.severity
+    if (!['low', 'medium', 'high'].includes(severity)) throw new HttpsError('invalid-argument', 'Gravedad inválida.')
+    const description = text(inc.description, 1000)
+    const incRef = root.collection('nightclubCustomerIncidents').doc(incidentId)
+    const prevInc = await tx.get(incRef)
+    const incData = {
+      id: incidentId,
+      tenantId: actor.tenantId,
+      branchId,
+      customerId,
+      date,
+      severity,
+      description,
+      responsibleUid: actor.uid,
+      responsibleNameSnapshot: (context.member?.data()?.displayName) || actor.uid,
+      createdAt: prevInc.exists ? prevInc.data().createdAt : now,
+      updatedAt: now,
+    }
+    tx.set(incRef, incData, { merge: true })
+    return { incidentId, incident: incData }
+  }
+
+  if (type === 'deleteCustomerIncident') {
+    const incidentId = id(payload.incidentId || payload.id)
+    const incRef = root.collection('nightclubCustomerIncidents').doc(incidentId)
+    const incSnap = await tx.get(incRef)
+    if (!incSnap.exists || incSnap.data().branchId !== branchId) throw new HttpsError('not-found', 'Incidente no encontrado.')
+    tx.delete(incRef)
+    return { incidentId }
+  }
+
+  if (type === 'saveMember') {
+    const m = payload.member || payload
+    const memberId = id(m.id || `member_${operationId}`)
+    const name = text(m.name, 120)
+    const quota = Number(m.quota)
+    if (!Number.isInteger(quota) || quota < 0 || quota > 100000) throw new HttpsError('invalid-argument', 'Cupo de cortesías inválido.')
+    const active = m.active !== false
+    const policy = m.policy || {}
+    const anchorAt = policy.anchorAt ? text(policy.anchorAt, 40) : (m.anchorAt ? text(m.anchorAt, 40) : now)
+    const repeatDays = Number(policy.repeatDays ?? m.repeatDays ?? 7)
+    const windowDays = Number(policy.windowDays ?? m.windowDays ?? 7)
+    if (!Number.isInteger(repeatDays) || !Number.isInteger(windowDays) || repeatDays < 1 || windowDays < 1 || windowDays > repeatDays) {
+      throw new HttpsError('invalid-argument', 'Período de cortesías inválido.')
+    }
+    const memRef = root.collection('nightclubMembers').doc(memberId)
+    const prevSnap = await tx.get(memRef)
+    const phone = typeof m.phone === 'string' ? m.phone.trim() : null
+    const notes = typeof m.notes === 'string' ? m.notes.trim() : null
+    const memberData = {
+      id: memberId,
+      tenantId: actor.tenantId,
+      branchId,
+      name,
+      active,
+      quota,
+      phone: phone || null,
+      notes: notes || null,
+      policy: {
+        anchorAt,
+        repeatDays,
+        windowDays,
+      },
+      createdAt: prevSnap.exists ? prevSnap.data().createdAt : now,
+      updatedAt: now,
+    }
+    tx.set(memRef, memberData, { merge: true })
+    return { memberId, member: memberData }
+  }
+
+  if (type === 'saveBottleInventory') {
+    const draft = payload.draft || payload
+    const invId = id(draft.id || `inv_${operationId}`)
+    const name = text(draft.name, 120)
+    const category = text(draft.category || 'Licores', 50)
+    const closedBottles = Number(draft.closedBottles ?? draft.quantity ?? 0)
+    if (!Number.isFinite(closedBottles) || closedBottles < 0) throw new HttpsError('invalid-argument', 'Cantidad de botellas inválida.')
+    const minimum = Number(draft.minimum || 0)
+    const cost = Number(draft.cost ?? draft.unitCost ?? 0)
+    if (!Number.isFinite(cost) || cost < 0) throw new HttpsError('invalid-argument', 'Costo inválido.')
+    const capacityMl = Number(draft.capacityMl || draft.bottleCapacityMl || 750)
+    if (!Number.isFinite(capacityMl) || capacityMl <= 0) throw new HttpsError('invalid-argument', 'Contenido por botella inválido.')
+    const sellBottle = draft.sellBottle === true
+    const sellPour = draft.sellPour === true
+    if (sellBottle && (!Number.isFinite(Number(draft.bottlePrice)) || Number(draft.bottlePrice) <= 0)) {
+      throw new HttpsError('invalid-argument', 'Ingresa un precio para la botella.')
+    }
+    if (sellPour && (!Number.isFinite(Number(draft.pourPrice)) || Number(draft.pourPrice) <= 0)) {
+      throw new HttpsError('invalid-argument', 'Ingresa un precio para el vaso.')
+    }
+    const invRef = root.collection('nightclubInventory').doc(invId)
+    const prevSnap = await tx.get(invRef)
+    const openBottleMl = prevSnap.exists ? (prevSnap.data().openBottleMl || 0) : 0
+    let linkedProductIds = prevSnap.exists ? (prevSnap.data().linkedProductIds || []) : []
+
+    const itemData = {
+      id: invId,
+      tenantId: actor.tenantId,
+      branchId,
+      name,
+      category,
+      unit: 'unit',
+      current: closedBottles,
+      minimum,
+      unitCost: cost,
+      bottleCapacityMl: capacityMl,
+      openBottleMl,
+      linkedProductIds,
+      createdAt: prevSnap.exists ? prevSnap.data().createdAt : now,
+      updatedAt: now,
+    }
+
+    if (sellBottle) {
+      const bottleProdId = `presentation:${invId}:bottle`
+      const bottleProd = {
+        id: bottleProdId,
+        tenantId: actor.tenantId,
+        branchId,
+        name: `${name} - Botella`,
+        category,
+        price: Number(draft.bottlePrice),
+        preparationArea: 'Barra',
+        stockUnits: closedBottles,
+        inventoryMode: 'recipe',
+        recipe: [{ inventoryId: invId, quantity: 1, unit: 'unit' }],
+        active: true,
+        bottlePresentation: { inventoryId: invId, kind: 'bottle' },
+        ...(draft.bottleCommissionEnabled && Number(draft.bottleCommissionValue) > 0 ? {
+          commission: {
+            enabled: true,
+            type: draft.bottleCommissionType || 'percentage',
+            value: Number(draft.bottleCommissionValue),
+          }
+        } : {}),
+        updatedAt: now,
+      }
+      tx.set(root.collection('nightclubProducts').doc(bottleProdId), bottleProd, { merge: true })
+      if (!linkedProductIds.includes(bottleProdId)) linkedProductIds.push(bottleProdId)
+    }
+
+    if (sellPour) {
+      const pourProdId = `presentation:${invId}:pour`
+      const pourMl = Number(draft.pourMl || 50)
+      const pourProd = {
+        id: pourProdId,
+        tenantId: actor.tenantId,
+        branchId,
+        name: `${name} - ${category === 'Refrescos' ? 'Jarra' : 'Vaso'}`,
+        category,
+        price: Number(draft.pourPrice),
+        preparationArea: 'Barra',
+        stockUnits: 0,
+        inventoryMode: 'recipe',
+        recipe: [{ inventoryId: invId, quantity: pourMl, unit: 'ml' }],
+        active: true,
+        bottlePresentation: { inventoryId: invId, kind: 'pour', millilitres: pourMl },
+        updatedAt: now,
+      }
+      tx.set(root.collection('nightclubProducts').doc(pourProdId), pourProd, { merge: true })
+      if (!linkedProductIds.includes(pourProdId)) linkedProductIds.push(pourProdId)
+    }
+
+    itemData.linkedProductIds = linkedProductIds
+    tx.set(invRef, itemData, { merge: true })
+    return { inventoryId: invId, item: itemData }
+  }
+
+  if (type === 'openBottle') {
+    const inventoryId = id(payload.inventoryId || payload.id)
+    const invRef = root.collection('nightclubInventory').doc(inventoryId)
+    const snap = await tx.get(invRef)
+    if (!snap.exists || snap.data().branchId !== branchId) throw new HttpsError('not-found', 'Botella no encontrada.')
+    const stock = snap.data()
+    if (!stock.bottleCapacityMl || stock.current < 1) throw new HttpsError('failed-precondition', 'No hay botellas cerradas disponibles.')
+    if ((stock.openBottleMl || 0) > 0) throw new HttpsError('failed-precondition', 'Ya existe una botella abierta; registra primero su salida o consumo.')
+    const previous = stock.current
+    const current = money(previous - 1)
+    const openBottleMl = stock.bottleCapacityMl
+    tx.update(invRef, { current, openBottleMl, updatedAt: now })
+    const movementId = `bottle_open_${operationId}`
+    tx.create(root.collection('nightclubInventoryMovements').doc(movementId), {
+      id: movementId,
+      operationId,
+      tenantId: actor.tenantId,
+      branchId,
+      inventoryId,
+      quantity: -1,
+      previous,
+      current,
+      type: 'bottle_opened',
+      reason: 'Apertura manual de botella',
+      openBottleMlBefore: 0,
+      openBottleMlAfter: openBottleMl,
+      actorUid: actor.uid,
+      createdAt: now,
+    })
+    return { inventoryId, current, openBottleMl }
+  }
+
+  if (type === 'bottleExit') {
+    const inventoryId = id(payload.inventoryId || payload.id)
+    const ml = Number(payload.millilitres ?? payload.ml)
+    if (!Number.isFinite(ml) || ml <= 0) throw new HttpsError('invalid-argument', 'Mililitros inválidos.')
+    const exitType = payload.exitType || payload.type || 'waste'
+    if (!['waste', 'courtesy', 'internal_consumption'].includes(exitType)) throw new HttpsError('invalid-argument', 'Tipo de salida inválido.')
+    const reason = text(payload.reason || 'Salida registrada', 200)
+    const invRef = root.collection('nightclubInventory').doc(inventoryId)
+    const snap = await tx.get(invRef)
+    if (!snap.exists || snap.data().branchId !== branchId) throw new HttpsError('not-found', 'Botella no encontrada.')
+    const stock = snap.data()
+    if (!stock.bottleCapacityMl || (stock.openBottleMl || 0) < ml) throw new HttpsError('failed-precondition', 'No hay contenido abierto suficiente para registrar la salida.')
+    const before = stock.openBottleMl || 0
+    const openBottleMl = money(before - ml)
+    tx.update(invRef, { openBottleMl, updatedAt: now })
+    const movementId = `bottle_exit_${operationId}`
+    tx.create(root.collection('nightclubInventoryMovements').doc(movementId), {
+      id: movementId,
+      operationId,
+      tenantId: actor.tenantId,
+      branchId,
+      inventoryId,
+      quantity: -ml,
+      previous: stock.current,
+      current: stock.current,
+      type: exitType,
+      reason,
+      openBottleMlBefore: before,
+      openBottleMlAfter: openBottleMl,
+      actorUid: actor.uid,
+      createdAt: now,
+    })
+    return { inventoryId, openBottleMl }
+  }
+
   // 3. Operaciones que requieren turno activo
   const state = await tx.get(stateRef), activeShiftId = state.data()?.activeShiftId
   if (!activeShiftId) throw new HttpsError('failed-precondition', 'No hay turno activo.')
@@ -829,12 +1131,14 @@ async function applyCommand(context) {
     const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
     const requirements = new Map()
     let total = 0
+    const sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null
+    const commissionCreations = []
     const lines = drafts.map((draft, index) => {
       const product = products.get(draft.productId)
       if (!product || product.branchId !== branchId || product.active === false || !Number.isFinite(product.price) || product.price < 0) {
         throw new HttpsError('invalid-argument', 'Producto inválido o sin precio configurado.')
       }
-      const recipe = product.inventoryMode === 'none' ? [] : (product.recipe?.length ? product.recipe : (product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : (product.bottlePresentation?.inventoryId ? [{ inventoryId: product.bottlePresentation.inventoryId, quantity: 1 }] : [])))
+      const recipe = product.inventoryMode === 'none' ? [] : (product.recipe?.length ? product.recipe : (product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : (product.bottlePresentation?.inventoryId ? [{ inventoryId: product.bottlePresentation.inventoryId, quantity: product.bottlePresentation.kind === 'pour' ? (product.bottlePresentation.millilitres || 50) : 1, unit: product.bottlePresentation.kind === 'pour' ? 'ml' : 'unit' }] : [])))
       for (const part of recipe) {
         if (!Number.isFinite(part.quantity) || part.quantity <= 0) throw new HttpsError('invalid-argument', 'Receta inválida.')
         const inventoryId = id(part.inventoryId)
@@ -842,14 +1146,40 @@ async function applyCommand(context) {
       }
       const lineTotal = money(product.price * draft.quantity)
       total += lineTotal
+
+      let commissionSnapshot = null
+      if (sellerStaffId && product.commission?.enabled && Number(product.commission.value) > 0) {
+        commissionSnapshot = {
+          type: product.commission.type || 'percentage',
+          value: Number(product.commission.value),
+        }
+      }
+
+      const itemId = draft.id || `item_${index}`
+      if (commissionSnapshot) {
+        const commAmount = money(commissionSnapshot.type === 'percentage' ? lineTotal * commissionSnapshot.value / 100 : commissionSnapshot.value * draft.quantity)
+        commissionCreations.push({
+          itemId,
+          productId: product.id,
+          productName: product.name,
+          staffId: sellerStaffId,
+          quantity: draft.quantity,
+          saleAmount: lineTotal,
+          type: commissionSnapshot.type,
+          value: commissionSnapshot.value,
+          amount: commAmount,
+        })
+      }
+
       return {
-        id: `${operationId}_${index}`,
+        id: itemId,
         productId: draft.productId,
         name: product.name,
         quantity: draft.quantity,
         unitPrice: product.price,
         lineTotal,
         preparationArea: product.preparationArea || 'Barra',
+        ...(commissionSnapshot ? { commissionSnapshot } : {}),
       }
     })
     total = money(total)
@@ -857,8 +1187,21 @@ async function applyCommand(context) {
     const inventoryRefs = inventoryIds.map(inventoryId => root.collection('nightclubInventory').doc(inventoryId))
     const stocks = await Promise.all(inventoryRefs.map(ref => tx.get(ref)))
     stocks.forEach((snap, index) => {
-      if (!snap.exists || snap.data().branchId !== branchId || !Number.isFinite(snap.data().current) || snap.data().current < requirements.get(inventoryIds[index])) {
-        throw new HttpsError('aborted', `Stock insuficiente o insumo no configurado: ${snap.data()?.name || inventoryIds[index]}.`)
+      if (!snap.exists || snap.data().branchId !== branchId || !Number.isFinite(snap.data().current)) {
+        throw new HttpsError('aborted', `Insumo no configurado: ${snap.data()?.name || inventoryIds[index]}.`)
+      }
+      const stock = snap.data()
+      const reqQty = requirements.get(inventoryIds[index])
+      if (stock.bottleCapacityMl && (stock.openBottleMl !== undefined)) {
+        const openMl = stock.openBottleMl || 0
+        if (openMl < reqQty) {
+          const neededBottles = Math.ceil((reqQty - openMl) / stock.bottleCapacityMl)
+          if (stock.current < neededBottles) {
+            throw new HttpsError('aborted', `Stock insuficiente para ${stock.name}.`)
+          }
+        }
+      } else if (stock.current < reqQty) {
+        throw new HttpsError('aborted', `Stock insuficiente para ${stock.name || inventoryIds[index]}.`)
       }
     })
     const roundId = `round_${operationId}`
@@ -868,9 +1211,23 @@ async function applyCommand(context) {
     stocks.forEach((snap, index) => {
       const inventoryId = inventoryIds[index]
       const quantity = requirements.get(inventoryId)
-      const previous = snap.data().current
-      const current = money(previous - quantity)
-      tx.update(inventoryRefs[index], { current, updatedAt: now })
+      const stock = snap.data()
+      let current = stock.current
+      let openBottleMl = stock.openBottleMl
+      if (stock.bottleCapacityMl && openBottleMl !== undefined) {
+        if (openBottleMl >= quantity) {
+          openBottleMl = money(openBottleMl - quantity)
+        } else {
+          const neededBottles = Math.ceil((quantity - openBottleMl) / stock.bottleCapacityMl)
+          current = money(current - neededBottles)
+          openBottleMl = money(openBottleMl + neededBottles * stock.bottleCapacityMl - quantity)
+        }
+        tx.update(inventoryRefs[index], { current, openBottleMl, updatedAt: now })
+      } else {
+        const previous = stock.current
+        current = money(previous - quantity)
+        tx.update(inventoryRefs[index], { current, updatedAt: now })
+      }
       tx.create(root.collection('nightclubInventoryMovements').doc(`${operationId}_${inventoryId}`), {
         id: `${operationId}_${inventoryId}`,
         operationId,
@@ -881,7 +1238,7 @@ async function applyCommand(context) {
         roundId,
         inventoryId,
         quantity: -quantity,
-        previous,
+        previous: stock.current,
         current,
         type: 'sale',
         actorUid: actor.uid,
@@ -909,7 +1266,31 @@ async function applyCommand(context) {
       createdBy: actor.uid,
       customerId: payload.customerId || null,
       serviceStaffId: payload.serviceStaffId || null,
+      sellerStaffId,
     })
+    for (const comm of commissionCreations) {
+      const commId = `commission:${roundId}:${comm.itemId}`
+      tx.create(root.collection('nightclubCommissions').doc(commId), {
+        id: commId,
+        tenantId: actor.tenantId,
+        branchId,
+        accountId,
+        roundId,
+        itemId: comm.itemId,
+        productId: comm.productId,
+        productName: comm.productName,
+        staffId: comm.staffId,
+        quantity: comm.quantity,
+        saleAmount: comm.saleAmount,
+        type: comm.type,
+        value: comm.value,
+        amount: comm.amount,
+        paidAmount: 0,
+        status: 'pending',
+        shiftId: activeShiftId,
+        createdAt: now,
+      })
+    }
     tx.update(accountRef, {
       subtotal: money((account.subtotal || 0) + total),
       balance: money((account.balance || 0) + total),
@@ -1002,6 +1383,15 @@ async function applyCommand(context) {
     const received = amount(payload.received ?? cashAmount)
     if (received < cashAmount) throw new HttpsError('invalid-argument', 'Efectivo recibido insuficiente.')
     const remaining = money(balance - paid)
+    let pendingCommsDocs = []
+    if (remaining === 0) {
+      const commsSnap = await tx.get(
+        root.collection('nightclubCommissions')
+          .where('accountId', '==', accountId)
+          .where('branchId', '==', branchId)
+      )
+      pendingCommsDocs = commsSnap.docs.filter(d => d.data().status === 'pending')
+    }
     const paymentId = `payment_${operationId}`
     tx.create(root.collection('nightclubPayments').doc(paymentId), {
       id: paymentId,
@@ -1041,6 +1431,9 @@ async function applyCommand(context) {
       balance: remaining,
       updatedAt: now,
     })
+    for (const cDoc of pendingCommsDocs) {
+      tx.update(cDoc.ref, { status: 'earned', earnedAt: now, updatedAt: now })
+    }
     return { accountId, paymentId, amount: paid, balance: remaining }
   }
 
@@ -1088,6 +1481,11 @@ async function applyCommand(context) {
     }
     const refs = (round.data().consumption || []).map(row => root.collection('nightclubInventory').doc(row.inventoryId))
     const stocks = await Promise.all(refs.map(r => tx.get(r)))
+    const roundComms = await tx.get(
+      root.collection('nightclubCommissions')
+        .where('roundId', '==', roundId)
+        .where('branchId', '==', branchId)
+    )
     refs.forEach((stockRef, index) => {
       const consumed = round.data().consumption[index]
       const before = stocks[index].data().current
@@ -1120,6 +1518,12 @@ async function applyCommand(context) {
       balance: money(Math.max(0, (account.data().balance || 0) - total)),
       updatedAt: now,
     })
+    for (const cDoc of roundComms.docs) {
+      const c = cDoc.data()
+      if (c.status !== 'paid') {
+        tx.update(cDoc.ref, { status: 'void', voidedAt: now, voidReason: payload.reason || 'Ronda cancelada', updatedAt: now })
+      }
+    }
     return { roundId, status: 'cancelled' }
   }
 
@@ -1147,6 +1551,380 @@ async function applyCommand(context) {
       createdAt: now,
     })
     return { movementId, current }
+  }
+
+  // 3b. N3B Operaciones de caja, clientes, cortesías y comisiones vinculadas al turno
+  if (type === 'recordCashMovement') {
+    const mov = payload.movement || payload
+    const amt = amount(mov.amount)
+    if (amt <= 0) throw new HttpsError('invalid-argument', 'El monto debe ser mayor a cero.')
+    const movType = mov.type
+    if (!['income', 'expense'].includes(movType)) throw new HttpsError('invalid-argument', 'Tipo de movimiento inválido.')
+    const method = mov.method || 'cash'
+    if (!['cash', 'qr', 'card'].includes(method)) throw new HttpsError('invalid-argument', 'Método de pago inválido.')
+    const description = text(mov.description, 200)
+    const category = mov.category ? text(mov.category, 50) : null
+    const notes = mov.notes ? text(mov.notes, 200) : null
+    const movementId = id(mov.id || `cash_mov_${operationId}`)
+    const movRef = root.collection('nightclubCashMovements').doc(movementId)
+    const movData = {
+      id: movementId,
+      tenantId: actor.tenantId,
+      branchId,
+      shiftId: activeShiftId,
+      type: movType,
+      method,
+      amount: amt,
+      description,
+      ...(category ? { category } : {}),
+      ...(notes ? { notes } : {}),
+      actorUid: actor.uid,
+      operationId,
+      createdAt: now,
+    }
+    tx.create(movRef, movData)
+    return { movementId, movement: movData }
+  }
+
+  if (type === 'assignCustomer') {
+    const accountId = id(payload.accountId)
+    const accRef = root.collection('nightclubAccounts').doc(accountId)
+    const accSnap = await tx.get(accRef)
+    if (!accSnap.exists || accSnap.data().branchId !== branchId) throw new HttpsError('not-found', 'Cuenta no encontrada.')
+    if (accSnap.data().status === 'closed') throw new HttpsError('failed-precondition', 'La cuenta ya está cerrada.')
+    let customerId = null
+    let customerDisplayName = null
+    if (payload.customerId) {
+      customerId = id(payload.customerId)
+      const custSnap = await tx.get(root.collection('nightclubCustomers').doc(customerId))
+      if (!custSnap.exists) throw new HttpsError('not-found', 'Cliente no encontrado.')
+      customerDisplayName = custSnap.data().name
+    }
+    tx.update(accRef, { customerId, customerDisplayName, updatedAt: now })
+    return { accountId, customerId, customerDisplayName }
+  }
+
+  if (type === 'registerCourtesy') {
+    const draft = payload.draft || payload
+    const qty = Number(draft.quantity)
+    if (!Number.isInteger(qty) || qty <= 0) throw new HttpsError('invalid-argument', 'Cantidad de cortesía inválida.')
+    const memberId = id(draft.memberId)
+    const memRef = root.collection('nightclubMembers').doc(memberId)
+    const memSnap = await tx.get(memRef)
+    if (!memSnap.exists || memSnap.data().branchId !== branchId) throw new HttpsError('not-found', 'Socio no encontrado.')
+    const member = memSnap.data()
+    if (!member.active) throw new HttpsError('failed-precondition', 'El socio está inactivo.')
+
+    const DAY = 86400000
+    const anchor = Date.parse(member.policy?.anchorAt)
+    const time = Date.parse(now)
+    const repeatDays = Number(member.policy?.repeatDays)
+    const windowDays = Number(member.policy?.windowDays)
+    if (!Number.isFinite(anchor) || !Number.isFinite(time) || !Number.isInteger(repeatDays) || !Number.isInteger(windowDays) || repeatDays < 1 || windowDays < 1 || windowDays > repeatDays) {
+      throw new HttpsError('failed-precondition', 'Configura un período válido para el socio.')
+    }
+    const cycle = Math.floor((time - anchor) / (repeatDays * DAY))
+    const start = anchor + cycle * repeatDays * DAY
+    const end = start + windowDays * DAY
+    const periodActive = cycle >= 0 && time >= start && time < end
+    const periodStart = new Date(start).toISOString()
+    const periodEnd = new Date(end).toISOString()
+    if (!periodActive) throw new HttpsError('failed-precondition', 'El período de cortesías del socio no está activo.')
+
+    const courtesiesSnap = await tx.get(
+      root.collection('nightclubCourtesies')
+        .where('memberId', '==', memberId)
+        .where('branchId', '==', branchId)
+        .where('status', '==', 'active')
+        .where('periodStart', '==', periodStart)
+    )
+    const used = courtesiesSnap.docs.reduce((sum, d) => sum + (Number(d.data().quantity) || 0), 0)
+    const available = Math.max(0, member.quota - used)
+    if (qty > available) throw new HttpsError('failed-precondition', `Cupo de cortesías superado. ${member.name} tiene ${available} botella(s) disponible(s).`)
+
+    const productId = id(draft.productId)
+    const prodRef = root.collection('nightclubProducts').doc(productId)
+    const prodSnap = await tx.get(prodRef)
+    if (!prodSnap.exists || prodSnap.data().active === false) throw new HttpsError('not-found', 'Producto no encontrado o inactivo.')
+    const product = prodSnap.data()
+    if (!product.recipe?.length || (product.category !== 'Botellas' && product.bottlePresentation?.kind !== 'bottle')) throw new HttpsError('failed-precondition', 'Selecciona una botella activa con receta de inventario.')
+
+    const inventoryUpdates = []
+    for (const line of product.recipe) {
+      const invId = id(line.inventoryId)
+      const needed = Number(line.quantity) * qty
+      const invRef = root.collection('nightclubInventory').doc(invId)
+      const invSnap = await tx.get(invRef)
+      if (!invSnap.exists || invSnap.data().branchId !== branchId) throw new HttpsError('failed-precondition', `Insumo no encontrado: ${invId}`)
+      const stock = invSnap.data()
+      if (stock.current < needed) throw new HttpsError('failed-precondition', `Stock insuficiente para ${stock.name || invId}.`)
+      inventoryUpdates.push({ invRef, stock, needed, invId })
+    }
+
+    const courtesyId = id(draft.id || `courtesy_${operationId}`)
+    let cost = 0
+    let hasCost = true
+    for (const update of inventoryUpdates) {
+      const prevStock = update.stock.current
+      const current = money(prevStock - update.needed)
+      tx.update(update.invRef, { current, updatedAt: now })
+      tx.create(root.collection('nightclubInventoryMovements').doc(`${operationId}_${update.invId}`), {
+        id: `${operationId}_${update.invId}`,
+        operationId,
+        tenantId: actor.tenantId,
+        branchId,
+        shiftId: activeShiftId,
+        courtesyId,
+        memberId: member.id,
+        inventoryId: update.invId,
+        quantity: -update.needed,
+        previous: prevStock,
+        current,
+        type: 'member_courtesy',
+        actorUid: actor.uid,
+        createdAt: now,
+      })
+      if (update.stock.unitCost === undefined) hasCost = false
+      else cost += update.needed * update.stock.unitCost
+    }
+
+    let roundId = null
+    let account = null
+    if (draft.accountId) {
+      const accRef = root.collection('nightclubAccounts').doc(id(draft.accountId))
+      const accSnap = await tx.get(accRef)
+      if (!accSnap.exists || accSnap.data().branchId !== branchId || accSnap.data().status !== 'open') {
+        throw new HttpsError('failed-precondition', 'La cuenta de la mesa no acepta cortesías.')
+      }
+      account = accSnap.data()
+      roundId = `round_${operationId}`
+      const roundSeq = (account.roundCount || 0) + 1
+      const isDirect = product.preparationArea === 'Directo'
+      const status = isDirect ? 'ready' : 'pending'
+      const roundItems = [{
+        id: `${operationId}_0`,
+        productId: product.id,
+        name: product.name,
+        category: product.category,
+        quantity: qty,
+        unitPrice: 0,
+        lineTotal: 0,
+        commercialValue: money(product.price * qty),
+        kind: 'courtesy',
+        preparationArea: product.preparationArea || 'Barra',
+        courtesyId,
+        memberName: member.name,
+      }]
+      tx.create(root.collection('nightclubRounds').doc(roundId), {
+        id: roundId,
+        operationId,
+        tenantId: actor.tenantId,
+        branchId,
+        shiftId: activeShiftId,
+        accountId: account.id,
+        tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null,
+        sequence: roundSeq,
+        items: roundItems,
+        total: 0,
+        status,
+        authorization: 'courtesy',
+        courtesyId,
+        createdAt: now,
+        sentAt: now,
+        readyAt: isDirect ? now : null,
+        createdBy: actor.uid,
+      })
+      tx.update(accRef, {
+        roundCount: roundSeq,
+        updatedAt: now,
+      })
+    }
+
+    const courtesyData = {
+      id: courtesyId,
+      tenantId: actor.tenantId,
+      branchId,
+      memberId: member.id,
+      productId: product.id,
+      productName: product.name,
+      quantity: qty,
+      ...(draft.beneficiary ? { beneficiary: text(draft.beneficiary, 100) } : {}),
+      ...(draft.note ? { note: text(draft.note, 200) } : {}),
+      ...(account ? { accountId: account.id, tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null, roundId } : {}),
+      actor: (context.member?.data()?.displayName) || actor.uid,
+      actorUid: actor.uid,
+      at: now,
+      periodStart,
+      periodEnd,
+      status: 'active',
+      cost: hasCost ? money(cost) : null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    tx.create(root.collection('nightclubCourtesies').doc(courtesyId), courtesyData)
+    return { courtesyId, courtesy: courtesyData, used: used + qty, available: available - qty }
+  }
+
+  if (type === 'cancelCourtesy') {
+    const courtesyId = id(payload.courtesyId || payload.id)
+    const cRef = root.collection('nightclubCourtesies').doc(courtesyId)
+    const cSnap = await tx.get(cRef)
+    if (!cSnap.exists || cSnap.data().branchId !== branchId) throw new HttpsError('not-found', 'Cortesía no encontrada.')
+    const courtesy = cSnap.data()
+    if (courtesy.status !== 'active') throw new HttpsError('failed-precondition', 'Esta cortesía ya está anulada.')
+
+    if (courtesy.accountId) {
+      const accRef = root.collection('nightclubAccounts').doc(courtesy.accountId)
+      const accSnap = await tx.get(accRef)
+      if (accSnap.exists && accSnap.data().status === 'closed') {
+        throw new HttpsError('failed-precondition', 'Una cortesía ya entregada o de una mesa cerrada requiere revisión física antes de anularse.')
+      }
+      if (courtesy.roundId) {
+        const roundRef = root.collection('nightclubRounds').doc(courtesy.roundId)
+        const roundSnap = await tx.get(roundRef)
+        if (roundSnap.exists) {
+          if (roundSnap.data().status === 'delivered') {
+            throw new HttpsError('failed-precondition', 'Una cortesía ya entregada o de una mesa cerrada requiere revisión física antes de anularse.')
+          }
+        }
+      }
+    }
+
+    const movsSnap = await tx.get(
+      root.collection('nightclubInventoryMovements')
+        .where('courtesyId', '==', courtesyId)
+        .where('type', '==', 'member_courtesy')
+    )
+    const inventoryUpdates = []
+    if (!movsSnap.empty) {
+      for (const mDoc of movsSnap.docs) {
+        const m = mDoc.data()
+        const invRef = root.collection('nightclubInventory').doc(m.inventoryId)
+        const invSnap = await tx.get(invRef)
+        if (invSnap.exists) {
+          const before = invSnap.data().current
+          const current = money(before + Math.abs(m.quantity))
+          inventoryUpdates.push({ invRef, m, before, current })
+        }
+      }
+    }
+
+    if (courtesy.roundId) {
+      const roundRef = root.collection('nightclubRounds').doc(courtesy.roundId)
+      tx.update(roundRef, { status: 'cancelled', cancelledAt: now, cancelledBy: actor.uid, cancellationReason: 'Anulación de cortesía', updatedAt: now })
+    }
+    for (const item of inventoryUpdates) {
+      tx.update(item.invRef, { current: item.current, updatedAt: now })
+      tx.create(root.collection('nightclubInventoryMovements').doc(`reversal_${operationId}_${item.m.inventoryId}`), {
+        id: `reversal_${operationId}_${item.m.inventoryId}`,
+        operationId,
+        tenantId: actor.tenantId,
+        branchId,
+        shiftId: activeShiftId,
+        courtesyId,
+        memberId: courtesy.memberId,
+        inventoryId: item.m.inventoryId,
+        quantity: Math.abs(item.m.quantity),
+        previous: item.before,
+        current: item.current,
+        type: 'courtesy_reversal',
+        actorUid: actor.uid,
+        createdAt: now,
+      })
+    }
+
+    tx.update(cRef, {
+      status: 'cancelled',
+      cancelledAt: now,
+      cancelledBy: actor.uid,
+      cancellationReason: text(payload.reason || 'Anulación autorizada', 120),
+      updatedAt: now,
+    })
+    return { courtesyId, status: 'cancelled' }
+  }
+
+  if (type === 'payCommissions') {
+    const draft = payload.draft || payload
+    const paymentId = id(draft.id || draft.operationId || `compay_${operationId}`)
+    const staffId = id(draft.staffId)
+    const payAmt = amount(draft.amount)
+    if (payAmt <= 0) throw new HttpsError('invalid-argument', 'Monto de comisión inválido.')
+    const method = draft.method || 'cash'
+    if (!['cash', 'qr', 'card', 'other'].includes(method)) throw new HttpsError('invalid-argument', 'Método de pago inválido.')
+
+    const staffSnap = await tx.get(root.collection('members').doc(staffId))
+    if (!staffSnap.exists || staffSnap.data().roleId !== 'waiter') {
+      throw new HttpsError('failed-precondition', 'Selecciona un mesero registrado.')
+    }
+
+    const commQuery = await tx.get(
+      root.collection('nightclubCommissions')
+        .where('staffId', '==', staffId)
+        .where('branchId', '==', branchId)
+    )
+    const candidates = commQuery.docs
+      .map(d => d.data())
+      .filter(c => ['earned', 'paid'].includes(c.status) && (c.paidAmount || 0) < c.amount && (!draft.commissionIds?.length || draft.commissionIds.includes(c.id)))
+      .sort((a, b) => (a.earnedAt || a.createdAt).localeCompare(b.earnedAt || b.createdAt))
+
+    const totalPending = money(candidates.reduce((sum, c) => sum + (c.amount - (c.paidAmount || 0)), 0))
+    if (payAmt > totalPending + 0.001) {
+      throw new HttpsError('failed-precondition', 'El pago supera el saldo pendiente de comisiones.')
+    }
+
+    let remaining = payAmt
+    const settled = []
+    for (const c of candidates) {
+      if (remaining <= 0) break
+      const due = money(c.amount - (c.paidAmount || 0))
+      const applied = Math.min(remaining, due)
+      const nextPaid = money((c.paidAmount || 0) + applied)
+      const nextStatus = nextPaid >= c.amount ? 'paid' : 'earned'
+      const paymentIds = [...(c.paymentIds || []), paymentId]
+      tx.update(root.collection('nightclubCommissions').doc(c.id), {
+        paidAmount: nextPaid,
+        status: nextStatus,
+        paymentIds,
+        updatedAt: now,
+      })
+      remaining = money(remaining - applied)
+      settled.push(c.id)
+    }
+
+    const payData = {
+      id: paymentId,
+      tenantId: actor.tenantId,
+      branchId,
+      staffId,
+      amount: payAmt,
+      method,
+      shiftId: activeShiftId,
+      notes: draft.note ? text(draft.note, 200) : null,
+      commissionIds: settled,
+      actorUid: actor.uid,
+      createdAt: now,
+    }
+    tx.create(root.collection('nightclubCommissionPayments').doc(paymentId), payData)
+
+    if (method !== 'other') {
+      const movId = `comm_${paymentId}`
+      tx.create(root.collection('nightclubCashMovements').doc(movId), {
+        id: movId,
+        tenantId: actor.tenantId,
+        branchId,
+        shiftId: activeShiftId,
+        type: 'expense',
+        method,
+        amount: payAmt,
+        description: 'Pago de comisiones de personal',
+        category: 'commissions',
+        actorUid: actor.uid,
+        commissionPaymentId: paymentId,
+        createdAt: now,
+      })
+    }
+
+    return { paymentId, payment: payData, settledCount: settled.length }
   }
 
   // Cierre de Turno Ciego

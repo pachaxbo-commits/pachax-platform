@@ -610,6 +610,359 @@ try {
     countedCash: 500, // exact 500 opening float, as no ticket/lounge/consumption touched cash
   })
   console.log('PASS: Suite negativa N3A y control de permisos aprobados con éxito.')
+
+  console.log('=== TEST 6: CIERRE FUNCIONAL N3B (FLUJO CANÓNICO) ===')
+  // 1. Abrir Turno 4 con Bs 300
+  const shift4Op = await call('cashier', 'openShift', 'shift-op-4', { openingFloat: 300 })
+  const shift4Id = shift4Op.shiftId
+  assert.ok(shift4Id)
+
+  // 2. Movimientos de caja: ingreso (+150), egreso (-50 hielo), ingreso QR (+200 no afecta cash físico)
+  await call('cashier', 'recordCashMovement', 'mov-income-1', {
+    type: 'income',
+    method: 'cash',
+    amount: 150,
+    description: 'Ingreso inicial extra'
+  })
+  await call('cashier', 'recordCashMovement', 'mov-expense-1', {
+    type: 'expense',
+    method: 'cash',
+    amount: 50,
+    description: 'Compra de hielo',
+    category: 'supplies'
+  })
+  await call('cashier', 'recordCashMovement', 'mov-qr-1', {
+    type: 'income',
+    method: 'qr',
+    amount: 200,
+    description: 'Ingreso QR que no altera efectivo físico'
+  })
+
+  // 3. Registrar botella física: 10 botellas cerradas de 750 ml, costo 180, precio botella 350, vaso 35 (comisión mesero Bs 5 por botella)
+  await call('admin', 'saveBottleInventory', 'bottle-jw-op', {
+    draft: {
+      id: 'inv-whisky',
+      name: 'Johnnie Walker Black',
+      category: 'Licores',
+      closedBottles: 10,
+      minimum: 2,
+      capacityMl: 750,
+      capacityUnit: 'ml',
+      cost: 180,
+      sellBottle: true,
+      bottlePrice: 350,
+      sellPour: true,
+      pourMl: 50,
+      pourPrice: 35,
+      bottleCommissionEnabled: true,
+      bottleCommissionType: 'fixed',
+      bottleCommissionValue: 5,
+    }
+  })
+  const whiskyInv = await data('nightclubInventory/inv-whisky')
+  assert.equal(whiskyInv.current, 10)
+  assert.equal(whiskyInv.openBottleMl, 0)
+  assert.equal(whiskyInv.bottleCapacityMl, 750)
+  const whiskyBottleProd = await data('nightclubProducts/presentation:inv-whisky:bottle')
+  assert.equal(whiskyBottleProd.price, 350)
+  assert.equal(whiskyBottleProd.commission.value, 5)
+
+  // 4. Abrir 1 botella: cerradas 10 -> 9, openBottleMl: 750
+  await call('bar', 'openBottle', 'open-jw-1', { inventoryId: 'inv-whisky' })
+  const openedWhisky = await data('nightclubInventory/inv-whisky')
+  assert.equal(openedWhisky.current, 9)
+  assert.equal(openedWhisky.openBottleMl, 750)
+
+  // 5. Salida de botella abierta (100 ml por merma): openBottleMl pasa a 650
+  await call('bar', 'bottleExit', 'exit-jw-1', {
+    inventoryId: 'inv-whisky',
+    millilitres: 100,
+    exitType: 'waste',
+    reason: 'Derrame en barra'
+  })
+  const exitWhisky = await data('nightclubInventory/inv-whisky')
+  assert.equal(exitWhisky.openBottleMl, 650)
+
+  // 6. Crear socio con cupo 2 botellas/semana
+  await call('admin', 'saveMember', 'member-juan-op', {
+    member: {
+      id: 'member-juan',
+      name: 'Juan Socio VIP',
+      phone: '70011223',
+      quota: 2,
+      repeatDays: 7,
+      windowDays: 7,
+      active: true,
+    }
+  })
+  const memberJuan = await data('nightclubMembers/member-juan')
+  assert.equal(memberJuan.name, 'Juan Socio VIP')
+  assert.equal(memberJuan.quota, 2)
+
+  // 7. Registrar cortesía de 1 botella para el socio: stock cerrado de 9 a 8, caja no se altera
+  await call('admin', 'registerCourtesy', 'courtesy-juan-1', {
+    draft: {
+      memberId: 'member-juan',
+      productId: 'presentation:inv-whisky:bottle',
+      quantity: 1,
+      beneficiary: 'Juan Socio VIP',
+      note: 'Cortesía de apertura',
+    }
+  })
+  const courtesyDoc = await data('nightclubCourtesies/courtesy_courtesy-juan-1')
+  assert.equal(courtesyDoc.status, 'active')
+  assert.equal(courtesyDoc.quantity, 1)
+  const invAfterCourtesy = await data('nightclubInventory/inv-whisky')
+  assert.equal(invAfterCourtesy.current, 8)
+
+  // 8. Anular cortesía: stock cerrado regresa de 8 a 9
+  await call('admin', 'cancelCourtesy', 'cancel-courtesy-juan-1', {
+    courtesyId: 'courtesy_courtesy-juan-1'
+  })
+  const cancelledCourtesy = await data('nightclubCourtesies/courtesy_courtesy-juan-1')
+  assert.equal(cancelledCourtesy.status, 'cancelled')
+  const invAfterCancel = await data('nightclubInventory/inv-whisky')
+  assert.equal(invAfterCancel.current, 9)
+
+  // 9. Asignar cliente a mesa abierta y vender botella con comisión a mesero
+  await root.collection('nightclubTables').doc('VIP3').set({ id: 'VIP3', branchId: 'main', name: 'Mesa VIP3', status: 'available' })
+  const openVip3 = await call('waiter', 'openAccount', 'acc-vip3-op', { target: { type: 'table', tableId: 'VIP3' } })
+  const accVip3Id = openVip3.accountId
+
+  await root.collection('nightclubCustomers').doc('cust-carlos').set({
+    id: 'cust-carlos',
+    branchId: 'main',
+    name: 'Carlos Cliente',
+    phone: '78899000',
+    active: true
+  })
+  await call('waiter', 'assignCustomer', 'assign-carlos-vip3', { accountId: accVip3Id, customerId: 'cust-carlos' })
+  const vip3AccDoc = await data(`nightclubAccounts/${accVip3Id}`)
+  assert.equal(vip3AccDoc.customerId, 'cust-carlos')
+
+  const roundVip3 = await call('waiter', 'addRound', 'round-vip3-op', {
+    accountId: accVip3Id,
+    items: [{ productId: 'presentation:inv-whisky:bottle', quantity: 1 }],
+    serviceStaffId: 'waiter'
+  })
+  const commKey = `commission:${roundVip3.roundId}:item_0`
+  const commPending = await data(`nightclubCommissions/${commKey}`)
+  assert.equal(commPending.status, 'pending')
+  assert.equal(commPending.amount, 5)
+  assert.equal(commPending.staffId, 'waiter')
+
+  // Pagar cuenta: comisión pasa de pending a earned
+  await call('waiter', 'requestBill', 'bill-vip3-op', { accountId: accVip3Id })
+  await call('cashier', 'recordPayment', 'pay-vip3-op', { accountId: accVip3Id, amount: 350, method: 'cash' })
+  const commEarned = await data(`nightclubCommissions/${commKey}`)
+  assert.equal(commEarned.status, 'earned')
+
+  await call('bar', 'advanceRound', 'prep-vip3-op', { accountId: accVip3Id, roundId: roundVip3.roundId })
+  await call('bar', 'advanceRound', 'ready-vip3-op', { accountId: accVip3Id, roundId: roundVip3.roundId })
+  await call('waiter', 'deliverRound', 'del-vip3-op', { accountId: accVip3Id, roundId: roundVip3.roundId })
+  await call('waiter', 'finishOccupancy', 'finish-vip3-op', { accountId: accVip3Id })
+
+  // 10. Pago de comisiones en efectivo: se descuenta de caja (-5) y comisión pasa a 'paid'
+  const payCommRes = await call('admin', 'payCommissions', 'pay-comm-waiter-1', {
+    draft: {
+      staffId: 'waiter',
+      amount: 5,
+      method: 'cash',
+      commissionIds: [commKey]
+    }
+  })
+  const commPaid = await data(`nightclubCommissions/${commKey}`)
+  assert.equal(commPaid.status, 'paid')
+  const commPaymentDoc = await data(`nightclubCommissionPayments/${payCommRes.paymentId}`)
+  assert.equal(commPaymentDoc.amount, 5)
+  assert.equal(commPaymentDoc.method, 'cash')
+  const commCashMov = await data(`nightclubCashMovements/comm_${payCommRes.paymentId}`)
+  assert.equal(commCashMov.type, 'expense')
+  assert.equal(commCashMov.amount, 5)
+  assert.equal(commCashMov.category, 'commissions')
+
+  // 11. Actualizar estado de convivencia de cliente a 'yellow' y registrar incidente privado
+  await call('admin', 'setCustomerStatus', 'status-cust-op', { customerId: 'cust-carlos', status: 'yellow' })
+  const updatedCust = await data('nightclubCustomers/cust-carlos')
+  assert.equal(updatedCust.convivenciaStatus, 'yellow')
+
+  const incOp = await call('admin', 'saveCustomerIncident', 'inc-carlos-op', {
+    incident: {
+      customerId: 'cust-carlos',
+      date: '2026-10-16',
+      severity: 'medium',
+      description: 'Discusión en el lounge'
+    }
+  })
+  const incDoc = await data(`nightclubCustomerIncidents/${incOp.incidentId}`)
+  assert.equal(incDoc.severity, 'medium')
+  assert.equal(incDoc.customerId, 'cust-carlos')
+
+  // 12. Cerrar turno 4 y verificar expectedCash:
+  // float (300) + income (150) - expense (50) + venta mesa VIP3 (350) - pago comisiones (5) = 745
+  await call('cashier', 'closeShift', 'close-shift4-op', { shiftId: shift4Id, countedCash: 745 })
+  const closedShift4 = await data(`nightclubShifts/${shift4Id}`)
+  assert.equal(closedShift4.expectedCash, 745)
+  assert.equal(closedShift4.status, 'closed')
+  console.log('PASS: Test 6 (Flujo canónico N3B) completado exitosamente.')
+
+  console.log('=== TEST 7: SUITE NEGATIVA N3B Y CONTROL DE INTEGRIDAD ===')
+  // 1. Movimiento de caja con turno cerrado
+  await assert.rejects(
+    () => call('cashier', 'recordCashMovement', 'neg-cash-closed-shift', {
+      type: 'income',
+      method: 'cash',
+      amount: 100,
+      description: 'Sin turno'
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('turno')
+  )
+
+  // Abrir turno para pruebas negativas de caja y stock
+  const shift5Op = await call('cashier', 'openShift', 'shift-op-5', { openingFloat: 100 })
+  const shift5Id = shift5Op.shiftId
+
+  // 2. Movimiento de caja con amount <= 0 o centavos inválidos
+  await assert.rejects(
+    () => call('cashier', 'recordCashMovement', 'neg-cash-negative', {
+      type: 'expense',
+      method: 'cash',
+      amount: -10,
+      description: 'Inválido'
+    }),
+    err => err.code === 'invalid-argument'
+  )
+  await assert.rejects(
+    () => call('cashier', 'recordCashMovement', 'neg-cash-fraction', {
+      type: 'expense',
+      method: 'cash',
+      amount: 10.005,
+      description: 'Fracciones inválidas'
+    }),
+    err => err.code === 'invalid-argument'
+  )
+
+  // 3. Abrir botella sin stock cerrado
+  await root.collection('nightclubInventory').doc('inv-empty-bottle').set({
+    id: 'inv-empty-bottle',
+    branchId: 'main',
+    name: 'Botella Vacía',
+    current: 0,
+    openBottleMl: 0,
+    bottleCapacityMl: 750
+  })
+  await assert.rejects(
+    () => call('bar', 'openBottle', 'neg-open-no-stock', { inventoryId: 'inv-empty-bottle' }),
+    err => err.code === 'failed-precondition' && err.message.includes('botellas cerradas')
+  )
+
+  // 4. Salida de botella abierta con ml > disponibles (tenemos 650 ml de whisky)
+  await assert.rejects(
+    () => call('bar', 'bottleExit', 'neg-exit-exceed', {
+      inventoryId: 'inv-whisky',
+      millilitres: 700,
+      exitType: 'waste',
+      reason: 'Excede'
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('suficiente')
+  )
+
+  // 5. Socio inactivo no puede recibir cortesía
+  await call('admin', 'saveMember', 'member-inactive-op', {
+    member: {
+      id: 'member-inactive',
+      name: 'Socio Inactivo',
+      phone: '77777777',
+      quota: 2,
+      repeatDays: 7,
+      windowDays: 7,
+      active: false,
+    }
+  })
+  await assert.rejects(
+    () => call('admin', 'registerCourtesy', 'neg-inactive-member-courtesy', {
+      draft: {
+        memberId: 'member-inactive',
+        productId: 'presentation:inv-whisky:bottle',
+        quantity: 1
+      }
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('inactivo')
+  )
+
+  // 6. Cortesía que supera cupo de período
+  // El socio Juan ya tiene quota = 2 botellas/semana. Registramos 2 cortesías válidas de 1 unidad:
+  await call('admin', 'registerCourtesy', 'courtesy-quota-1', {
+    draft: { memberId: 'member-juan', productId: 'presentation:inv-whisky:bottle', quantity: 1 }
+  })
+  await call('admin', 'registerCourtesy', 'courtesy-quota-2', {
+    draft: { memberId: 'member-juan', productId: 'presentation:inv-whisky:bottle', quantity: 1 }
+  })
+  // La 3ra cortesía en la misma semana debe ser rechazada por exceder cupo
+  await assert.rejects(
+    () => call('admin', 'registerCourtesy', 'neg-exceed-quota', {
+      draft: { memberId: 'member-juan', productId: 'presentation:inv-whisky:bottle', quantity: 1 }
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('Cupo de cortesías superado')
+  )
+
+  // 7. Anular cortesía ya anulada
+  await call('admin', 'cancelCourtesy', 'cancel-quota-1', {
+    courtesyId: 'courtesy_courtesy-quota-1'
+  })
+  await assert.rejects(
+    () => call('admin', 'cancelCourtesy', 'neg-cancel-again', {
+      courtesyId: 'courtesy_courtesy-quota-1'
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('ya está anulada')
+  )
+
+  // 8. Venta de botella sin mesero no genera comisión
+  await root.collection('nightclubTables').doc('VIP4').set({ id: 'VIP4', branchId: 'main', name: 'Mesa VIP4', status: 'available' })
+  const openVip4 = await call('waiter', 'openAccount', 'acc-vip4-op', { target: { type: 'table', tableId: 'VIP4' } })
+  const roundVip4 = await call('waiter', 'addRound', 'round-vip4-no-staff', {
+    accountId: openVip4.accountId,
+    items: [{ productId: 'presentation:inv-whisky:bottle', quantity: 1 }],
+    // No serviceStaffId
+  })
+  const commVip4 = await data(`nightclubCommissions/commission:${roundVip4.roundId}:item_0`)
+  assert.equal(commVip4, undefined) // no commission created
+
+  // 9. Pagar comisión ya pagada
+  await assert.rejects(
+    () => call('admin', 'payCommissions', 'neg-pay-paid-comm', {
+      draft: {
+        staffId: 'waiter',
+        amount: 5,
+        method: 'cash',
+        commissionIds: [commKey] // already paid in Test 6
+      }
+    }),
+    err => err.code === 'failed-precondition' && (err.message.includes('supera el saldo pendiente') || err.message.includes('pendiente'))
+  )
+
+  // 10. Mesero intentando registrar incidencias -> permission-denied
+  await assert.rejects(
+    () => call('waiter', 'saveCustomerIncident', 'neg-waiter-inc', {
+      incident: { customerId: 'cust-carlos', date: '2026-10-16', severity: 'low', description: 'Test' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // 11. Mesero intentando crear o editar socios -> permission-denied
+  await assert.rejects(
+    () => call('waiter', 'saveMember', 'neg-waiter-member', {
+      member: { name: 'Hack Member', phone: '111', quota: 5, active: true }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // Limpieza de mesa VIP4 y cierre de turno 5
+  await call('waiter', 'cancelRound', 'cancel-vip4-qa', { roundId: roundVip4.roundId, reason: 'QA' })
+  await call('waiter', 'finishOccupancy', 'finish-vip4-qa', { accountId: openVip4.accountId })
+  await call('cashier', 'closeShift', 'close-shift5-op', { shiftId: shift5Id, countedCash: 100 })
+
+  console.log('PASS: Test 7 (Suite negativa N3B) completado exitosamente.')
 } finally {
   await deleteApp(app)
 }

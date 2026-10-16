@@ -14,9 +14,17 @@ import { gateway } from '../../../services/gateway'
 import type {
   NightclubAccount,
   NightclubCashMovement,
+  NightclubCommission,
+  NightclubCommissionPayment,
+  NightclubCommissionPaymentDraft,
+  NightclubCourtesy,
+  NightclubCourtesyDraft,
   NightclubCustomer,
+  NightclubCustomerIncident,
+  NightclubCustomerStatus,
   NightclubInventoryItem,
   NightclubInventoryMovement,
+  NightclubMember,
   NightclubPayment,
   NightclubPaymentDraft,
   NightclubProduct,
@@ -751,6 +759,116 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
+  subscribeMembers(listener: (value: NightclubMember[]) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubMembers')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId), fsLimit(100)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubMember, 'id'>) }))
+          listener(list)
+        },
+        () => {}
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCourtesies(listener: (value: NightclubCourtesy[]) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCourtesies')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId), fsLimit(100)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCourtesy, 'id'>) }))
+          listener(list)
+        },
+        () => {}
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCommissions(listener: (value: NightclubCommission[]) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCommissions')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId), fsLimit(100)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCommission, 'id'>) }))
+          listener(list)
+        },
+        () => {}
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCommissionPayments(listener: (value: NightclubCommissionPayment[]) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCommissionPayments')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId), fsLimit(100)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCommissionPayment, 'id'>) }))
+          listener(list)
+        },
+        () => {}
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCustomerIncidents(listener: (value: NightclubCustomerIncident[]) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCustomerIncidents')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId), fsLimit(100)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCustomerIncident, 'id'>) }))
+          listener(list)
+        },
+        () => {}
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
   async saveReservation(input: { operationId: string; reservation: ReservationDraft }): Promise<{ reservationId: string }> {
     return this.dispatch<{ reservationId: string }>('saveReservation', input.operationId, { reservation: input.reservation })
   }
@@ -789,5 +907,53 @@ export class TenantNightclubRepository implements NightclubRepository {
 
   async savePromoterConsumption(input: { operationId: string; consumption: NightclubConsumptionDraft }): Promise<{ consumptionId: string }> {
     return this.dispatch<{ consumptionId: string }>('savePromoterConsumption', input.operationId, { consumption: input.consumption })
+  }
+
+  async recordCashMovement(input: { operationId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; category?: string; notes?: string }): Promise<{ movementId: string }> {
+    return this.dispatch<{ movementId: string }>('recordCashMovement', input.operationId, input)
+  }
+
+  async saveBottleInventory(input: { operationId: string; draft: any }): Promise<any> {
+    return this.dispatch('saveBottleInventory', input.operationId, input)
+  }
+
+  async openBottle(input: { operationId: string; inventoryId: string }): Promise<any> {
+    return this.dispatch('openBottle', input.operationId, input)
+  }
+
+  async bottleExit(input: { operationId: string; inventoryId: string; millilitres: number; exitType: string; reason: string }): Promise<any> {
+    return this.dispatch('bottleExit', input.operationId, input)
+  }
+
+  async saveMember(input: { operationId: string; member: NightclubMember }): Promise<any> {
+    return this.dispatch('saveMember', input.operationId, input)
+  }
+
+  async registerCourtesy(input: { operationId: string; draft: NightclubCourtesyDraft }): Promise<any> {
+    return this.dispatch('registerCourtesy', input.operationId, input)
+  }
+
+  async cancelCourtesy(input: { operationId: string; courtesyId: string }): Promise<any> {
+    return this.dispatch('cancelCourtesy', input.operationId, input)
+  }
+
+  async payCommissions(input: { operationId: string; draft: NightclubCommissionPaymentDraft }): Promise<any> {
+    return this.dispatch('payCommissions', input.operationId, input)
+  }
+
+  async setCustomerStatus(input: { operationId: string; customerId: string; status: NightclubCustomerStatus }): Promise<any> {
+    return this.dispatch('setCustomerStatus', input.operationId, input)
+  }
+
+  async saveCustomerIncident(input: { operationId: string; incident: any }): Promise<any> {
+    return this.dispatch('saveCustomerIncident', input.operationId, input)
+  }
+
+  async deleteCustomerIncident(input: { operationId: string; incidentId: string }): Promise<any> {
+    return this.dispatch('deleteCustomerIncident', input.operationId, input)
+  }
+
+  async assignCustomer(input: { operationId: string; accountId: string; customerId: string | null }): Promise<any> {
+    return this.dispatch('assignCustomer', input.operationId, input)
   }
 }

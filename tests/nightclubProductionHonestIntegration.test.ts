@@ -298,10 +298,10 @@ test('7. TenantNightclubRepository.subscribeOperationalAccounts includes closed 
 })
 
 // TEST 8
-test('8. mode="tenant" enables promoters while keeping members filtered out from visible modules', () => {
+test('8. mode="tenant" enables promoters and members for owner/admin in N3B', () => {
   const tenantModules = resolveNightclubVisibleModules({ mode: 'tenant', role: 'owner' })
   assert.equal(tenantModules.includes('promoters'), true, 'Tenant mode now exposes promoters module in N3A')
-  assert.equal(tenantModules.includes('members'), false, 'Tenant mode must not expose members module')
+  assert.equal(tenantModules.includes('members'), true, 'Tenant mode now exposes members module in N3B')
   assert.equal(tenantModules.includes('dashboard'), true)
   assert.equal(tenantModules.includes('floor'), true)
   assert.equal(tenantModules.includes('pos'), true)
@@ -319,35 +319,21 @@ test('8. mode="tenant" enables promoters while keeping members filtered out from
 })
 
 // TEST 9
-test('9. mode="tenant" suppresses non-connected sections (reservations, courtesies, private customer incidents, bottle inventory, commissions, custom roles)', () => {
+test('9. mode="tenant" connects N3B features while safely deferring complex/risky features (custom roles, product exchange)', () => {
   const expSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubExperience.tsx', import.meta.url), 'utf8')
-  const zonesSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubZones.tsx', import.meta.url), 'utf8')
-  const posSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubPOS.tsx', import.meta.url), 'utf8')
   const accountsSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubAccounts.tsx', import.meta.url), 'utf8')
-  const customersSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubCustomers.tsx', import.meta.url), 'utf8')
   const usersSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubUsers.tsx', import.meta.url), 'utf8')
 
-  // Commissions & Courtesy Report hidden in tenant mode
-  assert.match(expSource, /props\.mode\s*!==\s*'tenant'\s*&&\s*<NightclubCommissions/)
-  assert.match(expSource, /props\.mode\s*!==\s*'tenant'\s*&&\s*<NightclubCourtesyReport/)
+  // Commissions, Bottle Inventory & Courtesy Report enabled in tenant mode
+  assert.match(expSource, /<NightclubCommissions/)
+  assert.match(expSource, /<NightclubCourtesyReport/)
+  assert.match(expSource, /<NightclubBottleInventory/)
 
-  // Reservations hidden in tenant mode in NightclubZones
-  assert.match(zonesSource, /mode\s*!==\s*'tenant'/)
-
-  // Courtesy order button hidden in tenant mode in NightclubPOS
-  assert.match(posSource, /mode\s*!==\s*'tenant'/)
-
-  // Product exchange button hidden in tenant mode in NightclubAccounts
+  // Product exchange button deferred and hidden in tenant mode
   assert.match(accountsSource, /mode\s*!==\s*'tenant'/)
 
-  // Private incidents and convivencia hidden in tenant mode in NightclubCustomers
-  assert.match(customersSource, /mode\s*!==\s*'tenant'/)
-
-  // Custom roles tab/button hidden in tenant mode in NightclubUsers (only rendered when mode === 'demo')
+  // Custom roles tab/button deferred and hidden in tenant mode (only rendered when mode === 'demo')
   assert.match(usersSource, /mode\s*===\s*'demo'\s*&&\s*<section[^>]*>[\s\S]*?Roles personalizados/)
-
-  // Bottle inventory suppressed in tenant mode in NightclubExperience
-  assert.match(expSource, /props\.mode\s*!==\s*'tenant'\s*&&\s*<NightclubBottleInventory/)
 })
 
 // TEST 10
