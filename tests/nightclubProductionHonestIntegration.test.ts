@@ -14,8 +14,11 @@ import {
 import type {
   NightclubAccount,
   NightclubDataset,
+  NightclubPayment,
+  NightclubRound,
   NightclubStaff,
 } from '../src/modules/nightclub/domain/nightclubAccounts.ts'
+import type { TenantNightclubActionsDeps } from '../src/modules/nightclub/application/tenantNightclubActions.ts'
 
 // TEST 1
 test('1. run rejects and surfaces error message without setting success notice when action throws', async () => {
@@ -93,7 +96,7 @@ test('3. run blocks concurrent second execution while first is in-flight', async
 test('4. useTenantNightclubController onOpenAccount awaits backend ACK and returns real result.accountId', async () => {
   let backendAck = false
   const mockRepo = {
-    openAccount: async (payload: { operationId: string; target: any }) => {
+    openAccount: async () => {
       await new Promise(r => setTimeout(r, 10))
       backendAck = true
       return { accountId: 'acc_confirmed_uuid_789' }
@@ -108,7 +111,7 @@ test('4. useTenantNightclubController onOpenAccount awaits backend ACK and retur
     staff: [],
     reloadStaff: async () => {},
     reloadCustomers: async () => {},
-    repository: mockRepo as any,
+    repository: mockRepo as unknown as TenantNightclubActionsDeps['repository'],
     gatewayFn: async () => ({}),
   })
 
@@ -130,7 +133,7 @@ test('4. useTenantNightclubController onOpenAccount awaits backend ACK and retur
     staff: [],
     reloadStaff: async () => {},
     reloadCustomers: async () => {},
-    repository: failingRepo as any,
+    repository: failingRepo as unknown as TenantNightclubActionsDeps['repository'],
     gatewayFn: async () => ({}),
   })
 
@@ -142,7 +145,7 @@ test('4. useTenantNightclubController onOpenAccount awaits backend ACK and retur
 
 // TEST 5
 test('5. onSaveStaff in tenant mode creates new user with 8-72 char password, calls createMember, reloads staff only on success', async () => {
-  let gatewayCalls: Array<{ name: string; payload: any }> = []
+  const gatewayCalls: Array<{ name: string; payload: Record<string, unknown> }> = []
   let reloaded = false
   const mockGateway = async (name: 'tenantGateway' | 'platformGateway', payload: Record<string, unknown>) => {
     gatewayCalls.push({ name, payload })
@@ -161,7 +164,7 @@ test('5. onSaveStaff in tenant mode creates new user with 8-72 char password, ca
     staff,
     reloadStaff: async () => { reloaded = true },
     reloadCustomers: async () => {},
-    repository: {} as any,
+    repository: {} as unknown as TenantNightclubActionsDeps['repository'],
     gatewayFn: mockGateway,
   })
 
@@ -204,7 +207,7 @@ test('5. onSaveStaff in tenant mode creates new user with 8-72 char password, ca
 
 // TEST 6
 test('6. onSaveStaff in tenant mode for existing user calls updateMember without password', async () => {
-  let gatewayCalls: Array<{ name: string; payload: any }> = []
+  const gatewayCalls: Array<{ name: string; payload: Record<string, unknown> }> = []
   let reloaded = false
   const mockGateway = async (name: 'tenantGateway' | 'platformGateway', payload: Record<string, unknown>) => {
     gatewayCalls.push({ name, payload })
@@ -224,7 +227,7 @@ test('6. onSaveStaff in tenant mode for existing user calls updateMember without
     staff,
     reloadStaff: async () => { reloaded = true },
     reloadCustomers: async () => {},
-    repository: {} as any,
+    repository: {} as unknown as TenantNightclubActionsDeps['repository'],
     gatewayFn: mockGateway,
   })
 
@@ -273,7 +276,12 @@ test('7. TenantNightclubRepository.subscribeOperationalAccounts includes closed 
     { id: 'pay2', accountId: 'acc_closed_2', amount: 22, cashAmount: 0, qrAmount: 22, cardAmount: 0, method: 'qr', paidAt: '2026-10-16T19:45:00Z' },
   ]
 
-  const assembled = assembleOperationalAccounts(openAccounts, closedAccounts, rounds as any, payments as any)
+  const assembled = assembleOperationalAccounts(
+    openAccounts,
+    closedAccounts,
+    rounds as unknown as NightclubRound[],
+    payments as unknown as NightclubPayment[]
+  )
 
   assert.equal(assembled.length, 2)
   const open = assembled.find(a => a.id === 'acc_open_1')!
@@ -318,7 +326,6 @@ test('9. mode="tenant" suppresses non-connected sections (reservations, courtesi
   const accountsSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubAccounts.tsx', import.meta.url), 'utf8')
   const customersSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubCustomers.tsx', import.meta.url), 'utf8')
   const usersSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubUsers.tsx', import.meta.url), 'utf8')
-  const inventorySource = readFileSync(new URL('../src/modules/nightclub/views/NightclubInventory.tsx', import.meta.url), 'utf8')
 
   // Commissions & Courtesy Report hidden in tenant mode
   assert.match(expSource, /props\.mode\s*!==\s*'tenant'\s*&&\s*<NightclubCommissions/)
@@ -380,7 +387,7 @@ test('10. subscribeActiveShift retains lastClosedShiftId so closing shift keeps 
         { id: 'pay1', accountId: 'acc_vip_1', amount: 40, cashAmount: 40, qrAmount: 0, cardAmount: 0, method: 'cash', paidAt: '2026-10-16T23:00:00Z' },
         { id: 'pay2', accountId: 'acc_vip_1', amount: 22, cashAmount: 0, qrAmount: 22, cardAmount: 0, method: 'qr', paidAt: '2026-10-16T23:00:00Z' },
       ],
-    } as any,
+    } as unknown as NightclubAccount,
   ]
 
   const summary = nightclubCashSummary({
