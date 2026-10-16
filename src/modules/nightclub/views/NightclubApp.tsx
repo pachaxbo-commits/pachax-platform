@@ -29,6 +29,7 @@ export function NightclubApp(props: NightclubAppProps) {
       userName={props.userName}
       role={props.role}
       onSignOut={props.onSignOut}
+      mode="tenant"
       {...controller}
     />
   )

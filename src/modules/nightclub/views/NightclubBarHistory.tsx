@@ -15,7 +15,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound, canRefun
   data: NightclubDataset
   role: string
   actor: string
-  onRefundRound: (accountId: string, roundId: string, reason: string) => boolean
+  onRefundRound: (accountId: string, roundId: string, reason: string) => boolean | void | Promise<boolean | void>
   canRefundOverride?: boolean
 }) {
   const [filters, setFilters] = useState<NightclubHistoryFilters>(() => initialFilters(data.shift?.id || 'all'))
@@ -70,7 +70,7 @@ export function NightclubBarHistory({ data, role, actor, onRefundRound, canRefun
       {canSeePayments && <><h3 className="mt-6 text-sm font-bold uppercase tracking-wider text-slate-300">Pagos por pedido</h3><div className="mt-2 space-y-2">{(selected.account.payments || (selected.account.payment ? [selected.account.payment] : [])).map(payment => <div key={payment.id || payment.paidAt} className="rounded-lg bg-slate-900 p-3 text-xs"><strong>{when(payment.paidAt)} · {money(payment.amount ?? payment.cashAmount + payment.qrAmount + payment.cardAmount)} · {payment.method.toUpperCase()}</strong>{payment.allocations?.map(line => { const round = selected.account.rounds.find(item => item.id === line.roundId); return <p key={line.roundId} className="mt-1 text-slate-400">Ronda #{round?.sequence || '?'} · {line.customerId ? round?.customerNameSnapshot || data.customers.find(customer => customer.id === line.customerId)?.name || 'Cliente' : 'Sin cliente asociado'} · {money(line.amount)}</p> })}{payment.status === 'refunded' && <p className="mt-1 text-amber-300">Reembolsado</p>}</div>)}</div></>}
       <h3 className="mt-6 text-sm font-bold uppercase tracking-wider text-slate-300">Cronología</h3><ol className="mt-3 space-y-2 border-l border-slate-700 pl-4">{selected.entries.filter(entry => canSeePayments || entry.type !== 'payment' && entry.type !== 'refund').filter(entry => viewerRole !== 'bar' || !entry.productId || entry.preparationArea === 'Barra').map(entry => <li key={entry.id} className="relative rounded-lg bg-slate-900 p-3 before:absolute before:-left-[21px] before:top-5 before:h-2 before:w-2 before:rounded-full before:bg-amber-400"><span className="text-[11px] text-slate-400">{when(entry.at)} · {entry.actor}</span><strong className="mt-1 block text-sm">{entry.text}{entry.productName ? ` · ${entry.quantity}× ${entry.productName}` : ''}</strong>{entry.reason && <p className="mt-1 text-xs text-slate-400">Motivo: {entry.reason}</p>}{entry.amount !== undefined && canSeePayments && <span className="mt-1 block text-xs text-emerald-300">{money(entry.amount)}</span>}</li>)}</ol>
     </aside></div>}
-    {refundTarget && <NightclubRefundDialog onCancel={() => setRefundTarget(null)} onConfirm={reason => { onRefundRound(refundTarget.accountId, refundTarget.roundId, reason); setRefundTarget(null) }} />}
+    {refundTarget && <NightclubRefundDialog onCancel={() => setRefundTarget(null)} onConfirm={async reason => { await onRefundRound(refundTarget.accountId, refundTarget.roundId, reason); setRefundTarget(null) }} />}
     </>}
   </div>
 }

@@ -5,18 +5,19 @@ import { nightclubAccountLabel, nightclubProductAvailability } from '../domain/n
 
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer, currentWaiterId }: {
+export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer, currentWaiterId, mode = 'demo' }: {
   data: NightclubDataset
   draft: NightclubRoundDraft[]
   selectedAccountId: string
   onSelectAccount: (id: string) => void
   onDraftChange: (draft: NightclubRoundDraft[]) => void
-  onOpenAccount: (target: NightclubServiceTarget) => string
-  onSendRound: (accountId: string, draft: NightclubRoundDraft[], operationId: string, customerId: string | null, serviceStaffId?: string) => boolean
-  onSettleRound: (accountId: string, draft: NightclubRoundDraft[], payment: import('../domain/nightclubAccounts').NightclubPaymentDraft, operationId: string, sellerStaffId?: string) => boolean
+  onOpenAccount: (target: NightclubServiceTarget) => string | Promise<string>
+  onSendRound: (accountId: string, draft: NightclubRoundDraft[], operationId: string, customerId: string | null, serviceStaffId?: string) => boolean | Promise<boolean>
+  onSettleRound: (accountId: string, draft: NightclubRoundDraft[], payment: import('../domain/nightclubAccounts').NightclubPaymentDraft, operationId: string, sellerStaffId?: string) => boolean | Promise<boolean>
   onCourtesy: (accountId: string) => void
-  onSaveCustomer: (customer: NightclubCustomer) => boolean
+  onSaveCustomer: (customer: NightclubCustomer) => boolean | Promise<boolean>
   currentWaiterId?: string
+  mode?: 'tenant' | 'demo' | 'studio'
 }) {
   const [category, setCategory] = useState('Todos')
   const [search, setSearch] = useState('')
@@ -62,37 +63,75 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     setCustomerName('')
   }
   const cancelDraft = () => { onDraftChange([]); selectAccount(''); setCustomerId(''); setCustomerName('') }
-  const settleRound = () => { if (!selected || !draft.length || lock.current) return; const received = Number(quickReceived || draftTotal); if (quickMethod === 'cash' && (!Number.isFinite(received) || received < draftTotal)) return; lock.current = true; setProcessing(true); const operationId = operation.current ||= crypto.randomUUID(); const success = onSettleRound(selected.id, draft, { method: quickMethod, ...(quickMethod === 'cash' ? { received } : {}) }, operationId, sellerStaffId || undefined); if (success) { onDraftChange([]); operation.current = null; setQuickPay(false); setQuickReceived(''); if (destinationMode === 'bar') selectAccount('') } lock.current = false; setProcessing(false) }
-  const sendRound = () => {
+  const settleRound = async () => {
+    if (!selected || !draft.length || lock.current) return
+    const received = Number(quickReceived || draftTotal)
+    if (quickMethod === 'cash' && (!Number.isFinite(received) || received < draftTotal)) return
+    lock.current = true
+    setProcessing(true)
+    try {
+      const operationId = operation.current ||= crypto.randomUUID()
+      const success = await onSettleRound(selected.id, draft, { method: quickMethod, ...(quickMethod === 'cash' ? { received } : {}) }, operationId, sellerStaffId || undefined)
+      if (success) {
+        onDraftChange([])
+        operation.current = null
+        setQuickPay(false)
+        setQuickReceived('')
+        if (destinationMode === 'bar') selectAccount('')
+      }
+    } finally {
+      lock.current = false
+      setProcessing(false)
+    }
+  }
+  const sendRound = async () => {
     if (!selected || selected.status !== 'open' || !draft.length || lock.current) return
     lock.current = true
     setProcessing(true)
-    const operationId = operation.current ||= crypto.randomUUID()
-    const success = onSendRound(selected.id, draft, operationId, customerId || null, sellerStaffId || undefined)
-    if (success) { onDraftChange([]); operation.current = null; setDrawerOpen(false); setCustomerId(''); setCustomerName(''); setCustomerSearch(''); setServiceStaffId(''); if (destinationMode === 'bar') selectAccount('') }
-    lock.current = false
-    setProcessing(false)
+    try {
+      const operationId = operation.current ||= crypto.randomUUID()
+      const success = await onSendRound(selected.id, draft, operationId, customerId || null, sellerStaffId || undefined)
+      if (success) {
+        onDraftChange([])
+        operation.current = null
+        setDrawerOpen(false)
+        setCustomerId('')
+        setCustomerName('')
+        setCustomerSearch('')
+        setServiceStaffId('')
+        if (destinationMode === 'bar') selectAccount('')
+      }
+    } finally {
+      lock.current = false
+      setProcessing(false)
+    }
   }
   const accountForTable = (tableId: string) => accounts.find(item => item.tableId === tableId || (item.serviceTarget?.type === 'table' && item.serviceTarget.tableId === tableId))
-  const chooseTable = (tableId: string) => {
+  const chooseTable = async (tableId: string) => {
     const table = data.tables.find(item => item.id === tableId)
     if (!table) return
     const account = accountForTable(table.id)
     setDestinationMode('table')
-    selectAccount(account?.id || onOpenAccount({ type: 'table', tableId }))
+    if (account?.id) {
+      selectAccount(account.id)
+      return
+    }
+    const id = await onOpenAccount({ type: 'table', tableId })
+    if (id) selectAccount(id)
   }
-  const createPersonalAccount = () => {
+  const createPersonalAccount = async () => {
     const customer = data.customers.find(item => item.id === customerId)
     const displayName = customer?.name || customerName.trim()
-    const id = onOpenAccount({ type: 'bar', customerId: customer?.id, displayName })
+    const id = await onOpenAccount({ type: 'bar', customerId: customer?.id, displayName })
     if (!id) return
     selectAccount(id)
     setCustomerName('')
   }
-  const registerCustomer = () => {
+  const registerCustomer = async () => {
     if (!newCustomerName.trim()) return
     const id = crypto.randomUUID()
-    if (onSaveCustomer({ id, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), active: true, visits: 0, totalSpent: 0 })) {
+    const ok = await onSaveCustomer({ id, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), active: true, visits: 0, totalSpent: 0 })
+    if (ok) {
       setCustomerId(id); setCustomerSearch(''); setCustomerName(''); setNewCustomerName(''); setNewCustomerPhone(''); setCreatingCustomer(false); operation.current = null
     }
   }
@@ -124,7 +163,7 @@ export function NightclubPOS({ data, draft, selectedAccountId, onSelectAccount, 
     <div className="mt-4 flex items-center justify-between"><span className="text-sm text-slate-400">Subtotal de ronda</span><strong className="text-xl">{money(draftTotal)}</strong></div>
     <button disabled={!draft.length || !selected || selected.status !== 'open' || processing || data.shift?.status !== 'open'} onClick={sendRound} className="mt-4 min-h-12 w-full rounded-xl bg-emerald-400 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{selected ? `ENVIAR RONDA · ${money(draftTotal)}` : 'ELIGE EL DESTINO'}</button>
     <button disabled={!draft.length || !selected || selected.status !== 'open' || processing || data.shift?.status !== 'open'} onClick={() => setQuickPay(true)} className="mt-2 min-h-11 w-full rounded-xl bg-amber-300 font-black text-slate-950 disabled:opacity-40">COBRAR Y ENVIAR RONDA</button>{quickPay && <div className="mt-2 rounded-xl border border-amber-300/40 bg-slate-950 p-3"><p className="font-bold">Total a cobrar: {money(draftTotal)}</p><div className="mt-2 grid grid-cols-3 gap-2">{(['cash','qr','card'] as const).map(method => <button key={method} onClick={() => setQuickMethod(method)} className={`rounded-lg p-2 text-xs ${quickMethod === method ? 'bg-amber-300 text-slate-950' : 'bg-slate-800'}`}>{method === 'cash' ? 'Efectivo' : method === 'qr' ? 'QR' : 'Tarjeta'}</button>)}</div>{quickMethod === 'cash' && <label className="mt-2 block text-xs">Recibido<input type="number" value={quickReceived} placeholder={String(draftTotal)} onChange={event => setQuickReceived(event.target.value)} className="mt-1 w-full rounded-lg bg-slate-900 p-2" />Cambio: {money(Math.max(0, Number(quickReceived || draftTotal) - draftTotal))}</label>}<div className="mt-3 flex gap-2"><button onClick={() => setQuickPay(false)} className="flex-1 rounded-lg border p-2 text-xs">Cancelar</button><button onClick={settleRound} className="flex-1 rounded-lg bg-emerald-400 p-2 text-xs font-bold text-slate-950">{quickMethod === 'cash' ? 'Confirmar pago' : 'Confirmar pago recibido'}</button></div></div>}    {!!draft.length && <button onClick={cancelDraft} className="mt-2 w-full rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400">Cancelar borrador</button>}
-    {selected && <><button onClick={() => onCourtesy(selected.id)} className="mt-2 min-h-11 w-full rounded-xl border border-purple-400 px-3 text-sm font-bold text-purple-200">Cortesía de socio · pedido separado</button><div className="mt-4 border-t border-slate-700 pt-3"><h3 className="font-bold">{isBarAccount(selected) ? 'Rondas de este pedido en barra' : 'Rondas de esta mesa'}</h3>{selected.rounds.map(round => <p key={round.id} className="mt-2 rounded-lg bg-slate-900 p-2 text-xs">#{round.sequence} · {round.customerId ? round.customerNameSnapshot || data.customers.find(customer => customer.id === round.customerId)?.name || 'Cliente' : 'Sin cliente asociado'} · {round.authorization === 'courtesy' ? 'Cortesía autorizada' : round.authorization === 'payment' ? 'Pagado' : 'Cargado a cuenta'} · {round.status} · {money(round.items.reduce((sum, item) => sum + item.lineTotal, 0))}</p>)}</div></>}
+    {selected && <>{mode !== 'tenant' && <button onClick={() => onCourtesy(selected.id)} className="mt-2 min-h-11 w-full rounded-xl border border-purple-400 px-3 text-sm font-bold text-purple-200">Cortesía de socio · pedido separado</button>}<div className="mt-4 border-t border-slate-700 pt-3"><h3 className="font-bold">{isBarAccount(selected) ? 'Rondas de este pedido en barra' : 'Rondas de esta mesa'}</h3>{selected.rounds.map(round => <p key={round.id} className="mt-2 rounded-lg bg-slate-900 p-2 text-xs">#{round.sequence} · {round.customerId ? round.customerNameSnapshot || data.customers.find(customer => customer.id === round.customerId)?.name || 'Cliente' : 'Sin cliente asociado'} · {round.authorization === 'courtesy' ? 'Cortesía autorizada' : round.authorization === 'payment' ? 'Pagado' : 'Cargado a cuenta'} · {round.status} · {money(round.items.reduce((sum, item) => sum + item.lineTotal, 0))}</p>)}</div></>}
     {selected?.status === 'bill_requested' && <p className="mt-3 text-sm text-amber-300">Esta cuenta está por cobrar. Reábrela desde Cuentas para añadir productos.</p>}
   </section>
 

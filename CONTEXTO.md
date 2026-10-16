@@ -1,5 +1,36 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: N1.1 - Cierre Técnico de Nightclub: Integración Productiva Honesta (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `6372db9` al iniciar este bloque).
+- **Objetivo Cumplido**: Consolidación honesta de la integración productiva de `NightclubExperience` con Firebase/Functions y Firestore, eliminando toasts optimistas prematuros, asegurando confirmación síncrona/async del backend con propagación de errores de gateway, protegiendo contra doble envío, asegurando continuidad en el modelo de lectura para cuentas e historial de turnos cerrados, ocultando capacidades no conectadas en modo tenant e implementando la creación real de personal con credenciales seguras.
+- **Detalles Técnicos Implementados**:
+  1. **Ejecución Asíncrona Real y Supresión de Éxito Prematuro (`src/modules/nightclub/application/nightclubActionRunner.ts`, `NightclubExperience.tsx`)**:
+     - `createNightclubActionRunner` encapsula la ejecución de mutaciones: bloquea ejecuciones concurrentes (`runningAction`), espera la resolución real de la `Promise`, muestra notificación de éxito solo tras resolución y propaga el mensaje de error del backend en caso de fallo sin mostrar toast de éxito falso.
+     - En `NightclubExperience`, todos los callbacks invocan `run(...)` esperando resolución real y evitando doble submit.
+  2. **Apertura de Cuenta Confiable (`onOpenAccount`)**:
+     - `createTenantNightclubActions.onOpenAccount` espera el ACK del backend vía `repository.openAccount` y retorna el `result.accountId` confirmado por el servidor. No genera IDs especulativos (`account_${operationId}`) en caso de rechazo.
+  3. **Continuidad del Modelo de Lectura de Cuentas y Turnos (`tenantNightclubRepository.ts`, `nightclubAccounts.ts`)**:
+     - `subscribeOperationalAccounts` combina cuentas abiertas (`open`, `bill_requested`) y cuentas cerradas recientes (`closed`, límite 50) asociándoles sus rondas y pagos (límite 200) mediante `assembleOperationalAccounts`. Las ventas, cierres y reportes mantienen sus métricas auditables tras `finishOccupancy`.
+     - `subscribeActiveShift` rastrea `resolveShiftIdToTrack(data)` (`activeShiftId || lastClosedShiftId`), de modo que al cerrar el turno en Firestore, la suscripción retiene los datos del turno cerrado y `nightclubCashSummary` conserva el cálculo del arqueo ciego y totales cobrados en lugar de quedar en `null` o Bs 0.
+  4. **Distinción Honesta de Capacidades por Modo (`tenant` vs `demo` / `studio`)**:
+     - En `mode === 'tenant'`, `resolveNightclubVisibleModules` filtra y oculta los módulos no conectados (`promoters` y `members`).
+     - Se suprimen secciones secundarias no conectadas en modo tenant: reservas en `NightclubZones`, pedidos de cortesía en `NightclubPOS`, cambios de producto en `NightclubAccounts`, semáforo/incidentes privados en `NightclubCustomers`, roles personalizados en `NightclubUsers`, inventario de botellas en `NightclubExperience` y comisiones en `NightclubExperience`.
+     - En `mode === 'demo'` y `mode === 'studio'` se preservan todas las funciones simuladas.
+  5. **Gestión Real de Personal en Modo Tenant (`tenantNightclubActions.ts`, `NightclubUsers.tsx`)**:
+     - En modo tenant, la creación de personal exige correo electrónico y contraseña inicial (8 a 72 caracteres), envía `password` de forma segura a `tenantGateway.createMember`, espera ACK y recarga la lista solo ante éxito. Las contraseñas jamás se almacenan en Firestore.
+     - La edición de usuarios existentes invoca `updateMember` sin solicitar ni enviar campo `password`. La modificación del propio acceso del usuario en sesión queda bloqueada.
+  6. **Suite Focal de Pruebas (`tests/nightclubProductionHonestIntegration.test.ts`)**:
+     - Implementados 10 tests unitarios/de integración que cubren los 5 puntos anteriores sin omitir ningún caso borde.
+- **Verificaciones Ejecutadas**:
+  - `node --experimental-strip-types --test tests/nightclubProductionHonestIntegration.test.ts`: 10/10 pruebas aprobadas.
+  - `npm run test:platform`: 66/66 pruebas aprobadas.
+  - `npm run test:nightclub`: 87/87 pruebas aprobadas.
+  - `npm run test:nightclub-orders-backend`: Exitoso (código 0, emulador Auth/Firestore/Functions).
+  - `npm run typecheck`: 0 errores.
+  - `npm run build`: Compilación de producción exitosa en 5.57s.
+  - `git diff --check`: 0 errores de formato.
+
 ## Checkpoint: N1 - Certificación Nightclub: Backend Operacional Real y Conexión Productiva Multi-tenant (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `b72026c` al iniciar este bloque).

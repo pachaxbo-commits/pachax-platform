@@ -10,11 +10,11 @@ type Props = {
   data: NightclubDataset
   fallbackName: string
   fallbackLogo?: string
-  onSaveBranding: (branding: NightclubBranding) => boolean
-  onSaveZone: (draft: ZoneDraft) => boolean
-  onSaveTable: (draft: TableDraft) => boolean
-  onDeleteZone: (id: string) => boolean
-  onDeleteTable: (id: string) => boolean
+  onSaveBranding: (branding: NightclubBranding) => boolean | Promise<boolean>
+  onSaveZone: (draft: ZoneDraft) => boolean | Promise<boolean>
+  onSaveTable: (draft: TableDraft) => boolean | Promise<boolean>
+  onDeleteZone: (id: string) => boolean | Promise<boolean>
+  onDeleteTable: (id: string) => boolean | Promise<boolean>
   usersPanel?: ReactNode
   canViewFloor?: boolean
   readOnly?: boolean
@@ -30,7 +30,7 @@ export function NightclubSettings({ data, fallbackName, fallbackLogo, onSaveBran
     try { const image = await readNightclubImage(file); setBranding(current => ({ ...current, [kind]: image })); setMessage('Imagen lista. Guarda los cambios para aplicarla.') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo cargar la imagen.') }
   }
-  const saveBranding = () => { if (onSaveBranding(branding)) setMessage('Identidad y apariencia guardadas en esta demo.') }
+  const saveBranding = async () => { if (await onSaveBranding(branding)) setMessage('Identidad y apariencia guardadas en esta demo.') }
   return <div className="space-y-5">
     <header><p className="text-[11px] font-bold uppercase tracking-[.2em] text-amber-300">Administración del espacio</p><h1 className="mt-1 text-3xl font-semibold tracking-tight text-white">Configuración</h1><p className="mt-1 text-sm text-slate-400">Ajusta la identidad y organiza el salón desde un solo lugar.</p></header>
     {message && <button type="button" onClick={() => setMessage('')} role="status" className="w-full rounded-xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-left text-sm text-amber-100">{message}</button>}

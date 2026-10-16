@@ -695,3 +695,31 @@ export function adjustNightclubInventory(dataset: NightclubDataset, inventoryId:
   if (stock.current === current) return dataset
   return recordNightclubInventoryMovement(dataset, inventoryId, roundMoney(current - stock.current), 'adjustment', 'Conteo físico', actor, now)
 }
+
+export function assembleOperationalAccounts(
+  openAccounts: Array<Record<string, unknown> & { id: string }>,
+  closedAccounts: Array<Record<string, unknown> & { id: string }>,
+  rounds: Array<NightclubRound | (Record<string, unknown> & { id: string })>,
+  payments: Array<NightclubPayment | (Record<string, unknown> & { id: string })>
+): NightclubAccount[] {
+  const rawAccountsMap = new Map<string, Record<string, unknown> & { id: string }>()
+  for (const acc of closedAccounts) rawAccountsMap.set(acc.id, acc)
+  for (const acc of openAccounts) rawAccountsMap.set(acc.id, acc)
+
+  return Array.from(rawAccountsMap.values()).map(raw => {
+    const accountId = raw.id
+    const accRounds = rounds.filter(r => (r as unknown as { accountId: string }).accountId === accountId)
+    const accPayments = payments.filter(p => (p as unknown as { accountId: string }).accountId === accountId)
+    return {
+      ...(raw as unknown as NightclubAccount),
+      id: accountId,
+      rounds: accRounds as unknown as NightclubRound[],
+      payments: accPayments as unknown as NightclubPayment[],
+      payment: (accPayments as unknown as NightclubPayment[]).at(-1),
+    }
+  })
+}
+
+export function resolveShiftIdToTrack(stateData?: { activeShiftId?: string | null; lastClosedShiftId?: string | null } | null): string | null {
+  return stateData?.activeShiftId || stateData?.lastClosedShiftId || null
+}

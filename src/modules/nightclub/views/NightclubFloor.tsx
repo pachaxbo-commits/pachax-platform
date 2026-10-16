@@ -8,10 +8,10 @@ const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFr
 export function NightclubFloor({ data, onSelectTable, onSaveZone, onSaveTable, onDeleteZone, onDeleteTable, embedded = false }: {
   data: NightclubDataset
   onSelectTable: (id: string) => void
-  onSaveZone: (draft: ZoneDraft) => boolean
-  onSaveTable: (draft: TableDraft) => boolean
-  onDeleteZone?: (id: string) => boolean
-  onDeleteTable?: (id: string) => boolean
+  onSaveZone: (draft: ZoneDraft) => boolean | Promise<boolean>
+  onSaveTable: (draft: TableDraft) => boolean | Promise<boolean>
+  onDeleteZone?: (id: string) => boolean | Promise<boolean>
+  onDeleteTable?: (id: string) => boolean | Promise<boolean>
   embedded?: boolean
 }) {
   const [zoneDraft, setZoneDraft] = useState<ZoneDraft | null>(null)
@@ -19,8 +19,8 @@ export function NightclubFloor({ data, onSelectTable, onSaveZone, onSaveTable, o
   const [deleting, setDeleting] = useState<{ kind: 'zone' | 'table'; id: string; name: string; blocked?: string } | null>(null)
   const [managing, setManaging] = useState(embedded)
   const newTable = (zoneId: string): TableDraft => ({ id: '', name: '', zoneId, capacity: 4, status: 'available' })
-  const saveZone = () => { if (zoneDraft && onSaveZone(zoneDraft)) setZoneDraft(null) }
-  const saveTable = () => { if (tableDraft && onSaveTable(tableDraft)) setTableDraft(null) }
+  const saveZone = async () => { if (zoneDraft && await onSaveZone(zoneDraft)) setZoneDraft(null) }
+  const saveTable = async () => { if (tableDraft && await onSaveTable(tableDraft)) setTableDraft(null) }
   return <div className="space-y-5">
     {!embedded && <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">Salón, VIP y reservados</h1><p className="text-sm text-slate-400">Selecciona una mesa para ver su cuenta y añadir rondas.</p></div><button onClick={() => setManaging(value => !value)} className="rounded-xl border border-amber-300/40 px-4 py-2 text-sm font-bold text-amber-200">{managing ? 'Terminar edición' : 'Administrar salón'}</button></header>}
     {managing && <button onClick={() => setZoneDraft({ id: '', name: '' })} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-amber-300 px-4 text-sm font-bold text-[#07111a]"><Plus size={16} />Nueva zona</button>}
@@ -33,7 +33,7 @@ export function NightclubFloor({ data, onSelectTable, onSaveZone, onSaveTable, o
     })}
     {zoneDraft && <Modal label="Zona"><h2 className="text-lg font-bold">{zoneDraft.id ? 'Editar zona' : 'Nueva zona'}</h2><input autoFocus aria-label="Nombre de la zona" placeholder="Nombre de la zona" value={zoneDraft.name} onChange={event => setZoneDraft({ ...zoneDraft, name: event.target.value })} className="w-full rounded-xl bg-slate-950 p-3" /><Actions onCancel={() => setZoneDraft(null)} onSave={saveZone} disabled={!zoneDraft.name.trim()} /></Modal>}
     {tableDraft && <Modal label="Mesa"><h2 className="text-lg font-bold">{tableDraft.id ? 'Editar mesa' : 'Nueva mesa'}</h2><input autoFocus aria-label="Nombre de la mesa" placeholder="Mesa 12 o VIP 3" value={tableDraft.name} onChange={event => setTableDraft({ ...tableDraft, name: event.target.value })} className="w-full rounded-xl bg-slate-950 p-3" /><label className="block text-xs text-slate-400">Zona<select aria-label="Zona de la mesa" value={tableDraft.zoneId} onChange={event => setTableDraft({ ...tableDraft, zoneId: event.target.value })} className="mt-1 w-full rounded-xl bg-slate-950 p-3 text-sm text-white">{data.zones.map(zone => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</select></label><label className="block text-xs text-slate-400">Capacidad<input aria-label="Capacidad de la mesa" type="number" min="1" max="100" value={tableDraft.capacity} onChange={event => setTableDraft({ ...tableDraft, capacity: Number(event.target.value) })} className="mt-1 w-full rounded-xl bg-slate-950 p-3 text-sm text-white" /></label>{tableDraft.id && <label className="block text-xs text-slate-400">Estado<select aria-label="Estado de la mesa" value={tableDraft.status} disabled={!!data.tables.find(table => table.id === tableDraft.id)?.activeAccountId} onChange={event => setTableDraft({ ...tableDraft, status: event.target.value as NightclubTable['status'] })} className="mt-1 w-full rounded-xl bg-slate-950 p-3 text-sm text-white disabled:opacity-50"><option value="available">Libre</option>{data.tables.find(table => table.id === tableDraft.id)?.status === 'reserved' && <option value="reserved">Reservada</option>}{!!data.tables.find(table => table.id === tableDraft.id)?.activeAccountId && <><option value="occupied">Ocupada</option><option value="bill_requested">Por cobrarse</option></>}</select></label>}<Actions onCancel={() => setTableDraft(null)} onSave={saveTable} disabled={!tableDraft.name.trim() || !tableDraft.zoneId || tableDraft.capacity < 1} /></Modal>}
-    {deleting && <Modal label={`Eliminar ${deleting.kind === 'zone' ? 'zona' : 'mesa'}`}><h2 className="text-lg font-bold">Eliminar {deleting.kind === 'zone' ? 'zona' : 'mesa'}</h2><p className="text-sm text-slate-300">{deleting.blocked || `¿Eliminar “${deleting.name}”?`}</p><div className="flex gap-2"><button onClick={() => setDeleting(null)} className="flex-1 rounded-xl border border-slate-700 p-3">{deleting.blocked ? 'Entendido' : 'Cancelar'}</button>{!deleting.blocked && <button onClick={() => { const ok = deleting.kind === 'zone' ? onDeleteZone?.(deleting.id) : onDeleteTable?.(deleting.id); if (ok) setDeleting(null) }} className="flex-1 rounded-xl bg-rose-500 p-3 font-bold text-white">Eliminar {deleting.kind === 'zone' ? 'zona' : 'mesa'}</button>}</div></Modal>}
+    {deleting && <Modal label={`Eliminar ${deleting.kind === 'zone' ? 'zona' : 'mesa'}`}><h2 className="text-lg font-bold">Eliminar {deleting.kind === 'zone' ? 'zona' : 'mesa'}</h2><p className="text-sm text-slate-300">{deleting.blocked || `¿Eliminar “${deleting.name}”?`}</p><div className="flex gap-2"><button onClick={() => setDeleting(null)} className="flex-1 rounded-xl border border-slate-700 p-3">{deleting.blocked ? 'Entendido' : 'Cancelar'}</button>{!deleting.blocked && <button onClick={async () => { const ok = await (deleting.kind === 'zone' ? onDeleteZone?.(deleting.id) : onDeleteTable?.(deleting.id)); if (ok) setDeleting(null) }} className="flex-1 rounded-xl bg-rose-500 p-3 font-bold text-white">Eliminar {deleting.kind === 'zone' ? 'zona' : 'mesa'}</button>}</div></Modal>}
   </div>
 }
 

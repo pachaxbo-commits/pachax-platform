@@ -28,6 +28,10 @@ import type {
   NightclubTable,
   NightclubZone,
 } from '../domain/nightclubAccounts'
+import {
+  assembleOperationalAccounts,
+  resolveShiftIdToTrack,
+} from '../domain/nightclubAccounts'
 import type {
   NightclubCatalogSnapshot,
   NightclubFloorSnapshot,
@@ -37,6 +41,8 @@ import type {
 } from './nightclubRepository'
 
 const generateOpId = () => `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+
+export { assembleOperationalAccounts, resolveShiftIdToTrack }
 
 export class TenantNightclubRepository implements NightclubRepository {
   private readonly tenantId: string
@@ -118,30 +124,21 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeOpenAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe {
-    let rawAccounts: Array<Record<string, unknown> & { id: string }> = []
+  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe {
+    let openAccounts: Array<Record<string, unknown> & { id: string }> = []
+    let closedAccounts: Array<Record<string, unknown> & { id: string }> = []
     let rounds: NightclubRound[] = []
     let payments: NightclubPayment[] = []
     let active = true
 
-    let unsubAcc: Unsubscribe | null = null
+    let unsubOpen: Unsubscribe | null = null
+    let unsubClosed: Unsubscribe | null = null
     let unsubRounds: Unsubscribe | null = null
     let unsubPayments: Unsubscribe | null = null
 
     const emit = () => {
       if (!active) return
-      const assembled: NightclubAccount[] = rawAccounts.map(raw => {
-        const accountId = raw.id
-        const accRounds = rounds.filter(r => (r as unknown as { accountId: string }).accountId === accountId)
-        const accPayments = payments.filter(p => (p as unknown as { accountId: string }).accountId === accountId)
-        return {
-          ...(raw as unknown as NightclubAccount),
-          id: accountId,
-          rounds: accRounds,
-          payments: accPayments,
-          payment: accPayments.at(-1),
-        }
-      })
+      const assembled = assembleOperationalAccounts(openAccounts, closedAccounts, rounds, payments)
       listener(assembled)
     }
 
@@ -151,17 +148,26 @@ export class TenantNightclubRepository implements NightclubRepository {
       const roundsRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubRounds')
       const paymentsRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubPayments')
 
-      unsubAcc = onSnapshot(
+      unsubOpen = onSnapshot(
         query(accRef, where('branchId', '==', this.branchId), where('status', 'in', ['open', 'bill_requested'])),
         snap => {
-          rawAccounts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
+          openAccounts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
+          emit()
+        },
+        () => {}
+      )
+
+      unsubClosed = onSnapshot(
+        query(accRef, where('branchId', '==', this.branchId), where('status', '==', 'closed'), fsLimit(50)),
+        snap => {
+          closedAccounts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
           emit()
         },
         () => {}
       )
 
       unsubRounds = onSnapshot(
-        query(roundsRef, where('branchId', '==', this.branchId)),
+        query(roundsRef, where('branchId', '==', this.branchId), fsLimit(200)),
         snap => {
           rounds = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubRound))
           emit()
@@ -170,7 +176,7 @@ export class TenantNightclubRepository implements NightclubRepository {
       )
 
       unsubPayments = onSnapshot(
-        query(paymentsRef, where('branchId', '==', this.branchId)),
+        query(paymentsRef, where('branchId', '==', this.branchId), fsLimit(200)),
         snap => {
           payments = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubPayment))
           emit()
@@ -181,10 +187,15 @@ export class TenantNightclubRepository implements NightclubRepository {
 
     return () => {
       active = false
-      if (unsubAcc) unsubAcc()
+      if (unsubOpen) unsubOpen()
+      if (unsubClosed) unsubClosed()
       if (unsubRounds) unsubRounds()
       if (unsubPayments) unsubPayments()
     }
+  }
+
+  subscribeOpenAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe {
+    return this.subscribeOperationalAccounts(listener)
   }
 
   subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void): Unsubscribe {
@@ -221,21 +232,22 @@ export class TenantNightclubRepository implements NightclubRepository {
 
       unsubState = onSnapshot(stateRef, snap => {
         if (!active) return
-        const activeShiftId = snap.data()?.activeShiftId || null
-        if (activeShiftId === currentShiftId) return
-        currentShiftId = activeShiftId
+        const data = snap.data()
+        const shiftIdToTrack = resolveShiftIdToTrack(data)
+        if (shiftIdToTrack === currentShiftId) return
+        currentShiftId = shiftIdToTrack
 
         if (unsubShift) {
           unsubShift()
           unsubShift = null
         }
 
-        if (!activeShiftId) {
+        if (!shiftIdToTrack) {
           listener(null)
           return
         }
 
-        const shiftRef = doc(ctx.db, 'tenants', this.tenantId, 'nightclubShifts', activeShiftId)
+        const shiftRef = doc(ctx.db, 'tenants', this.tenantId, 'nightclubShifts', shiftIdToTrack)
         unsubShift = onSnapshot(shiftRef, shiftSnap => {
           if (!active) return
           if (!shiftSnap.exists()) {
