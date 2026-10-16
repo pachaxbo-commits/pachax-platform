@@ -5,7 +5,7 @@ import type {
   PrintJobPayload,
   PrintResult,
   PrintTransportPayload,
-} from '../../types/printing'
+} from '../../types/printing.ts'
 
 const escapeHtml = (val: unknown): string =>
   String(val ?? '')
@@ -192,6 +192,7 @@ export function buildReceiptHtml(payload: PrintJobPayload, paperWidth: '58mm' | 
   ${payload.paymentDetails?.length ? payload.paymentDetails.map(d => `<div class="text-right" style="font-size: 11px;">${escapeHtml(d)}</div>`).join('') : ''}
   <div class="separator"></div>
   <div class="text-center" style="margin-top: 6px; font-size: 11px;">${escapeHtml(payload.footerMessage || '¡Gracias por su preferencia!')}</div>
+  ${payload.showManagedBy !== false ? '<div class="text-center" style="margin-top: 4px; font-size: 9px; color: #555;">Gestionado con PACHAX</div>' : ''}
 </body>
 </html>`
 }

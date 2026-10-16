@@ -150,6 +150,7 @@ export interface PrintJobPayload {
   reprintCount?: number
   customMessage?: string
   footerMessage?: string
+  showManagedBy?: boolean
   copies: number
   createdIso: string
 }

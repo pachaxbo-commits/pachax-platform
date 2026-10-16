@@ -780,6 +780,7 @@ export function RestaurantExperience({
                   grandTotal: viewingReceiptOrder.total,
                   paymentMethod: viewingReceiptOrder.paymentMethod || 'PAGADO',
                   footerMessage: documentContext.receiptFooter,
+                  showManagedBy: documentContext.showManagedBy,
                   isCopy: false,
                   copies: 1,
                   createdIso: new Date().toISOString(),

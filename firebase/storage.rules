@@ -1,15 +1,20 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Tenant branding assets (logos) and product images
-    match /tenants/{tenantId}/{allPaths=**} {
-      // Logos and product images can be read for storefronts and receipts
+    // Tenant branding assets (logos, receipt headers)
+    match /tenants/{tenantId}/branding/{allPaths=**} {
+      // Public read so logos can be displayed on public storefronts, receipts and previews
       allow read: if true;
-      // Write allowed only for authenticated active members of the tenant
+
+      // Write (upload, modify, delete) restricted strictly to active owner or admin of the tenant
       allow write: if request.auth != null
         && firestore.exists(/databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid))
-        && request.resource.size < 2 * 1024 * 1024
-        && request.resource.contentType.matches('image/(jpeg|png|webp|svg\\+xml)');
+        && firestore.get(/databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid)).data.status == 'active'
+        && firestore.get(/databases/(default)/documents/tenants/$(tenantId)/members/$(request.auth.uid)).data.roleId in ['owner', 'admin']
+        && (request.method == 'delete' || (
+          request.resource.size <= 2 * 1024 * 1024
+          && request.resource.contentType.matches('image/(jpeg|png|webp|svg\\+xml)')
+        ));
     }
 
     // Fail closed on everything else

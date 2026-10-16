@@ -14,6 +14,9 @@ import {
   type CanonicalReceiptData,
 } from '../src/core/receiptService.ts'
 import { BusinessTemplateRegistry } from '../src/core/templates.ts'
+import { buildReceiptHtml } from '../src/adapters/printing/browserDialogPrinterAdapter.ts'
+import { buildReceiptBytes } from '../src/services/printing/templates/receiptTemplate.ts'
+import type { PrintJobPayload } from '../src/types/printing.ts'
 
 test('normalizeBusinessIdentity: assigns canonical defaults and maps tenant branding gracefully', () => {
   const empty = normalizeBusinessIdentity({})
@@ -258,4 +261,104 @@ test('Public Role Simulation: uses BusinessTemplateRegistry without state destru
   assert.equal(simulatedRole, 'waiter')
   assert.equal(localOrders.length, 1)
   assert.equal(localOrders[0].total, 50)
+})
+
+test('Restaurant Thermal Ticket: consumes real tenant BusinessIdentity fields without hardcoded strings', () => {
+  const identity: BusinessIdentity = {
+    ...DEFAULT_BUSINESS_IDENTITY,
+    tradeName: 'Parrilla Central Los Amigos',
+    taxId: '998877665',
+    showTaxId: true,
+    address: 'Av. San Martin 100',
+    city: 'Cochabamba',
+    showAddress: true,
+    phone: '44556677',
+    whatsapp: '77889900',
+    showPhone: true,
+    receiptHeader: 'El mejor sabor a la parrilla',
+    receiptFooter: 'Gracias por su preferencia',
+    showManagedBy: true,
+  }
+
+  const docContext = buildBusinessDocumentContext(identity, { branchName: 'Sucursal Central' })
+
+  const payload: PrintJobPayload = {
+    payloadSchemaVersion: 1,
+    templateVersion: 'v1.0',
+    restaurantName: docContext.companyName,
+    branchName: docContext.branchName || 'Principal',
+    branchAddress: docContext.address,
+    branchPhone: docContext.phone,
+    logoUrl: docContext.logoUrl,
+    headerDetails: docContext.formattedHeaderLines,
+    displayNumber: 'T-101',
+    tableInfo: 'Mesa 5',
+    fulfillmentType: 'table',
+    items: [{ name: 'Bife de chorizo', quantity: 1, basePrice: 85, lineTotal: 85 }],
+    subtotal: 85,
+    discountTotal: 0,
+    taxTotal: 0,
+    deliveryFee: 0,
+    grandTotal: 85,
+    paymentMethod: 'EFECTIVO',
+    footerMessage: docContext.receiptFooter,
+    showManagedBy: docContext.showManagedBy,
+    isCopy: false,
+    copies: 1,
+    createdIso: '2026-10-16T12:00:00.000Z',
+  }
+
+  // 1. Verify Browser HTML Thermal Output (58mm / 80mm)
+  const htmlOutput = buildReceiptHtml(payload, '80mm')
+  assert.ok(htmlOutput.includes('Parrilla Central Los Amigos'), 'HTML receipt must include tradeName')
+  assert.ok(htmlOutput.includes('El mejor sabor a la parrilla'), 'HTML receipt must include custom receiptHeader')
+  assert.ok(htmlOutput.includes('NIT: 998877665'), 'HTML receipt must include NIT when showTaxId is true')
+  assert.ok(htmlOutput.includes('Av. San Martin 100, Cochabamba'), 'HTML receipt must include address and city')
+  assert.ok(htmlOutput.includes('Tel: 44556677'), 'HTML receipt must include phone')
+  assert.ok(htmlOutput.includes('WhatsApp: 77889900'), 'HTML receipt must include WhatsApp')
+  assert.ok(htmlOutput.includes('Gracias por su preferencia'), 'HTML receipt must include receiptFooter')
+  assert.ok(htmlOutput.includes('Gestionado con PACHAX'), 'HTML receipt must include showManagedBy notice')
+
+  // 2. Verify ESC/POS Bytes Output
+  const rawBytes = buildReceiptBytes(payload, '80mm')
+  const escPosText = new TextDecoder('latin1').decode(rawBytes)
+  assert.ok(escPosText.includes('Parrilla Central Los Amigos'), 'ESC/POS ticket must include tradeName')
+  assert.ok(escPosText.includes('El mejor sabor a la parrilla'), 'ESC/POS ticket must include receiptHeader')
+  assert.ok(escPosText.includes('NIT: 998877665'), 'ESC/POS ticket must include NIT')
+  assert.ok(escPosText.includes('Av. San Martin 100, Cochabamba'), 'ESC/POS ticket must include address')
+  assert.ok(escPosText.includes('Tel: 44556677'), 'ESC/POS ticket must include phone')
+  assert.ok(escPosText.includes('Gracias por su preferencia'), 'ESC/POS ticket must include receiptFooter')
+  assert.ok(escPosText.includes('Gestionado con PACHAX'), 'ESC/POS ticket must include showManagedBy notice')
+
+  // 3. Verify toggles OFF: privacy toggles suppress fields in thermal ticket
+  const privateIdentity: BusinessIdentity = {
+    ...identity,
+    showTaxId: false,
+    showAddress: false,
+    showPhone: false,
+    showManagedBy: false,
+  }
+  const privateDocContext = buildBusinessDocumentContext(privateIdentity, { branchName: 'Sucursal Central' })
+  const privatePayload: PrintJobPayload = {
+    ...payload,
+    restaurantName: privateDocContext.companyName,
+    branchAddress: privateDocContext.address,
+    branchPhone: privateDocContext.phone,
+    headerDetails: privateDocContext.formattedHeaderLines,
+    footerMessage: privateDocContext.receiptFooter,
+    showManagedBy: privateDocContext.showManagedBy,
+  }
+
+  const privateHtml = buildReceiptHtml(privatePayload, '80mm')
+  assert.ok(!privateHtml.includes('NIT:'), 'HTML receipt must suppress NIT when showTaxId is false')
+  assert.ok(!privateHtml.includes('Cochabamba'), 'HTML receipt must suppress address when showAddress is false')
+  assert.ok(!privateHtml.includes('44556677'), 'HTML receipt must suppress phone when showPhone is false')
+  assert.ok(!privateHtml.includes('Gestionado con PACHAX'), 'HTML receipt must suppress footer branding when showManagedBy is false')
+
+  const privateBytes = buildReceiptBytes(privatePayload, '80mm')
+  const privateEscPos = new TextDecoder('latin1').decode(privateBytes)
+  assert.ok(!privateEscPos.includes('NIT:'), 'ESC/POS ticket must suppress NIT when showTaxId is false')
+  assert.ok(!privateEscPos.includes('Cochabamba'), 'ESC/POS ticket must suppress address when showAddress is false')
+  assert.ok(!privateEscPos.includes('44556677'), 'ESC/POS ticket must suppress phone when showPhone is false')
+  assert.ok(!privateEscPos.includes('Gestionado con PACHAX'), 'ESC/POS ticket must suppress footer branding when showManagedBy is false')
 })

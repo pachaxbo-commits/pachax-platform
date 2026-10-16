@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { getBusinessTypeDefinition } from '../../../config/businessTypes'
 import { applyTenantTheme } from '../../../lib/tenantTheme'
 import { updateRestaurantBranding } from '../../../lib/firebase'
@@ -57,7 +57,10 @@ import {
 } from '../../../services/printing/printerBootstrap'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import type { PrintJobPayload } from '../../../types/printing'
-import type { BusinessIdentity } from '../../../core/businessIdentity'
+import {
+  type BusinessIdentity,
+  buildBusinessDocumentContext,
+} from '../../../core/businessIdentity'
 import {
   uploadTenantLogoToFirebase,
   updateTenantBusinessIdentity,
@@ -133,6 +136,16 @@ export function RestaurantApp({
   const handleUploadLogo = async (file: File) => {
     return await uploadTenantLogoToFirebase(file, tenantId)
   }
+
+  const documentContext = useMemo(
+    () =>
+      buildBusinessDocumentContext(activeIdentity, {
+        companyName: activeIdentity?.tradeName || companyName || restaurantName || 'PACHAX Restaurante',
+        logoUrl: activeIdentity?.showLogo !== false ? (activeIdentity?.logoUrl || logoUrl) : undefined,
+        branchName: 'Principal',
+      }),
+    [activeIdentity, companyName, restaurantName, logoUrl]
+  )
 
   useEffect(() => {
     applyTenantTheme(definition.theme)
@@ -628,11 +641,16 @@ export function RestaurantApp({
                   payload: {
                     payloadSchemaVersion: 1,
                     templateVersion: 'v1.0',
-                    restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
-                    branchName: 'Principal',
+                    restaurantName: documentContext.companyName,
+                    branchName: documentContext.branchName || 'Principal',
+                    branchAddress: documentContext.address,
+                    branchPhone: documentContext.phone,
+                    logoUrl: documentContext.logoUrl,
+                    headerDetails: documentContext.formattedHeaderLines,
                     displayNumber: paidOrder.displayNumber || paidOrder.id.slice(-4),
                     tableInfo: paidOrder.tableInfo || 'MOSTRADOR',
                     customerName: paidOrder.customerName,
+                    customerPhone: paidOrder.customerPhone,
                     fulfillmentType: paidOrder.fulfillmentType || 'table',
                     items: paidOrder.items.map((item) => ({
                       name: item.name,
@@ -646,7 +664,8 @@ export function RestaurantApp({
                     deliveryFee: 0,
                     grandTotal: paidOrder.total,
                     paymentMethod: input.method === 'cash' ? 'EFECTIVO' : input.method === 'qr' ? 'QR' : input.method === 'card' ? 'TARJETA' : 'MIXTO',
-                    footerMessage: '¡Gracias por su visita!',
+                    footerMessage: documentContext.receiptFooter,
+                    showManagedBy: documentContext.showManagedBy,
                     isCopy: false,
                     copies: 1,
                     createdIso: new Date().toISOString(),
@@ -694,11 +713,16 @@ export function RestaurantApp({
                   payload: {
                     payloadSchemaVersion: 1,
                     templateVersion: 'v1.0',
-                    restaurantName: companyName || restaurantName || 'PACHAX Restaurante',
-                    branchName: 'Principal',
+                    restaurantName: documentContext.companyName,
+                    branchName: documentContext.branchName || 'Principal',
+                    branchAddress: documentContext.address,
+                    branchPhone: documentContext.phone,
+                    logoUrl: documentContext.logoUrl,
+                    headerDetails: documentContext.formattedHeaderLines,
                     displayNumber: targetOrder.displayNumber || targetOrder.id.slice(-4),
                     tableInfo: targetTable?.name || 'MESA',
                     customerName: targetOrder.customerName,
+                    customerPhone: targetOrder.customerPhone,
                     fulfillmentType: 'table',
                     items: targetOrder.items.map((item) => ({
                       name: item.name,
@@ -711,7 +735,9 @@ export function RestaurantApp({
                     taxTotal: 0,
                     deliveryFee: 0,
                     grandTotal: targetOrder.total,
-                    footerMessage: 'PRE-CUENTA DE MESA (NO VALIDO COMO FACTURA)',
+                    customMessage: 'PRE-CUENTA DE MESA (NO VALIDO COMO FACTURA)',
+                    footerMessage: documentContext.receiptFooter,
+                    showManagedBy: documentContext.showManagedBy,
                     isCopy: false,
                     copies: 1,
                     createdIso: new Date().toISOString(),
