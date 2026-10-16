@@ -1,5 +1,27 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Simulación de Roles Restaurante, Selector de Variante en Landing y Depuración de Roles Nightclub (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD verificado en `7f7317e` al iniciar, commit final `2f7700d` pusheado a `origin/cambios-dario`).
+- **Objetivo Cumplido**:
+  1. **Simulación Reactiva de Roles en Demo Pública de Restaurante (`src/demo/main.tsx`, `src/demo/restaurant/RestaurantDemo.tsx`, `src/modules/restaurant/views/RestaurantExperience.tsx`)**:
+     - Corregido el bug donde la barra superior simulaba el rol pero `DemoRuntime` forzaba `mode="team"`, provocando que `session.role` recibiera `'team'` y mostrara todos los módulos como administrador.
+     - Ahora `DemoRuntime` pasa `mode="simulated_role"` en demo pública y `RestaurantDemo` asigna directamente `simulatedRole` a `session.role` (`owner`, `admin`, `cashier`, `waiter`, `kitchen`, `inventory`).
+     - Al alternar el rol, `RestaurantExperience` evalúa los módulos permitidos: si el módulo actual queda fuera de permisos (ej. de Administrador en 'Configuración' a 'Mesero'), redirige inmediatamente al primer módulo permitido ('POS') sin recargar la página, sin resetear el estado local y sin alterar producción.
+  2. **Selector Modal de Variantes de Restaurante en Landing (`src/public/landing/TemplateModeSelectorModal.tsx`)**:
+     - Al hacer click en "Probar demo" en Restaurante (Hero carousel, Coverflow, catálogo y vistas mobile), se despliega un flujo en 2 pasos:
+       - **Paso 1**: "¿Qué tipo de restaurante quieres probar?" con tarjetas para `Restaurante con salón` (`restaurant`) y `Restaurante de servicio rápido` (`hamburger`).
+       - **Paso 2**: "¿Cómo quieres explorar esta solución?" ofreciendo `Ver negocio completo` (`?data=full`) o `Empezar desde cero` (`?data=empty`), con botón para volver al Paso 1.
+  3. **Nightclub: Eliminación de "Relacionador" como rol de login / usuario (`src/core/templates.ts`, `src/modules/nightclub/domain/nightclubUsers.ts`)**:
+     - Retirado `promoter` de los roles del registro de plantilla `nightclub_lounge` y de `NIGHTCLUB_USER_ROLES`.
+     - Ya no aparece en la barra de roles de demo ni en el selector para crear usuarios del staff. El dominio comercial de promotores, comisiones y liquidación se conserva intacto.
+  4. **Validaciones**:
+     - `npm run test:restaurant`: 58/58 superados.
+     - `npm run test:platform`: 56/56 superados (incluyendo suite de simulación y ticket térmico).
+     - `npm run typecheck`: 0 errores.
+     - `npm run build`: compilación de producción exitosa.
+     - `git diff --check`: 0 errores.
+
 ## Checkpoint: P1 + P2 + P3 + P4 - Identidad de Empresa Canónica, Documentos, Recibos y Simulación Pública de Roles (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD verificado en `c51f692` al iniciar este bloque).
