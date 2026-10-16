@@ -9,7 +9,7 @@ export type NightclubUserRole = NightclubBuiltinRole | `custom:${string}`
 export const NIGHTCLUB_USER_ROLES: ReadonlyArray<{ id: NightclubBuiltinRole; label: string }> = [
   { id: 'admin', label: 'Administrador' }, { id: 'partner', label: 'Socio / Dueño' },
   { id: 'waiter', label: 'Mesero' }, { id: 'cashier', label: 'Cajero' },
-  { id: 'bar', label: 'Barra' }, { id: 'promoter', label: 'Relacionador' },
+  { id: 'bar', label: 'Barra' },
   { id: 'supervisor', label: 'Supervisor' }, { id: 'inventory', label: 'Encargado de inventario' },
   { id: 'service', label: 'Servicio' },
 ]

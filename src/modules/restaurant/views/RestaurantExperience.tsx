@@ -360,6 +360,14 @@ export function RestaurantExperience({
     ? currentModule
     : visibleModules[0]?.id ?? 'dashboard'
 
+  useEffect(() => {
+    if (visibleModules.length > 0 && !visibleModules.some((m) => m.id === currentModule)) {
+      const fallback = visibleModules[0].id
+      setCurrentModule(fallback)
+      onModuleChange?.(fallback)
+    }
+  }, [visibleModules, currentModule, onModuleChange])
+
   const isSecondaryActive = useMemo(() => {
     return secondaryModules.some((m) => m.id === activeModule)
   }, [secondaryModules, activeModule])

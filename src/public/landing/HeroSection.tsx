@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { ArrowRight, MessageSquareCode } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateCoverflow } from './TemplateCoverflow'
 import { ActiveTemplateDetail } from './ActiveTemplateDetail'
+import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../admin/types'
 
@@ -26,7 +28,13 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
     }
   }
 
+  const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
+
   const handleSelectActiveCard = (template: CommercialTemplateItem) => {
+    if (template.id === 'restaurant' || template.templateId === 'restaurant') {
+      setSelectedForModal(template)
+      return
+    }
     if (template.demoRoute.startsWith('/demo/')) {
       window.location.assign(template.demoRoute)
     } else if (template.demoRoute.startsWith('http')) {
@@ -154,10 +162,15 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
         {/* Detalle de la Plantilla Activa: En Mobile y Tablet aparece inmediatamente debajo del Coverflow */}
         {activeTemplate && (
           <div className="lg:hidden mt-4 sm:mt-6 max-w-xl mx-auto">
-            <ActiveTemplateDetail template={activeTemplate} />
+            <ActiveTemplateDetail template={activeTemplate} onSelectDemo={handleSelectActiveCard} />
           </div>
         )}
       </div>
+
+      <TemplateModeSelectorModal
+        item={selectedForModal}
+        onClose={() => setSelectedForModal(null)}
+      />
     </section>
   )
 }

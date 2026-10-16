@@ -3,6 +3,7 @@ import { ArrowRight, Eye, CheckCircle2 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../admin/types'
 import { usePublicRouter } from '../routing/usePublicRouter'
+import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 
 export function FeaturedTemplatesCatalog() {
   const { navigate } = usePublicRouter()
@@ -23,7 +24,13 @@ export function FeaturedTemplatesCatalog() {
     return tpl.id === selectedFilter
   })
 
+  const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
+
   const handleLaunchDemo = (tpl: CommercialTemplateItem) => {
+    if (tpl.id === 'restaurant' || tpl.templateId === 'restaurant') {
+      setSelectedForModal(tpl)
+      return
+    }
     if (tpl.demoRoute.startsWith('/demo/')) {
       // Navegación canónica de documento hacia demo.html
       window.location.assign(tpl.demoRoute)
@@ -194,6 +201,11 @@ export function FeaturedTemplatesCatalog() {
           ))}
         </div>
       </div>
+
+      <TemplateModeSelectorModal
+        item={selectedForModal}
+        onClose={() => setSelectedForModal(null)}
+      />
     </section>
   )
 }

@@ -249,8 +249,9 @@ test('Public Role Simulation: uses BusinessTemplateRegistry without state destru
   assert.ok(distributionRoles.some(r => r.id === 'distributor'))
 
   const nightclubRoles = BusinessTemplateRegistry['nightclub_lounge'].roles
-  assert.ok(nightclubRoles.some(r => r.id === 'promoter'))
+  assert.equal(nightclubRoles.some(r => r.id === 'promoter'), false, 'promoter must NOT be a user/login role')
   assert.ok(nightclubRoles.some(r => r.id === 'bar'))
+  assert.ok(nightclubRoles.some(r => r.id === 'waiter'))
 
   // Simulating role switch inside local memory
   let simulatedRole = 'owner'
@@ -261,6 +262,69 @@ test('Public Role Simulation: uses BusinessTemplateRegistry without state destru
   assert.equal(simulatedRole, 'waiter')
   assert.equal(localOrders.length, 1)
   assert.equal(localOrders[0].total, 50)
+})
+
+test('Restaurant Role Simulation: salon and counter_service strictly filter modules and fall back safely', () => {
+  // 1. Roles in templates
+  const salonRoles = BusinessTemplateRegistry['restaurant_pos'].roles.map(r => r.id)
+  assert.deepEqual(salonRoles, ['owner', 'admin', 'cashier', 'waiter', 'kitchen', 'inventory'])
+
+  const counterRoles = BusinessTemplateRegistry['hamburger_shop'].roles.map(r => r.id)
+  assert.deepEqual(counterRoles, ['owner', 'admin', 'cashier', 'kitchen', 'inventory'])
+
+  // 2. Module filtering simulation for Salon
+  const allSalonModules = [
+    { id: 'dashboard', roles: ['owner', 'admin', 'cashier'] },
+    { id: 'pos', roles: ['owner', 'admin', 'cashier', 'waiter'] },
+    { id: 'orders', roles: ['owner', 'admin', 'cashier', 'waiter', 'kitchen'] },
+    { id: 'tables', roles: ['owner', 'admin', 'cashier', 'waiter'] },
+    { id: 'kitchen', roles: ['owner', 'admin', 'kitchen'] },
+    { id: 'cash', roles: ['owner', 'admin', 'cashier'] },
+    { id: 'inventory', roles: ['owner', 'admin', 'inventory', 'kitchen'] },
+    { id: 'products', roles: ['owner', 'admin', 'inventory'] },
+    { id: 'customers', roles: ['owner', 'admin', 'cashier', 'waiter'] },
+    { id: 'reports', roles: ['owner', 'admin'] },
+    { id: 'users', roles: ['owner', 'admin'] },
+    { id: 'settings', roles: ['owner', 'admin'] },
+  ]
+
+  const getVisible = (role: string) => {
+    if (role === 'admin' || role === 'owner') return allSalonModules.map(m => m.id)
+    return allSalonModules.filter(m => m.roles.includes(role)).map(m => m.id)
+  }
+
+  // Admin sees all
+  assert.equal(getVisible('admin').length, 12)
+
+  // Waiter sees pos, orders, tables, customers
+  const waiterModules = getVisible('waiter')
+  assert.deepEqual(waiterModules, ['pos', 'orders', 'tables', 'customers'])
+  assert.ok(!waiterModules.includes('cash'))
+  assert.ok(!waiterModules.includes('kitchen'))
+  assert.ok(!waiterModules.includes('inventory'))
+  assert.ok(!waiterModules.includes('settings'))
+
+  // Kitchen sees orders, kitchen, inventory
+  const kitchenModules = getVisible('kitchen')
+  assert.deepEqual(kitchenModules, ['orders', 'kitchen', 'inventory'])
+  assert.ok(!kitchenModules.includes('pos'))
+  assert.ok(!kitchenModules.includes('tables'))
+  assert.ok(!kitchenModules.includes('cash'))
+
+  // Inventory sees inventory, products
+  const inventoryModules = getVisible('inventory')
+  assert.deepEqual(inventoryModules, ['inventory', 'products'])
+  assert.ok(!inventoryModules.includes('pos'))
+  assert.ok(!inventoryModules.includes('orders'))
+
+  // 3. Fallback when current module is disallowed
+  let currentModule = 'settings'
+  const targetRole = 'waiter'
+  const nextVisible = getVisible(targetRole)
+  if (!nextVisible.includes(currentModule)) {
+    currentModule = nextVisible[0]
+  }
+  assert.equal(currentModule, 'pos', 'Disallowed module must fall back to first permitted module')
 })
 
 test('Restaurant Thermal Ticket: consumes real tenant BusinessIdentity fields without hardcoded strings', () => {

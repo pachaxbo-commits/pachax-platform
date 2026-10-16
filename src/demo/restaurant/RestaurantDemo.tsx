@@ -489,7 +489,8 @@ export function RestaurantDemo({
   }
 
   const handleFloorAction = (action: FloorAction): { ok: boolean; error?: string } => {
-    if (!['admin', 'owner', 'team'].includes(mode === 'team' ? 'team' : simulatedRole)) return { ok: false, error: 'No tienes permiso para administrar el salón.' }
+    const roleForAction = isStudio && mode === 'team' ? 'team' : (simulatedRole || 'admin')
+    if (!['admin', 'owner', 'team'].includes(roleForAction)) return { ok: false, error: 'No tienes permiso para administrar el salón.' }
     try {
       const next = applyRestaurantFloorAction(tables, sectors, action, new Date().toISOString())
       updateTables(() => next.tables)
@@ -1171,12 +1172,31 @@ export function RestaurantDemo({
     })
   })
 
+  const sessionRole = isStudio
+    ? (mode === 'team' ? 'team' : (simulatedRole || 'admin'))
+    : (simulatedRole || 'admin')
+
+  const effectiveUserName =
+    simulatedRole === 'owner'
+      ? 'Dueño'
+      : simulatedRole === 'admin'
+      ? 'Administrador'
+      : simulatedRole === 'cashier'
+      ? 'Caja'
+      : simulatedRole === 'waiter'
+      ? 'Mesero'
+      : simulatedRole === 'kitchen'
+      ? 'Cocina'
+      : simulatedRole === 'inventory'
+      ? 'Inventario'
+      : cashierName
+
   const session: RestaurantSession = {
     tenantId: sessionTenantId,
     restaurantName: companyName || (profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'),
     uid: isStudio ? 'studio-cashier-uid' : 'demo-cashier-uid',
-    userName: cashierName,
-    role: mode === 'team' ? 'team' : simulatedRole || 'admin',
+    userName: effectiveUserName,
+    role: sessionRole,
   }
 
   return (
