@@ -85,7 +85,9 @@ class Operation {
     const key = `${col}/${id}`;
     if (!this.cache.has(key)) {
       const snap = await this.tx.get(this.ref(col, id));
-      this.cache.set(key, snap.exists ? { ...snap.data(), id: snap.id } : null);
+      const raw = snap.exists ? { ...snap.data(), id: snap.id } : null;
+      const data = raw && col === "members" && this.root.parent.id === "tenants" ? legacyMember(raw) : raw;
+      this.cache.set(key, data);
     }
     return this.cache.get(key);
   }

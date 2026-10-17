@@ -33,7 +33,11 @@ function branding(input = {}, existing = { primary: '#20383A', accent: '#B58A55'
     if (typeof input.logoUrl === 'string' && input.logoUrl.startsWith('data:image') && input.logoUrl.length > 1000) {
       throw new HttpsError('invalid-argument', 'No se permite guardar imágenes en base64 en la base de datos.');
     }
-    result.logoUrl = typeof input.logoUrl === 'string' && input.logoUrl.trim() ? input.logoUrl.trim().slice(0, 500) : undefined;
+    if (typeof input.logoUrl === 'string' && input.logoUrl.trim()) {
+      result.logoUrl = input.logoUrl.trim().slice(0, 500);
+    } else {
+      delete result.logoUrl;
+    }
   }
   // White text is used on primary buttons. Require WCAG AA contrast.
   const channels = result.primary.slice(1).match(/../g).map(v => parseInt(v, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
@@ -183,8 +187,12 @@ function settingsPatch(tenant, input) {
       ...(patch.branding || tenant.branding || {}),
       primary: ident.primaryColor,
       accent: ident.accentColor,
-      logoUrl: ident.logoUrl || undefined,
     };
+    if (ident.logoUrl) {
+      patch.branding.logoUrl = ident.logoUrl;
+    } else {
+      delete patch.branding.logoUrl;
+    }
   }
   patch.configuration = configuration(input, tenant.configuration);
   if (input.features !== undefined) {

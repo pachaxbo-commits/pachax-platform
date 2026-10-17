@@ -1,5 +1,46 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: Distribution Release Gate — Validación Web Real Pre-Release (17/10/2026)
+
+- **Rama**: `cambios-dario`.
+- **Objetivos Cumplidos**:
+  1. **Validación Integral de Principio a Fin (93/93 checks PASS)**:
+     - Ejecución de la suite `scripts/run-distribution-release-gate-e2e.mjs` en emuladores de Firebase (`demo-pachax-platform`).
+     - Creación de tenant real desde cero (`t_...`) con plantilla `route_distribution`, dueño, roles, sucursal principal y auditoría de onboarding.
+     - Persistencia de Business Identity canónica (`Distribuidora Aurora`, NIT `123456789`) sin defaults espurios de "PACHAX".
+     - Configuración operativa real (`supportConfig`): creación/edición restringida a Admin/Dueño, lectura para Soporte, escritura rechazada con `assertFails`.
+     - Catálogo mixto: Carne (pesable por kg con merma) y Bebida (unidades discretas).
+     - Permisos y aislamiento por rol: Almacén solo lectura y recepción (no ventas); Distribuidor restringido a su ruta asignada (no catálogos); Soporte sin acceso a ventas, clientes ni cierres.
+     - Despacho físico D1: 80 kg normal + 2.30 kg merma = 82.30 kg total cargado en camión; sobre-despacho de 500 kg rechazado por stock insuficiente.
+     - Venta al contado (70 kg @ Bs 10 = Bs 700 en efectivo) con descuento exacto de stock físico.
+     - Venta a crédito y cartera: 3 deudas consecutivas para Doña Ana (10 u = Bs 100, 5 u = Bs 50, 8 u = Bs 80) totalizando Bs 230 de cartera abierta.
+     - Cobro mixto FIFO: Bs 170 (70 efectivo + 100 QR) amortizando Deuda 1 (saldo 0), Deuda 2 (saldo 0) y Deuda 3 (saldo restante Bs 60).
+     - Verificación QR mixto: helper `collectionQrAmount` devuelve Bs 100 (rechaza Bs 170 y acepta Bs 100 en Firestore Rules).
+     - Cobro individual vs FIFO: cobro puntual a Deuda Y reduce Y sin alterar la deuda anterior X; cobro FIFO amortiza X.
+     - Venta cortesía/muestra: 2 u con total Bs 0.00, consumo físico de stock y sin alteración de caja.
+     - Control de crédito y excepciones: cliente en mora bloqueado para crédito pero autorizado para contado; excepción administrativa `creditOverride` otorgada, venta a crédito confirmada, y bloqueo restaurado tras revocación.
+     - Gasto operativo de ruta: Bs 50 combustible, caja neta esperada en ruta exactamente Bs 720.
+     - Retorno físico en dos pasos: declaración de distribuidor (10 kg normal, 1 kg merma, 1 kg no apto justificado) y pesaje/recepción independiente de almacén restaurando exactamente el stock físico apto a bodega central.
+     - Cierre monetario exacto: conciliación con diferencia cero (Bs 720 entregados vs Bs 720 calculados).
+     - Reapertura segura vs insegura: venta en despacho cerrado rechazada; reapertura sin motivo o por distribuidor rechazada (`permission-denied`); reapertura administrativa auditada confirmada restableciendo estado `open`.
+     - Documentos, recibos canónicos y PDF: `distSaleToReceiptData`, `distCollectionToReceiptData` con desglose FIFO de pagos, y generación de PDF térmico de 80mm vía `generateReceiptPdf` produciendo bytes válidos.
+     - Configuración de impresora multi-tenant: claves en LocalStorage estrictamente segregadas por `tenantId` (`pachax:printers:{tenantId}:{branchId}`).
+     - Entrega limpia y migración: `prepareCleanDelivery` y `executeCleanDelivery` purgan el historial operativo conservando catálogo, usuarios y almacenes, con respaldo encriptado previo (`status: complete`).
+  2. **Correcciones de Bloqueadores Reales**:
+     - `functions/tenants.cjs`: eliminación de propiedades `undefined` en `patch.branding.logoUrl` para evitar fallo HTTP 500 del SDK Node de Firestore al guardar identidad sin logotipo.
+     - `functions/operations.cjs`: normalización con `legacyMember` al leer miembros en `o.read('members', ...)` para mapear `{ roleId, status, routeIds }` de tenants multiempresa.
+     - `firebase/tests/serverOperations.test.mjs`: alineada prueba de `supportConfig` donde soporte técnico es solo lectura.
+- **Validaciones**:
+  - `Release Gate E2E Suite`: 93/93 comprobaciones aprobadas.
+  - `npm run test:distribution`: 55/55 pruebas aprobadas.
+  - `npm run test:reports`: 1/1 prueba aprobada.
+  - `npm run test:platform`: 130/130 pruebas aprobadas.
+  - `npm run test:tenant-core`: 65 comprobaciones multiempresa aprobadas.
+  - `serverOperations.test.mjs` en emuladores: 101/101 comprobaciones aprobadas.
+  - `npm run typecheck` (`tsc -b`): 0 errores.
+  - `npm run build`: 0 errores (bundle limpio en 4.60s).
+  - `git diff --check`: 0 errores.
+
 ## Checkpoint: D3.1 - Distribución: Fallback de Identidad, Reglas de Configuración y Contexto Dinámico de Impresoras (17/10/2026)
 
 - **Rama**: `cambios-dario`.

@@ -211,9 +211,11 @@ try {
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distProducts')));checks++
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distClosures')));checks++
  await assertFails(getDoc(doc(supportClient,'restaurants','pachax','distClosures',`closure_${dispatch.id}`)));checks++
- const supportSettings={restaurantId:'pachax',companyName:'PACHAX',taxId:'123',address:'QA',phone:'70000000',receiptHeader:'PACHAX',receiptFooter:'Gracias',expiryAlertDays:14,creditBlockDays:7,requireQrVerification:true,defaultPaperWidth:'80mm',updatedAt:new Date().toISOString(),updatedBy:support}
- await setDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'),supportSettings);checks++
- ok((await getDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'))).data().creditBlockDays===7,'Soporte solo puede leer y guardar configuración técnica')
+ const supportSettings={restaurantId:'pachax',expiryAlertDays:14,creditBlockDays:7,requireQrVerification:true,updatedAt:new Date().toISOString(),updatedBy:support}
+ await assertFails(setDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'),supportSettings));checks++
+ const adminSettings={restaurantId:'pachax',expiryAlertDays:14,creditBlockDays:7,requireQrVerification:true,updatedAt:new Date().toISOString(),updatedBy:admin}
+ await setDoc(doc(adminClient,'restaurants','pachax','supportConfig','main'),adminSettings);checks++
+ ok((await getDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'))).data().creditBlockDays===7,'Soporte puede leer configuración técnica pero no modificarla')
  const warehouseClient=env.authenticatedContext(warehouse).firestore()
  for (const [role, roleClient] of [['Administración', adminClient], ['Almacén', warehouseClient], ['Distribuidor', client]]) {
   const settingsQuery=await getDocs(collection(roleClient,'restaurants','pachax','supportConfig'))
