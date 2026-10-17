@@ -81,7 +81,11 @@ export interface DistributionExperienceProps {
   data: DistributionData
   syncState: DistributionSyncState
   onSignOut?: () => void | Promise<void>
-  onOpenPrinterSettings: () => void
+  onOpenPrinterSettings: (context?: {
+    businessIdentity?: BusinessIdentity
+    documentContext?: BusinessDocumentContext
+    companyName?: string
+  }) => void
   onDismissSyncError?: () => void
   onAcknowledgeOperation?: (opId: string) => Promise<void> | void
   logoUrl?: string
@@ -187,10 +191,18 @@ export function DistributionExperience({
 
   const overflowModules = modules.filter((module) => !navItems.some((item) => item.id === module.id))
 
+  const handleOpenPrinterSettings = () => {
+    onOpenPrinterSettings({
+      businessIdentity,
+      documentContext,
+      companyName: effectiveCompanyName,
+    })
+  }
+
   const selectModule = (id: ModuleId) => {
     setIsMoreOpen(false)
     if (id === 'printer-settings') {
-      onOpenPrinterSettings()
+      handleOpenPrinterSettings()
       return
     }
     setInternalModule(id)
@@ -248,7 +260,7 @@ export function DistributionExperience({
             businessIdentity={businessIdentity}
             onSaveBusinessIdentity={onSaveBusinessIdentity}
             onUploadLogo={onUploadLogo}
-            onOpenPrinterSettings={onOpenPrinterSettings}
+            onOpenPrinterSettings={handleOpenPrinterSettings}
           />
         )
       default:

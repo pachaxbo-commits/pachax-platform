@@ -678,19 +678,19 @@ service cloud.firestore {
       // no puede demostrar que devolverá únicamente el documento `main`.
       allow get: if configId == 'main' && isActiveMember(restaurantId);
       allow list: if isActiveMember(restaurantId);
-      allow create, update: if configId == 'main' && (distAdmin(restaurantId) || distSupport(restaurantId))
-        && request.resource.data.keys().hasOnly(['restaurantId','companyName','taxId','address','phone','receiptHeader','receiptFooter','expiryAlertDays','creditBlockDays','requireQrVerification','defaultPaperWidth','updatedAt','updatedBy','lastResetAt','lastResetBy'])
+      allow create: if configId == 'main' && distAdmin(restaurantId)
+        && request.resource.data.keys().hasOnly(['restaurantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.restaurantId == restaurantId
-        && (!('companyName' in request.resource.data) || request.resource.data.companyName is string)
-        && (!('taxId' in request.resource.data) || request.resource.data.taxId is string)
-        && (!('address' in request.resource.data) || request.resource.data.address is string)
-        && (!('phone' in request.resource.data) || request.resource.data.phone is string)
-        && (!('receiptHeader' in request.resource.data) || request.resource.data.receiptHeader is string)
-        && (!('receiptFooter' in request.resource.data) || request.resource.data.receiptFooter is string)
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
         && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
         && request.resource.data.requireQrVerification is bool
-        && (!('defaultPaperWidth' in request.resource.data) || request.resource.data.defaultPaperWidth in ['58mm','80mm'])
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if configId == 'main' && distAdmin(restaurantId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['restaurantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
+        && request.resource.data.get('restaurantId', restaurantId) == restaurantId
+        && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
+        && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
+        && request.resource.data.requireQrVerification is bool
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if false;
     }
@@ -1183,19 +1183,19 @@ service cloud.firestore {
       // no puede demostrar que devolverá únicamente el documento `main`.
       allow get: if configId == 'main' && tIsActiveMember(tenantId);
       allow list: if tIsActiveMember(tenantId);
-      allow create, update: if configId == 'main' && (tDistAdmin(tenantId) || tDistSupport(tenantId))
-        && request.resource.data.keys().hasOnly(['tenantId','companyName','taxId','address','phone','receiptHeader','receiptFooter','expiryAlertDays','creditBlockDays','requireQrVerification','defaultPaperWidth','updatedAt','updatedBy','lastResetAt','lastResetBy'])
+      allow create: if configId == 'main' && tDistAdmin(tenantId)
+        && request.resource.data.keys().hasOnly(['tenantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.tenantId == tenantId
-        && (!('companyName' in request.resource.data) || request.resource.data.companyName is string)
-        && (!('taxId' in request.resource.data) || request.resource.data.taxId is string)
-        && (!('address' in request.resource.data) || request.resource.data.address is string)
-        && (!('phone' in request.resource.data) || request.resource.data.phone is string)
-        && (!('receiptHeader' in request.resource.data) || request.resource.data.receiptHeader is string)
-        && (!('receiptFooter' in request.resource.data) || request.resource.data.receiptFooter is string)
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
         && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
         && request.resource.data.requireQrVerification is bool
-        && (!('defaultPaperWidth' in request.resource.data) || request.resource.data.defaultPaperWidth in ['58mm','80mm'])
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if configId == 'main' && tDistAdmin(tenantId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tenantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
+        && request.resource.data.get('tenantId', tenantId) == tenantId
+        && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
+        && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
+        && request.resource.data.requireQrVerification is bool
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if false;
     }

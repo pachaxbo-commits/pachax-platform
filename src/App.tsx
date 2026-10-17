@@ -31,16 +31,41 @@ function DistributionShell(props: {
   businessIdentity?: import('./core/businessIdentity').BusinessIdentity
 }) {
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false)
+  const [printerContext, setPrinterContext] = useState<{
+    businessIdentity?: import('./core/businessIdentity').BusinessIdentity
+    documentContext?: import('./core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  } | null>(null)
+
+  const handleOpenPrinterSettings = (context?: {
+    businessIdentity?: import('./core/businessIdentity').BusinessIdentity
+    documentContext?: import('./core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  }) => {
+    if (context) {
+      setPrinterContext(context)
+    }
+    setIsPrinterSettingsOpen(true)
+  }
+
+  const effectiveBusinessIdentity = printerContext?.businessIdentity || props.businessIdentity
+  const effectiveCompanyName =
+    printerContext?.companyName ||
+    printerContext?.documentContext?.companyName ||
+    effectiveBusinessIdentity?.tradeName ||
+    props.companyName ||
+    props.restaurantName
 
   return (
     <>
-      <DistributionApp {...props} onOpenPrinterSettings={() => setIsPrinterSettingsOpen(true)} />
+      <DistributionApp {...props} onOpenPrinterSettings={handleOpenPrinterSettings} />
       {isPrinterSettingsOpen && (
         <DistributionPrinterModal
           tenantId={props.tenantId}
           branchId="main"
-          companyName={props.businessIdentity?.tradeName || props.companyName || props.restaurantName}
-          businessIdentity={props.businessIdentity}
+          companyName={effectiveCompanyName}
+          businessIdentity={effectiveBusinessIdentity}
+          documentContext={printerContext?.documentContext}
           onClose={() => setIsPrinterSettingsOpen(false)}
         />
       )}
@@ -51,7 +76,7 @@ function DistributionShell(props: {
 function App() {
   const auth = useAuthStore()
   const { path } = usePublicRouter()
-  const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.())
+  const isNative = typeof window !== 'undefined' && Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.())
 
   // 1. Entorno Administrativo Seguro (/admin y /admin/login)
   if (!isNative && path === '/admin/login') {

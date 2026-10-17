@@ -1,5 +1,33 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: D3.1 - Distribución: Fallback de Identidad, Reglas de Configuración y Contexto Dinámico de Impresoras (17/10/2026)
+
+- **Rama**: `cambios-dario`.
+- **Objetivos Cumplidos**:
+  1. **DEFAULT_SUPPORT_SETTINGS Limpio**: Eliminación de defaults comerciales heredados (`companyName: 'PACHAX'`, `taxId`, `address`, `phone`, `receiptHeader`, `receiptFooter`, `defaultPaperWidth`) en `src/modules/distribution/data/supportMaintenance.ts`. Solo conserva configuración técnica operativa (`expiryAlertDays: 14`, `creditBlockDays: 7`, `requireQrVerification: true`).
+  2. **Fallback Canónico de Identidad**: `resolveDistributionBusinessIdentity` en `src/modules/distribution/data/distributionReceiptService.ts` respeta la jerarquía estricta:
+     - A. `businessIdentity` existente del tenant.
+     - B. `supportConfig` REAL con datos legacy guardados.
+     - C. `fallbackName` / nombre del tenant (nunca inventa "PACHAX" por un default técnico).
+  3. **Protección Server-Side de `supportConfig` en Firestore Rules**:
+     - `firebase/tenant-distribution.rules` y `firebase/legacy.rules` eliminan `support` de los permisos de escritura. Solo `admin`/`owner` autorizado puede crear o actualizar `supportConfig`.
+     - En `update`, se restringen las claves modificadas mediante `diff(resource.data).affectedKeys().hasOnly(['tenantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])`, impidiendo modificar campos comerciales existentes sin romper documentos antiguos.
+     - En `create`, solo se permite el contrato operativo estricto.
+     - Sincronizado y compilado en `firebase/firestore.rules` con `npm run build:rules`.
+  4. **Contexto Dinámico en Modal de Impresoras sin Refresh**:
+     - `DistributionShell` en `src/App.tsx` mantiene `printerContext` dinámico emitido por `onOpenPrinterSettings({ businessIdentity, documentContext, companyName })`.
+     - `DistributionApp` y `DistributionExperience` propagan la identidad activa actualizada en tiempo real tras guardar sin necesidad de recargar la página.
+     - `DistributionPrinterModal` y `PrinterSettingsView` reciben la identidad actual para pruebas de impresión y comprobantes térmicos.
+- **Resultados de Pruebas**:
+  - `tests/distributionCanonicalCore.test.ts`: 11/11 pruebas aprobadas (Tests 41 al 51, cubriendo fallback puro, reglas con `affectedKeys`, contexto sin refresh y aislamiento multitenant).
+  - `tests/businessIdentityAndReceipts.test.ts` & `tests/nightclubPrintingAndBusinessIdentity.test.ts`: 42/42 pruebas aprobadas.
+  - `npm run test:distribution`: 55/55 pruebas aprobadas.
+  - `npm run test:platform`: 130/130 pruebas aprobadas.
+  - `npm run typecheck` (`tsc -b`): 0 errores.
+  - `npm run build`: 0 errores.
+  - `git diff --check`: 0 errores.
+  - `npx eslint`: 0 errores en los archivos modificados.
+
 ## Checkpoint: D3 - Distribución: Convergencia a PACHAX Core (Business Identity, Impresión Universal y Recibos Digitales) (17/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD `8df415d`).

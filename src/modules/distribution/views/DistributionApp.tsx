@@ -44,7 +44,11 @@ export function DistributionApp({
   warehouseId?: string
   routeId: string | null
   onSignOut: () => Promise<void>
-  onOpenPrinterSettings: () => void
+  onOpenPrinterSettings: (context?: {
+    businessIdentity?: BusinessIdentity
+    documentContext?: import('../../../core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  }) => void
   businessIdentity?: BusinessIdentity
   companyName?: string
   logoUrl?: string
@@ -95,6 +99,18 @@ export function DistributionApp({
     return await uploadTenantLogoToFirebase(file, tenantId)
   }
 
+  const handleOpenPrinterSettings = (context?: {
+    businessIdentity?: BusinessIdentity
+    documentContext?: import('../../../core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  }) => {
+    onOpenPrinterSettings({
+      businessIdentity: activeIdentity,
+      companyName: activeIdentity?.tradeName || companyName,
+      ...context,
+    })
+  }
+
   const can = useMemo(() => (permission: Permission) => hasPermission(role, permission), [role])
   const [dayKeys, setDayKeys] = useState<string[]>([toDayKey(new Date())])
 
@@ -132,7 +148,7 @@ export function DistributionApp({
       data={data}
       syncState={syncState}
       onSignOut={onSignOut}
-      onOpenPrinterSettings={onOpenPrinterSettings}
+      onOpenPrinterSettings={handleOpenPrinterSettings}
       onDismissSyncError={dismissSyncError}
       onAcknowledgeOperation={acknowledgeOperation}
       logoUrl={activeIdentity?.logoUrl || logoUrl}

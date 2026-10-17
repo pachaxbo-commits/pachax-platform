@@ -57,18 +57,20 @@ export function resolveDistributionBusinessIdentity(
     }
   }
 
-  // Fallback seguro a campos antiguos de supportConfig si existen
-  if (
+  // Fallback seguro a campos antiguos de supportConfig SOLO si realmente existen guardados
+  const hasRealLegacy = Boolean(
     supportConfig &&
-    (supportConfig.companyName ||
-      supportConfig.taxId ||
-      supportConfig.address ||
-      supportConfig.phone ||
-      supportConfig.receiptHeader ||
-      supportConfig.receiptFooter)
-  ) {
+      ((supportConfig.companyName && supportConfig.companyName.trim().length > 0) ||
+        (supportConfig.taxId && supportConfig.taxId.trim().length > 0) ||
+        (supportConfig.address && supportConfig.address.trim().length > 0) ||
+        (supportConfig.phone && supportConfig.phone.trim().length > 0) ||
+        (supportConfig.receiptHeader && supportConfig.receiptHeader.trim().length > 0) ||
+        (supportConfig.receiptFooter && supportConfig.receiptFooter.trim().length > 0))
+  )
+
+  if (hasRealLegacy && supportConfig) {
     return normalizeBusinessIdentity({
-      tradeName: supportConfig.companyName || fallbackName || 'PACHAX',
+      tradeName: supportConfig.companyName?.trim() || fallbackName || 'Mi Empresa',
       taxId: supportConfig.taxId || '',
       address: supportConfig.address || '',
       phone: supportConfig.phone || '',

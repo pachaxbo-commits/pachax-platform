@@ -44,13 +44,6 @@ export const DEFAULT_SUPPORT_SETTINGS: DistributionOperationalSettings = {
   expiryAlertDays: 14,
   creditBlockDays: 7,
   requireQrVerification: true,
-  companyName: 'PACHAX',
-  taxId: '',
-  address: '',
-  phone: '',
-  receiptHeader: 'PACHAX',
-  receiptFooter: 'Gracias por su preferencia',
-  defaultPaperWidth: '80mm',
 }
 
 let maintenanceEmulatorConnected = false

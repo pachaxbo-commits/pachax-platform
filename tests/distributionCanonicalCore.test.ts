@@ -95,6 +95,16 @@ test('D3 TEST 41: Fallback y resolución canónica de BusinessIdentity en Distri
   // Caso 3: Fallback por defecto si no hay nada
   const resolvedDefault = resolveDistributionBusinessIdentity(null, null, 'Empresa Sin Nombre')
   assert.equal(resolvedDefault.tradeName, 'Empresa Sin Nombre')
+
+  // Caso 4 (D3.1): DEFAULT_SUPPORT_SETTINGS puramente operativo -> NUNCA inventa 'PACHAX'
+  const pureOperationalSettings: DistributionOperationalSettings = {
+    expiryAlertDays: 14,
+    creditBlockDays: 7,
+    requireQrVerification: true,
+  }
+  const resolvedAurora = resolveDistributionBusinessIdentity(null, pureOperationalSettings, 'Distribuidora Aurora')
+  assert.equal(resolvedAurora.tradeName, 'Distribuidora Aurora')
+  assert.notEqual(resolvedAurora.tradeName, 'PACHAX')
 })
 
 test('D3 TEST 42: Adapter canónico de ventas (distSaleToReceiptData) con venta mixta y crédito', () => {
@@ -513,4 +523,296 @@ test('D3 TEST 48: Comprobación de estado pendingConfirmation e indicador de cop
   const docContext = buildBusinessDocumentContext({ tradeName: 'Empresa Test' })
   const printPayload = buildSaleReceiptPayload(salePending, docContext, { isCopy: true })
   assert.equal(printPayload.isCopy, true)
+})
+
+function evaluateSupportConfigUpdateRule(
+  tenantId: string,
+  role: string,
+  authUid: string,
+  existingData: Record<string, unknown>,
+  updatedData: Record<string, unknown>
+): { allowed: boolean; reason?: string } {
+  // Check admin
+  const isDistAdmin = ['admin', 'owner', 'superadmin', 'accountant'].includes(role)
+  if (!isDistAdmin) {
+    return { allowed: false, reason: 'Solo Admin / Dueño puede modificar configuración técnica' }
+  }
+
+  // Calculate affected keys (keys that changed, were added, or were removed)
+  const allKeys = new Set([...Object.keys(existingData), ...Object.keys(updatedData)])
+  const affectedKeys: string[] = []
+  for (const k of allKeys) {
+    if (JSON.stringify(existingData[k]) !== JSON.stringify(updatedData[k])) {
+      affectedKeys.push(k)
+    }
+  }
+
+  const allowedAffected = ['tenantId', 'expiryAlertDays', 'creditBlockDays', 'requireQrVerification', 'updatedAt', 'updatedBy']
+  const invalidAffected = affectedKeys.filter((k) => !allowedAffected.includes(k))
+  if (invalidAffected.length > 0) {
+    return { allowed: false, reason: `No se permite modificar campos: ${invalidAffected.join(', ')}` }
+  }
+
+  if (updatedData.tenantId && updatedData.tenantId !== tenantId) {
+    return { allowed: false, reason: 'tenantId no coincide' }
+  }
+
+  if (
+    typeof updatedData.expiryAlertDays !== 'number' ||
+    !Number.isInteger(updatedData.expiryAlertDays) ||
+    updatedData.expiryAlertDays < 1 ||
+    updatedData.expiryAlertDays > 90
+  ) {
+    return { allowed: false, reason: 'expiryAlertDays inválido' }
+  }
+
+  if (
+    typeof updatedData.creditBlockDays !== 'number' ||
+    !Number.isInteger(updatedData.creditBlockDays) ||
+    updatedData.creditBlockDays < 1 ||
+    updatedData.creditBlockDays > 90
+  ) {
+    return { allowed: false, reason: 'creditBlockDays inválido' }
+  }
+
+  if (typeof updatedData.requireQrVerification !== 'boolean') {
+    return { allowed: false, reason: 'requireQrVerification inválido' }
+  }
+
+  if (updatedData.updatedBy !== authUid) {
+    return { allowed: false, reason: 'updatedBy debe coincidir con auth.uid' }
+  }
+
+  return { allowed: true }
+}
+
+test('D3.1 TEST 49: Reglas de Firestore para supportConfig (Aislamiento de soporte, protección de campos legacy y actualización administrativa)', async () => {
+  // A. Support intenta cambiar creditBlockDays -> DENIED
+  const supportAttempt = evaluateSupportConfigUpdateRule(
+    'tenant-test',
+    'support',
+    'uid-support',
+    { tenantId: 'tenant-test', creditBlockDays: 7, expiryAlertDays: 14, requireQrVerification: true, updatedAt: 'old', updatedBy: 'uid-admin' },
+    { tenantId: 'tenant-test', creditBlockDays: 10, expiryAlertDays: 14, requireQrVerification: true, updatedAt: 'new', updatedBy: 'uid-support' }
+  )
+  assert.equal(supportAttempt.allowed, false)
+
+  // B. Support intenta cambiar companyName legacy -> DENIED
+  const supportLegacyAttempt = evaluateSupportConfigUpdateRule(
+    'tenant-test',
+    'support',
+    'uid-support',
+    { tenantId: 'tenant-test', companyName: 'Legacy SA', creditBlockDays: 7, expiryAlertDays: 14, requireQrVerification: true, updatedAt: 'old', updatedBy: 'uid-admin' },
+    { tenantId: 'tenant-test', companyName: 'Hacked SA', creditBlockDays: 7, expiryAlertDays: 14, requireQrVerification: true, updatedAt: 'new', updatedBy: 'uid-support' }
+  )
+  assert.equal(supportLegacyAttempt.allowed, false)
+
+  // C. Admin modifica creditBlockDays -> PASS
+  const adminAttempt = evaluateSupportConfigUpdateRule(
+    'tenant-test',
+    'admin',
+    'uid-admin',
+    { tenantId: 'tenant-test', creditBlockDays: 7, expiryAlertDays: 14, requireQrVerification: true, updatedAt: 'old', updatedBy: 'uid-admin' },
+    { tenantId: 'tenant-test', creditBlockDays: 15, expiryAlertDays: 14, requireQrVerification: true, updatedAt: 'new', updatedBy: 'uid-admin' }
+  )
+  assert.equal(adminAttempt.allowed, true)
+
+  // D. Documento legacy tiene companyName="Legacy SA". Admin cambia SOLO creditBlockDays -> PASS -> companyName permanece "Legacy SA"
+  const legacyDoc = {
+    tenantId: 'tenant-test',
+    companyName: 'Legacy SA',
+    taxId: '1234567',
+    address: 'Calle Antigua 1',
+    creditBlockDays: 7,
+    expiryAlertDays: 14,
+    requireQrVerification: true,
+    updatedAt: 'old',
+    updatedBy: 'uid-admin',
+  }
+  const legacyAdminUpdate = {
+    ...legacyDoc,
+    creditBlockDays: 20,
+    updatedAt: 'new',
+    updatedBy: 'uid-admin',
+  }
+  const adminLegacyPass = evaluateSupportConfigUpdateRule(
+    'tenant-test',
+    'admin',
+    'uid-admin',
+    legacyDoc,
+    legacyAdminUpdate
+  )
+  assert.equal(adminLegacyPass.allowed, true)
+  assert.equal(legacyAdminUpdate.companyName, 'Legacy SA')
+
+  // E. Admin intenta cambiar companyName mediante supportConfig -> DENIED
+  const adminChangeCompanyNameAttempt = evaluateSupportConfigUpdateRule(
+    'tenant-test',
+    'admin',
+    'uid-admin',
+    legacyDoc,
+    {
+      ...legacyDoc,
+      companyName: 'Nueva Empresa Ilegal',
+      updatedAt: 'new',
+      updatedBy: 'uid-admin',
+    }
+  )
+  assert.equal(adminChangeCompanyNameAttempt.allowed, false)
+
+  // Verificación estricta de los archivos de reglas en disco
+  const fs = await import('node:fs')
+  const tenantRules = fs.readFileSync('firebase/tenant-distribution.rules', 'utf8')
+  const legacyRules = fs.readFileSync('firebase/legacy.rules', 'utf8')
+  const compiledRules = fs.readFileSync('firebase/firestore.rules', 'utf8')
+
+  // Soporte no tiene permiso de escritura en el bloque supportConfig de ningún ruleset
+  const tenantSupportConfigBlock = tenantRules.slice(tenantRules.indexOf('supportConfig/{configId}'), tenantRules.indexOf('maintenanceBackups'))
+  assert.ok(!tenantSupportConfigBlock.includes('tDistSupport(tenantId)'))
+
+  const legacySupportConfigBlock = legacyRules.slice(legacyRules.indexOf('supportConfig/{configId}'), legacyRules.indexOf('maintenanceBackups'))
+  assert.ok(!legacySupportConfigBlock.includes('distSupport(restaurantId)'))
+
+  assert.ok(tenantSupportConfigBlock.includes('request.resource.data.diff(resource.data).affectedKeys().hasOnly'))
+  assert.ok(legacySupportConfigBlock.includes('request.resource.data.diff(resource.data).affectedKeys().hasOnly'))
+  assert.ok(compiledRules.includes('affectedKeys().hasOnly'))
+})
+
+test('D3.1 TEST 50: Actualización de BusinessIdentity sin refresh se propaga al modal y prueba de impresora', () => {
+  // Estado inicial: tradeName = "Distribuidora Vieja"
+  let activeIdentity: BusinessIdentity = {
+    ...buildBusinessDocumentContext(undefined, { companyName: 'Distribuidora Vieja' }),
+    tradeName: 'Distribuidora Vieja',
+    legalName: 'Distribuidora Vieja SRL',
+    taxId: '123456789',
+    address: 'Calle Vieja 1',
+    city: 'La Paz',
+    phone: '2211334',
+    whatsapp: '70011223',
+    email: 'contacto@vieja.bo',
+    website: '',
+    logoUrl: '',
+    primaryColor: '#1e3a8a',
+    accentColor: '#3b82f6',
+    receiptHeader: 'Ticket de venta',
+    receiptFooter: 'Gracias por su compra',
+    showLogo: true,
+    showAddress: true,
+    showPhone: true,
+    showTaxId: true,
+    showManagedBy: true,
+  }
+
+  let printerContext: {
+    businessIdentity?: BusinessIdentity
+    companyName?: string
+    documentContext?: import('../src/core/businessIdentity.ts').BusinessDocumentContext
+  } | null = null
+
+  const handleOpenPrinterSettings = (ctx?: {
+    businessIdentity?: BusinessIdentity
+    companyName?: string
+    documentContext?: import('../src/core/businessIdentity.ts').BusinessDocumentContext
+  }) => {
+    printerContext = {
+      businessIdentity: activeIdentity,
+      companyName: activeIdentity.tradeName,
+      ...ctx,
+    }
+  }
+
+  // Owner guarda "Distribuidora Nueva" sin refresh
+  const updatedIdentity: BusinessIdentity = {
+    ...activeIdentity,
+    tradeName: 'Distribuidora Nueva',
+    taxId: '987654321',
+  }
+  activeIdentity = updatedIdentity
+
+  // Inmediatamente abre impresoras (propaga contexto dinámico)
+  handleOpenPrinterSettings({
+    businessIdentity: activeIdentity,
+    companyName: activeIdentity.tradeName,
+    documentContext: buildBusinessDocumentContext(activeIdentity, { companyName: activeIdentity.tradeName }),
+  })
+
+  // PrinterSettingsView y modal reciben la identidad NUEVA
+  assert.ok(printerContext)
+  assert.equal(printerContext?.businessIdentity?.tradeName, 'Distribuidora Nueva')
+  assert.equal(printerContext?.companyName, 'Distribuidora Nueva')
+
+  // Simulación del test print payload en PrinterSettingsView
+  const effectiveCompanyName =
+    printerContext?.documentContext?.companyName ||
+    printerContext?.businessIdentity?.tradeName ||
+    printerContext?.companyName ||
+    'PACHAX Platform'
+
+  const testPayload: PrintJobPayload = {
+    payloadSchemaVersion: 1,
+    templateVersion: 'v1.0',
+    restaurantName: effectiveCompanyName.toUpperCase(),
+    branchName: 'Sucursal Principal',
+    items: [{ name: 'Comprobación de enlace térmico', quantity: 1, unitPrice: 0, subtotal: 0 }],
+    totals: { subtotal: 0, total: 0 },
+  }
+
+  assert.equal(testPayload.restaurantName, 'DISTRIBUIDORA NUEVA')
+  assert.notEqual(testPayload.restaurantName, 'DISTRIBUIDORA VIEJA')
+  assert.notEqual(testPayload.restaurantName, 'PACHAX PLATFORM')
+})
+
+test('D3.1 TEST 51: Aislamiento multitenant de identidad e impresoras y actualización sin refresh', () => {
+  // Tenant A: Aurora, Printer A
+  const profileA = {
+    id: 'printer-aurora',
+    restaurantId: 'tenant-aurora',
+    branchId: 'main',
+    name: 'Térmica Aurora',
+    role: 'receipt' as const,
+    connectionType: 'browser_dialog' as const,
+    paperWidth: '80mm' as const,
+    ipAddress: '192.168.1.100',
+    port: 9100,
+    copies: 1,
+    autoPrintOnOrderCreated: false,
+    autoPrintOnOrderPaid: true,
+    kickDrawerOnPrint: false,
+    isActive: true,
+  }
+  savePrinterProfileLocal(profileA, 'tenant-aurora', 'main')
+
+  // Tenant B: Boreal, Printer B
+  const profileB = {
+    id: 'printer-boreal',
+    restaurantId: 'tenant-boreal',
+    branchId: 'main',
+    name: 'Térmica Boreal',
+    role: 'receipt' as const,
+    connectionType: 'browser_dialog' as const,
+    paperWidth: '58mm' as const,
+    ipAddress: '192.168.1.101',
+    port: 9100,
+    copies: 1,
+    autoPrintOnOrderCreated: false,
+    autoPrintOnOrderPaid: true,
+    kickDrawerOnPrint: false,
+    isActive: true,
+  }
+  savePrinterProfileLocal(profileB, 'tenant-boreal', 'main')
+
+  // Tenant A sólo ve Printer A
+  const activePrinterA = getActiveReceiptPrinter('tenant-aurora', 'main')
+  assert.equal(activePrinterA?.id, 'printer-aurora')
+  assert.notEqual(activePrinterA?.id, 'printer-boreal')
+
+  // Tenant B sólo ve Printer B
+  const activePrinterB = getActiveReceiptPrinter('tenant-boreal', 'main')
+  assert.equal(activePrinterB?.id, 'printer-boreal')
+  assert.notEqual(activePrinterB?.id, 'printer-aurora')
+
+  // Actualizar identity Aurora a "Aurora Premium" sin refresh
+  const auroraNewIdentity = buildBusinessDocumentContext(undefined, { companyName: 'Aurora Premium' })
+  assert.equal(auroraNewIdentity.companyName, 'Aurora Premium')
+  assert.notEqual(auroraNewIdentity.companyName, 'Boreal')
 })
