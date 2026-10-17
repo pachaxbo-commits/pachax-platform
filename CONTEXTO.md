@@ -1,5 +1,36 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: D3 - Distribución: Convergencia a PACHAX Core (Business Identity, Impresión Universal y Recibos Digitales) (17/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD `8df415d`).
+- **Objetivos Cumplidos**:
+  1. **Business Identity Canónica en Distribución**:
+     - `src/core/businessIdentity.ts`: Fuente de verdad unificada para todas las plantillas (tradeName, legalName, logoUrl, taxId, receiptHeader, receiptFooter, etc.).
+     - `src/modules/distribution/data/distributionReceiptService.ts`: `resolveDistributionBusinessIdentity` realiza fallback de solo lectura desde `supportConfig/main` si el tenant aún no tiene `businessIdentity` configurado, sin crear esquemas paralelos.
+     - `src/modules/distribution/data/supportMaintenance.ts`: `supportConfig` queda reducido a configuración operacional técnica (`expiryAlertDays`, `creditBlockDays`, `requireQrVerification`). Los campos comerciales quedan deprecados y nunca se sobreescriben desde este módulo.
+  2. **Separación de Roles en Soporte / Configuración**:
+     - `SupportView.tsx`: Dividido en panel de Administración/Dueño (`can('settings.manage')`) con `BusinessIdentitySettings`, reglas operacionales e impresoras térmicas, y panel de Soporte (`role === 'support'`) con diagnóstico técnico, auto-prueba y entrega limpia (sin capacidad de alterar la identidad comercial del cliente).
+  3. **Identidad Visual y Branding**:
+     - `DistributionExperience.tsx` y `DistributionApp.tsx`: Muestran el logotipo del negocio o un badge con las iniciales del nombre comercial y color de marca del tenant. Nunca se presenta el logotipo de PACHAX como identidad del cliente.
+  4. **Impresión Universal y Aislamiento Multiempresa**:
+     - `DistributionPrinterModal.tsx`: Envuelve el componente canónico `PrinterSettingsView` con scoping estricto `{ tenantId, branchId: 'main' }`.
+     - Integración con `PrintEngineService` y clasificación honesta del resultado (`classifyPrintJobOutcome`), distinguiendo estados `success`, `uncertain`, `failed` y `pending`.
+  5. **Recibos Canónicos, PDF y Compartición Digital**:
+     - `distSaleToReceiptData`: Transforma ventas directas, cobros mixtos (desglose efectivo/QR), crédito comercial y ventas de cortesía (total Bs 0.00 con valor de referencia y costo como glosa informativa).
+     - `distCollectionToReceiptData`: Transforma cobranzas de cartera detallando aplicaciones FIFO por factura/deuda (`allocations`) y saldos resultantes.
+     - `CanonicalReceiptModal.tsx`: Visualización de comprobante canónico, impresión térmica, generación de PDF con `jspdf` y compartición digital (Web Share API / WhatsApp fallback).
+     - Reimpresiones marcadas explícitamente con `*** REIMPRESIÓN / COPIA ***`.
+     - Operaciones con `pendingConfirmation: true` bloquean la emisión o impresión del recibo definitivo e informan al operador de la espera de validación del servidor.
+- **Resultados de Pruebas**:
+  - `tests/distributionCanonicalCore.test.ts`: 8/8 pruebas aprobadas (Tests 41 al 48).
+  - `tests/distributionCommercialCycle.test.ts`: 11/11 pruebas aprobadas (Tests 30 al 40).
+  - `tests/distributionPhysicalCycle.test.ts`: 9/9 pruebas aprobadas (Secciones 31, 32, 35 y D1.1).
+  - `tests/businessIdentityAndReceipts.test.ts` & `tests/nightclubPrintingAndBusinessIdentity.test.ts`: 42/42 pruebas aprobadas.
+  - `npm run build`: 0 errores (compilación de TypeScript y bundle de producción en Vite).
+  - `npx eslint`: 0 errores en los archivos de la fase D3.
+  - `git diff --check`: 0 errores.
+  - `origin/main` integrado al 100%.
+
 ## Checkpoint: D2 y D2.1 - Distribución: Cobranza FIFO, Pago Mixto, Cortesías, Excepciones de Crédito y Cierre de Brechas (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD `7181bac`).
