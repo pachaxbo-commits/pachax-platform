@@ -255,6 +255,14 @@ export function CanonicalReceiptModal({
               </div>
             )}
 
+            {receiptData.paymentDetails && receiptData.paymentDetails.length > 0 && (
+              <div className="space-y-0.5 text-[10px] text-slate-500 font-sans pl-2 border-l border-slate-200">
+                {receiptData.paymentDetails.map((detail, dIdx) => (
+                  <div key={dIdx}>• {detail}</div>
+                ))}
+              </div>
+            )}
+
             {receiptData.cashReceived ? (
               <div className="flex justify-between text-[11px] text-slate-600">
                 <span>Recibido:</span>

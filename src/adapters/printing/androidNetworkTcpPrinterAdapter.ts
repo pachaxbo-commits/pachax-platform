@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core'
-import PachaxTcpSocket, { type TestConnectionResult } from '../../plugins/pachaxTcpSocket'
+import PachaxTcpSocket, { type TestConnectionResult } from '../../plugins/pachaxTcpSocket.ts'
 import type {
   ErrorClassification,
   PrinterAdapter,
@@ -7,7 +7,7 @@ import type {
   PrinterProfile,
   PrintResult,
   PrintTransportPayload,
-} from '../../types/printing'
+} from '../../types/printing.ts'
 
 /** Helper for IPv4 or Hostname validation */
 export function isValidIpOrHost(host?: string): boolean {

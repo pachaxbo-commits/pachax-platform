@@ -9,7 +9,10 @@ import { toDayKey, round2, validateCollection } from '../domain/engine'
 import { newOperationId, registerCollection, submitCreditOverride } from '../data/distributionRepository'
 import { KpiCard, PrimaryButton, formatBs } from './shared'
 import type { DistributionViewProps } from './DistributionApp'
-import type { DistReceivable } from '../types'
+import type { DistCollection, DistReceivable } from '../types'
+import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
+import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
+import { distCollectionToReceiptData, printCollectionReceipt } from '../data/distributionReceiptService'
 
 interface CustomerCredit {
   customerId: string
@@ -24,10 +27,11 @@ interface CustomerCredit {
  * Cartera por cliente. Un credito pagado no se elimina: queda en PAID con su
  * historial, porque la clienta necesita poder auditar lo cobrado.
  */
-export function CreditsView({ session, data }: DistributionViewProps) {
+export function CreditsView({ session, data, documentContext, businessIdentity }: DistributionViewProps) {
   const isAdmin = session.role === 'admin' || session.role === 'owner'
   const [period, setPeriod] = useState<string[]>([])
   const [search, setSearch] = useState('')
+  const [receiptCollection, setReceiptCollection] = useState<DistCollection | null>(null)
   const [selected, setSelected] = useState<CustomerCredit | null>(null)
   const [collectTarget, setCollectTarget] = useState<DistReceivable | null>(null)
   const [isCustomerCollect, setIsCustomerCollect] = useState(false)
@@ -133,7 +137,7 @@ export function CreditsView({ session, data }: DistributionViewProps) {
 
     setIsSubmitting(true)
     try {
-      await registerCollection({
+      const col = await registerCollection({
         operationId: newOperationId('col'),
         customerId: selected.customerId,
         customerName: selected.customerName,
@@ -152,6 +156,9 @@ export function CreditsView({ session, data }: DistributionViewProps) {
       setCollectTarget(null)
       setIsCustomerCollect(false)
       setSelected(null)
+      if (!col.pendingConfirmation) {
+        setReceiptCollection(col)
+      }
     } catch (submitError) {
       setError((submitError as Error).message || 'No se pudo registrar el cobro.')
     } finally {
@@ -202,6 +209,39 @@ export function CreditsView({ session, data }: DistributionViewProps) {
     } finally {
       setIsSubmittingOverride(false)
     }
+  }
+
+  const effectiveDocContext = useMemo(
+    () =>
+      documentContext ||
+      buildBusinessDocumentContext(businessIdentity, {
+        companyName: session.restaurantName,
+        branchName: 'Casa Matriz',
+      }),
+    [documentContext, session.restaurantName, businessIdentity]
+  )
+
+  const receiptCollectionData = useMemo(() => {
+    if (!receiptCollection) return null
+    return distCollectionToReceiptData(receiptCollection, {
+      collectorName: receiptCollection.collectedByName,
+      customerName: receiptCollection.customerName,
+      customerPhone: data.customers.find((c) => c.id === receiptCollection.customerId)?.phone,
+      routeName: receiptCollection.routeId,
+    })
+  }, [receiptCollection, data.customers])
+
+  const handlePrintCollection = async () => {
+    if (!receiptCollection) return
+    return await printCollectionReceipt(receiptCollection, {
+      tenantId: session.tenantId,
+      branchId: 'main',
+      docContext: effectiveDocContext,
+      collectorName: receiptCollection.collectedByName,
+      customerName: receiptCollection.customerName,
+      customerPhone: data.customers.find((c) => c.id === receiptCollection.customerId)?.phone,
+      routeName: receiptCollection.routeId,
+    })
   }
 
   return (
@@ -490,6 +530,16 @@ export function CreditsView({ session, data }: DistributionViewProps) {
           {overrideError && <p className="text-xs font-bold text-rose-600">{overrideError}</p>}
         </div>
       </Modal>
+
+      {receiptCollection && receiptCollectionData && (
+        <CanonicalReceiptModal
+          isOpen={Boolean(receiptCollection)}
+          onClose={() => setReceiptCollection(null)}
+          receiptData={receiptCollectionData}
+          documentContext={effectiveDocContext}
+          onPrint={handlePrintCollection}
+        />
+      )}
     </Screen>
   )
 }

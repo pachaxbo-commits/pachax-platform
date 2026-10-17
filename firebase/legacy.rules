@@ -688,16 +688,16 @@ service cloud.firestore {
       allow create, update: if configId == 'main' && (distAdmin(restaurantId) || distSupport(restaurantId))
         && request.resource.data.keys().hasOnly(['restaurantId','companyName','taxId','address','phone','receiptHeader','receiptFooter','expiryAlertDays','creditBlockDays','requireQrVerification','defaultPaperWidth','updatedAt','updatedBy','lastResetAt','lastResetBy'])
         && request.resource.data.restaurantId == restaurantId
-        && request.resource.data.companyName is string
-        && request.resource.data.taxId is string
-        && request.resource.data.address is string
-        && request.resource.data.phone is string
-        && request.resource.data.receiptHeader is string
-        && request.resource.data.receiptFooter is string
+        && (!('companyName' in request.resource.data) || request.resource.data.companyName is string)
+        && (!('taxId' in request.resource.data) || request.resource.data.taxId is string)
+        && (!('address' in request.resource.data) || request.resource.data.address is string)
+        && (!('phone' in request.resource.data) || request.resource.data.phone is string)
+        && (!('receiptHeader' in request.resource.data) || request.resource.data.receiptHeader is string)
+        && (!('receiptFooter' in request.resource.data) || request.resource.data.receiptFooter is string)
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
         && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
         && request.resource.data.requireQrVerification is bool
-        && request.resource.data.defaultPaperWidth in ['58mm','80mm']
+        && (!('defaultPaperWidth' in request.resource.data) || request.resource.data.defaultPaperWidth in ['58mm','80mm'])
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if false;
     }

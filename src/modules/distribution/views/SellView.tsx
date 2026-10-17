@@ -1,11 +1,14 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { submitOperation } from '../data/operationQueue'
 import type { DistCreditStatus } from '../types'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Printer, Search, Send, ShoppingCart, Trash2, UserPlus } from 'lucide-react'
+import { Plus, Printer, Receipt, Search, Send, ShoppingCart, Trash2, UserPlus } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
 import { Field, NumberInput, Segmented, TextInput } from '../../../components/ui/Form'
 import { ChoiceButton, ChoiceModal } from '../../../components/ui/ChoiceModal'
 import { EmptyBlock, Screen } from '../../../components/ui/Screen'
+import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
+import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
+import { shareReceipt } from '../../../core/receiptService'
 import {
   computeSaleTotal,
   round2,
@@ -14,7 +17,7 @@ import {
   validateStockAvailability,
 } from '../domain/engine'
 import { newOperationId, registerSale, saveCustomer } from '../data/distributionRepository'
-import { printSaleReceipt, shareSaleReceipt } from '../data/distributionReceiptService'
+import { distSaleToReceiptData, printSaleReceipt } from '../data/distributionReceiptService'
 import { useStockIndex } from '../state/useDistributionStore'
 import { KpiCard, PrimaryButton, SecondaryButton, formatBs, formatQty } from './shared'
 import type { DistributionViewProps } from './DistributionApp'
@@ -36,7 +39,7 @@ const PAYMENT_OPTIONS: { value: PaymentKind; label: string }[] = [
  * confirmar. El precio de referencia del producto es solo el valor por
  * defecto; lo que se guarda es el precio aplicado realmente.
  */
-export function SellView({ session, data }: DistributionViewProps) {
+export function SellView({ session, data, documentContext, businessIdentity }: DistributionViewProps) {
   const isDistributor = session.role === 'distributor'
   const sourceLocation = isDistributor ? 'route' : 'centralWarehouse'
 
@@ -50,6 +53,16 @@ export function SellView({ session, data }: DistributionViewProps) {
   const routeId = isDistributor ? (session.routeId ?? '') : directRouteId
   const routeName = data.routes.find((route) => route.id === routeId)?.name ?? 'Venta directa'
 
+  const effectiveDocContext = useMemo(
+    () =>
+      documentContext ||
+      buildBusinessDocumentContext(businessIdentity, {
+        companyName: session.restaurantName,
+        branchName: `RUTA: ${routeName}`,
+      }),
+    [documentContext, businessIdentity, session.restaurantName, routeName]
+  )
+
   const { central, route } = useStockIndex(data.balances, isDistributor ? session.routeId : null)
   const availableStock = isDistributor ? route : central
 
@@ -59,6 +72,7 @@ export function SellView({ session, data }: DistributionViewProps) {
   const [quantity, setQuantity] = useState('1')
   const [unitPrice, setUnitPrice] = useState('0')
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false)
   const [saleKind, setSaleKind] = useState<'normal' | 'courtesy'>('normal')
   const [courtesyReason, setCourtesyReason] = useState('')
   const [paymentKind, setPaymentKind] = useState<PaymentKind>('cash')
@@ -324,16 +338,48 @@ export function SellView({ session, data }: DistributionViewProps) {
     }
   }
 
-  const receiptContext = {
-    companyName: data.supportSettings.companyName || session.restaurantName,
-    receiptHeader: data.supportSettings.receiptHeader,
-    receiptFooter: data.supportSettings.receiptFooter,
-    taxId: data.supportSettings.taxId,
-    address: data.supportSettings.address,
-    phone: data.supportSettings.phone,
-    routeName,
-    distributorName: session.userName,
-    creditBalance: lastSale?.creditAmount,
+  const lastSaleCustomer = useMemo(
+    () => (lastSale?.customerId ? data.customers.find((c) => c.id === lastSale.customerId) : null),
+    [data.customers, lastSale?.customerId]
+  )
+
+  const lastSaleReceiptData = useMemo(() => {
+    if (!lastSale) return null
+    return distSaleToReceiptData(lastSale, {
+      routeName,
+      distributorName: session.userName,
+      creditBalance: lastSale.creditAmount,
+      customerPhone: lastSaleCustomer?.phone,
+      isCopy: Boolean(printState?.ok || printState?.uncertain),
+    })
+  }, [lastSale, routeName, session.userName, lastSaleCustomer?.phone, printState?.ok, printState?.uncertain])
+
+  const handlePrintSale = async () => {
+    if (!lastSale || isPrinting || lastSale.pendingConfirmation) return
+    setIsPrinting(true)
+    try {
+      const res = await printSaleReceipt(lastSale, {
+        tenantId: session.tenantId,
+        branchId: 'main',
+        docContext: effectiveDocContext,
+        isCopy: Boolean(printState?.ok || printState?.uncertain),
+        routeName,
+        distributorName: session.userName,
+        creditBalance: lastSale.creditAmount,
+        customerPhone: lastSaleCustomer?.phone,
+      })
+      setPrintState(res)
+      return res
+    } finally {
+      setIsPrinting(false)
+    }
+  }
+
+  const handleShareSale = async () => {
+    if (!lastSale || !lastSaleReceiptData) return
+    await shareReceipt(effectiveDocContext, lastSaleReceiptData, {
+      customerPhone: lastSaleCustomer?.phone,
+    })
   }
 
   const mixedRemainder = round2(total - (Number(mixedCash) || 0) - (Number(mixedQr) || 0))
@@ -683,36 +729,64 @@ export function SellView({ session, data }: DistributionViewProps) {
                 tone={lastSale.creditAmount > 0 ? 'warning' : 'positive'}
               />
             </div>
-            {/* Un fallo de impresion no revierte ni duplica la venta: solo se reintenta. */}
-            <SecondaryButton
-              full
-              disabled={isPrinting || lastSale.pendingConfirmation}
-              onClick={() => {
-                setIsPrinting(true)
-                void printSaleReceipt(lastSale, receiptContext, Boolean(printState?.ok || printState?.uncertain))
-                  .then(setPrintState)
-                  .finally(() => setIsPrinting(false))
-              }}
-            >
-              <Printer size={16} />
-              {isPrinting ? 'Imprimiendo...' : printState?.uncertain ? 'Imprimir copia (revisa el papel)' : printState?.ok ? 'Imprimir copia' : printState ? 'Reintentar impresion' : 'Imprimir ticket'}
-            </SecondaryButton>
+            {lastSale.pendingConfirmation ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+                Venta registrada localmente (pendiente de confirmación con el servidor). El comprobante definitivo y la impresión estarán disponibles una vez sincronizada.
+              </div>
+            ) : (
+              <>
+                <SecondaryButton
+                  full
+                  onClick={() => setIsReceiptModalOpen(true)}
+                >
+                  <Receipt size={16} /> Ver / Compartir comprobante digital
+                </SecondaryButton>
 
-            {printState && (
-              <p
-                className={`rounded-2xl px-3 py-2 text-[11px] font-bold ${
-                  printState.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
-                }`}
-              >
-                {printState.message}
-              </p>
+                <SecondaryButton
+                  full
+                  disabled={isPrinting}
+                  onClick={() => void handlePrintSale()}
+                >
+                  <Printer size={16} />
+                  {isPrinting
+                    ? 'Imprimiendo...'
+                    : printState?.uncertain
+                    ? 'Imprimir copia (revisa el papel)'
+                    : printState?.ok
+                    ? 'Imprimir copia'
+                    : printState
+                    ? 'Reintentar impresión'
+                    : 'Imprimir ticket'}
+                </SecondaryButton>
+
+                {printState && (
+                  <p
+                    className={`rounded-2xl px-3 py-2 text-[11px] font-bold ${
+                      printState.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
+                    }`}
+                  >
+                    {printState.message}
+                  </p>
+                )}
+
+                <SecondaryButton full onClick={() => void handleShareSale()}>
+                  <Send size={16} /> Compartir por WhatsApp
+                </SecondaryButton>
+              </>
             )}
-            <SecondaryButton full onClick={() => void shareSaleReceipt(lastSale, receiptContext)}>
-              <Send size={16} /> Compartir por WhatsApp
-            </SecondaryButton>
           </div>
         )}
       </Modal>
+
+      {isReceiptModalOpen && lastSaleReceiptData && (
+        <CanonicalReceiptModal
+          isOpen={isReceiptModalOpen}
+          onClose={() => setIsReceiptModalOpen(false)}
+          receiptData={lastSaleReceiptData}
+          documentContext={effectiveDocContext}
+          onPrint={handlePrintSale}
+        />
+      )}
     </Screen>
   )
 }

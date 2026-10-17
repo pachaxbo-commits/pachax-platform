@@ -24,22 +24,31 @@ import type { PrinterProfile, PrinterConnectionType, PrintJobPayload } from '../
 
 export interface PrinterSettingsViewProps {
   onBack?: () => void
+  onClose?: () => void
   tenantId?: string
   branchId?: string
   accentColor?: string
   theme?: string
   canManage?: boolean
   allowedRoles?: Array<'receipt' | 'kitchen' | 'bar'>
+  companyName?: string
+  businessIdentity?: import('../core/businessIdentity').BusinessIdentity
+  documentContext?: import('../core/businessIdentity').BusinessDocumentContext
 }
 
 export function PrinterSettingsView({
   onBack,
+  onClose,
   tenantId,
   branchId = 'main',
   accentColor,
   canManage = true,
   allowedRoles,
+  companyName,
+  businessIdentity,
+  documentContext,
 }: PrinterSettingsViewProps) {
+  const handleBack = onClose || onBack
   const engine = PrintEngineService.getInstance()
   const migration = PrintMigrationService.getInstance()
 
@@ -192,11 +201,21 @@ export function PrinterSettingsView({
     setStatusMessage(null)
     setTestError(null)
     try {
+      const effectiveCompanyName =
+        documentContext?.companyName ||
+        businessIdentity?.tradeName ||
+        companyName ||
+        'PACHAX Platform'
+      const effectiveBranchName =
+        documentContext?.branchName ||
+        (effectiveBranchId === 'main' ? 'Sucursal Principal' : effectiveBranchId)
+
       const payload: PrintJobPayload = {
         payloadSchemaVersion: 1,
         templateVersion: 'v1.0',
-        restaurantName: 'PACHAX Platform',
-        branchName: 'Sucursal Principal',
+        restaurantName: effectiveCompanyName,
+        branchName: effectiveBranchName,
+        logoUrl: documentContext?.showLogo !== false ? (documentContext?.logoUrl || businessIdentity?.logoUrl) : undefined,
         items: [
           {
             name: 'Comprobación de enlace térmico',
@@ -253,7 +272,7 @@ export function PrinterSettingsView({
       <PageHeader
         title="Impresoras y Estaciones"
         subtitle="Gestión de impresoras térmicas Bluetooth Classic SPP, Red LAN TCP/IP y Diálogo de PC"
-        onBack={onBack}
+        onBack={handleBack}
         actions={
           canManage ? (
             <button

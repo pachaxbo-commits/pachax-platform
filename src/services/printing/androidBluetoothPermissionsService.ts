@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core'
-import PachaxBluetoothPermissions, { type BluetoothPermissionValue } from '../../plugins/pachaxBluetoothPermissions'
+import PachaxBluetoothPermissions, { type BluetoothPermissionValue } from '../../plugins/pachaxBluetoothPermissions.ts'
 
 export interface BluetoothDiagnosticState {
   isNativeAndroid: boolean

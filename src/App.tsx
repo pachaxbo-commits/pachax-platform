@@ -18,19 +18,32 @@ import type { UserRole } from './types'
 function DistributionShell(props: {
   tenantId: string
   restaurantName: string
+  companyName?: string
+  logoUrl?: string
+  primaryColor?: string
+  accentColor?: string
   uid: string
   userName: string
   role: UserRole
   routeId: string | null
   warehouseId?: string
   onSignOut: () => Promise<void>
+  businessIdentity?: import('./core/businessIdentity').BusinessIdentity
 }) {
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false)
 
   return (
     <>
       <DistributionApp {...props} onOpenPrinterSettings={() => setIsPrinterSettingsOpen(true)} />
-      {isPrinterSettingsOpen && <DistributionPrinterModal tenantId={props.tenantId} onClose={() => setIsPrinterSettingsOpen(false)} />}
+      {isPrinterSettingsOpen && (
+        <DistributionPrinterModal
+          tenantId={props.tenantId}
+          branchId="main"
+          companyName={props.businessIdentity?.tradeName || props.companyName || props.restaurantName}
+          businessIdentity={props.businessIdentity}
+          onClose={() => setIsPrinterSettingsOpen(false)}
+        />
+      )}
     </>
   )
 }
@@ -123,6 +136,10 @@ function App() {
       <DistributionShell
         tenantId={auth.tenantId}
         restaurantName={auth.account.name}
+        companyName={activeTenant?.tenant.name || auth.account.name}
+        logoUrl={activeTenant?.branding?.logoUrl || auth.account.branding?.logoUrl}
+        primaryColor={activeTenant?.branding?.primary || auth.account.branding?.primaryColor}
+        accentColor={activeTenant?.branding?.accent || auth.account.branding?.accentColor}
         key={`${auth.tenantId}:${auth.member.uid}`}
         warehouseId={auth.member.warehouseId}
         uid={auth.member.uid}
@@ -130,6 +147,7 @@ function App() {
         role={auth.member.role}
         routeId={auth.member.routeId ?? null}
         onSignOut={auth.signOut}
+        businessIdentity={activeTenant?.tenant?.businessIdentity}
       />
     )
   }

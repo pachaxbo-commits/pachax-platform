@@ -12,6 +12,11 @@ import {
   type DistributionViewProps,
 } from './DistributionExperience'
 import type { Permission, UserRole } from '../../../types'
+import type { BusinessIdentity } from '../../../core/businessIdentity'
+import { loadSupportSettings } from '../data/supportMaintenance'
+import { resolveDistributionBusinessIdentity } from '../data/distributionReceiptService'
+import { updateTenantBusinessIdentity, uploadTenantLogoToFirebase } from '../../../lib/firebase'
+import { initializePrinting } from '../../../services/printing/printerBootstrap'
 
 export type { DistributionSession, DistributionViewProps }
 
@@ -25,6 +30,11 @@ export function DistributionApp({
   warehouseId = 'central',
   onSignOut,
   onOpenPrinterSettings,
+  businessIdentity: initialBusinessIdentity,
+  companyName,
+  logoUrl,
+  primaryColor,
+  accentColor,
 }: {
   tenantId: string
   restaurantName: string
@@ -35,12 +45,55 @@ export function DistributionApp({
   routeId: string | null
   onSignOut: () => Promise<void>
   onOpenPrinterSettings: () => void
+  businessIdentity?: BusinessIdentity
+  companyName?: string
+  logoUrl?: string
+  primaryColor?: string
+  accentColor?: string
 }) {
   const definition = getBusinessTypeDefinition('mobile_distribution')
 
+  const [activeIdentity, setActiveIdentity] = useState<BusinessIdentity | undefined>(initialBusinessIdentity)
+
   useEffect(() => {
-    applyTenantTheme(definition.theme)
-  }, [definition.theme])
+    initializePrinting(tenantId, 'main')
+  }, [tenantId])
+
+  useEffect(() => {
+    if (initialBusinessIdentity) {
+      setActiveIdentity(initialBusinessIdentity)
+      return
+    }
+    let isMounted = true
+    void loadSupportSettings().then((settings) => {
+      if (isMounted) {
+        const resolved = resolveDistributionBusinessIdentity(initialBusinessIdentity, settings, restaurantName)
+        setActiveIdentity(resolved)
+      }
+    })
+    return () => {
+      isMounted = false
+    }
+  }, [tenantId, initialBusinessIdentity, restaurantName])
+
+  useEffect(() => {
+    const effectivePrimary = activeIdentity?.primaryColor || primaryColor || definition.theme.primary
+    const effectiveAccent = activeIdentity?.accentColor || accentColor || definition.theme.accent
+    applyTenantTheme({
+      ...definition.theme,
+      primary: effectivePrimary,
+      accent: effectiveAccent,
+    })
+  }, [activeIdentity?.primaryColor, activeIdentity?.accentColor, primaryColor, accentColor, definition.theme])
+
+  const handleSaveBusinessIdentity = async (newIdentity: BusinessIdentity) => {
+    await updateTenantBusinessIdentity(tenantId, newIdentity)
+    setActiveIdentity(newIdentity)
+  }
+
+  const handleUploadLogo = async (file: File) => {
+    return await uploadTenantLogoToFirebase(file, tenantId)
+  }
 
   const can = useMemo(() => (permission: Permission) => hasPermission(role, permission), [role])
   const [dayKeys, setDayKeys] = useState<string[]>([toDayKey(new Date())])
@@ -82,6 +135,11 @@ export function DistributionApp({
       onOpenPrinterSettings={onOpenPrinterSettings}
       onDismissSyncError={dismissSyncError}
       onAcknowledgeOperation={acknowledgeOperation}
+      logoUrl={activeIdentity?.logoUrl || logoUrl}
+      companyName={activeIdentity?.tradeName || companyName}
+      businessIdentity={activeIdentity}
+      onSaveBusinessIdentity={handleSaveBusinessIdentity}
+      onUploadLogo={handleUploadLogo}
     />
   )
 }

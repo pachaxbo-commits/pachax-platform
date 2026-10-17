@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core'
-import { AndroidBluetoothPermissionsService, type BluetoothDiagnosticState } from '../../services/printing/androidBluetoothPermissionsService'
+import { AndroidBluetoothPermissionsService, type BluetoothDiagnosticState } from '../../services/printing/androidBluetoothPermissionsService.ts'
 import type {
   ErrorClassification,
   PrinterAdapter,
@@ -7,7 +7,7 @@ import type {
   PrinterProfile,
   PrintResult,
   PrintTransportPayload,
-} from '../../types/printing'
+} from '../../types/printing.ts'
 
 export interface BluetoothPairedDevice {
   id: string

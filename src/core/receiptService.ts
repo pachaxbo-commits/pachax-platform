@@ -126,6 +126,9 @@ export function buildReceiptPlainText(
   if (receipt.paymentMethod) {
     lines.push(`Forma de pago: ${receipt.paymentMethod}`)
   }
+  if (receipt.paymentDetails && receipt.paymentDetails.length > 0) {
+    receipt.paymentDetails.forEach(d => lines.push(`   └ ${d}`))
+  }
   if (receipt.cashReceived) {
     lines.push(`Recibido: Bs ${receipt.cashReceived.toFixed(2)}`)
   }
@@ -342,6 +345,15 @@ export async function generateReceiptPdf(
     doc.setTextColor(71, 85, 105)
     doc.text(`Pago: ${receipt.paymentMethod}`, 5, cursorY)
     cursorY += 3.5
+  }
+  if (receipt.paymentDetails && receipt.paymentDetails.length > 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor(71, 85, 105)
+    for (const d of receipt.paymentDetails) {
+      doc.text(`* ${d}`, 8, cursorY, { maxWidth: 67 })
+      cursorY += 3.2
+    }
   }
   if (receipt.cashReceived) {
     doc.setFont('helvetica', 'normal')

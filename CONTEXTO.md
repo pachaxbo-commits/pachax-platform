@@ -1770,3 +1770,24 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
   - `npm run test:nightclub`: 87/87 pruebas aprobadas.
   - `npm run test:platform`: 83/83 pruebas aprobadas (incluye las 17 nuevas de Nightclub Impresión & Business Identity).
   - `git diff --check`: 0 errores de formato.
+
+## Checkpoint - 17 de Octubre de 2026: Distribución D3 — PACHAX Core (Business Identity + Impresión Universal + Recibos Digitales)
+- **Objetivo Cumplido**:
+  - Convergencia total de la plantilla de Distribución a los primitives canónicos de PACHAX Core compartidos con Restaurant y Nightclub:
+    1. Identidad empresarial unificada (`BusinessIdentity`): tradeName, legalName, logoUrl, taxId, phone, receiptHeader, receiptFooter, etc.
+    2. Fallback seguro: lectura retrocompatible de campos comerciales de `supportConfig/main` sin escribir nunca más sobre dicha colección.
+    3. Reducción contractual de `supportConfig`: ahora exclusivamente `DistributionOperationalSettings` (`expiryAlertDays`, `creditBlockDays`, `requireQrVerification`), con reglas Firestore compiladas permitiendo este esquema.
+    4. Separación estricta de UI en `SupportView`: Admin/Owner gestiona `BusinessIdentitySettings`, reglas operativas, perfiles de impresoras y mantenimiento. Support queda restringido a herramientas técnicas de diagnóstico, prueba de hardware y entrega limpia (sin acceso a alterar identidad comercial).
+    5. Impresión universal: eliminación de `DistributionPrinterModal` paralela (reemplazada por un wrapper canónico sobre `PrinterSettingsView`), scoping estricto por `tenantId` y `branchId: 'main'`, motor unificado `PrintEngineService` y `classifyPrintJobOutcome`.
+    6. Comprobantes canónicos digitales: adapters `distSaleToReceiptData` (soporte completo de ventas mixtas efectivo+QR, crédito nuevo, saldo acumulado y ventas de cortesía con total 0 e indicador de valor referencial) y `distCollectionToReceiptData` (desglose FIFO de deudas aplicadas y saldos de cartera).
+    7. Integración de `CanonicalReceiptModal` con generación de PDF (`generateReceiptPdf`), impresión térmica y compartir por WhatsApp (`shareReceipt`).
+    8. Comprobación honesta de estado: banners en ventas y cobros en `pendingConfirmation`, bloqueando emisión de documentos definitivos falsos.
+- **Validaciones Ejecutadas**:
+  - `npm run typecheck`: 0 errores de TypeScript.
+  - `npm run test:distribution`: 55/55 pruebas unitarias del motor de distribución aprobadas.
+  - `npm run test:reports`: Pruebas de etiquetas aprobadas.
+  - `tests/distributionCanonicalCore.test.ts`: 8/8 pruebas unitarias canónicas de D3 aprobadas.
+  - `npm run test:platform`: 127/127 pruebas de plataforma aprobadas.
+  - `npm run build:rules`: Reglas de Firestore compiladas exitosamente.
+  - `npm run build`: Compilación de producción exitosa en 8.21s.
+  - `git diff --check`: 0 errores de formato o saltos de línea.
