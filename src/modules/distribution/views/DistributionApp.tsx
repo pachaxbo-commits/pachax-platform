@@ -4,7 +4,7 @@ import { acknowledgeOperation } from '../data/operationQueue'
 import { getBusinessTypeDefinition } from '../../../config/businessTypes'
 import { hasPermission } from '../../../services/permissionService'
 import { applyTenantTheme } from '../../../lib/tenantTheme'
-import { buildDayRange, useDistributionData, useSyncStatus } from '../state/useDistributionStore'
+import { useDistributionData, useSyncStatus } from '../state/useDistributionStore'
 import { toDayKey } from '../domain/engine'
 import {
   DistributionExperience,
@@ -53,7 +53,8 @@ export function DistributionApp({
 }) {
   const definition = getBusinessTypeDefinition('mobile_distribution')
 
-  const [activeIdentity, setActiveIdentity] = useState<BusinessIdentity | undefined>(initialBusinessIdentity)
+  const [localIdentity, setLocalIdentity] = useState<BusinessIdentity | undefined>(undefined)
+  const activeIdentity = localIdentity || initialBusinessIdentity
 
   useEffect(() => {
     initializePrinting(tenantId, 'main')
@@ -61,14 +62,13 @@ export function DistributionApp({
 
   useEffect(() => {
     if (initialBusinessIdentity) {
-      setActiveIdentity(initialBusinessIdentity)
       return
     }
     let isMounted = true
     void loadSupportSettings().then((settings) => {
       if (isMounted) {
-        const resolved = resolveDistributionBusinessIdentity(initialBusinessIdentity, settings, restaurantName)
-        setActiveIdentity(resolved)
+        const resolved = resolveDistributionBusinessIdentity(undefined, settings, restaurantName)
+        setLocalIdentity((prev) => prev || resolved)
       }
     })
     return () => {
@@ -88,7 +88,7 @@ export function DistributionApp({
 
   const handleSaveBusinessIdentity = async (newIdentity: BusinessIdentity) => {
     await updateTenantBusinessIdentity(tenantId, newIdentity)
-    setActiveIdentity(newIdentity)
+    setLocalIdentity(newIdentity)
   }
 
   const handleUploadLogo = async (file: File) => {
@@ -144,4 +144,3 @@ export function DistributionApp({
   )
 }
 
-export { buildDayRange }

@@ -36,7 +36,7 @@ export function CanonicalReceiptModal({
         setStatusMessage('Recibo compartido correctamente')
         setTimeout(() => setStatusMessage(null), 3000)
       }
-    } catch (_err: unknown) {
+    } catch {
       setStatusMessage('Error al compartir recibo')
     } finally {
       setSharing(false)
@@ -51,13 +51,13 @@ export function CanonicalReceiptModal({
       const res = await onPrint()
       if (typeof res === 'string' && res.trim().length > 0) {
         setStatusMessage(res)
-      } else if (res && typeof res === 'object' && 'message' in res && typeof (res as any).message === 'string') {
-        setStatusMessage((res as any).message)
+      } else if (res && typeof res === 'object' && 'message' in res && typeof (res as { message: unknown }).message === 'string') {
+        setStatusMessage((res as { message: string }).message)
       } else {
         setStatusMessage('Ticket enviado a impresión')
       }
       setTimeout(() => setStatusMessage(null), 3000)
-    } catch (_err: unknown) {
+    } catch {
       setStatusMessage('Fallo al enviar a impresora')
     } finally {
       setPrinting(false)

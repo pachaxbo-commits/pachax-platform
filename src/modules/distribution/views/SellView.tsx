@@ -340,7 +340,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
 
   const lastSaleCustomer = useMemo(
     () => (lastSale?.customerId ? data.customers.find((c) => c.id === lastSale.customerId) : null),
-    [data.customers, lastSale?.customerId]
+    [data.customers, lastSale]
   )
 
   const lastSaleReceiptData = useMemo(() => {
