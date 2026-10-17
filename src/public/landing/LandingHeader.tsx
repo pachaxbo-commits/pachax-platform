@@ -88,7 +88,7 @@ export function LandingHeader() {
           {isAuthorized ? (
             <button
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/platform')}
               className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-all rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-2 group"
             >
               <span>Ir a mi empresa ({companyName})</span>
@@ -191,7 +191,7 @@ export function LandingHeader() {
                 type="button"
                 onClick={() => {
                   setIsMenuOpen(false)
-                  navigate('/login')
+                  navigate('/platform')
                 }}
                 className="w-full py-2.5 text-sm font-semibold text-white bg-slate-900 rounded-xl text-center"
               >

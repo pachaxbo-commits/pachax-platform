@@ -135,7 +135,7 @@ export function PublicRegisterView() {
       }
 
       // 3. Redirigir a la aplicación principal
-      window.location.href = '/'
+      window.location.href = '/platform'
     } catch (err: unknown) {
       setSubmitting(false)
       const errorObj = err as { code?: string; message?: string }
