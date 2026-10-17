@@ -53,7 +53,13 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     businessType: 'route_distribution', name: 'Distribuidora', description: 'Despachos, rutas, ventas, créditos y retornos.', icon: 'truck', version: 1,
     capabilities: distributionCapabilities, defaults: defaults(distributionCapabilities),
     modules: [...common, { id: 'credits', name: 'Créditos', capability: 'credits', permission: 'credits.read' }, { id: 'dispatch', name: 'Despachos', capability: 'dispatch', permission: 'dispatch.create' }, { id: 'routes', name: 'Cierre de ruta', capability: 'routes', permission: 'route.close' }],
-    roles: [owner, admin, { id: 'warehouse', name: 'Almacén', permissions: ['inventory.read', 'inventory.manage', 'dispatch.create', 'route.close'] }, { id: 'distributor', name: 'Distribuidor', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect', 'route.close'] }],
+    roles: [
+      owner,
+      admin,
+      { id: 'warehouse', name: 'Almacén', permissions: ['inventory.read', 'inventory.manage', 'dispatch.create', 'route.close'] },
+      { id: 'distributor', name: 'Distribuidor', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect', 'route.close'] },
+      { id: 'support', name: 'Soporte técnico', permissions: ['settings.manage'] },
+    ],
     units: ['kg', 'g', 'unit', 'package', 'box', 'liter'], pos: 'route', inventory: 'lots-and-routes',
     // Validation of the migrated adapter is required before advertising these in the new tenant shell.
     offlineOperations: [], reports: ['sales', 'receivables', 'routeClosures'],

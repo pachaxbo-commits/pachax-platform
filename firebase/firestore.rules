@@ -462,6 +462,10 @@ service cloud.firestore {
       return hasRole(restaurantId, ['admin', 'owner', 'superadmin', 'accountant']);
     }
 
+    function distSettingsAdmin(restaurantId) {
+      return hasRole(restaurantId, ['admin', 'owner', 'superadmin']);
+    }
+
     function distWarehouse(restaurantId) {
       return hasRole(restaurantId, ['warehouse']);
     }
@@ -678,14 +682,14 @@ service cloud.firestore {
       // no puede demostrar que devolverá únicamente el documento `main`.
       allow get: if configId == 'main' && isActiveMember(restaurantId);
       allow list: if isActiveMember(restaurantId);
-      allow create: if configId == 'main' && distAdmin(restaurantId)
+      allow create: if configId == 'main' && distSettingsAdmin(restaurantId)
         && request.resource.data.keys().hasOnly(['restaurantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.restaurantId == restaurantId
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
         && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
         && request.resource.data.requireQrVerification is bool
         && request.resource.data.updatedBy == request.auth.uid;
-      allow update: if configId == 'main' && distAdmin(restaurantId)
+      allow update: if configId == 'main' && distSettingsAdmin(restaurantId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['restaurantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.get('restaurantId', restaurantId) == restaurantId
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
@@ -967,6 +971,10 @@ service cloud.firestore {
       return tHasRole(tenantId, ['admin', 'owner', 'superadmin', 'accountant']);
     }
 
+    function tDistSettingsAdmin(tenantId) {
+      return tHasRole(tenantId, ['admin', 'owner', 'superadmin']);
+    }
+
     function tDistWarehouse(tenantId) {
       return tHasRole(tenantId, ['warehouse']);
     }
@@ -1136,14 +1144,14 @@ service cloud.firestore {
 
     match /tenants/{tenantId}/distDispatches/{dispatchId} {
       allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
-        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid);
+        || (tDistDistributor(tenantId) && resource.data.get('distributorUid', '') == request.auth.uid);
       allow create, update, delete: if false;
     }
 
     // Las ventas no se editan ni se borran: son historia contable.
     match /tenants/{tenantId}/distSales/{saleId} {
       allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
-        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('sellerUid', '') == request.auth.uid);
+        || (tDistDistributor(tenantId) && resource.data.get('sellerUid', '') == request.auth.uid);
       allow create, update, delete: if false;
     }
 
@@ -1170,8 +1178,8 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/distClosures/{closureId} {
       allow read: if tDistAdmin(tenantId)
-        || (tDistWarehouse(tenantId) && tDistWarehouseOwns(tenantId, resource.data.get('warehouseId', 'central')))
-        || (tDistDistributor(tenantId) && ((tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid) || resource.data.get('returnDeclaredBy', '') == request.auth.uid));
+        || tDistWarehouse(tenantId)
+        || (tDistDistributor(tenantId) && resource.data.get('distributorUid', '') == request.auth.uid);
       allow create, update, delete: if false;
     }
 
@@ -1183,14 +1191,14 @@ service cloud.firestore {
       // no puede demostrar que devolverá únicamente el documento `main`.
       allow get: if configId == 'main' && tIsActiveMember(tenantId);
       allow list: if tIsActiveMember(tenantId);
-      allow create: if configId == 'main' && tDistAdmin(tenantId)
+      allow create: if configId == 'main' && tDistSettingsAdmin(tenantId)
         && request.resource.data.keys().hasOnly(['tenantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.tenantId == tenantId
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
         && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
         && request.resource.data.requireQrVerification is bool
         && request.resource.data.updatedBy == request.auth.uid;
-      allow update: if configId == 'main' && tDistAdmin(tenantId)
+      allow update: if configId == 'main' && tDistSettingsAdmin(tenantId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tenantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.get('tenantId', tenantId) == tenantId
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90

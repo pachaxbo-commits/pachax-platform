@@ -469,6 +469,10 @@ service cloud.firestore {
       return hasRole(restaurantId, ['admin', 'owner', 'superadmin', 'accountant']);
     }
 
+    function distSettingsAdmin(restaurantId) {
+      return hasRole(restaurantId, ['admin', 'owner', 'superadmin']);
+    }
+
     function distWarehouse(restaurantId) {
       return hasRole(restaurantId, ['warehouse']);
     }
@@ -685,14 +689,14 @@ service cloud.firestore {
       // no puede demostrar que devolverá únicamente el documento `main`.
       allow get: if configId == 'main' && isActiveMember(restaurantId);
       allow list: if isActiveMember(restaurantId);
-      allow create: if configId == 'main' && distAdmin(restaurantId)
+      allow create: if configId == 'main' && distSettingsAdmin(restaurantId)
         && request.resource.data.keys().hasOnly(['restaurantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.restaurantId == restaurantId
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
         && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
         && request.resource.data.requireQrVerification is bool
         && request.resource.data.updatedBy == request.auth.uid;
-      allow update: if configId == 'main' && distAdmin(restaurantId)
+      allow update: if configId == 'main' && distSettingsAdmin(restaurantId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['restaurantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.get('restaurantId', restaurantId) == restaurantId
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90

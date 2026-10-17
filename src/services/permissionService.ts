@@ -91,6 +91,7 @@ export const ROLE_PERMISSIONS_MAP: Record<UserRole, Permission[]> = {
     'settings.manage',
     'printers.manage',
     'branches.manage',
+    'support.settings.manage',
     ...DIST_ADMIN_PERMISSIONS,
   ],
   owner: [
@@ -113,6 +114,7 @@ export const ROLE_PERMISSIONS_MAP: Record<UserRole, Permission[]> = {
     'settings.manage',
     'printers.manage',
     'branches.manage',
+    'support.settings.manage',
     ...DIST_ADMIN_PERMISSIONS,
   ],
   admin: [
@@ -140,6 +142,7 @@ export const ROLE_PERMISSIONS_MAP: Record<UserRole, Permission[]> = {
     'printing.reprintReceipt',
     'printing.reprintKitchen',
     'cash.openDrawer',
+    'support.settings.manage',
     ...DIST_ADMIN_PERMISSIONS,
   ],
   manager: [

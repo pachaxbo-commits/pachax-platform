@@ -62,7 +62,7 @@ export function SupportView({
   const [phrase, setPhrase] = useState('')
   const [acknowledged, setAcknowledged] = useState(false)
 
-  const isAdmin = session ? session.role === 'admin' || session.role === 'owner' : true
+  const isAdmin = session ? session.role === 'admin' || session.role === 'owner' || session.role === 'superadmin' : true
 
   useEffect(() => {
     void loadSupportSettings()
