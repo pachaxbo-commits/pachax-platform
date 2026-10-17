@@ -1,5 +1,34 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: D2 y D2.1 - Distribución: Cobranza FIFO, Pago Mixto, Cortesías, Excepciones de Crédito y Cierre de Brechas (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD `7181bac`).
+- **Objetivos Cumplidos**:
+  1. **Cobro Mixto y Verificación QR (`collectionQrAmount`)**:
+     - `src/modules/distribution/domain/engine.ts`: helper exportado `collectionQrAmount(c)` que extrae `qrAmount` para cobros mixtos o `amount` para cobros QR legacy, devolviendo `0` para efectivo.
+     - `QrView.tsx`: filtra cobros con `collectionQrAmount(c) > 0 && !c.pendingConfirmation` mostrando exactamente el importe QR verificado.
+     - `distributionRepository.ts` (`verifyQr`): verifica el importe devuelto por `collectionQrAmount`.
+     - Firestore Rules (`tenant-distribution.rules` y `legacy.rules`): `tCollectionQrAmount` / `legacyCollectionQrAmount` validan en servidor que la verificación QR coincida exactamente con el componente QR de la cobranza.
+  2. **Cobro Individual vs FIFO por Cliente**:
+     - `functions/operations.cjs`: si `receivableId` o `receivable.id` está presente, se prioriza el cobro individual (exactamente 1 allocation), sin convertir a FIFO general aunque exista `customerId`.
+     - Si solo se proporciona `customerId`, aplica algoritmo FIFO sobre las deudas abiertas más antiguas del cliente.
+  3. **Manejo Offline de Cobros FIFO**:
+     - `useDistributionStore.ts`: la cola offline soporta cobros FIFO por cliente sin `p.receivable`, asignando `allocations: []` provisionales y mostrando "Pendiente de confirmación".
+     - `visibleReceivables`: no resta cobranzas pendientes de cartera localmente antes de que el servidor confirme la distribución de cuotas.
+  4. **Consulta Server-Authoritative de Crédito en SellView**:
+     - `SellView.tsx`: ante cualquier venta con `creditAmount > 0`, consulta en tiempo real `submitOperation('creditStatus', { customerId })` antes de autorizar el despacho.
+  5. **Validación Estricta y Propagación de Excepciones de Crédito**:
+     - `operations.cjs` (`creditOverride`): validación estricta de `validUntil` (cadena ISO finita en el futuro) y `days` (entero entre 1 y 30).
+     - Actualización inmediata y atómica de `distCreditStatus/{customerId}` al otorgar y revocar excepciones, coordinando `blocked`, `activeOverrideId`, `overrideValidUntil` y `overrideReason`.
+- **Resultados de Pruebas**:
+  - `npm run test:distribution`: 55/55 pruebas aprobadas.
+  - `npm run test:reports`: 1/1 prueba aprobada.
+  - `npm run test:platform`: 119/119 pruebas aprobadas.
+  - `npm run test:tenant-core`: 65 comprobaciones multiempresa aprobadas.
+  - `serverOperations.test.mjs` en emuladores: 100/100 comprobaciones aprobadas.
+  - `npm run typecheck` y `npm run build`: 0 errores.
+  - `git diff --check`: 0 errores.
+
 ## Checkpoint: D1 - Distribución: Motor Físico de Despacho, Merma, Retorno y Reapertura (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD base `32f94d6`).
