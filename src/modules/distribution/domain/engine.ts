@@ -267,8 +267,14 @@ export function computeMoneySummary(
   let cashCollections = 0
   let qrCollections = 0
   for (const collection of collections) {
-    if (collection.method === 'qr') qrCollections += Number(collection.amount) || 0
-    else cashCollections += Number(collection.amount) || 0
+    if (collection.method === 'mixed') {
+      cashCollections += Number(collection.cashAmount) || 0
+      qrCollections += Number(collection.qrAmount) || 0
+    } else if (collection.method === 'qr') {
+      qrCollections += Number(collection.amount) || 0
+    } else {
+      cashCollections += Number(collection.amount) || 0
+    }
   }
 
   const cashExpenses = expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0)
@@ -469,9 +475,12 @@ export function computeSellerBreakdown(
 
   for (const collection of collections) {
     const entry = ensure(collection.collectedByUid, collection.collectedByName)
-    if (collection.method !== 'qr') {
-      entry.expectedCash = round2(entry.expectedCash + (Number(collection.amount) || 0))
-    }
+    const cashPortion = collection.method === 'mixed'
+      ? (Number(collection.cashAmount) || 0)
+      : collection.method === 'qr'
+        ? 0
+        : (Number(collection.amount) || 0)
+    entry.expectedCash = round2(entry.expectedCash + cashPortion)
   }
 
   for (const entry of map.values()) {

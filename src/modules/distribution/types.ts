@@ -19,6 +19,7 @@ export type StockMovementType =
   | 'dispatch' // salida a ruta
   | 'dispatch_addition' // aumento de carga sobre despacho abierto
   | 'sale' // venta (descuenta ruta o central)
+  | 'courtesy' // salida de muestra comercial / atencion sin cobro
   | 'return' // retorno fisico de ruta a central
   | 'adjustment' // ajuste manual de almacen
   | 'shortage' // faltante detectado en conciliacion
@@ -179,6 +180,8 @@ export interface DistSaleLine {
   /** Precio realmente aplicado, congelado historicamente */
   actualUnitPrice: number
   subtotal: number
+  referenceUnitPriceSnapshot?: number
+  referenceSubtotal?: number
 }
 
 export interface DistSale extends DistBaseDoc {
@@ -201,6 +204,13 @@ export interface DistSale extends DistBaseDoc {
   qrAmount: number
   creditAmount: number
   note?: string
+  saleKind?: 'normal' | 'courtesy'
+  courtesyReason?: string
+  courtesyReferenceValue?: number
+  courtesyCostTotal?: number | null
+  creditOverrideId?: string
+  creditOverrideReason?: string
+  creditOverrideValidUntil?: string
 }
 
 export type ReceivableStatus = 'OPEN' | 'PARTIAL' | 'PAID'
@@ -222,11 +232,23 @@ export interface DistReceivable extends DistBaseDoc {
   note?: string
 }
 
+export interface DistCollectionAllocation {
+  receivableId: string
+  saleId?: string
+  originRouteId?: string
+  balanceBefore?: number
+  appliedAmount: number
+  balanceAfter?: number
+}
+
 export interface DistCollection extends DistBaseDoc {
   saleLines?: DistSaleLine[]
   customerCode?: string
   operationId: string
-  receivableId: string
+  receivableId?: string
+  allocations?: DistCollectionAllocation[]
+  portfolioBalanceBefore?: number
+  portfolioBalanceAfter?: number
   customerId: string
   customerName: string
   routeId: string
@@ -234,7 +256,9 @@ export interface DistCollection extends DistBaseDoc {
   collectedByUid: string
   collectedByName: string
   amount: number
-  method: 'cash' | 'qr'
+  method: 'cash' | 'qr' | 'mixed'
+  cashAmount?: number
+  qrAmount?: number
   note?: string
 }
 
@@ -378,4 +402,27 @@ export interface DistLot {
 }
 export interface DistTransfer { id: string; fromWarehouseId: string; toWarehouseId: string; line: DistDispatchLine; createdAt: string; createdBy: string; responsibleName?: string; note?: string }
 export interface DistClaim { id: string; kind: 'exchange'|'return'; saleId: string; customerId: string; customerName: string; productId: string; productName: string; quantity: number; unitType: UnitType; reason: string; routeId: string; createdAt: string; dayKey: string; revenueDelta: number; additionalCost: number | null; debtReduction: number; cashIn: number; cashOut: number; qrIn: number; qrOut: number; replacement: {productId: string;productName: string;quantity: number;unitType: UnitType;total: number} | null }
-export interface DistCreditStatus { id: string; oldestPendingAt: string | null; checkedAt: string }
+export interface DistCreditStatus {
+  id: string
+  oldestPendingAt: string | null
+  overduePendingAt?: string | null
+  creditBlockDays?: number
+  blocked?: boolean
+  activeOverrideId?: string | null
+  overrideValidUntil?: string | null
+  overrideReason?: string | null
+  checkedAt: string
+}
+
+export interface DistCreditOverride extends DistBaseDoc {
+  customerId: string
+  customerName?: string
+  reason: string
+  validFrom?: string
+  validUntil: string
+  createdByName?: string
+  revokedAt?: string
+  revokedBy?: string
+  revokedByName?: string
+  active: boolean
+}

@@ -38,7 +38,16 @@ export function CollectionsView({ session, data }: DistributionViewProps) {
                   <CreditProducts saleId={data.receivables.find(r => r.id === collection.receivableId)?.saleId} lines={collection.saleLines?.length ? collection.saleLines : data.receivables.find(r => r.id === collection.receivableId)?.saleLines} />
                   <p className="break-words text-[11px] font-semibold leading-snug text-slate-500">
                     {new Date(collection.createdAt).toLocaleString('es-BO')} · {collection.collectedByName} ·{' '}
-                    {collection.method === 'qr' ? 'QR' : 'Efectivo'}
+                    {collection.method === 'mixed'
+                      ? `Mixto (Ef: ${formatBs(collection.cashAmount ?? 0)} / QR: ${formatBs(collection.qrAmount ?? 0)})`
+                      : collection.method === 'qr'
+                        ? 'QR'
+                        : 'Efectivo'}
+                    {collection.allocations && collection.allocations.length > 1 && (
+                      <span className="ml-1.5 inline-block rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+                        {collection.allocations.length} deudas (FIFO)
+                      </span>
+                    )}
                   </p>
                 </div>
                 <span className="shrink-0 text-sm font-black tabular-nums text-emerald-600">

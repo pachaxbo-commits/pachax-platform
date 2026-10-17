@@ -600,7 +600,7 @@ service cloud.firestore {
         && ((request.resource.data.type in ['sale','collection','expense','creditStatus'] && (distAdmin(restaurantId) || distDistributor(restaurantId)))
           || (request.resource.data.type in ['intake','transfer','dispatch','addition','closure'] && (distAdmin(restaurantId)||distWarehouse(restaurantId)))
           || (request.resource.data.type == 'closure' && distDistributor(restaurantId))
-          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct'] && distAdmin(restaurantId)));
+          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct','creditOverride'] && distAdmin(restaurantId)));
       allow update: if isActiveMember(restaurantId) && resource.data.createdBy == request.auth.uid && resource.data.status == 'rejected'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']) && request.resource.data.acknowledged == true;
       allow delete: if false;
@@ -619,6 +619,10 @@ service cloud.firestore {
     }
     match /restaurants/{restaurantId}/distCreditStatus/{customerId} {
       allow read: if distWorker(restaurantId);
+      allow write: if false;
+    }
+    match /restaurants/{restaurantId}/distCreditOverrides/{overrideId} {
+      allow read: if distAdmin(restaurantId);
       allow write: if false;
     }
 

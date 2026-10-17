@@ -557,6 +557,13 @@ async function sale(o, p) {
       (o.member.role === "distributor" ? "route" : "centralWarehouse"),
     "Origen de venta no autorizado.",
   );
+  const isCourtesy = p.saleKind === "courtesy";
+  if (isCourtesy) {
+    check(
+      typeof p.courtesyReason === "string" && p.courtesyReason.trim().length >= 4,
+      "La venta de cortesía requiere un motivo de al menos 4 caracteres.",
+    );
+  }
   const loc =
     o.member.role === "distributor"
       ? location("route", o.member.routeId)
@@ -573,23 +580,33 @@ async function sale(o, p) {
     const c = await o.read("distClosures", `closure_${d.id}`);
     check(!c?.warehouseClosedBy, "Ya se recibió el retorno de la ruta.");
   }
+  let activeOverride = null;
   if (p.customerId) {
     const c = await o.read("distCustomers", p.customerId);
     check(c?.active, "El cliente está inactivo.");
     check(c.identityNumber, "Completa el CI del cliente antes de vender.");
-    const debts = await o.query("distReceivables", "customerId", p.customerId);
-    const supportConfig = await o.read("supportConfig", "main");
-    const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
-      ? supportConfig.creditBlockDays
-      : 7;
-    check(
-      !debts.some(
+    if (!isCourtesy && Number(p.creditAmount) > 0) {
+      const debts = await o.query("distReceivables", "customerId", p.customerId);
+      const supportConfig = await o.read("supportConfig", "main");
+      const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
+        ? supportConfig.creditBlockDays
+        : 7;
+      const isOverdue = debts.some(
         (d) =>
           d.balance > 0 &&
           new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now(),
-      ),
-      `Venta bloqueada: el cliente tiene créditos pendientes de ${creditBlockDays} días o más.`,
-    );
+      );
+      if (isOverdue) {
+        const overrides = await o.query("distCreditOverrides", "customerId", p.customerId);
+        activeOverride = overrides
+          .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= o.now))
+          .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
+        check(
+          Boolean(activeOverride),
+          `Venta a crédito bloqueada: el cliente tiene créditos pendientes de ${creditBlockDays} días o más. Requiere autorización de administración.`,
+        );
+      }
+    }
     p.customerName = c.name;
     p.customerCode = c.identityNumber;
   }
@@ -597,41 +614,68 @@ async function sale(o, p) {
   const lines = [];
   for (const l of p.lines) {
     const product = await o.product(l.productId);
-    check(
-      o.member.role === "admin" ||
-        round(l.actualUnitPrice) === round(product.referencePrice),
-      "El vendedor no puede modificar el precio. Revisa el precio vigente.",
-    );
-    check(
-      Number.isFinite(l.actualUnitPrice) && l.actualUnitPrice >= 0,
-      "Precio inválido.",
-    );
+    if (!isCourtesy) {
+      check(
+        o.member.role === "admin" ||
+          round(l.actualUnitPrice) === round(product.referencePrice),
+        "El vendedor no puede modificar el precio. Revisa el precio vigente.",
+      );
+      check(
+        Number.isFinite(l.actualUnitPrice) && l.actualUnitPrice >= 0,
+        "Precio inválido.",
+      );
+    }
     const allocations = await o.take(l.productId, loc, l.quantity);
     const known = allocations.every((a) => a.productionCost !== null);
+    const actualUnitPrice = isCourtesy ? 0 : round(l.actualUnitPrice);
+    const subtotal = isCourtesy ? 0 : round(l.quantity * actualUnitPrice);
+    const referenceUnitPriceSnapshot = round(product.referencePrice || 0);
+    const referenceSubtotal = round(l.quantity * referenceUnitPriceSnapshot);
+    const costTotal = known
+      ? round(
+          allocations.reduce((s, a) => s + a.quantity * a.productionCost, 0),
+        )
+      : null;
     lines.push({
       productId: l.productId,
       productNameSnapshot: product.name,
       unitType: product.unitType,
       quantity: l.quantity,
-      actualUnitPrice: round(l.actualUnitPrice),
-      subtotal: round(l.quantity * l.actualUnitPrice),
+      actualUnitPrice,
+      subtotal,
+      referenceUnitPriceSnapshot,
+      referenceSubtotal,
       allocations,
-      costTotal: known
-        ? round(
-            allocations.reduce((s, a) => s + a.quantity * a.productionCost, 0),
-          )
-        : null,
+      costTotal,
     });
-    o.ledger(l.productId, l.quantity, loc, null, "sale", { allocations });
+    o.ledger(l.productId, l.quantity, loc, null, isCourtesy ? "courtesy" : "sale", {
+      allocations,
+      note: isCourtesy ? p.courtesyReason.trim() : undefined,
+    });
   }
-  const total = round(lines.reduce((n, l) => n + l.subtotal, 0));
-  check(
-    [p.cashAmount, p.qrAmount, p.creditAmount].every(
-      (x) => Number.isFinite(x) && x >= 0,
-    ) && Math.abs(total - p.cashAmount - p.qrAmount - p.creditAmount) < 0.01,
-    "Los pagos no coinciden con el total.",
-  );
-  check(!p.creditAmount || p.customerId, "El crédito necesita un cliente.");
+  const total = isCourtesy ? 0 : round(lines.reduce((n, l) => n + l.subtotal, 0));
+  if (isCourtesy) {
+    p.cashAmount = 0;
+    p.qrAmount = 0;
+    p.creditAmount = 0;
+  } else {
+    check(
+      [p.cashAmount, p.qrAmount, p.creditAmount].every(
+        (x) => Number.isFinite(x) && x >= 0,
+      ) && Math.abs(total - p.cashAmount - p.qrAmount - p.creditAmount) < 0.01,
+      "Los pagos no coinciden con el total.",
+    );
+    check(!p.creditAmount || p.customerId, "El crédito necesita un cliente.");
+  }
+  const courtesyReferenceValue = isCourtesy
+    ? round(lines.reduce((s, l) => s + (l.referenceSubtotal || 0), 0))
+    : undefined;
+  const courtesyCostTotal = isCourtesy
+    ? (lines.every((l) => l.costTotal !== null)
+        ? round(lines.reduce((s, l) => s + (l.costTotal || 0), 0))
+        : null)
+    : undefined;
+
   const s = {
     id: o.id,
     ...o.base(),
@@ -647,14 +691,29 @@ async function sale(o, p) {
     customerCode: p.customerCode || "",
     lines,
     total,
-    paymentKind: p.paymentKind,
-    cashAmount: p.cashAmount,
-    qrAmount: p.qrAmount,
-    creditAmount: p.creditAmount,
+    paymentKind: isCourtesy ? "cash" : p.paymentKind,
+    cashAmount: isCourtesy ? 0 : p.cashAmount,
+    qrAmount: isCourtesy ? 0 : p.qrAmount,
+    creditAmount: isCourtesy ? 0 : p.creditAmount,
     note: p.note || "",
+    saleKind: isCourtesy ? "courtesy" : "normal",
+    ...(isCourtesy
+      ? {
+          courtesyReason: p.courtesyReason.trim(),
+          courtesyReferenceValue,
+          courtesyCostTotal,
+        }
+      : {}),
+    ...(activeOverride
+      ? {
+          creditOverrideId: activeOverride.id || "",
+          creditOverrideReason: activeOverride.reason || "",
+          creditOverrideValidUntil: activeOverride.validUntil || "",
+        }
+      : {}),
   };
   o.put("distSales", o.id, s);
-  if (p.creditAmount > 0)
+  if (!isCourtesy && p.creditAmount > 0)
     o.put("distReceivables", o.id, {
       id: o.id,
       ...o.base(),
@@ -674,47 +733,161 @@ async function sale(o, p) {
   return s;
 }
 async function collection(o, p) {
-  const r = await o.read("distReceivables", p.receivable.id);
-  check(r, "La deuda no existe.");
   check(
-    o.member.role === "admin" ||
-      o.member.role === "distributor",
+    ["admin", "distributor"].includes(o.member.role),
     "No puedes cobrar esta deuda.",
   );
-  check(
-    Number.isFinite(p.amount) && p.amount > 0 && p.amount <= r.balance,
-    "El cobro supera el saldo pendiente.",
-  );
-  check(["cash", "qr"].includes(p.method), "Método de pago inválido.");
-  r.paidAmount = round(r.paidAmount + p.amount);
-  r.balance = round(r.balance - p.amount);
-  r.status = r.balance === 0 ? "PAID" : "PARTIAL";
-  o.put("distReceivables", r.id, r);
+  check(["cash", "qr", "mixed"].includes(p.method), "Método de pago inválido.");
+  check(Number.isFinite(p.amount) && p.amount > 0, "Monto inválido.");
+  const amount = round(p.amount);
+  let cashAmount = 0;
+  let qrAmount = 0;
+  if (p.method === "cash") {
+    cashAmount = amount;
+  } else if (p.method === "qr") {
+    qrAmount = amount;
+  } else if (p.method === "mixed") {
+    check(Number.isFinite(p.cashAmount) && p.cashAmount > 0, "Monto en efectivo inválido.");
+    check(Number.isFinite(p.qrAmount) && p.qrAmount > 0, "Monto en QR inválido.");
+    cashAmount = round(p.cashAmount);
+    qrAmount = round(p.qrAmount);
+    check(
+      Math.abs(round(cashAmount + qrAmount) - amount) < 0.01,
+      "La suma de efectivo y QR debe coincidir con el monto total cobrado.",
+    );
+  }
+
+  let sortedDebts = [];
+  let customerId = p.customerId || "";
+  let customerName = p.customerName || "";
+  let customerCode = p.customerCode || "";
+
+  if (p.customerId) {
+    const cust = await o.read("distCustomers", p.customerId);
+    check(cust, "Cliente no encontrado.");
+    customerId = cust.id;
+    customerName = cust.name;
+    customerCode = cust.customerCode || cust.identityNumber || "";
+    const rows = await o.query("distReceivables", "customerId", p.customerId);
+    sortedDebts = rows
+      .filter((r) => r.balance > 0)
+      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "") || a.id.localeCompare(b.id));
+    check(sortedDebts.length > 0, "El cliente no tiene deudas pendientes.");
+  } else {
+    const rId = p.receivable?.id || p.receivableId;
+    check(rId, "Debes indicar la deuda o el cliente a cobrar.");
+    const r = await o.read("distReceivables", rId);
+    check(r && r.balance > 0, "La deuda no existe o ya está pagada.");
+    sortedDebts = [r];
+    customerId = r.customerId;
+    customerName = r.customerName;
+    customerCode = r.customerCode || "";
+  }
+
+  const portfolioBalanceBefore = round(sortedDebts.reduce((sum, d) => sum + d.balance, 0));
+  check(amount <= portfolioBalanceBefore, "El cobro supera el saldo pendiente.");
+
+  let remainingToApply = amount;
+  const allocations = [];
+
+  for (const d of sortedDebts) {
+    if (remainingToApply <= 0.0001) break;
+    const applied = round(Math.min(remainingToApply, d.balance));
+    const balanceBefore = d.balance;
+    const balanceAfter = round(balanceBefore - applied);
+    d.paidAmount = round((d.paidAmount || 0) + applied);
+    d.balance = balanceAfter;
+    d.status = balanceAfter === 0 ? "PAID" : "PARTIAL";
+    o.put("distReceivables", d.id, d);
+    allocations.push({
+      receivableId: d.id,
+      saleId: d.saleId || "",
+      originRouteId: d.routeId || "",
+      balanceBefore,
+      appliedAmount: applied,
+      balanceAfter,
+    });
+    remainingToApply = round(remainingToApply - applied);
+  }
+
+  const portfolioBalanceAfter = round(portfolioBalanceBefore - amount);
   const collectionRouteId =
-    o.member.role === "distributor" ? o.member.routeId : p.routeId || r.routeId;
+    o.member.role === "distributor" ? o.member.routeId : p.routeId || sortedDebts[0]?.routeId || "central";
   check(collectionRouteId, "El cobrador no tiene una ruta asignada.");
+
   const c = {
     id: o.id,
     ...o.base(),
     operationId: o.id,
-    receivableId: r.id,
-    saleLines: r.saleLines || [],
-    customerId: r.customerId,
-    customerName: r.customerName,
-    customerCode: r.customerCode || "",
-    // El efectivo pertenece a la ruta del usuario que lo recibe. Se conserva
-    // aparte la ruta donde nació la deuda para auditoría de la venta original.
-    routeId: collectionRouteId,
-    originRouteId: r.routeId,
-    collectedByUid: o.actor,
-    collectedByName: o.member.displayName || o.actor,
-    amount: p.amount,
+    receivableId: sortedDebts.length === 1 ? sortedDebts[0].id : (allocations[0]?.receivableId || ""),
+    allocations,
+    portfolioBalanceBefore,
+    portfolioBalanceAfter,
+    customerId: customerId || "",
+    customerName: customerName || "",
+    customerCode: customerCode || "",
+    saleLines: sortedDebts[0]?.saleLines || [],
+    routeId: collectionRouteId || "",
+    originRouteId: sortedDebts[0]?.routeId || collectionRouteId || "",
+    collectedByUid: o.actor || "",
+    collectedByName: o.member.displayName || o.actor || "",
+    amount,
     method: p.method,
+    cashAmount,
+    qrAmount,
     note: p.note || "",
   };
   o.put("distCollections", o.id, c);
   return c;
 }
+
+async function creditOverride(o, p) {
+  o.admin();
+  if (p.revoke || p.action === "revoke") {
+    check(p.overrideId, "overrideId requerido.");
+    const ov = await o.read("distCreditOverrides", p.overrideId);
+    check(ov && ov.active !== false, "La excepción no está activa o ya fue revocada.");
+    const revoked = {
+      ...ov,
+      active: false,
+      revokedAt: o.now,
+      revokedBy: o.actor,
+      revokedByName: o.member.displayName || o.actor,
+      revokeReason: p.reason?.trim() || "Revocado por administración.",
+    };
+    o.put("distCreditOverrides", ov.id, revoked);
+    return revoked;
+  }
+
+  check(p.customerId, "customerId requerido.");
+  const cust = await o.read("distCustomers", p.customerId);
+  check(cust && cust.active !== false, "Cliente inexistente o inactivo.");
+  check(typeof p.reason === "string" && p.reason.trim().length >= 4, "El motivo de la excepción debe tener al menos 4 caracteres.");
+
+  let validUntil = "";
+  if (p.validUntil) {
+    check(typeof p.validUntil === "string" && p.validUntil.length >= 10, "Fecha de vigencia inválida.");
+    validUntil = p.validUntil;
+  } else {
+    const days = Number.isInteger(p.days) && p.days >= 1 && p.days <= 30 ? p.days : 7;
+    validUntil = new Date(Date.now() + days * 86400000).toISOString();
+  }
+
+  const ov = {
+    id: o.id,
+    ...o.base(),
+    customerId: cust.id,
+    customerName: cust.name,
+    reason: p.reason.trim(),
+    validFrom: o.now,
+    validUntil,
+    createdByName: o.member.displayName || o.actor,
+    active: true,
+  };
+  o.put("distCreditOverrides", o.id, ov);
+  return ov;
+}
+
 const handlers = {
   intake,
   transfer,
@@ -722,6 +895,7 @@ const handlers = {
   addition: (o, p) => dispatch(o, p, true),
   sale,
   collection,
+  creditOverride,
 };
 async function processCommand(db, ref) {
   return db.runTransaction(async (tx) => {
@@ -741,7 +915,7 @@ async function processCommand(db, ref) {
       let member = membership.data();
       if (tenantScoped) {
         const [tenant, platform, maintenance] = await Promise.all([tx.get(root), tx.get(db.doc('platformOperators/' + command.createdBy)), tx.get(root.collection('maintenanceState').doc('reset'))]);
-        const permission = ({ sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage' })[command.type];
+        const permission = ({ sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage', creditOverride: 'settings.manage' })[command.type];
         check(tenant.data()?.businessType === 'route_distribution' && permission && hasPermission(tenant.data(), member, permission), 'Sin permiso para esta operación.');
         check(command.tenantId === root.id, 'Empresa de la operación inválida.');
         check(platform.data()?.active !== true && maintenance.data()?.active !== true, 'Operación no permitida durante soporte o mantenimiento.');
@@ -1283,12 +1457,21 @@ async function closure(o, p) {
       const additionsPhysical = round(additionsNormal + additionsMerma);
 
       const totalLoadedPhysical = round(initialPhysical + additionsPhysical);
-      const sold = round(
+      const commercialSold = round(
         sales
+          .filter((s) => s.saleKind !== "courtesy")
           .flatMap((s) => s.lines)
           .filter((l) => l.productId === pid)
           .reduce((s, l) => s + l.quantity, 0),
       );
+      const courtesySold = round(
+        sales
+          .filter((s) => s.saleKind === "courtesy")
+          .flatMap((s) => s.lines)
+          .filter((l) => l.productId === pid)
+          .reduce((s, l) => s + l.quantity, 0),
+      );
+      const sold = round(commercialSold + courtesySold);
 
       const declaredItem = previous.declaredBreakdown?.[pid] || {
         normalReturn: previous.declaredReturns?.[pid] ?? 0,
@@ -1320,6 +1503,8 @@ async function closure(o, p) {
         additions: additionsPhysical,
         totalLoaded: totalLoadedPhysical,
         sold,
+        commercialSold,
+        courtesySold,
         expectedReturn: expected,
         actualReturn: normalApt,
         returnMerma: recoverableFromRoute,
@@ -1387,9 +1572,11 @@ async function closure(o, p) {
   );
   const sum = (list, key) => round(list.reduce((n, r) => n + (r[key] || 0), 0));
   const cashSales = sum(sales, "cashAmount"),
-    cashCollections = sum(
-      collections.filter((x) => x.method === "cash"),
-      "amount",
+    cashCollections = round(
+      collections.reduce(
+        (n, c) => n + (c.method === "cash" ? (c.amount || 0) : (c.cashAmount || 0)),
+        0,
+      ),
     ),
     cashExpenses = sum(expenses, "amount"),
     claimCash = round(sum(claims, "cashIn") - sum(claims, "cashOut")),
@@ -1408,9 +1595,11 @@ async function closure(o, p) {
     qrSales: sum(sales, "qrAmount"),
     creditGenerated: sum(sales, "creditAmount"),
     cashCollections,
-    qrCollections: sum(
-      collections.filter((x) => x.method === "qr"),
-      "amount",
+    qrCollections: round(
+      collections.reduce(
+        (n, c) => n + (c.method === "qr" ? (c.amount || 0) : (c.qrAmount || 0)),
+        0,
+      ),
     ),
     cashExpenses,
     claimCash,
@@ -1785,14 +1974,37 @@ handlers.creditStatus = async (o, p) => {
   const c = await o.read("distCustomers", p.customerId);
   check(c, "Cliente inexistente.");
   const rows = await o.query("distReceivables", "customerId", c.id);
-  const dates = rows
-    .filter((r) => r.balance > 0)
-    .map((r) => r.createdAt)
-    .sort();
+  const openDebts = rows.filter((r) => r.balance > 0);
+  const dates = openDebts.map((r) => r.createdAt).sort();
+  const oldestPendingAt = dates[0] || null;
+
+  const supportConfig = await o.read("supportConfig", "main");
+  const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
+    ? supportConfig.creditBlockDays
+    : 7;
+  const overdueDebts = openDebts.filter(
+    (d) => new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now()
+  );
+  const overdueDates = overdueDebts.map((d) => d.createdAt).sort();
+  const overduePendingAt = overdueDates[0] || null;
+
+  const overrides = await o.query("distCreditOverrides", "customerId", c.id);
+  const activeOverride = overrides
+    .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= o.now))
+    .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
+
+  const blocked = overdueDebts.length > 0 && !activeOverride;
+
   const status = {
     id: c.id,
     ...scopeMetadata(o.root),
-    oldestPendingAt: dates[0] || null,
+    oldestPendingAt,
+    overduePendingAt,
+    creditBlockDays,
+    blocked,
+    activeOverrideId: activeOverride?.id || null,
+    overrideValidUntil: activeOverride?.validUntil || null,
+    overrideReason: activeOverride?.reason || null,
     checkedAt: o.now,
   };
   o.put("distCreditStatus", c.id, status);

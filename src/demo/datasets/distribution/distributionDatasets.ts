@@ -47,6 +47,7 @@ export function createEmptyDistributionDataset(): DistributionDataset {
     movements: [],
     claims: [],
     creditStatus: [],
+    creditOverrides: [],
     qrVerifications: [],
     collections: [],
     expenses: [],
@@ -359,6 +360,7 @@ export function createFullDistributionDataset(): DistributionDataset {
       },
     ],
     closures: [],
+    creditOverrides: [],
     isLoading: false,
     error: null,
   }

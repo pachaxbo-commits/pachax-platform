@@ -134,7 +134,7 @@
         && ((request.resource.data.type in ['sale','collection','expense','creditStatus'] && (tDistAdmin(tenantId) || tDistDistributor(tenantId)))
           || (request.resource.data.type in ['intake','transfer','dispatch','addition','closure'] && (tDistAdmin(tenantId)||tDistWarehouse(tenantId)))
           || (request.resource.data.type == 'closure' && tDistDistributor(tenantId))
-          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct'] && tDistAdmin(tenantId)));
+          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct','creditOverride'] && tDistAdmin(tenantId)));
       allow update: if tIsActiveMember(tenantId) && resource.data.createdBy == request.auth.uid && resource.data.status == 'rejected'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']) && request.resource.data.acknowledged == true;
       allow delete: if false;
@@ -153,6 +153,10 @@
     }
     match /tenants/{tenantId}/distCreditStatus/{customerId} {
       allow read: if tDistWorker(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/distCreditOverrides/{overrideId} {
+      allow read: if tDistAdmin(tenantId);
       allow write: if false;
     }
 

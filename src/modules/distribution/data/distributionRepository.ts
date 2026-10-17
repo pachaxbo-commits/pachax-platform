@@ -35,7 +35,7 @@ import type {
   DistSale,
   DistSaleLine,
   DistStockMovement,
-  DistLot, DistTransfer, DistClaim, DistCreditStatus,
+  DistLot, DistTransfer, DistClaim, DistCreditStatus, DistCreditOverride,
   PaymentKind,
   SourceLocation,
 } from '../types'
@@ -69,6 +69,7 @@ export const DIST_COLLECTIONS = {
   collections: 'distCollections',
   expenses: 'distExpenses',
   closures: 'distClosures',
+  creditOverrides: 'distCreditOverrides',
 } as const
 
 const SCHEMA_VERSION = 1
@@ -682,6 +683,8 @@ export interface RegisterSaleInput {
   qrAmount: number
   creditAmount: number
   note?: string
+  saleKind?: 'normal' | 'courtesy'
+  courtesyReason?: string
 }
 
 /**
@@ -700,9 +703,15 @@ export async function registerSale(input: RegisterSaleInput): Promise<DistSale> 
 
 export interface RegisterCollectionInput {
   operationId: string
-  receivable: DistReceivable
+  customerId?: string
+  customerName?: string
+  customerCode?: string
+  receivable?: DistReceivable
+  receivableId?: string
   amount: number
-  method: 'cash' | 'qr'
+  method: 'cash' | 'qr' | 'mixed'
+  cashAmount?: number
+  qrAmount?: number
   collectedByUid: string
   collectedByName: string
   routeId: string
@@ -715,7 +724,27 @@ export interface RegisterCollectionInput {
  */
 export async function registerCollection(input: RegisterCollectionInput): Promise<DistCollection> {
   const context = await getContext()
-  const provisional = { ...baseDocFields(context, new Date().toISOString()), id: input.operationId, operationId: input.operationId, receivableId: input.receivable.id, customerId: input.receivable.customerId, customerName: input.receivable.customerName, routeId: input.routeId, collectedByUid: context.uid, collectedByName: input.collectedByName, amount: input.amount, method: input.method } as DistCollection
+  const customerId = input.customerId || input.receivable?.customerId || ''
+  const customerName = input.customerName || input.receivable?.customerName || ''
+  const customerCode = input.customerCode || input.receivable?.customerCode || ''
+  const receivableId = input.receivableId || input.receivable?.id || ''
+  const provisional = {
+    ...baseDocFields(context, new Date().toISOString()),
+    id: input.operationId,
+    operationId: input.operationId,
+    receivableId,
+    customerId,
+    customerName,
+    customerCode,
+    routeId: input.routeId,
+    collectedByUid: context.uid,
+    collectedByName: input.collectedByName,
+    amount: input.amount,
+    method: input.method,
+    cashAmount: input.cashAmount,
+    qrAmount: input.qrAmount,
+    note: input.note,
+  } as DistCollection
   return submitOperation<DistCollection>('collection', input, input.operationId, provisional)
 }
 
@@ -784,6 +813,8 @@ export function subscribeMovements(onData: (rows: DistStockMovement[]) => void, 
 export function subscribeTransfers(onData: (rows: DistTransfer[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistTransfer>(ctx => collectionRef(ctx, 'distTransfers'), onData, onError) }
 export function subscribeClaims(routeId: string | null, onData: (rows: DistClaim[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistClaim>(ctx => routeId ? query(collectionRef(ctx, 'distClaims'), where('routeId', '==', routeId)) : collectionRef(ctx, 'distClaims'), onData, onError) }
 export function subscribeCreditStatus(onData: (rows: DistCreditStatus[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistCreditStatus>(ctx => collectionRef(ctx, 'distCreditStatus'), onData, onError) }
+export function subscribeCreditOverrides(onData: (rows: DistCreditOverride[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistCreditOverride>(ctx => collectionRef(ctx, 'distCreditOverrides'), onData, onError) }
+export async function submitCreditOverride(input: { customerId?: string; reason?: string; days?: number; validUntil?: string; revoke?: boolean; overrideId?: string }) { return submitOperation<DistCreditOverride>('creditOverride', input, newOperationId('override')) }
 export async function registerClaim(payload: Record<string, unknown>, operationId: string) { return submitOperation<DistClaim>('claim', payload, operationId) }
 
 export function dismissSyncError() {

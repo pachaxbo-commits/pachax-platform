@@ -59,6 +59,8 @@ export function SellView({ session, data }: DistributionViewProps) {
   const [quantity, setQuantity] = useState('1')
   const [unitPrice, setUnitPrice] = useState('0')
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
+  const [saleKind, setSaleKind] = useState<'normal' | 'courtesy'>('normal')
+  const [courtesyReason, setCourtesyReason] = useState('')
   const [paymentKind, setPaymentKind] = useState<PaymentKind>('cash')
   const [mixedCash, setMixedCash] = useState('0')
   const [mixedQr, setMixedQr] = useState('0')
@@ -185,20 +187,6 @@ export function SellView({ session, data }: DistributionViewProps) {
     if (isSubmitting) return
     setError(null)
 
-    if (selectedCustomer) {
-      let credit = data.creditStatus.find(c => c.id === selectedCustomer.id)
-      if (!selectedCustomer.identityNumber) { setError('Completa el CI del cliente antes de vender.'); return }
-      if (!credit) {
-        setIsSubmitting(true)
-        try { credit = await submitOperation<DistCreditStatus>('creditStatus', { customerId:selectedCustomer.id }, newOperationId('credit-status')) }
-        catch (e) { setError((e as Error).message); return }
-        finally { setIsSubmitting(false) }
-      }
-      // Se evalúa al confirmar, no durante el render de React.
-      // eslint-disable-next-line react-hooks/purity
-      const blockDays = data.supportSettings.creditBlockDays
-      if (credit.oldestPendingAt && Date.parse(credit.oldestPendingAt) + blockDays * 86400000 <= Date.now()) { setError(`Venta bloqueada: el cliente tiene créditos pendientes de ${blockDays} días o más.`); return }
-    }
     if (cart.length === 0) {
       setError('Agrega al menos un producto.')
       return
@@ -208,22 +196,75 @@ export function SellView({ session, data }: DistributionViewProps) {
       return
     }
 
-    const cashInput = round2(Number(mixedCash) || 0)
-    const qrInput = round2(Number(mixedQr) || 0)
-    const split = splitPayment(total, paymentKind, {
-      cashAmount: cashInput,
-      qrAmount: qrInput,
-      creditAmount: round2(total - cashInput - qrInput),
-    })
-
-    const paymentError = validateSalePayment(total, split)
-    if (paymentError) {
-      setError(paymentError)
+    const isCourtesy = saleKind === 'courtesy'
+    if (isCourtesy && courtesyReason.trim().length < 4) {
+      setError('La venta de cortesía requiere un motivo de al menos 4 caracteres.')
       return
     }
-    if (split.creditAmount > 0 && !customerId) {
-      setError('Una venta con credito necesita cliente.')
-      return
+
+    const cashInput = round2(Number(mixedCash) || 0)
+    const qrInput = round2(Number(mixedQr) || 0)
+    const split = isCourtesy
+      ? { cashAmount: 0, qrAmount: 0, creditAmount: 0 }
+      : splitPayment(total, paymentKind, {
+          cashAmount: cashInput,
+          qrAmount: qrInput,
+          creditAmount: round2(total - cashInput - qrInput),
+        })
+
+    if (!isCourtesy) {
+      const paymentError = validateSalePayment(total, split)
+      if (paymentError) {
+        setError(paymentError)
+        return
+      }
+      if (split.creditAmount > 0 && !customerId) {
+        setError('Una venta con credito necesita cliente.')
+        return
+      }
+    }
+
+    if (selectedCustomer) {
+      if (!selectedCustomer.identityNumber) {
+        setError('Completa el CI del cliente antes de vender.')
+        return
+      }
+      if (!isCourtesy && split.creditAmount > 0) {
+        let credit = data.creditStatus.find((c) => c.id === selectedCustomer.id)
+        if (!credit) {
+          setIsSubmitting(true)
+          try {
+            credit = await submitOperation<DistCreditStatus>(
+              'creditStatus',
+              { customerId: selectedCustomer.id },
+              newOperationId('credit-status'),
+            )
+          } catch (e) {
+            setError((e as Error).message)
+            return
+          } finally {
+            setIsSubmitting(false)
+          }
+        }
+        const blockDays = data.supportSettings.creditBlockDays
+        const isOverdue =
+          credit.oldestPendingAt &&
+          Date.parse(credit.oldestPendingAt) + blockDays * 86400000 <= Date.now()
+        const hasOverride =
+          Boolean(credit.activeOverrideId) ||
+          (data.creditOverrides || []).some(
+            (o) =>
+              o.customerId === selectedCustomer.id &&
+              o.active !== false &&
+              (!o.validUntil || o.validUntil >= new Date().toISOString()),
+          )
+        if (isOverdue && !hasOverride) {
+          setError(
+            `Venta a crédito bloqueada: el cliente tiene créditos pendientes de ${blockDays} días o más. Requiere autorización de administración.`,
+          )
+          return
+        }
+      }
     }
 
     const stockError = validateStockAvailability(
@@ -255,21 +296,41 @@ export function SellView({ session, data }: DistributionViewProps) {
         customerId: customerId || undefined,
         customerName: selectedCustomer?.name,
         customerCode: selectedCustomer?.customerCode || selectedCustomer?.identityNumber,
-        lines: cart.map(line => ({ productId: line.productId, productNameSnapshot: line.productNameSnapshot, quantity: line.quantity, unitType: line.unitType, actualUnitPrice: line.actualUnitPrice, subtotal: line.subtotal })),
-        total,
-        paymentKind,
+        lines: cart.map((line) => ({
+          productId: line.productId,
+          productNameSnapshot: line.productNameSnapshot,
+          quantity: line.quantity,
+          unitType: line.unitType,
+          actualUnitPrice: isCourtesy ? 0 : line.actualUnitPrice,
+          subtotal: isCourtesy ? 0 : line.subtotal,
+          referenceUnitPriceSnapshot: line.actualUnitPrice,
+          referenceSubtotal: line.subtotal,
+        })),
+        total: isCourtesy ? 0 : total,
+        paymentKind: isCourtesy ? 'cash' : paymentKind,
         cashAmount: split.cashAmount,
         qrAmount: split.qrAmount,
         creditAmount: split.creditAmount,
+        saleKind: isCourtesy ? 'courtesy' : 'normal',
+        courtesyReason: isCourtesy ? courtesyReason.trim() : undefined,
       })
 
       setIsCheckoutOpen(false)
       setCart([])
+      setSaleKind('normal')
+      setCourtesyReason('')
       operationIdRef.current = null
-      setPrintState(sale.pendingConfirmation ? { ok: false, message: 'Venta pendiente de confirmación al sincronizar. Revisa Operaciones pendientes.' } : null)
+      setPrintState(
+        sale.pendingConfirmation
+          ? {
+              ok: false,
+              message: 'Venta pendiente de confirmación al sincronizar. Revisa Operaciones pendientes.',
+            }
+          : null,
+      )
       setLastSale(sale)
     } catch (submitError) {
-      if ((submitError as {rejected?: boolean}).rejected) operationIdRef.current = null
+      if ((submitError as { rejected?: boolean }).rejected) operationIdRef.current = null
       setError((submitError as Error).message || 'No se pudo registrar la venta.')
     } finally {
       setIsSubmitting(false)
@@ -442,15 +503,51 @@ export function SellView({ session, data }: DistributionViewProps) {
       <Modal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
-        title="Cobrar venta"
-        subtitle={formatBs(total)}
+        title={saleKind === 'courtesy' ? 'Registrar cortesía / muestra' : 'Cobrar venta'}
+        subtitle={saleKind === 'courtesy' ? 'Sin cobro comercial (Bs 0.00)' : formatBs(total)}
         footer={
           <PrimaryButton full disabled={isSubmitting} onClick={() => void confirmSale()}>
-            {isSubmitting ? 'Registrando...' : `Confirmar ${formatBs(total)}`}
+            {isSubmitting
+              ? 'Registrando...'
+              : saleKind === 'courtesy'
+                ? 'Confirmar entrega de cortesía'
+                : `Confirmar ${formatBs(total)}`}
           </PrimaryButton>
         }
       >
         <div className="grid gap-3">
+          <Field label="Tipo de entrega / venta">
+            <Segmented
+              value={saleKind}
+              options={[
+                { value: 'normal', label: 'Venta comercial' },
+                { value: 'courtesy', label: 'Muestra / Cortesía' },
+              ]}
+              onChange={(value) => {
+                setSaleKind(value)
+                setError(null)
+              }}
+            />
+          </Field>
+
+          {saleKind === 'courtesy' && (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3">
+              <p className="text-xs font-bold text-indigo-900">Entrega de muestra comercial auditada</p>
+              <p className="mt-0.5 text-[11px] text-indigo-700">
+                Se descuenta del stock físico de ruta y queda registrada con su valor referencial ({formatBs(total)}) pero sin movimiento monetario.
+              </p>
+              <div className="mt-2.5">
+                <Field label="Motivo de la cortesía" required hint="Mínimo 4 caracteres">
+                  <TextInput
+                    value={courtesyReason}
+                    onChange={(e) => setCourtesyReason(e.target.value)}
+                    placeholder="Ej. Muestra para degustación de nuevo cliente..."
+                  />
+                </Field>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-1.5">
             {cart.map((line) => (
               <div key={line.lineId} className="flex items-center justify-between gap-2 rounded-2xl bg-slate-50 px-3 py-2">
@@ -461,7 +558,9 @@ export function SellView({ session, data }: DistributionViewProps) {
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-xs font-black tabular-nums text-slate-900">{formatBs(line.subtotal)}</span>
+                  <span className="text-xs font-black tabular-nums text-slate-900">
+                    {saleKind === 'courtesy' ? 'Bs 0.00 (Cortesía)' : formatBs(line.subtotal)}
+                  </span>
                   <button
                     type="button"
                     onClick={() => removeLine(line.lineId)}
@@ -475,28 +574,38 @@ export function SellView({ session, data }: DistributionViewProps) {
             ))}
           </div>
 
-          <Field label="Forma de pago">
-            <Segmented value={paymentKind} options={PAYMENT_OPTIONS} onChange={setPaymentKind} />
-          </Field>
+          {saleKind === 'normal' && (
+            <>
+              <Field label="Forma de pago">
+                <Segmented value={paymentKind} options={PAYMENT_OPTIONS} onChange={setPaymentKind} />
+              </Field>
 
-          {paymentKind === 'mixed' && (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Efectivo (Bs)">
-                <NumberInput value={mixedCash} min={0} onChange={(event) => setMixedCash(event.target.value)} />
-              </Field>
-              <Field label="QR (Bs)">
-                <NumberInput value={mixedQr} min={0} onChange={(event) => setMixedQr(event.target.value)} />
-              </Field>
-              <p className="text-[11px] font-bold text-slate-500 sm:col-span-2">
-                Resto a credito: {formatBs(Math.max(0, mixedRemainder))}
-                {mixedRemainder < 0 ? ' (el desglose supera el total)' : ''}
-              </p>
-            </div>
+              {paymentKind === 'mixed' && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Field label="Efectivo (Bs)">
+                    <NumberInput value={mixedCash} min={0} onChange={(event) => setMixedCash(event.target.value)} />
+                  </Field>
+                  <Field label="QR (Bs)">
+                    <NumberInput value={mixedQr} min={0} onChange={(event) => setMixedQr(event.target.value)} />
+                  </Field>
+                  <p className="text-[11px] font-bold text-slate-500 sm:col-span-2">
+                    Resto a credito: {formatBs(Math.max(0, mixedRemainder))}
+                    {mixedRemainder < 0 ? ' (el desglose supera el total)' : ''}
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
           <Field
             label="Cliente"
-            hint={paymentKind === 'credit' || mixedRemainder > 0 ? 'Obligatorio cuando hay credito.' : 'Opcional en venta al contado.'}
+            hint={
+              saleKind === 'courtesy'
+                ? 'Opcional para identificar a quién se entregó.'
+                : paymentKind === 'credit' || mixedRemainder > 0
+                  ? 'Obligatorio cuando hay credito.'
+                  : 'Opcional en venta al contado.'
+            }
           >
             <SecondaryButton full onClick={() => setIsCustomerOpen(true)}>
               {selectedCustomer ? `${selectedCustomer.name} · ${selectedCustomer.customerCode || selectedCustomer.identityNumber || ''}` : 'Seleccionar cliente'}

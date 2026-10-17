@@ -60,7 +60,7 @@ try {
  const dispatch=await command(warehouse,'dispatch',{warehouseId:wh,routeId:route,routeName:'QA ruta',distributorUid:seller,distributorName:'QA vendedor',lines:[{productId:pid,quantity:3}]})
  const base={sourceLocation:'route',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,customerId:cust,lines:[{productId:pid,quantity:2,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:20,paymentKind:'credit'}
  await command(seller,'sale',{...base,lines:[{productId:pid,quantity:2,actualUnitPrice:9}],creditAmount:18},'rejected');checks++
- await command(seller,'sale',{...base,customerId:old,creditAmount:0,cashAmount:20,paymentKind:'cash'},'rejected');checks++
+ await command(seller,'sale',{...base,customerId:old,creditAmount:20,cashAmount:0,paymentKind:'credit'},'rejected');checks++
  const sold=await command(seller,'sale',base)
  ok(sold.result.lines[0].costTotal===10,'venta conserva el costo histórico')
  await processCommand(db,root.collection('distOperations').doc(sold.id))
@@ -122,6 +122,24 @@ try {
  const foreignCollection=await command(seller,'collection',{receivable:{id:foreignDebtId},amount:2,method:'cash'})
  ok((await read('distReceivables',foreignDebtId)).balance===10,'distribuidor puede cobrar una deuda originada por otra ruta')
  ok(foreignCollection.result.routeId===route&&foreignCollection.result.originRouteId==='otra-ruta','cobro cruzado entra a la caja del cobrador y conserva la ruta original')
+ const cashSaleOld=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:'route-directa',routeName:'Directa',customerId:old,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:10,qrAmount:0,creditAmount:0,paymentKind:'cash'})
+ ok(cashSaleOld.status==='confirmed','venta de contado permitida a cliente con créditos vencidos')
+ const courtesySale=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:'route-directa',routeName:'Directa',lines:[{productId:pid,quantity:1,actualUnitPrice:0}],saleKind:'courtesy',courtesyReason:'Muestra comercial QA',cashAmount:0,qrAmount:0,creditAmount:0,paymentKind:'cash'})
+ ok(courtesySale.result.saleKind==='courtesy'&&courtesySale.result.total===0,'venta de cortesía descuenta stock con total cero')
+ const override=await command(admin,'creditOverride',{customerId:old,reason:'Autorizado QA para cliente especial',days:7})
+ ok(override.result.active===true,'excepción de crédito creada por administración')
+ const creditSaleOverride=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:'route-directa',routeName:'Directa',customerId:old,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:10,paymentKind:'credit'})
+ ok(creditSaleOverride.status==='confirmed'&&creditSaleOverride.result.creditOverrideId===override.result.id,'venta a crédito permitida con excepción activa')
+ const mixedCollection=await command(seller,'collection',{customerId:old,amount:10,method:'mixed',cashAmount:6,qrAmount:4,routeId:route})
+ ok(mixedCollection.result.allocations?.length===2,'cobro mixto aplica FIFO sobre deudas abiertas del cliente')
+ ok(mixedCollection.result.cashAmount===6&&mixedCollection.result.qrAmount===4,'cobro mixto registra desglose exacto')
+ const overrideDocPath=['restaurants','pachax','distCreditOverrides',override.result.id]
+ await assertFails(getDoc(doc(unauthClient,...overrideDocPath)));checks++
+ await assertFails(getDoc(doc(client,...overrideDocPath)));checks++
+ await assertFails(getDoc(doc(whClient,...overrideDocPath)));checks++
+ ok((await getDoc(doc(adminClient,...overrideDocPath))).exists(),'administración puede leer excepción de crédito')
+ await assertFails(setDoc(doc(adminClient,...overrideDocPath),{active:false},{merge:true}));checks++
+ await assertFails(setDoc(doc(client,...overrideDocPath),{active:false},{merge:true}));checks++
  const validPhoto='data:image/jpeg;base64,/9j/2Q=='
  await setDoc(doc(adminClient,'restaurants','pachax','distProducts',pid2),{photoDataUrl:validPhoto},{merge:true});checks++
  await assertFails(setDoc(doc(adminClient,'restaurants','pachax','distProducts',pid2),{photoDataUrl:'data:image/png;base64,AAAA'},{merge:true}));checks++
