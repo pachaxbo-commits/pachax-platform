@@ -128,14 +128,20 @@ export interface DistStockMovement extends DistBaseDoc {
 }
 
 export interface DistDispatchLine {
-  lotCode?: string
-  manufacturedOn?: string
-  expiresOn?: string
-  lotId?: string
   productId: string
   productName: string
   unitType: UnitType
   quantity: number
+  normalQuantity?: number
+  dispatchMerma?: number
+  physicalQuantity?: number
+  allocationsRequested?: { lotId: string; quantity: number }[]
+  allocations?: { lotId: string; lotCode: string; expiresOn: string; quantity: number; productionCost: number | null }[]
+  dispatchMermaAllocations?: { lotId: string; lotCode: string; expiresOn: string; quantity: number; productionCost: number | null }[]
+  lotCode?: string
+  manufacturedOn?: string
+  expiresOn?: string
+  lotId?: string
 }
 
 export interface DistDispatchAddition {
@@ -247,6 +253,15 @@ export interface DistExpense extends DistBaseDoc {
   note?: string
 }
 
+export interface DistPhysicalReturnBreakdown {
+  productId?: string
+  normalReturn: number
+  recoverableMerma: number
+  nonSellableReturn: number
+  nonSellableReason?: string
+  totalPhysicalReturn?: number
+}
+
 export interface DistClosureProductRow {
   productId: string
   productName: string
@@ -258,6 +273,35 @@ export interface DistClosureProductRow {
   expectedReturn: number
   actualReturn: number
   variance: number
+
+  initialNormalDispatch?: number
+  initialDispatchMerma?: number
+  initialPhysicalDispatch?: number
+  additionsNormal?: number
+  additionsMerma?: number
+  additionsPhysical?: number
+  totalLoadedPhysical?: number
+  declared?: {
+    normal: number
+    recoverableMerma: number
+    nonSellable: number
+    nonSellableReason?: string
+    totalPhysical: number
+  }
+  warehouse?: {
+    normal: number
+    recoverableMerma: number
+    nonSellable: number
+    nonSellableReason?: string
+    totalPhysical: number
+  }
+  returnMerma?: number
+  returnWaste?: number
+  returnWasteReason?: string
+  shortage?: number
+  overage?: number
+  declarationVariance?: number
+  lossCost?: number | null
 }
 
 export type ClosureStatus = 'draft' | 'warehouse_done' | 'closed' | 'reopened'
@@ -265,6 +309,22 @@ export type ClosureStatus = 'draft' | 'warehouse_done' | 'closed' | 'reopened'
 export interface DistClosure extends DistBaseDoc {
   warehouseId?: string
   declaredReturns?: Record<string, number>
+  declaredReturnMermas?: Record<string, number>
+  declaredReturnNonSellables?: Record<string, number>
+  declaredReturnNonSellableReasons?: Record<string, string>
+  declaredBreakdown?: Record<string, DistPhysicalReturnBreakdown>
+  warehouseBreakdown?: Record<string, DistPhysicalReturnBreakdown>
+  reversedStockMovementIds?: string[]
+  reopenHistory?: {
+    reopenedAt: string
+    reopenedBy: string
+    reason: string
+    preserveFinancialSnapshot?: boolean
+    warehouseClosedBy?: string
+    warehouseClosedAt?: string
+    products?: DistClosureProductRow[]
+  }[]
+  warehouseReopenedAt?: string
   returnDeclaredBy?: string
   returnDeclaredAt?: string
   dispatchId: string

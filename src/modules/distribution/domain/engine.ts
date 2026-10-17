@@ -3,6 +3,7 @@ import type {
   DistCollection,
   DistDispatch,
   DistExpense,
+  DistPhysicalReturnBreakdown,
   DistSale,
   DistSaleLine,
   PaymentKind,
@@ -11,7 +12,8 @@ import type {
 
 /** Redondeo monetario/cantidad a 2 decimales para evitar ruido de punto flotante */
 export function round2(value: number): number {
-  return Math.round((Number(value) || 0) * 100) / 100
+  const r = Math.round((Number(value) || 0) * 100) / 100
+  return r === 0 ? 0 : r
 }
 
 export function toDayKey(value: string | number | Date = new Date()): string {
@@ -59,6 +61,13 @@ export interface LoadedTotals {
   totalLoaded: number
   productName: string
   unitType: UnitType
+  initialNormalDispatch?: number
+  initialDispatchMerma?: number
+  initialPhysicalDispatch?: number
+  additionsNormal?: number
+  additionsMerma?: number
+  additionsPhysical?: number
+  totalLoadedPhysical?: number
 }
 
 /** totalLoaded = carga inicial + aumentos, por producto */
@@ -67,25 +76,45 @@ export function computeLoadedByProduct(dispatch: DistDispatch | null): Map<strin
   if (!dispatch) return result
 
   for (const line of dispatch.lines || []) {
+    const normal = line.normalQuantity ?? line.quantity
+    const merma = line.dispatchMerma ?? 0
+    const physical = line.physicalQuantity ?? round2(normal + merma)
     const current = result.get(line.productId)
     result.set(line.productId, {
       productName: line.productName,
       unitType: line.unitType,
-      initialDispatch: round2((current?.initialDispatch ?? 0) + line.quantity),
+      initialDispatch: round2((current?.initialDispatch ?? 0) + physical),
+      initialNormalDispatch: round2((current?.initialNormalDispatch ?? 0) + normal),
+      initialDispatchMerma: round2((current?.initialDispatchMerma ?? 0) + merma),
+      initialPhysicalDispatch: round2((current?.initialPhysicalDispatch ?? 0) + physical),
       additions: current?.additions ?? 0,
-      totalLoaded: round2((current?.totalLoaded ?? 0) + line.quantity),
+      additionsNormal: current?.additionsNormal ?? 0,
+      additionsMerma: current?.additionsMerma ?? 0,
+      additionsPhysical: current?.additionsPhysical ?? 0,
+      totalLoaded: round2((current?.totalLoaded ?? 0) + physical),
+      totalLoadedPhysical: round2((current?.totalLoadedPhysical ?? 0) + physical),
     })
   }
 
   for (const addition of dispatch.additions || []) {
     for (const line of addition.quantityByProduct || []) {
+      const normal = line.normalQuantity ?? line.quantity
+      const merma = line.dispatchMerma ?? 0
+      const physical = line.physicalQuantity ?? round2(normal + merma)
       const current = result.get(line.productId)
       result.set(line.productId, {
         productName: line.productName,
         unitType: line.unitType,
         initialDispatch: current?.initialDispatch ?? 0,
-        additions: round2((current?.additions ?? 0) + line.quantity),
-        totalLoaded: round2((current?.totalLoaded ?? 0) + line.quantity),
+        initialNormalDispatch: current?.initialNormalDispatch ?? 0,
+        initialDispatchMerma: current?.initialDispatchMerma ?? 0,
+        initialPhysicalDispatch: current?.initialPhysicalDispatch ?? 0,
+        additions: round2((current?.additions ?? 0) + physical),
+        additionsNormal: round2((current?.additionsNormal ?? 0) + normal),
+        additionsMerma: round2((current?.additionsMerma ?? 0) + merma),
+        additionsPhysical: round2((current?.additionsPhysical ?? 0) + physical),
+        totalLoaded: round2((current?.totalLoaded ?? 0) + physical),
+        totalLoadedPhysical: round2((current?.totalLoadedPhysical ?? 0) + physical),
       })
     }
   }
@@ -123,7 +152,7 @@ export function computeSoldByProduct(sales: DistSale[]): Map<string, SoldTotals>
 export function buildReconciliation(
   dispatch: DistDispatch | null,
   sales: DistSale[],
-  actualReturns: Record<string, number> = {},
+  actualReturns: Record<string, number | DistPhysicalReturnBreakdown> = {},
 ): DistClosureProductRow[] {
   const loaded = computeLoadedByProduct(dispatch)
   const sold = computeSoldByProduct(sales)
@@ -137,7 +166,32 @@ export function buildReconciliation(
       const totalLoaded = load?.totalLoaded ?? 0
       const soldQty = sale?.quantity ?? 0
       const expectedReturn = round2(totalLoaded - soldQty)
-      const actualReturn = round2(Number(actualReturns[productId]) || 0)
+      const rawReturn = actualReturns[productId]
+
+      let actualReturn = 0
+      let returnMerma = 0
+      let returnWaste = 0
+      let returnWasteReason = ''
+      let totalPhysicalReturn = 0
+      let hasBreakdown = false
+
+      if (rawReturn !== undefined && rawReturn !== null) {
+        if (typeof rawReturn === 'number') {
+          actualReturn = round2(rawReturn)
+          totalPhysicalReturn = actualReturn
+        } else if (typeof rawReturn === 'object') {
+          hasBreakdown = true
+          actualReturn = round2(rawReturn.normalReturn || 0)
+          returnMerma = round2(rawReturn.recoverableMerma || 0)
+          returnWaste = round2(rawReturn.nonSellableReturn || 0)
+          returnWasteReason = rawReturn.nonSellableReason || ''
+          totalPhysicalReturn = round2(actualReturn + returnMerma + returnWaste)
+        }
+      }
+
+      const variance = round2(totalPhysicalReturn - expectedReturn)
+      const shortage = round2(Math.max(0, expectedReturn - totalPhysicalReturn))
+      const overage = round2(Math.max(0, totalPhysicalReturn - expectedReturn))
 
       return {
         productId,
@@ -148,8 +202,29 @@ export function buildReconciliation(
         totalLoaded,
         sold: soldQty,
         expectedReturn,
-        actualReturn,
-        variance: round2(actualReturn - expectedReturn),
+        actualReturn: hasBreakdown ? round2(actualReturn + returnMerma) : actualReturn,
+        variance,
+        initialNormalDispatch: load?.initialNormalDispatch ?? load?.initialDispatch ?? 0,
+        initialDispatchMerma: load?.initialDispatchMerma ?? 0,
+        initialPhysicalDispatch: load?.initialPhysicalDispatch ?? load?.initialDispatch ?? 0,
+        additionsNormal: load?.additionsNormal ?? load?.additions ?? 0,
+        additionsMerma: load?.additionsMerma ?? 0,
+        additionsPhysical: load?.additionsPhysical ?? load?.additions ?? 0,
+        totalLoadedPhysical: load?.totalLoadedPhysical ?? load?.totalLoaded ?? 0,
+        returnMerma: returnMerma > 0 ? returnMerma : undefined,
+        returnWaste: returnWaste > 0 ? returnWaste : undefined,
+        returnWasteReason: returnWasteReason || undefined,
+        shortage,
+        overage,
+        warehouse: hasBreakdown
+          ? {
+              normal: actualReturn,
+              recoverableMerma: returnMerma,
+              nonSellable: returnWaste,
+              nonSellableReason: returnWasteReason,
+              totalPhysical: totalPhysicalReturn,
+            }
+          : undefined,
       }
     })
     .sort((a, b) => a.productName.localeCompare(b.productName))

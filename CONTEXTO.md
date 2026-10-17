@@ -1,5 +1,52 @@
 # Continuidad del proyecto PACHAX
 
+## Checkpoint: D1 - Distribución: Motor Físico de Despacho, Merma, Retorno y Reapertura (16/10/2026)
+
+- **Rama**: `cambios-dario` (HEAD base `32f94d6`).
+- **Objetivo Cumplido**: Implementación del modelo físico canónico de despacho, merma, retorno en dos pasos (declaración de distribuidor + pesaje independiente de almacén) y reapertura segura en la plantilla Distribución de PACHAX Platform, sin tocar `G:\Embutidos San Jose` (estrictamente read-only) ni alterar Restaurante, Nightclub o Quick Retail.
+- **Detalles Técnicos Implementados**:
+  1. **Modelo Canónico de Despacho Físico (`normalQuantity + dispatchMerma = physicalQuantity`)**:
+     - `src/modules/distribution/types.ts` y `functions/operations.cjs`: cada línea de despacho y aumento calcula y preserva `normalQuantity`, `dispatchMerma` y `physicalQuantity`.
+     - Merma de despacho solo permitida en productos `unitType === 'kg'` (no pérdida inmediata, sino mercadería adicional física cargada).
+     - Validación estricta: `normalQuantity > 0`, `dispatchMerma >= 0`, `physicalQuantity = normalQuantity + dispatchMerma`.
+     - Soporte opcional de lotes manuales mediante `allocationsRequested` con fallback automático a FEFO.
+     - Registro ledger con snapshot auditable y desglose de `dispatchMermaAllocations`.
+  2. **Retorno en Dos Pasos y Recepción Independiente de Almacén**:
+     - **Paso 1: Declaración del Distribuidor (`mode: 'declaration'`)**:
+       - `distributor` declara en `distClosures`: Apto (`normalReturn`), Merma operativa recuperable (`recoverableMerma` para kg), No apto (`nonSellableReturn`) con motivo obligatorio (`nonSellableReason`).
+       - No mueve stock ni crea movimientos ledger; guarda `declaredBreakdown`.
+     - **Paso 2: Recepción y Pesaje de Almacén (`mode: 'warehouse'`)**:
+       - Requiere declaración previa obligatoria (`check(previous.returnDeclaredAt)`).
+       - Almacén ingresa sus propios pesos/conteos independientes (`warehouseBreakdown`).
+       - Conciliación física:
+         - Apto normal (`normalReturn`) y merma operativa (`recoverableMerma`) vuelven a los lotes originales en almacén.
+         - Pérdida no apta (`return_waste`): registrada como pérdida con motivo y costo histórico, nunca ingresa a stock comercial.
+         - Faltante (`shortage`): registrado como pérdida con costo.
+         - Sobrante (`overage`): lote de cuarentena `"SOBRANTE POR REVISAR"`, `quarantined: true`, `productionCost: null`.
+         - Balance de ruta queda estrictamente en 0.00 para todos los productos cargados.
+         - Cálculo de desvío de pesaje vs lo declarado (`declarationVariance = warehousePhysical - declaredPhysical`).
+  3. **Arqueo de Dinero y Cierre Final (`mode: 'money'`)**:
+     - Bloqueado hasta que almacén haya completado la confirmación física (`warehouseClosedBy`).
+     - Cuadre de efectivo físico declarado vs esperado (`expectedCash = ventas efectivo + cobros efectivo - gastos efectivo`).
+  4. **Reapertura Administrativa Segura (`operations.cjs: handlers.reopen`)**:
+     - Exige motivo obligatorio no vacío (`reason`).
+     - Verificación estricta de stock: comprueba que ningún lote devuelto haya sido consumido o transferido con posterioridad en almacén. Si fue consumido, rechaza con `'El inventario tuvo movimientos posteriores; requiere revisión manual.'`.
+     - Revierte stock apto devuelto a la ruta, restaura sobrante en cuarentena y registra historial de reaperturas (`reopenHistory`).
+  5. **Seguridad y Reglas Firestore Multi-tenant**:
+     - `match /tenants/{tenantId}/distClosures/{closureId}` protegido contra escrituras directas desde cliente (`allow create, update, delete: if false;`), forzando paso obligatorio por `distOperations` autoritativo en servidor.
+     - Recompilado con `npm run build:rules`.
+  6. **UI Actualizada (`ClosureView.tsx` y `DispatchesView.tsx`)**:
+     - Selector manual de lotes opcional con FEFO por defecto en despachos.
+     - Vista de cierre en 2 pasos: panel de declaración de distribuidor, panel de pesaje independiente de almacén con indicadores de desvío de pesaje vs declaración, faltante y sobrante a cuarentena.
+     - Modal accesible para reapertura administrativa con motivo obligatorio.
+  7. **Batería de Pruebas**:
+     - `test:distribution`: 55/55 pruebas unitarias aprobadas.
+     - `test:reports`: 1/1 prueba aprobada.
+     - `test:platform`: 102/102 pruebas aprobadas (incorporando `tests/distributionPhysicalCycle.test.ts` con ciclo canónico Sección 31, sobrante Sección 32 y las 15 pruebas negativas Sección 35).
+     - `serverOperations.test.mjs` en emulador: 58/58 comprobaciones aprobadas (despacho, declaración, confirmación de almacén, cuadre de dinero, reapertura con motivo y reglas de seguridad).
+     - `npm run typecheck` y `npm run build`: 0 errores.
+     - `git diff --check`: 0 errores.
+
 ## Checkpoint: N3B.1 - Nightclub: Inventario Físico, Snapshots y Permisos Server-Side (16/10/2026)
 
 - **Rama**: `cambios-dario` (HEAD base `5d78a22`).

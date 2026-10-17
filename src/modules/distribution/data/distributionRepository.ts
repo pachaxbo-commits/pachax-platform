@@ -23,6 +23,7 @@ import type {
   DistWarehouse,
   DistQrVerification,
   DistClosure,
+  DistPhysicalReturnBreakdown,
   DistCollection,
   DistCustomer,
   DistDispatch,
@@ -116,19 +117,51 @@ export async function verifyQr(sourceType: 'sale' | 'collection' | 'claim', sour
   })
 }
 
+export interface DeclareRouteReturnPayload {
+  dispatchId: string
+  breakdown?: DistPhysicalReturnBreakdown[]
+  declaredBreakdown?: Record<string, DistPhysicalReturnBreakdown>
+  declaredReturns?: Record<string, number>
+  declaredReturnMermas?: Record<string, number>
+  declaredReturnNonSellables?: Record<string, number>
+  declaredReturnNonSellableReasons?: Record<string, string>
+  physicalCashDeclared?: number
+}
+
 /** Declarar retorno no modifica stock; almacen confirma la recepcion posteriormente. */
-export async function declareRouteReturn(dispatch: DistDispatch, quantities: Record<string, number>) {
-  if (Object.values(quantities).some(q => !Number.isFinite(q) || q < 0)) throw new Error('Las cantidades deben ser positivas o cero.')
-  const ctx = await getContext()
-  const id = `closure_${dispatch.id}`
-  const batch = writeBatch(ctx.db)
-  batch.set(docRef(ctx, DIST_COLLECTIONS.closures, id), {
-    id, tenantId: ctx.tenantId, dispatchId: dispatch.id, routeId: dispatch.routeId,
-    distributorUid: dispatch.distributorUid, distributorName: dispatch.distributorName,
-    declaredReturns: quantities, returnDeclaredBy: ctx.uid, returnDeclaredAt: new Date().toISOString(),
-    dayKey: dispatch.dayKey,
-  }, { merge: true })
-  commitInBackground(batch, newOperationId('return_declaration'), 'declaracion de retorno')
+export async function declareRouteReturn(
+  dispatch: DistDispatch,
+  payloadOrQuantities: DeclareRouteReturnPayload | Record<string, number | DistPhysicalReturnBreakdown>,
+  declaredReturnMermas?: Record<string, number>,
+  declaredReturnNonSellables?: Record<string, number>,
+  declaredReturnNonSellableReasons?: Record<string, string>,
+) {
+  let payload: Record<string, unknown>
+  if ('dispatchId' in payloadOrQuantities) {
+    payload = {
+      mode: 'declaration',
+      ...payloadOrQuantities,
+    }
+  } else {
+    const entries = Object.entries(payloadOrQuantities)
+    if (entries.length > 0 && typeof entries[0][1] === 'object') {
+      payload = {
+        mode: 'declaration',
+        dispatchId: dispatch.id,
+        declaredBreakdown: payloadOrQuantities,
+      }
+    } else {
+      payload = {
+        mode: 'declaration',
+        dispatchId: dispatch.id,
+        declaredReturns: payloadOrQuantities as Record<string, number>,
+        declaredReturnMermas: declaredReturnMermas || {},
+        declaredReturnNonSellables: declaredReturnNonSellables || {},
+        declaredReturnNonSellableReasons: declaredReturnNonSellableReasons || {},
+      }
+    }
+  }
+  await submitOperation('closure', payload, newOperationId('return_declaration'))
 }
 const APPLIED_OPERATIONS_KEY = 'pachax_dist_applied_operations'
 
@@ -736,13 +769,13 @@ export interface SaveClosureInput {
  *   de modo que la ruta queda en cero y nunca se descuenta dos veces central.
  */
 export async function saveClosure(input: SaveClosureInput): Promise<string> {
-  await submitOperation('closure', { ...input, mode: input.applyStockReturn ? 'warehouse' : 'money' }, newOperationId('closure'))
+  await submitOperation('closure', { ...input, mode: input.applyStockReturn ? 'warehouse' : 'money', dispatchId: input.closure.dispatchId }, newOperationId('closure'))
   return input.closure.id
 }
 
 /** Reapertura administrativa de una ruta cerrada */
-export async function reopenClosure(closure: DistClosure, _reopenedBy: string): Promise<void> {
-  await submitOperation('reopen', { closureId: closure.id }, newOperationId('reopen'))
+export async function reopenClosure(closure: DistClosure, reason?: string): Promise<void> {
+  await submitOperation('reopen', { closureId: closure.id, reason: reason?.trim() || 'Reapertura administrativa' }, newOperationId('reopen'))
 }
 
 export function subscribeLots(onData: (rows: DistLot[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistLot>(ctx => collectionRef(ctx, 'distLots'), onData, onError) }

@@ -72,6 +72,8 @@ try {
  await command(admin,'claim',{kind:'return',saleId:sold.id,productId:pid,quantity:1,warehouseId:'central',reason:'Deteriorado',method:'cash'})
  ok((await read('distReceivables',sold.id)).balance===3,'devolución reduce el saldo restante')
  await command(admin,'claim',{kind:'return',saleId:sold.id,productId:pid,quantity:1,warehouseId:'central',reason:'Repetido',method:'cash'},'rejected');checks++
+ await command(warehouse,'closure',{closure:{dispatchId:dispatch.id,products:[{productId:pid,actualReturn:1}]},mode:'warehouse'},'rejected');checks++
+ await command(seller,'closure',{dispatchId:dispatch.id,mode:'declaration',declaredReturns:{[pid]:1},declaredReturnMermas:{[pid]:0},declaredReturnNonSellables:{[pid]:0}})
  const closeInput={closure:{dispatchId:dispatch.id,products:[{productId:pid,actualReturn:1}],physicalCashDeclared:5},mode:'warehouse'}
  await command(warehouse,'closure',closeInput)
  ok((await read('distBalances',`warehouse__${wh}__${pid}`)).quantity===2,'retorno vuelve al almacén de origen y conserva lote')
@@ -88,7 +90,8 @@ try {
 
  await assertFails(setDoc(doc(client,'restaurants','pachax','distClosures',`closure_${dispatch.id}`),{physicalCashDeclared:999,expectedCash:999},{merge:true}));checks++
  await assertFails(setDoc(doc(client,'restaurants','pachax','distProducts',pid),{referencePrice:1},{merge:true}));checks++
- await command(admin,'reopen',{closureId:`closure_${dispatch.id}`});ok((await read('distDispatches',dispatch.id)).status==='open','reapertura administrativa conserva el retorno recibido')
+ await command(admin,'reopen',{closureId:`closure_${dispatch.id}`},'rejected');checks++
+ await command(admin,'reopen',{closureId:`closure_${dispatch.id}`,reason:'Reapertura administrativa QA'});ok((await read('distDispatches',dispatch.id)).status==='open','reapertura administrativa conserva el retorno recibido')
  const status=await command(seller,'creditStatus',{customerId:old});ok(!!status.result.oldestPendingAt,'consulta de crédito funciona con clientes anteriores')
  const foreignDebtId=`${prefix}-foreign-debt`
  await root.collection('distReceivables').doc(foreignDebtId).set({id:foreignDebtId,restaurantId:'pachax',customerId:cust,customerName:'Cliente de otra ruta',routeId:'otra-ruta',distributorUid:'otro-vendedor',originalAmount:12,paidAmount:0,balance:12,status:'OPEN',createdAt:new Date().toISOString(),dayKey:dayKey(new Date())})

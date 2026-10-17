@@ -200,18 +200,7 @@
       allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
         || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid)
         || (tDistDistributor(tenantId) && resource.data.get('returnDeclaredBy', '') == request.auth.uid);
-      allow create: if tDistTenantMatches(tenantId)
-        && tDistOwnsRoute(tenantId, request.resource.data.get('routeId', ''))
-        && request.resource.data.keys().hasOnly(['id', 'tenantId', 'dispatchId', 'routeId', 'distributorUid', 'distributorName', 'declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey'])
-        && request.resource.data.distributorUid == request.auth.uid
-        && request.resource.data.returnDeclaredBy == request.auth.uid;
-      allow update: if tDistTenantMatches(tenantId)
-        && tDistOwnsRoute(tenantId, resource.data.get('routeId', ''))
-        && resource.data.get('warehouseClosedBy', '') == ''
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey', 'distributorUid', 'distributorName'])
-        && request.resource.data.distributorUid == request.auth.uid
-        && request.resource.data.returnDeclaredBy == request.auth.uid;
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     // Configuración técnica separada de toda la información comercial. El rol
