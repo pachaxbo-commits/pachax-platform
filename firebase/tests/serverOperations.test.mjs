@@ -133,6 +133,33 @@ try {
  const mixedCollection=await command(seller,'collection',{customerId:old,amount:10,method:'mixed',cashAmount:6,qrAmount:4,routeId:route})
  ok(mixedCollection.result.allocations?.length===2,'cobro mixto aplica FIFO sobre deudas abiertas del cliente')
  ok(mixedCollection.result.cashAmount===6&&mixedCollection.result.qrAmount===4,'cobro mixto registra desglose exacto')
+ const mixedQrVerificationDoc=['restaurants','pachax','distQrVerifications',`collection_${mixedCollection.id}`]
+ await assertFails(setDoc(doc(adminClient,...mixedQrVerificationDoc),{id:`collection_${mixedCollection.id}`,restaurantId:'pachax',routeId:route,sourceType:'collection',sourceId:mixedCollection.id,amount:10,reference:'REF-BAD-TOTAL',verifiedBy:admin,verifiedAt:new Date().toISOString()}));checks++
+ await setDoc(doc(adminClient,...mixedQrVerificationDoc),{id:`collection_${mixedCollection.id}`,restaurantId:'pachax',routeId:route,sourceType:'collection',sourceId:mixedCollection.id,amount:4,reference:'REF-VALID-QR',verifiedBy:admin,verifiedAt:new Date().toISOString()});checks++
+ ok((await getDoc(doc(adminClient,...mixedQrVerificationDoc))).exists(),'verificación QR de cobro mixto exitosa con monto exacto qrAmount')
+ const debtAId=`${prefix}-debt-A`,debtBId=`${prefix}-debt-B`
+ await root.collection('distReceivables').doc(debtAId).set({id:debtAId,restaurantId:'pachax',customerId:cust,routeId:route,originalAmount:100,paidAmount:0,balance:100,createdAt:'2026-10-01T08:00:00.000Z'})
+ await root.collection('distReceivables').doc(debtBId).set({id:debtBId,restaurantId:'pachax',customerId:cust,routeId:route,originalAmount:50,paidAmount:0,balance:50,createdAt:'2026-10-15T08:00:00.000Z'})
+ const colIndiv=await command(seller,'collection',{receivableId:debtBId,amount:30,method:'cash',routeId:route})
+ ok(colIndiv.result.allocations?.length===1&&colIndiv.result.allocations[0].receivableId===debtBId,'cobro individual genera exactamente 1 allocation')
+ ok((await read('distReceivables',debtAId)).balance===100,'deuda A antigua permanece intacta tras cobro individual en B')
+ ok((await read('distReceivables',debtBId)).balance===20,'deuda B se reduce a 20 tras cobro individual de 30')
+ const colFifo=await command(seller,'collection',{customerId:cust,amount:30,method:'cash',routeId:route})
+ ok(colFifo.result.allocations?.length===1&&colFifo.result.allocations[0].receivableId===debtAId,'cobro FIFO sin receivableId aplica a la deuda más antigua')
+ ok((await read('distReceivables',debtAId)).balance===70,'deuda A antigua se reduce a 70')
+ ok((await read('distReceivables',debtBId)).balance===20,'deuda B permanece en 20')
+ await command(admin,'creditOverride',{customerId:old,reason:'Fecha pasada',validUntil:'2020-01-01T00:00:00Z'},'rejected');checks++
+ await command(admin,'creditOverride',{customerId:old,reason:'Fecha basura',validUntil:'basura'},'rejected');checks++
+ await command(admin,'creditOverride',{customerId:old,reason:'Dias exceso',days:31},'rejected');checks++
+ await command(admin,'creditOverride',{customerId:old,reason:'Dias cero',days:0},'rejected');checks++
+ const statusAfterGrant=await read('distCreditStatus',old)
+ ok(statusAfterGrant?.blocked===false&&statusAfterGrant?.activeOverrideId===override.result.id,'distCreditStatus actualizado con blocked=false tras otorgar excepción')
+ const overdueDebtId = prefix + '-old-overdue'
+ await root.collection('distReceivables').doc(overdueDebtId).set({id:overdueDebtId,restaurantId:'pachax',customerId:old,routeId:route,originalAmount:20,paidAmount:0,balance:20,createdAt:new Date(Date.now()-8*86400000).toISOString()})
+ const revokedOverride=await command(admin,'creditOverride',{overrideId:override.result.id,revoke:true})
+ ok(revokedOverride.result.active===false,'excepción revocada por administración')
+ const statusAfterRevoke=await read('distCreditStatus',old)
+ ok(statusAfterRevoke?.blocked===true&&!statusAfterRevoke?.activeOverrideId,'distCreditStatus actualizado con blocked=true tras revocar excepción')
  const overrideDocPath=['restaurants','pachax','distCreditOverrides',override.result.id]
  await assertFails(getDoc(doc(unauthClient,...overrideDocPath)));checks++
  await assertFails(getDoc(doc(client,...overrideDocPath)));checks++

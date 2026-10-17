@@ -762,7 +762,16 @@ async function collection(o, p) {
   let customerName = p.customerName || "";
   let customerCode = p.customerCode || "";
 
-  if (p.customerId) {
+  const specificReceivableId = p.receivable?.id || p.receivableId;
+  if (specificReceivableId) {
+    const r = await o.read("distReceivables", specificReceivableId);
+    check(r && r.balance > 0, "La deuda no existe o ya está pagada.");
+    check(amount <= r.balance, "El cobro supera el saldo de la deuda.");
+    sortedDebts = [r];
+    customerId = r.customerId || p.customerId || "";
+    customerName = r.customerName || p.customerName || "";
+    customerCode = r.customerCode || p.customerCode || "";
+  } else if (p.customerId) {
     const cust = await o.read("distCustomers", p.customerId);
     check(cust, "Cliente no encontrado.");
     customerId = cust.id;
@@ -774,14 +783,7 @@ async function collection(o, p) {
       .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "") || a.id.localeCompare(b.id));
     check(sortedDebts.length > 0, "El cliente no tiene deudas pendientes.");
   } else {
-    const rId = p.receivable?.id || p.receivableId;
-    check(rId, "Debes indicar la deuda o el cliente a cobrar.");
-    const r = await o.read("distReceivables", rId);
-    check(r && r.balance > 0, "La deuda no existe o ya está pagada.");
-    sortedDebts = [r];
-    customerId = r.customerId;
-    customerName = r.customerName;
-    customerCode = r.customerCode || "";
+    check(false, "Debes indicar la deuda o el cliente a cobrar.");
   }
 
   const portfolioBalanceBefore = round(sortedDebts.reduce((sum, d) => sum + d.balance, 0));
@@ -841,6 +843,71 @@ async function collection(o, p) {
   return c;
 }
 
+async function calculateAndSaveCreditStatus(o, customerId) {
+  const c = await o.read("distCustomers", customerId);
+  if (!c) return null;
+  const rows = await o.query("distReceivables", "customerId", c.id);
+  if (o.writes) {
+    for (const [key, write] of o.writes.entries()) {
+      if (key.startsWith("distReceivables/")) {
+        const docId = key.slice("distReceivables/".length);
+        const idx = rows.findIndex((r) => r.id === docId);
+        if (write.data.customerId === c.id) {
+          if (idx >= 0) rows[idx] = { ...rows[idx], ...write.data, id: docId };
+          else rows.push({ ...write.data, id: docId });
+        }
+      }
+    }
+  }
+  const openDebts = rows.filter((r) => r.balance > 0);
+  const dates = openDebts.map((r) => r.createdAt).sort();
+  const oldestPendingAt = dates[0] || null;
+
+  const supportConfig = await o.read("supportConfig", "main");
+  const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
+    ? supportConfig.creditBlockDays
+    : 7;
+  const overdueDebts = openDebts.filter(
+    (d) => new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now()
+  );
+  const overdueDates = overdueDebts.map((d) => d.createdAt).sort();
+  const overduePendingAt = overdueDates[0] || null;
+
+  const overrides = await o.query("distCreditOverrides", "customerId", c.id);
+  if (o.writes) {
+    for (const [key, write] of o.writes.entries()) {
+      if (key.startsWith("distCreditOverrides/")) {
+        const docId = key.slice("distCreditOverrides/".length);
+        const idx = overrides.findIndex((ov) => ov.id === docId);
+        if (write.data.customerId === c.id) {
+          if (idx >= 0) overrides[idx] = { ...overrides[idx], ...write.data, id: docId };
+          else overrides.push({ ...write.data, id: docId });
+        }
+      }
+    }
+  }
+  const activeOverride = overrides
+    .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= o.now))
+    .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
+
+  const blocked = overdueDebts.length > 0 && !activeOverride;
+
+  const status = {
+    id: c.id,
+    ...scopeMetadata(o.root),
+    oldestPendingAt,
+    overduePendingAt,
+    creditBlockDays,
+    blocked,
+    activeOverrideId: activeOverride?.id || null,
+    overrideValidUntil: activeOverride?.validUntil || null,
+    overrideReason: activeOverride?.reason || null,
+    checkedAt: o.now,
+  };
+  o.put("distCreditStatus", c.id, status);
+  return status;
+}
+
 async function creditOverride(o, p) {
   o.admin();
   if (p.revoke || p.action === "revoke") {
@@ -856,6 +923,7 @@ async function creditOverride(o, p) {
       revokeReason: p.reason?.trim() || "Revocado por administración.",
     };
     o.put("distCreditOverrides", ov.id, revoked);
+    await calculateAndSaveCreditStatus(o, ov.customerId);
     return revoked;
   }
 
@@ -865,13 +933,19 @@ async function creditOverride(o, p) {
   check(typeof p.reason === "string" && p.reason.trim().length >= 4, "El motivo de la excepción debe tener al menos 4 caracteres.");
 
   let validUntil = "";
-  if (p.validUntil) {
-    check(typeof p.validUntil === "string" && p.validUntil.length >= 10, "Fecha de vigencia inválida.");
-    validUntil = p.validUntil;
+  if (p.validUntil !== undefined && p.validUntil !== null && p.validUntil !== "") {
+    check(typeof p.validUntil === "string", "Fecha de vigencia inválida.");
+    const parsedTime = Date.parse(p.validUntil);
+    check(Number.isFinite(parsedTime), "Fecha de vigencia inválida.");
+    check(parsedTime > Date.now(), "La fecha de vigencia debe ser futura.");
+    validUntil = new Date(parsedTime).toISOString();
+  } else if (p.days !== undefined && p.days !== null) {
+    check(Number.isInteger(p.days) && p.days >= 1 && p.days <= 30, "Los días de vigencia deben ser un entero entre 1 y 30.");
+    validUntil = new Date(Date.now() + p.days * 86400000).toISOString();
   } else {
-    const days = Number.isInteger(p.days) && p.days >= 1 && p.days <= 30 ? p.days : 7;
-    validUntil = new Date(Date.now() + days * 86400000).toISOString();
+    validUntil = new Date(Date.now() + 7 * 86400000).toISOString();
   }
+  check(validUntil && typeof validUntil === "string" && validUntil.length > 0, "Fecha de vigencia requerida.");
 
   const ov = {
     id: o.id,
@@ -885,6 +959,7 @@ async function creditOverride(o, p) {
     active: true,
   };
   o.put("distCreditOverrides", o.id, ov);
+  await calculateAndSaveCreditStatus(o, cust.id);
   return ov;
 }
 
@@ -1796,20 +1871,48 @@ async function updateLot(o, p) {
 handlers.updateLot = updateLot;
 async function refreshCreditStatus(db, root, customerId) {
   await db.runTransaction(async (tx) => {
-    const rows = await tx.get(
-      root.collection("distReceivables").where("customerId", "==", customerId),
+    const [receivablesSnap, supportSnap, overridesSnap] = await Promise.all([
+      tx.get(root.collection("distReceivables").where("customerId", "==", customerId)),
+      tx.get(root.collection("supportConfig").doc("main")),
+      tx.get(root.collection("distCreditOverrides").where("customerId", "==", customerId)),
+    ]);
+    const openDebts = receivablesSnap.docs.map((d) => d.data()).filter((r) => r.balance > 0);
+    const dates = openDebts.map((r) => r.createdAt).sort();
+    const oldestPendingAt = dates[0] || null;
+
+    const creditBlockDays = Number.isInteger(supportSnap.data()?.creditBlockDays)
+      ? supportSnap.data().creditBlockDays
+      : 7;
+    const overdueDebts = openDebts.filter(
+      (d) => new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now()
     );
-    const dates = rows.docs
-      .map((d) => d.data())
-      .filter((r) => r.balance > 0)
-      .map((r) => r.createdAt)
-      .sort();
-    tx.set(root.collection("distCreditStatus").doc(customerId), {
-      id: customerId,
-      ...scopeMetadata(root),
-      oldestPendingAt: dates[0] || null,
-      checkedAt: new Date().toISOString(),
-    });
+    const overdueDates = overdueDebts.map((d) => d.createdAt).sort();
+    const overduePendingAt = overdueDates[0] || null;
+
+    const now = new Date().toISOString();
+    const overrides = overridesSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    const activeOverride = overrides
+      .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= now))
+      .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
+
+    const blocked = overdueDebts.length > 0 && !activeOverride;
+
+    tx.set(
+      root.collection("distCreditStatus").doc(customerId),
+      {
+        id: customerId,
+        ...scopeMetadata(root),
+        oldestPendingAt,
+        overduePendingAt,
+        creditBlockDays,
+        blocked,
+        activeOverrideId: activeOverride?.id || null,
+        overrideValidUntil: activeOverride?.validUntil || null,
+        overrideReason: activeOverride?.reason || null,
+        checkedAt: now,
+      },
+      { merge: true },
+    );
   });
 }
 module.exports.refreshCreditStatus = refreshCreditStatus;
@@ -1971,42 +2074,8 @@ handlers.reopen = async (o, p) => {
 
 handlers.creditStatus = async (o, p) => {
   check(["admin", "distributor"].includes(o.member.role), "Sin permiso.");
-  const c = await o.read("distCustomers", p.customerId);
-  check(c, "Cliente inexistente.");
-  const rows = await o.query("distReceivables", "customerId", c.id);
-  const openDebts = rows.filter((r) => r.balance > 0);
-  const dates = openDebts.map((r) => r.createdAt).sort();
-  const oldestPendingAt = dates[0] || null;
-
-  const supportConfig = await o.read("supportConfig", "main");
-  const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
-    ? supportConfig.creditBlockDays
-    : 7;
-  const overdueDebts = openDebts.filter(
-    (d) => new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now()
-  );
-  const overdueDates = overdueDebts.map((d) => d.createdAt).sort();
-  const overduePendingAt = overdueDates[0] || null;
-
-  const overrides = await o.query("distCreditOverrides", "customerId", c.id);
-  const activeOverride = overrides
-    .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= o.now))
-    .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
-
-  const blocked = overdueDebts.length > 0 && !activeOverride;
-
-  const status = {
-    id: c.id,
-    ...scopeMetadata(o.root),
-    oldestPendingAt,
-    overduePendingAt,
-    creditBlockDays,
-    blocked,
-    activeOverrideId: activeOverride?.id || null,
-    overrideValidUntil: activeOverride?.validUntil || null,
-    overrideReason: activeOverride?.reason || null,
-    checkedAt: o.now,
-  };
-  o.put("distCreditStatus", c.id, status);
+  check(p.customerId, "customerId requerido.");
+  const status = await calculateAndSaveCreditStatus(o, p.customerId);
+  check(status, "Cliente inexistente.");
   return status;
 };

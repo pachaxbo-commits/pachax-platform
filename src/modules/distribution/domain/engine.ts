@@ -243,6 +243,25 @@ export interface MoneySummary {
 }
 
 /**
+ * Determina el monto exacto atribuible a pago QR para una cobranza,
+ * contemplando cobros mixtos y compatibilidad con registros legacy.
+ */
+export function collectionQrAmount(collection: {
+  method?: string
+  amount?: number
+  qrAmount?: number
+} | null | undefined): number {
+  if (!collection) return 0
+  if (typeof collection.qrAmount === 'number' && Number.isFinite(collection.qrAmount)) {
+    return round2(collection.qrAmount)
+  }
+  if (collection.method === 'qr' && typeof collection.amount === 'number' && Number.isFinite(collection.amount)) {
+    return round2(collection.amount)
+  }
+  return 0
+}
+
+/**
  * Dinero del arqueo.
  * expectedCash = ventas en efectivo + cobros en efectivo - gastos en efectivo.
  * QR y credito NO entran al efectivo fisico. Los cobros NO suman a salesTotal.

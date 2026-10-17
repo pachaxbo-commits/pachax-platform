@@ -8,6 +8,7 @@ import {
   validateSalePayment,
   splitPayment,
   computeSoldByProduct,
+  collectionQrAmount,
 } from '../src/modules/distribution/domain/engine.ts'
 import type {
   DistReceivable,
@@ -19,13 +20,14 @@ import type {
   DistCollectionAllocation,
 } from '../src/modules/distribution/types.ts'
 
-// In-memory simulation of the server-authoritative FIFO engine matching operations.cjs
+// In-memory simulation of the server-authoritative FIFO and individual collection engine matching operations.cjs
 function applyFifoCollection(params: {
   debts: DistReceivable[]
   amount: number
   method: 'cash' | 'qr' | 'mixed'
   cashAmount?: number
   qrAmount?: number
+  receivableId?: string
   customerId: string
   customerName: string
   routeId: string
@@ -51,10 +53,18 @@ function applyFifoCollection(params: {
     assert.ok(Math.abs(round2(cashAmount + qrAmount) - amount) < 0.01, 'Suma de efectivo y QR debe coincidir.')
   }
 
-  // Sort debts FIFO: createdAt ASC, id ASC
-  const sortedDebts = params.debts
-    .filter((d) => d.balance > 0)
-    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '') || a.id.localeCompare(b.id))
+  const specificReceivableId = params.receivableId
+  let sortedDebts: DistReceivable[] = []
+  if (specificReceivableId) {
+    const target = params.debts.find((d) => d.id === specificReceivableId)
+    assert.ok(target && target.balance > 0, 'La deuda no existe o ya está pagada.')
+    assert.ok(amount <= target.balance, 'El cobro supera el saldo de la deuda.')
+    sortedDebts = [target]
+  } else {
+    sortedDebts = params.debts
+      .filter((d) => d.balance > 0)
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '') || a.id.localeCompare(b.id))
+  }
 
   const portfolioBalanceBefore = round2(sortedDebts.reduce((sum, d) => sum + d.balance, 0))
   assert.ok(amount <= portfolioBalanceBefore, 'El cobro supera el saldo pendiente.')
@@ -595,4 +605,365 @@ test('D2 TEST 35: Validaciones negativas y casos límite de cobros, pagos mixtos
     /Suma de efectivo y QR debe coincidir/i,
     'Debe arrojar error si cashAmount + qrAmount no es igual a amount'
   )
+})
+
+test('D2.1 TEST 36: Helper canónico collectionQrAmount para cobros mixtos, legacy y contado', () => {
+  // A. Cobro mixto: qrAmount = 100, cashAmount = 70, amount = 170 -> 100
+  const mixed = collectionQrAmount({ method: 'mixed', amount: 170, cashAmount: 70, qrAmount: 100 })
+  assert.equal(mixed, 100, 'Cobro mixto debe devolver exclusivamente el qrAmount')
+
+  // B. Cobro legacy QR: sin qrAmount en documento, method = 'qr', amount = 100 -> 100
+  const legacyQr = collectionQrAmount({ method: 'qr', amount: 100 })
+  assert.equal(legacyQr, 100, 'Cobro legacy QR sin qrAmount debe devolver amount')
+
+  // C. Cobro QR nuevo: method = 'qr', amount = 100, qrAmount = 100 -> 100
+  const newQr = collectionQrAmount({ method: 'qr', amount: 100, qrAmount: 100 })
+  assert.equal(newQr, 100, 'Cobro QR con qrAmount debe devolver 100')
+
+  // D. Cobro en efectivo: method = 'cash', amount = 170 -> 0
+  const cashOnly = collectionQrAmount({ method: 'cash', amount: 170 })
+  assert.equal(cashOnly, 0, 'Cobro en efectivo debe devolver 0 para QR')
+
+  // E. Valores nulos o indefinidos -> 0
+  assert.equal(collectionQrAmount(null), 0, 'null debe devolver 0')
+  assert.equal(collectionQrAmount(undefined), 0, 'undefined debe devolver 0')
+})
+
+test('D2.1 TEST 37: Cobro individual a deuda específica vs cobro general FIFO', () => {
+  // Cliente con Deuda A (100, antigua) y Deuda B (50, nueva)
+  const debts: DistReceivable[] = [
+    {
+      id: 'rec-A',
+      tenantId: 'tenant-test',
+      branchId: 'main',
+      createdAt: '2026-10-01T08:00:00Z',
+      createdBy: 'seller-1',
+      dayKey: '2026-10-01',
+      schemaVersion: 2,
+      saleId: 'sale-A',
+      customerId: 'cust-1',
+      customerName: 'Cliente 1',
+      routeId: 'route-1',
+      distributorUid: 'seller-1',
+      distributorName: 'Hugo',
+      originalAmount: 100,
+      paidAmount: 0,
+      balance: 100,
+      status: 'OPEN',
+    },
+    {
+      id: 'rec-B',
+      tenantId: 'tenant-test',
+      branchId: 'main',
+      createdAt: '2026-10-15T08:00:00Z',
+      createdBy: 'seller-1',
+      dayKey: '2026-10-15',
+      schemaVersion: 2,
+      saleId: 'sale-B',
+      customerId: 'cust-1',
+      customerName: 'Cliente 1',
+      routeId: 'route-1',
+      distributorUid: 'seller-1',
+      distributorName: 'Hugo',
+      originalAmount: 50,
+      paidAmount: 0,
+      balance: 50,
+      status: 'OPEN',
+    },
+  ]
+
+  // Paso 1: Usuario abre Deuda B y cobra 30 con "Cobrar esta deuda" (receivableId = 'rec-B')
+  const step1 = applyFifoCollection({
+    debts,
+    amount: 30,
+    method: 'cash',
+    receivableId: 'rec-B',
+    customerId: 'cust-1',
+    customerName: 'Cliente 1',
+    routeId: 'route-1',
+    collectorUid: 'seller-1',
+    collectorName: 'Hugo',
+  })
+
+  // Resultado esperado:
+  // A sigue intacta en 100
+  // B queda en 20
+  // Exactamente 1 allocation dirigida a rec-B
+  const debtA = debts.find((d) => d.id === 'rec-A')!
+  const debtB = debts.find((d) => d.id === 'rec-B')!
+  assert.equal(debtA.balance, 100, 'Deuda A debe seguir intacta en 100 tras cobro individual de B')
+  assert.equal(debtB.balance, 20, 'Deuda B debe quedar en 20 tras cobro individual de 30')
+  assert.equal(step1.collection.allocations.length, 1, 'Cobro individual debe generar exactamente 1 allocation')
+  assert.equal(step1.collection.allocations[0].receivableId, 'rec-B', 'Allocation debe corresponder a rec-B')
+
+  // Paso 2: Usuario ejecuta cobro general FIFO de 30 (sin receivableId, con customerId)
+  const step2 = applyFifoCollection({
+    debts,
+    amount: 30,
+    method: 'cash',
+    customerId: 'cust-1',
+    customerName: 'Cliente 1',
+    routeId: 'route-1',
+    collectorUid: 'seller-1',
+    collectorName: 'Hugo',
+  })
+
+  // Resultado esperado:
+  // A (antigua) absorbe los 30 -> saldo 70
+  // B se mantiene en 20
+  assert.equal(debtA.balance, 70, 'Deuda A (más antigua) debe absorber el cobro FIFO quedando en 70')
+  assert.equal(debtB.balance, 20, 'Deuda B debe permanecer en 20')
+  assert.equal(step2.collection.allocations.length, 1, 'Allocation debe corresponder a la deuda más antigua')
+  assert.equal(step2.collection.allocations[0].receivableId, 'rec-A', 'FIFO debe aplicar primero a rec-A')
+})
+
+test('D2.1 TEST 38: Manejo offline de queued FIFO collections sin alterar saldos locales antes de confirmación', () => {
+  // Simulador del pipeline de useDistributionStore
+  const queuedOperation = {
+    id: 'op-col-offline-1',
+    type: 'collection',
+    status: 'queued',
+    createdBy: 'seller-1',
+    createdAt: '2026-10-16T15:00:00Z',
+    payload: {
+      customerId: 'cust-ana',
+      customerName: 'Doña Ana',
+      amount: 170,
+      method: 'mixed',
+      cashAmount: 70,
+      qrAmount: 100,
+      routeId: 'route-1',
+      // NOTA: sin receivable ni receivableId
+    },
+  }
+
+  // Reconstrucción segura de pendingCollections sin dereferenciar p.receivable
+  const p = queuedOperation.payload as any
+  const rec = p.receivable
+  const customerId = p.customerId || rec?.customerId || ''
+  const customerName = p.customerName || rec?.customerName || 'Doña Ana'
+  const receivableId = rec?.id || p.receivableId || ''
+  const amount = Number(p.amount) || 0
+  const method = p.method || 'cash'
+  const cashAmount = method === 'mixed' ? (Number(p.cashAmount) || 0) : (method === 'cash' ? amount : 0)
+  const qrAmount = method === 'mixed' ? (Number(p.qrAmount) || 0) : (method === 'qr' ? amount : 0)
+
+  const pendingCollection: DistCollection = {
+    id: queuedOperation.id,
+    operationId: queuedOperation.id,
+    receivableId,
+    allocations: [],
+    portfolioBalanceBefore: 0,
+    portfolioBalanceAfter: 0,
+    customerId,
+    customerName,
+    customerCode: '',
+    saleLines: [],
+    routeId: p.routeId,
+    originRouteId: p.routeId,
+    collectedByUid: queuedOperation.createdBy,
+    collectedByName: 'Hugo Choque',
+    amount,
+    method,
+    cashAmount,
+    qrAmount,
+    note: '',
+    createdAt: queuedOperation.createdAt,
+    dayKey: '2026-10-16',
+    pendingConfirmation: true,
+  } as unknown as DistCollection
+
+  assert.equal(pendingCollection.pendingConfirmation, true, 'Debe marcarse como pendiente de confirmación')
+  assert.deepEqual(pendingCollection.allocations, [], 'Allocations deben estar vacías offline, no inventar distribución')
+  assert.equal(pendingCollection.amount, 170, 'Monto total debe coincidir')
+
+  // Comprobación de que visibleReceivables no resta saldos inventados
+  const serverReceivables: DistReceivable[] = [
+    {
+      id: 'rec-1',
+      tenantId: 'tenant-test',
+      branchId: 'main',
+      createdAt: '2026-10-01T08:00:00Z',
+      createdBy: 'seller-1',
+      dayKey: '2026-10-01',
+      schemaVersion: 2,
+      saleId: 'sale-1',
+      customerId: 'cust-ana',
+      customerName: 'Doña Ana',
+      routeId: 'route-1',
+      distributorUid: 'seller-1',
+      distributorName: 'Hugo',
+      originalAmount: 100,
+      paidAmount: 0,
+      balance: 100,
+      status: 'OPEN',
+    },
+    {
+      id: 'rec-2',
+      tenantId: 'tenant-test',
+      branchId: 'main',
+      createdAt: '2026-10-05T08:00:00Z',
+      createdBy: 'seller-1',
+      dayKey: '2026-10-05',
+      schemaVersion: 2,
+      saleId: 'sale-2',
+      customerId: 'cust-ana',
+      customerName: 'Doña Ana',
+      routeId: 'route-1',
+      distributorUid: 'seller-1',
+      distributorName: 'Hugo',
+      originalAmount: 100,
+      paidAmount: 0,
+      balance: 100,
+      status: 'OPEN',
+    },
+  ]
+
+  const pendingList = [pendingCollection]
+  const visibleReceivables = serverReceivables.map((r) => {
+    const hasPending = pendingList.some((c) => c.receivableId === r.id || (c.customerId === r.customerId && !c.receivableId))
+    return { ...r, pendingConfirmation: hasPending }
+  })
+
+  // Los saldos individuales NO deben reducirse antes de que el servidor devuelva allocations
+  assert.equal(visibleReceivables[0].balance, 100, 'Saldo de deuda 1 no debe cambiar mientras esté queued')
+  assert.equal(visibleReceivables[1].balance, 100, 'Saldo de deuda 2 no debe cambiar mientras esté queued')
+  assert.equal(visibleReceivables[0].pendingConfirmation, true, 'Debe indicar que hay un cobro pendiente')
+})
+
+test('D2.1 TEST 39: Validación estricta server-side de validUntil y days en distCreditOverrides', () => {
+  // Lógica de validación exacta de operations.cjs
+  function validateOverrideValidity(payload: { validUntil?: any; days?: any }) {
+    let validUntil = ''
+    if (payload.validUntil !== undefined && payload.validUntil !== null && payload.validUntil !== '') {
+      assert.ok(typeof payload.validUntil === 'string', 'Fecha de vigencia inválida.')
+      const parsedTime = Date.parse(payload.validUntil)
+      assert.ok(Number.isFinite(parsedTime), 'Fecha de vigencia inválida.')
+      assert.ok(parsedTime > Date.now(), 'La fecha de vigencia debe ser futura.')
+      validUntil = new Date(parsedTime).toISOString()
+    } else if (payload.days !== undefined && payload.days !== null) {
+      assert.ok(Number.isInteger(payload.days) && payload.days >= 1 && payload.days <= 30, 'Los días de vigencia deben ser un entero entre 1 y 30.')
+      validUntil = new Date(Date.now() + payload.days * 86400000).toISOString()
+    } else {
+      validUntil = new Date(Date.now() + 7 * 86400000).toISOString()
+    }
+    assert.ok(validUntil && typeof validUntil === 'string' && validUntil.length > 0, 'Fecha de vigencia requerida.')
+    return validUntil
+  }
+
+  // 1. Fecha pasada debe rechazarse
+  assert.throws(
+    () => validateOverrideValidity({ validUntil: '2020-01-01T00:00:00Z' }),
+    /La fecha de vigencia debe ser futura/i,
+    'Debe rechazar fecha en el pasado'
+  )
+
+  // 2. String basura debe rechazarse
+  assert.throws(
+    () => validateOverrideValidity({ validUntil: 'basura-no-es-fecha' }),
+    /Fecha de vigencia inválida/i,
+    'Debe rechazar string no convertible a fecha'
+  )
+
+  // 3. days = 31 debe rechazarse
+  assert.throws(
+    () => validateOverrideValidity({ days: 31 }),
+    /Los días de vigencia deben ser un entero entre 1 y 30/i,
+    'Debe rechazar días superiores a 30'
+  )
+
+  // 4. days = 0 debe rechazarse
+  assert.throws(
+    () => validateOverrideValidity({ days: 0 }),
+    /Los días de vigencia deben ser un entero entre 1 y 30/i,
+    'Debe rechazar días iguales a 0'
+  )
+
+  // 5. days = -5 debe rechazarse
+  assert.throws(
+    () => validateOverrideValidity({ days: -5 }),
+    /Los días de vigencia deben ser un entero entre 1 y 30/i,
+    'Debe rechazar días negativos'
+  )
+
+  // 6. days decimal (2.5) debe rechazarse
+  assert.throws(
+    () => validateOverrideValidity({ days: 2.5 }),
+    /Los días de vigencia deben ser un entero entre 1 y 30/i,
+    'Debe rechazar días no enteros'
+  )
+
+  // 7. days = 7 válido
+  const validDaysResult = validateOverrideValidity({ days: 7 })
+  assert.ok(Date.parse(validDaysResult) > Date.now(), 'Debe generar fecha futura válida')
+
+  // 8. Sin days ni validUntil -> default 7 días válido
+  const defaultResult = validateOverrideValidity({})
+  assert.ok(Date.parse(defaultResult) > Date.now(), 'Default debe ser fecha futura válida')
+})
+
+test('D2.1 TEST 40: Propagación de override y actualización en tiempo real de distCreditStatus', () => {
+  // Simulación de cálculo de creditStatus
+  function computeStatus(params: {
+    customerId: string
+    debts: { createdAt: string; balance: number }[]
+    creditBlockDays: number
+    activeOverride: { id: string; validUntil: string; reason: string } | null
+  }): DistCreditStatus {
+    const openDebts = params.debts.filter((d) => d.balance > 0)
+    const dates = openDebts.map((d) => d.createdAt).sort()
+    const overdueDebts = openDebts.filter(
+      (d) => new Date(d.createdAt).getTime() + params.creditBlockDays * 86400000 <= Date.now()
+    )
+    const overdueDates = overdueDebts.map((d) => d.createdAt).sort()
+    const blocked = overdueDebts.length > 0 && !params.activeOverride
+
+    return {
+      id: params.customerId,
+      tenantId: 'tenant-test',
+      branchId: 'main',
+      oldestPendingAt: dates[0] || null,
+      overduePendingAt: overdueDates[0] || null,
+      creditBlockDays: params.creditBlockDays,
+      blocked,
+      activeOverrideId: params.activeOverride?.id || null,
+      overrideValidUntil: params.activeOverride?.validUntil || null,
+      overrideReason: params.activeOverride?.reason || null,
+      checkedAt: new Date().toISOString(),
+    }
+  }
+
+  // A. Cliente con deuda vencida de 15 días, sin override
+  const initialStatus = computeStatus({
+    customerId: 'c-moroso',
+    debts: [{ createdAt: new Date(Date.now() - 15 * 86400000).toISOString(), balance: 100 }],
+    creditBlockDays: 7,
+    activeOverride: null,
+  })
+  assert.equal(initialStatus.blocked, true, 'Cliente con deuda de 15 días debe estar bloqueado')
+  assert.equal(initialStatus.activeOverrideId, null)
+
+  // B. Admin autoriza excepción temporal por 7 días -> override propagado inmediatamente
+  const grantedStatus = computeStatus({
+    customerId: 'c-moroso',
+    debts: [{ createdAt: new Date(Date.now() - 15 * 86400000).toISOString(), balance: 100 }],
+    creditBlockDays: 7,
+    activeOverride: {
+      id: 'ov-admin-1',
+      validUntil: new Date(Date.now() + 7 * 86400000).toISOString(),
+      reason: 'Autorizado para fiesta patronal',
+    },
+  })
+  assert.equal(grantedStatus.blocked, false, 'Con override activo el cliente queda desbloqueado en distCreditStatus')
+  assert.equal(grantedStatus.activeOverrideId, 'ov-admin-1')
+
+  // C. Admin revoca la excepción -> override revocado, vuelve a blocked: true inmediatamente
+  const revokedStatus = computeStatus({
+    customerId: 'c-moroso',
+    debts: [{ createdAt: new Date(Date.now() - 15 * 86400000).toISOString(), balance: 100 }],
+    creditBlockDays: 7,
+    activeOverride: null,
+  })
+  assert.equal(revokedStatus.blocked, true, 'Tras revocación, distCreditStatus vuelve a blocked: true de inmediato')
+  assert.equal(revokedStatus.activeOverrideId, null)
 })

@@ -17,7 +17,7 @@ import {
   type WriteBatch,
 } from 'firebase/firestore'
 import { getFirebaseContext } from '../../../lib/firebase'
-import { centralBalanceId, round2, toDayKey } from '../domain/engine'
+import { centralBalanceId, round2, toDayKey, collectionQrAmount } from '../domain/engine'
 import type {
   DistBalance,
   DistWarehouse,
@@ -111,7 +111,7 @@ export async function verifyQr(sourceType: 'sale' | 'collection' | 'claim', sour
     if ((await tx.get(verificationRef)).exists()) return
     const source = await tx.get(docRef(ctx, sourceType === 'sale' ? DIST_COLLECTIONS.sales : sourceType === 'claim' ? 'distClaims' : DIST_COLLECTIONS.collections, sourceId))
     const data = source.data()
-    const amount = sourceType === 'sale' ? data?.qrAmount : sourceType === 'claim' ? data?.qrIn : data?.method === 'qr' ? data.amount : 0
+    const amount = sourceType === 'sale' ? data?.qrAmount : sourceType === 'claim' ? data?.qrIn : collectionQrAmount(data as DistCollection)
     if (!data || !(amount > 0)) throw new Error('No existe un pago QR pendiente para este movimiento.')
     tx.set(verificationRef, { id: `${sourceType}_${sourceId}`, tenantId: ctx.tenantId, routeId: data.routeId,
       sourceType, sourceId, amount, reference: reference.trim(), verifiedBy: ctx.uid, verifiedAt: new Date().toISOString() })
@@ -743,6 +743,9 @@ export async function registerCollection(input: RegisterCollectionInput): Promis
     method: input.method,
     cashAmount: input.cashAmount,
     qrAmount: input.qrAmount,
+    allocations: [],
+    portfolioBalanceBefore: 0,
+    portfolioBalanceAfter: 0,
     note: input.note,
   } as DistCollection
   return submitOperation<DistCollection>('collection', input, input.operationId, provisional)

@@ -84,6 +84,11 @@
       allow create, update, delete: if false;
     }
 
+    function tCollectionQrAmount(tenantId, sourceId) {
+      let col = get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(sourceId)).data;
+      return col.method in ['qr', 'mixed'] ? col.get('qrAmount', col.amount) : 0;
+    }
+
     match /tenants/{tenantId}/distQrVerifications/{verificationId} {
       allow read: if tDistAdmin(tenantId) || tDistOwnsRoute(tenantId, resource.data.routeId);
       allow create: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
@@ -95,8 +100,7 @@
           && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distSales/$(request.resource.data.sourceId)).data.qrAmount)
         || (request.resource.data.sourceType == 'collection'
           && verificationId == 'collection_' + request.resource.data.sourceId
-          && get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(request.resource.data.sourceId)).data.method == 'qr'
-          && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(request.resource.data.sourceId)).data.amount)
+          && request.resource.data.amount == tCollectionQrAmount(tenantId, request.resource.data.sourceId))
         || (request.resource.data.sourceType == 'claim'
           && verificationId == 'claim_' + request.resource.data.sourceId
           && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distClaims/$(request.resource.data.sourceId)).data.qrIn));

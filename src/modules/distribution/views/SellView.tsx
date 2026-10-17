@@ -230,35 +230,22 @@ export function SellView({ session, data }: DistributionViewProps) {
         return
       }
       if (!isCourtesy && split.creditAmount > 0) {
-        let credit = data.creditStatus.find((c) => c.id === selectedCustomer.id)
-        if (!credit) {
-          setIsSubmitting(true)
-          try {
-            credit = await submitOperation<DistCreditStatus>(
-              'creditStatus',
-              { customerId: selectedCustomer.id },
-              newOperationId('credit-status'),
-            )
-          } catch (e) {
-            setError((e as Error).message)
-            return
-          } finally {
-            setIsSubmitting(false)
-          }
-        }
-        const blockDays = data.supportSettings.creditBlockDays
-        const isOverdue =
-          credit.oldestPendingAt &&
-          Date.parse(credit.oldestPendingAt) + blockDays * 86400000 <= Date.now()
-        const hasOverride =
-          Boolean(credit.activeOverrideId) ||
-          (data.creditOverrides || []).some(
-            (o) =>
-              o.customerId === selectedCustomer.id &&
-              o.active !== false &&
-              (!o.validUntil || o.validUntil >= new Date().toISOString()),
+        setIsSubmitting(true)
+        let freshStatus: DistCreditStatus
+        try {
+          freshStatus = await submitOperation<DistCreditStatus>(
+            'creditStatus',
+            { customerId: selectedCustomer.id },
+            newOperationId('credit-status'),
           )
-        if (isOverdue && !hasOverride) {
+        } catch (e) {
+          setIsSubmitting(false)
+          setError((e as Error).message)
+          return
+        }
+        setIsSubmitting(false)
+        if (freshStatus.blocked) {
+          const blockDays = freshStatus.creditBlockDays || data.supportSettings.creditBlockDays || 7
           setError(
             `Venta a crédito bloqueada: el cliente tiene créditos pendientes de ${blockDays} días o más. Requiere autorización de administración.`,
           )
