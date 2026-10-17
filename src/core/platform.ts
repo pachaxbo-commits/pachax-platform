@@ -9,6 +9,7 @@ export type Permission =
   | 'customers.read' | 'customers.manage' | 'credits.read' | 'credits.collect'
   | 'reports.read' | 'users.manage' | 'settings.manage'
   | 'dispatch.create' | 'route.close' | 'cash.close'
+  | 'support.reset.prepare'
 export type Capability = 'sales' | 'orders' | 'inventory' | 'customers' | 'credits'
   | 'reports' | 'users' | 'settings' | 'dispatch' | 'routes' | 'cash'
   | 'kitchen' | 'tables' | 'weightSales' | 'unitSales' | 'aiAssistant'

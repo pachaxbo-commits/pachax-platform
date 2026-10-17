@@ -62,7 +62,6 @@ const DIST_DISTRIBUTOR_PERMISSIONS: Permission[] = [
 ]
 
 const DIST_SUPPORT_PERMISSIONS: Permission[] = [
-  'settings.manage',
   'printers.manage',
   'printing.manage',
   'support.settings.manage',
@@ -92,6 +91,7 @@ export const ROLE_PERMISSIONS_MAP: Record<UserRole, Permission[]> = {
     'printers.manage',
     'branches.manage',
     'support.settings.manage',
+    'support.reset.prepare',
     ...DIST_ADMIN_PERMISSIONS,
   ],
   owner: [
@@ -115,6 +115,7 @@ export const ROLE_PERMISSIONS_MAP: Record<UserRole, Permission[]> = {
     'printers.manage',
     'branches.manage',
     'support.settings.manage',
+    'support.reset.prepare',
     ...DIST_ADMIN_PERMISSIONS,
   ],
   admin: [
@@ -143,6 +144,7 @@ export const ROLE_PERMISSIONS_MAP: Record<UserRole, Permission[]> = {
     'printing.reprintKitchen',
     'cash.openDrawer',
     'support.settings.manage',
+    'support.reset.prepare',
     ...DIST_ADMIN_PERMISSIONS,
   ],
   manager: [

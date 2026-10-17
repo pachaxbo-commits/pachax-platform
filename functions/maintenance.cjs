@@ -23,7 +23,7 @@ const PRESERVED = [
 
 async function getActor(db, request) {
   if (request.data?.tenantId) {
-    const actor = await tenantActor(db, request, 'settings.manage')
+    const actor = await tenantActor(db, request, 'support.reset.prepare')
     if (actor.tenant.businessType !== 'route_distribution') throw new HttpsError('failed-precondition', 'Mantenimiento solo para distribución.')
     return { ...actor, member: legacyMember(actor.membership) }
   }

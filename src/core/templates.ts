@@ -4,6 +4,7 @@ const allPermissions: readonly Permission[] = [
   'sales.read', 'sales.create', 'orders.read', 'orders.manage', 'inventory.read', 'inventory.manage',
   'products.manage', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect',
   'reports.read', 'users.manage', 'settings.manage', 'dispatch.create', 'route.close', 'cash.close',
+  'support.reset.prepare',
 ]
 const owner: RolePreset = { id: 'owner', name: 'Dueño', permissions: allPermissions }
 const admin: RolePreset = { id: 'admin', name: 'Administración', permissions: allPermissions }
@@ -58,7 +59,7 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
       admin,
       { id: 'warehouse', name: 'Almacén', permissions: ['inventory.read', 'inventory.manage', 'dispatch.create', 'route.close'] },
       { id: 'distributor', name: 'Distribuidor', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect', 'route.close'] },
-      { id: 'support', name: 'Soporte técnico', permissions: ['settings.manage'] },
+      { id: 'support', name: 'Soporte técnico', permissions: ['support.reset.prepare'] },
     ],
     units: ['kg', 'g', 'unit', 'package', 'box', 'liter'], pos: 'route', inventory: 'lots-and-routes',
     // Validation of the migrated adapter is required before advertising these in the new tenant shell.
