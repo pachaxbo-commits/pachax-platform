@@ -197,9 +197,9 @@
       return tDistWarehouseOwns(tenantId, dispatch.get('warehouseId', 'central'));
     }
     match /tenants/{tenantId}/distClosures/{closureId} {
-      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
-        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid)
-        || (tDistDistributor(tenantId) && resource.data.get('returnDeclaredBy', '') == request.auth.uid);
+      allow read: if tDistAdmin(tenantId)
+        || (tDistWarehouse(tenantId) && tDistWarehouseOwns(tenantId, resource.data.get('warehouseId', 'central')))
+        || (tDistDistributor(tenantId) && ((tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid) || resource.data.get('returnDeclaredBy', '') == request.auth.uid));
       allow create, update, delete: if false;
     }
 

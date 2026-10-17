@@ -4,7 +4,7 @@ fs.mkdirSync('docs/qa-pachax', { recursive: true })
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing'
-import {collection,getDocs,getDoc,doc,setDoc,writeBatch} from 'firebase/firestore'
+import {collection,getDocs,getDoc,doc,setDoc,deleteDoc,writeBatch} from 'firebase/firestore'
 const req=createRequire(new URL('../../functions/package.json',import.meta.url))
 process.env.FIRESTORE_EMULATOR_HOST='127.0.0.1:8185'
 process.env.FIREBASE_AUTH_EMULATOR_HOST='127.0.0.1:9195'
@@ -88,7 +88,29 @@ try {
  const concurrent=await Promise.allSettled(drafts.map(p=>command(admin,'sale',p)))
  ok(concurrent.filter(r=>r.status==='fulfilled').length===1,'ventas concurrentes no dejan stock negativo')
 
- await assertFails(setDoc(doc(client,'restaurants','pachax','distClosures',`closure_${dispatch.id}`),{physicalCashDeclared:999,expectedCash:999},{merge:true}));checks++
+ const closureDocPath = ['restaurants', 'pachax', 'distClosures', `closure_${dispatch.id}`]
+ const unauthClient = env.unauthenticatedContext().firestore()
+ await assertFails(getDoc(doc(unauthClient, ...closureDocPath))); checks++
+ const foreignTenantClient = env.authenticatedContext(`${prefix}-foreign-tenant-user`).firestore()
+ await assertFails(getDoc(doc(foreignTenantClient, ...closureDocPath))); checks++
+ const otherDistUid = `${prefix}-other-dist`
+ await root.collection('members').doc(otherDistUid).set({ role: 'distributor', active: true, routeId: 'otra-ruta-distinta', displayName: 'QA otro distribuidor' })
+ const otherDistClient = env.authenticatedContext(otherDistUid).firestore()
+ await assertFails(getDoc(doc(otherDistClient, ...closureDocPath))); checks++
+ const whClient = env.authenticatedContext(warehouse).firestore()
+ const otherWhUid = `${prefix}-other-wh`
+ await root.collection('members').doc(otherWhUid).set({ role: 'warehouse', active: true, warehouseId: 'otro-almacen', displayName: 'QA otro almacén' })
+ const otherWhClient = env.authenticatedContext(otherWhUid).firestore()
+ await assertFails(getDoc(doc(otherWhClient, ...closureDocPath))); checks++
+ ok((await getDoc(doc(client, ...closureDocPath))).exists(), 'distribuidor dueño de la ruta puede leer su cierre')
+ ok((await getDoc(doc(whClient, ...closureDocPath))).exists(), 'almacén correspondiente puede leer el cierre')
+ ok((await getDoc(doc(adminClient, ...closureDocPath))).exists(), 'administración puede leer el cierre')
+ await assertFails(setDoc(doc(client, 'restaurants', 'pachax', 'distClosures', `${prefix}-forged-closure`), { restaurantId: 'pachax', routeId: route })); checks++
+ await assertFails(setDoc(doc(adminClient, 'restaurants', 'pachax', 'distClosures', `${prefix}-forged-closure`), { restaurantId: 'pachax', routeId: route })); checks++
+ await assertFails(setDoc(doc(client, ...closureDocPath), { physicalCashDeclared: 999, expectedCash: 999 }, { merge: true })); checks++
+ await assertFails(setDoc(doc(adminClient, ...closureDocPath), { physicalCashDeclared: 999, expectedCash: 999 }, { merge: true })); checks++
+ await assertFails(deleteDoc(doc(client, ...closureDocPath))); checks++
+ await assertFails(deleteDoc(doc(adminClient, ...closureDocPath))); checks++
  await assertFails(setDoc(doc(client,'restaurants','pachax','distProducts',pid),{referencePrice:1},{merge:true}));checks++
  await command(admin,'reopen',{closureId:`closure_${dispatch.id}`},'rejected');checks++
  await command(admin,'reopen',{closureId:`closure_${dispatch.id}`,reason:'Reapertura administrativa QA'});ok((await read('distDispatches',dispatch.id)).status==='open','reapertura administrativa conserva el retorno recibido')
@@ -142,6 +164,8 @@ try {
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distSales')));checks++
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distCustomers')));checks++
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distProducts')));checks++
+ await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distClosures')));checks++
+ await assertFails(getDoc(doc(supportClient,'restaurants','pachax','distClosures',`closure_${dispatch.id}`)));checks++
  const supportSettings={restaurantId:'pachax',companyName:'PACHAX',taxId:'123',address:'QA',phone:'70000000',receiptHeader:'PACHAX',receiptFooter:'Gracias',expiryAlertDays:14,creditBlockDays:7,requireQrVerification:true,defaultPaperWidth:'80mm',updatedAt:new Date().toISOString(),updatedBy:support}
  await setDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'),supportSettings);checks++
  ok((await getDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'))).data().creditBlockDays===7,'Soporte solo puede leer y guardar configuración técnica')

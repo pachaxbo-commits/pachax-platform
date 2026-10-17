@@ -363,3 +363,503 @@ test('SECCIÓN 35: 15 PRUEBAS NEGATIVAS Y DE INTEGRIDAD FÍSICA', () => {
   assert.equal(emptyReturns[0].expectedReturn, 25)
   assert.equal(emptyReturns[0].shortage, 25)
 })
+
+// ============================================================================
+// D1.1: PRUEBAS OBLIGATORIAS DE REAPERTURA SEGURA (A - F)
+// ============================================================================
+
+import { createRequire } from 'node:module'
+const req = createRequire(import.meta.url)
+const { handlers: opsHandlers } = req('../functions/operations.cjs')
+
+function createMockReopenStore() {
+  const collections: Record<string, Map<string, any>> = {
+    distProducts: new Map(),
+    distDispatches: new Map(),
+    distClosures: new Map(),
+    distLots: new Map(),
+    distBalances: new Map(),
+    distStockMovements: new Map(),
+  }
+
+  function getDoc(col: string, id: string) {
+    const d = collections[col]?.get(id)
+    return d ? JSON.parse(JSON.stringify(d)) : null
+  }
+
+  function setDoc(col: string, id: string, data: any) {
+    if (!collections[col]) collections[col] = new Map()
+    collections[col].set(id, JSON.parse(JSON.stringify(data)))
+  }
+
+  function createOp(memberRole = 'admin', actor = 'admin-user') {
+    const stockMap = new Map<string, any>()
+
+    return {
+      actor,
+      member: { role: memberRole, displayName: 'Admin QA' },
+      now: '2026-10-16T12:00:00.000Z',
+      today: '2026-10-16',
+      id: `op-${Math.random().toString(36).slice(2)}`,
+      admin() {
+        if (this.member.role !== 'admin') throw new Error('Solo Administración puede realizar esta operación.')
+      },
+      async read(col: string, id: string) {
+        return getDoc(col, id)
+      },
+      async query(col: string, field: string, value: any) {
+        const list: any[] = []
+        if (collections[col]) {
+          for (const doc of collections[col].values()) {
+            if (doc[field] === value) list.push(JSON.parse(JSON.stringify(doc)))
+          }
+        }
+        return list
+      },
+      put(col: string, id: string, value: any) {
+        setDoc(col, id, value)
+      },
+      async loadStock(pid: string, loc: string) {
+        const p = getDoc('distProducts', pid)
+        if (!p) throw new Error('Producto inexistente.')
+        if (!stockMap.has(pid)) {
+          const lots: any[] = []
+          if (collections.distLots) {
+            for (const doc of collections.distLots.values()) {
+              if (doc.productId === pid) lots.push(JSON.parse(JSON.stringify(doc)))
+            }
+          }
+          stockMap.set(pid, { p, lots, balances: new Map() })
+        }
+        const entry = stockMap.get(pid)
+        if (!entry.balances.has(loc)) {
+          const bal = getDoc('distBalances', `${loc}__${pid}`)
+          entry.balances.set(loc, bal ? JSON.parse(JSON.stringify(bal)) : { id: `${loc}__${pid}`, quantity: 0 })
+        }
+        return entry
+      },
+      move(entry: any, loc: string, delta: number) {
+        const b = entry.balances.get(loc)
+        b.quantity = Math.round((b.quantity + delta) * 100) / 100
+        if (b.quantity < 0) throw new Error('Stock insuficiente.')
+      },
+      flush() {
+        for (const e of stockMap.values()) {
+          for (const l of e.lots) setDoc('distLots', l.id, l)
+          for (const b of e.balances.values()) setDoc('distBalances', b.id, b)
+        }
+      },
+    }
+  }
+
+  return { collections, setDoc, getDoc, createOp }
+}
+
+test('D1.1 Test A: Cierre retorna 10 kg, sin movimientos posteriores -> reapertura PASS -> estado físico previo exacto restaurado', async () => {
+  const store = createMockReopenStore()
+
+  store.setDoc('distProducts', 'p-carne', { id: 'p-carne', name: 'Carne de Res', unitType: 'kg', active: true })
+  store.setDoc('distDispatches', 'disp-1', {
+    id: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+  })
+  store.setDoc('distLots', 'L1', {
+    id: 'L1',
+    productId: 'p-carne',
+    lotCode: 'LOTE-1',
+    quantities: { central: 30, 'route__route-norte': 0 },
+  })
+  store.setDoc('distBalances', 'central__p-carne', { id: 'central__p-carne', quantity: 30 })
+  store.setDoc('distBalances', 'route__route-norte__p-carne', { id: 'route__route-norte__p-carne', quantity: 0 })
+
+  store.setDoc('distStockMovements', 'm-ret-1', {
+    id: 'm-ret-1',
+    dispatchId: 'disp-1',
+    productId: 'p-carne',
+    type: 'return',
+    quantity: 10,
+    fromLocation: 'route__route-norte',
+    toLocation: 'central',
+    allocations: [{ lotId: 'L1', lotCode: 'LOTE-1', quantity: 10 }],
+    createdAt: '2026-10-16T10:00:00.000Z',
+  })
+
+  store.setDoc('distClosures', 'closure-1', {
+    id: 'closure-1',
+    dispatchId: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+    physicalEvidence: [
+      {
+        movementId: 'm-ret-1',
+        type: 'return',
+        productId: 'p-carne',
+        lotId: 'L1',
+        lotCode: 'LOTE-1',
+        quantity: 10,
+        movementCreatedAt: '2026-10-16T10:00:00.000Z',
+        warehouseLocation: 'central',
+        warehouseQuantityAfter: 30,
+        routeQuantityAfter: 0,
+      },
+    ],
+  })
+
+  const op = store.createOp('admin')
+  await opsHandlers.reopen(op, { closureId: 'closure-1', reason: 'Corrección de pesaje de almacén' })
+  op.flush()
+
+  const closure = store.getDoc('distClosures', 'closure-1')
+  const dispatch = store.getDoc('distDispatches', 'disp-1')
+  const lot = store.getDoc('distLots', 'L1')
+  const centralBal = store.getDoc('distBalances', 'central__p-carne')
+  const routeBal = store.getDoc('distBalances', 'route__route-norte__p-carne')
+  const mov = store.getDoc('distStockMovements', 'm-ret-1')
+
+  assert.equal(closure.status, 'reopened')
+  assert.equal(dispatch.status, 'open')
+  assert.equal(lot.quantities.central, 20)
+  assert.equal(lot.quantities['route__route-norte'], 10)
+  assert.equal(centralBal.quantity, 20)
+  assert.equal(routeBal.quantity, 10)
+  assert.ok(mov.reversedAt)
+  assert.equal(mov.reversalReason, 'Corrección de pesaje de almacén')
+  assert.ok(closure.reversedStockMovementIds.includes('m-ret-1'))
+})
+
+test('D1.1 Test B: Cierre retorna 10 kg -> despacho posterior de 5 kg del MISMO lote -> reapertura RECHAZADA aunque el almacén conserve >10 kg en total', async () => {
+  const store = createMockReopenStore()
+
+  store.setDoc('distProducts', 'p-carne', { id: 'p-carne', name: 'Carne de Res', unitType: 'kg', active: true })
+  store.setDoc('distDispatches', 'disp-1', {
+    id: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+  })
+  // El almacén tenía 30 tras el cierre, pero luego despachó 5 del lote L1 -> le quedan 25 (25 >= 10 pero tuvo movimiento posterior)
+  store.setDoc('distLots', 'L1', {
+    id: 'L1',
+    productId: 'p-carne',
+    lotCode: 'LOTE-1',
+    quantities: { central: 25, 'route__route-norte': 0, 'route__route-sur': 5 },
+  })
+  store.setDoc('distBalances', 'central__p-carne', { id: 'central__p-carne', quantity: 25 })
+  store.setDoc('distBalances', 'route__route-norte__p-carne', { id: 'route__route-norte__p-carne', quantity: 0 })
+
+  store.setDoc('distStockMovements', 'm-ret-1', {
+    id: 'm-ret-1',
+    dispatchId: 'disp-1',
+    productId: 'p-carne',
+    type: 'return',
+    quantity: 10,
+    fromLocation: 'route__route-norte',
+    toLocation: 'central',
+    allocations: [{ lotId: 'L1', lotCode: 'LOTE-1', quantity: 10 }],
+    createdAt: '2026-10-16T10:00:00.000Z',
+  })
+
+  // Movimiento posterior en el mismo lote a las 11:00
+  store.setDoc('distStockMovements', 'm-post-1', {
+    id: 'm-post-1',
+    dispatchId: 'disp-2',
+    productId: 'p-carne',
+    type: 'dispatch',
+    quantity: 5,
+    fromLocation: 'central',
+    toLocation: 'route__route-sur',
+    allocations: [{ lotId: 'L1', lotCode: 'LOTE-1', quantity: 5 }],
+    createdAt: '2026-10-16T11:00:00.000Z',
+  })
+
+  store.setDoc('distClosures', 'closure-1', {
+    id: 'closure-1',
+    dispatchId: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+    physicalEvidence: [
+      {
+        movementId: 'm-ret-1',
+        type: 'return',
+        productId: 'p-carne',
+        lotId: 'L1',
+        lotCode: 'LOTE-1',
+        quantity: 10,
+        movementCreatedAt: '2026-10-16T10:00:00.000Z',
+        warehouseLocation: 'central',
+        warehouseQuantityAfter: 30, // antes de m-post-1 era 30
+        routeQuantityAfter: 0,
+      },
+    ],
+  })
+
+  const op = store.createOp('admin')
+  await assert.rejects(
+    opsHandlers.reopen(op, { closureId: 'closure-1', reason: 'Intento con movimiento posterior' }),
+    (err: any) => err.message === 'El inventario tuvo movimientos posteriores; requiere revisión manual.',
+  )
+
+  // El cierre sigue cerrado y no se alteró nada
+  assert.equal(store.getDoc('distClosures', 'closure-1').status, 'closed')
+  assert.equal(store.getDoc('distDispatches', 'disp-1').status, 'closed')
+  assert.equal(store.getDoc('distLots', 'L1').quantities.central, 25)
+})
+
+test('D1.1 Test C: Cierre retorna 10 kg del Lote 1 -> movimiento posterior únicamente en Lote 2 -> reapertura PASS', async () => {
+  const store = createMockReopenStore()
+
+  store.setDoc('distProducts', 'p-carne', { id: 'p-carne', name: 'Carne de Res', unitType: 'kg', active: true })
+  store.setDoc('distDispatches', 'disp-1', {
+    id: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+  })
+
+  // Lote 1 intacto en 30 tras el cierre; Lote 2 tuvo despacho posterior de 15 kg
+  store.setDoc('distLots', 'L1', {
+    id: 'L1',
+    productId: 'p-carne',
+    lotCode: 'LOTE-1',
+    quantities: { central: 30, 'route__route-norte': 0 },
+  })
+  store.setDoc('distLots', 'L2', {
+    id: 'L2',
+    productId: 'p-carne',
+    lotCode: 'LOTE-2',
+    quantities: { central: 35, 'route__route-sur': 15 },
+  })
+
+  store.setDoc('distBalances', 'central__p-carne', { id: 'central__p-carne', quantity: 65 })
+  store.setDoc('distBalances', 'route__route-norte__p-carne', { id: 'route__route-norte__p-carne', quantity: 0 })
+
+  store.setDoc('distStockMovements', 'm-ret-1', {
+    id: 'm-ret-1',
+    dispatchId: 'disp-1',
+    productId: 'p-carne',
+    type: 'return',
+    quantity: 10,
+    fromLocation: 'route__route-norte',
+    toLocation: 'central',
+    allocations: [{ lotId: 'L1', lotCode: 'LOTE-1', quantity: 10 }],
+    createdAt: '2026-10-16T10:00:00.000Z',
+  })
+
+  // Movimiento posterior pero SOLO afecta Lote 2
+  store.setDoc('distStockMovements', 'm-post-l2', {
+    id: 'm-post-l2',
+    dispatchId: 'disp-other',
+    productId: 'p-carne',
+    type: 'dispatch',
+    quantity: 15,
+    fromLocation: 'central',
+    toLocation: 'route__route-sur',
+    allocations: [{ lotId: 'L2', lotCode: 'LOTE-2', quantity: 15 }],
+    createdAt: '2026-10-16T11:00:00.000Z',
+  })
+
+  store.setDoc('distClosures', 'closure-1', {
+    id: 'closure-1',
+    dispatchId: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+    physicalEvidence: [
+      {
+        movementId: 'm-ret-1',
+        type: 'return',
+        productId: 'p-carne',
+        lotId: 'L1',
+        lotCode: 'LOTE-1',
+        quantity: 10,
+        movementCreatedAt: '2026-10-16T10:00:00.000Z',
+        warehouseLocation: 'central',
+        warehouseQuantityAfter: 30,
+        routeQuantityAfter: 0,
+      },
+    ],
+  })
+
+  const op = store.createOp('admin')
+  await opsHandlers.reopen(op, { closureId: 'closure-1', reason: 'Reapertura con otro lote tocado' })
+  op.flush()
+
+  assert.equal(store.getDoc('distClosures', 'closure-1').status, 'reopened')
+  assert.equal(store.getDoc('distLots', 'L1').quantities.central, 20)
+  assert.equal(store.getDoc('distLots', 'L1').quantities['route__route-norte'], 10)
+  // L2 no fue modificado por la reapertura
+  assert.equal(store.getDoc('distLots', 'L2').quantities.central, 35)
+})
+
+test('D1.1 Test D: Cierre crea sobrante en cuarentena 0.4 kg -> lote en cuarentena intacto -> reapertura PASS', async () => {
+  const store = createMockReopenStore()
+
+  store.setDoc('distProducts', 'p-carne', { id: 'p-carne', name: 'Carne de Res', unitType: 'kg', active: true })
+  store.setDoc('distDispatches', 'disp-1', {
+    id: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+  })
+
+  store.setDoc('distLots', 'lot-surplus-1', {
+    id: 'lot-surplus-1',
+    productId: 'p-carne',
+    lotCode: 'SOBRANTE POR REVISAR',
+    quantities: { central: 0.4 },
+    quarantined: true,
+    createdAt: '2026-10-16T10:00:00.000Z',
+  })
+  store.setDoc('distBalances', 'central__p-carne', { id: 'central__p-carne', quantity: 0.4 })
+  store.setDoc('distBalances', 'route__route-norte__p-carne', { id: 'route__route-norte__p-carne', quantity: 0 })
+
+  store.setDoc('distStockMovements', 'm-overage-1', {
+    id: 'm-overage-1',
+    dispatchId: 'disp-1',
+    productId: 'p-carne',
+    type: 'overage',
+    lotId: 'lot-surplus-1',
+    quantity: 0.4,
+    fromLocation: '',
+    toLocation: 'central',
+    createdAt: '2026-10-16T10:00:00.000Z',
+  })
+
+  store.setDoc('distClosures', 'closure-1', {
+    id: 'closure-1',
+    dispatchId: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+    physicalEvidence: [
+      {
+        movementId: 'm-overage-1',
+        type: 'overage',
+        productId: 'p-carne',
+        lotId: 'lot-surplus-1',
+        lotCode: 'SOBRANTE POR REVISAR',
+        quantity: 0.4,
+        movementCreatedAt: '2026-10-16T10:00:00.000Z',
+        warehouseLocation: 'central',
+        warehouseQuantityAfter: 0.4,
+        quarantined: true,
+      },
+    ],
+  })
+
+  const op = store.createOp('admin')
+  await opsHandlers.reopen(op, { closureId: 'closure-1', reason: 'Revertir sobrante de cuarentena' })
+  op.flush()
+
+  assert.equal(store.getDoc('distClosures', 'closure-1').status, 'reopened')
+  assert.equal(store.getDoc('distLots', 'lot-surplus-1').quantities.central, 0)
+  assert.equal(store.getDoc('distBalances', 'central__p-carne').quantity, 0)
+  assert.ok(store.getDoc('distStockMovements', 'm-overage-1').reversedAt)
+})
+
+test('D1.1 Test E: Cierre crea sobrante en cuarentena 0.4 kg -> ajuste/transferencia posterior en el lote de cuarentena -> reapertura RECHAZADA', async () => {
+  const store = createMockReopenStore()
+
+  store.setDoc('distProducts', 'p-carne', { id: 'p-carne', name: 'Carne de Res', unitType: 'kg', active: true })
+  store.setDoc('distDispatches', 'disp-1', {
+    id: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+  })
+
+  // Cuarentena alterada a 0.2 kg
+  store.setDoc('distLots', 'lot-surplus-1', {
+    id: 'lot-surplus-1',
+    productId: 'p-carne',
+    lotCode: 'SOBRANTE POR REVISAR',
+    quantities: { central: 0.2 },
+    quarantined: true,
+    createdAt: '2026-10-16T10:00:00.000Z',
+  })
+  store.setDoc('distBalances', 'central__p-carne', { id: 'central__p-carne', quantity: 0.2 })
+
+  store.setDoc('distStockMovements', 'm-overage-1', {
+    id: 'm-overage-1',
+    dispatchId: 'disp-1',
+    productId: 'p-carne',
+    type: 'overage',
+    lotId: 'lot-surplus-1',
+    quantity: 0.4,
+    toLocation: 'central',
+    createdAt: '2026-10-16T10:00:00.000Z',
+  })
+
+  // Movimiento posterior en lote de cuarentena
+  store.setDoc('distStockMovements', 'm-post-surplus', {
+    id: 'm-post-surplus',
+    productId: 'p-carne',
+    lotId: 'lot-surplus-1',
+    type: 'adjustment',
+    quantity: 0.2,
+    fromLocation: 'central',
+    createdAt: '2026-10-16T11:00:00.000Z',
+    allocations: [{ lotId: 'lot-surplus-1', quantity: 0.2 }],
+  })
+
+  store.setDoc('distClosures', 'closure-1', {
+    id: 'closure-1',
+    dispatchId: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'closed',
+    physicalEvidence: [
+      {
+        movementId: 'm-overage-1',
+        type: 'overage',
+        productId: 'p-carne',
+        lotId: 'lot-surplus-1',
+        lotCode: 'SOBRANTE POR REVISAR',
+        quantity: 0.4,
+        movementCreatedAt: '2026-10-16T10:00:00.000Z',
+        warehouseLocation: 'central',
+        warehouseQuantityAfter: 0.4,
+        quarantined: true,
+      },
+    ],
+  })
+
+  const op = store.createOp('admin')
+  await assert.rejects(
+    opsHandlers.reopen(op, { closureId: 'closure-1', reason: 'Intento revertir sobrante alterado' }),
+    (err: any) => err.message === 'El inventario tuvo movimientos posteriores; requiere revisión manual.',
+  )
+
+  assert.equal(store.getDoc('distClosures', 'closure-1').status, 'closed')
+})
+
+test('D1.1 Test F: Doble reapertura -> segundo intento rechazado sin duplicar reversiones', async () => {
+  const store = createMockReopenStore()
+
+  store.setDoc('distProducts', 'p-carne', { id: 'p-carne', name: 'Carne de Res', unitType: 'kg', active: true })
+  store.setDoc('distDispatches', 'disp-1', {
+    id: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'open',
+  })
+
+  // Cierre que ya figura en estado "reopened"
+  store.setDoc('distClosures', 'closure-1', {
+    id: 'closure-1',
+    dispatchId: 'disp-1',
+    routeId: 'route-norte',
+    warehouseId: 'central',
+    status: 'reopened',
+  })
+
+  const op = store.createOp('admin')
+  await assert.rejects(
+    opsHandlers.reopen(op, { closureId: 'closure-1', reason: 'Segundo intento' }),
+    (err: any) => err.message === 'El cierre ya fue reabierto.',
+  )
+})

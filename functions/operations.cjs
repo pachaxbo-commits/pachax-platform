@@ -305,7 +305,7 @@ class Operation {
     const e = this.stock.get(pid);
     const precision = requestedPrecision ?? (e.p.unitType === "kg" ? 3 : 2);
     const id = `${this.id}__${this.sequence++}`;
-    this.put("distStockMovements", id, {
+    const m = {
       id,
       ...this.base(),
       type,
@@ -336,7 +336,9 @@ class Operation {
       responsibleName: this.member.displayName || this.actor,
       responsibleRole: this.member.role,
       ...extra,
-    });
+    };
+    this.put("distStockMovements", id, m);
+    return m;
   }
   flush() {
     for (const e of this.stock.values()) {
@@ -1050,6 +1052,7 @@ async function closure(o, p) {
     ];
     const rows = [];
     const warehouseBreakdown = {};
+    const physicalEvidence = [];
 
     for (const pid of ids) {
       const e = await o.loadStock(pid, route);
@@ -1121,18 +1124,48 @@ async function closure(o, p) {
 
       if (normalApt > 0) {
         o.move(e, warehouse, normalApt);
-        o.ledger(pid, normalApt, route, warehouse, "return", {
+        const m = o.ledger(pid, normalApt, route, warehouse, "return", {
           allocations: returnParts,
           dispatchId: d.id,
         });
+        for (const a of returnParts) {
+          const l = e.lots.find((x) => x.id === a.lotId);
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "return",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || l?.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            warehouseLocation: warehouse,
+            warehouseQuantityAfter: round(l?.quantities?.[warehouse] || 0),
+            routeQuantityAfter: round(l?.quantities?.[route] || 0),
+          });
+        }
       }
       if (recoverableFromRoute > 0) {
         o.move(e, warehouse, recoverableFromRoute);
-        o.ledger(pid, recoverableFromRoute, route, warehouse, "return_merma", {
+        const m = o.ledger(pid, recoverableFromRoute, route, warehouse, "return_merma", {
           allocations: recoverableMermaParts,
           dispatchId: d.id,
           note: "Merma operativa recuperable; vuelve al stock vendible en sus lotes originales.",
         });
+        for (const a of recoverableMermaParts) {
+          const l = e.lots.find((x) => x.id === a.lotId);
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "return_merma",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || l?.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            warehouseLocation: warehouse,
+            warehouseQuantityAfter: round(l?.quantities?.[warehouse] || 0),
+            routeQuantityAfter: round(l?.quantities?.[route] || 0),
+          });
+        }
       }
 
       let wasteLossCost = null;
@@ -1141,12 +1174,25 @@ async function closure(o, p) {
         wasteLossCost = knownCost
           ? round(wasteParts.reduce((s, a) => s + a.quantity * a.productionCost, 0))
           : null;
-        o.ledger(pid, wasteFromRoute, route, null, "return_waste", {
+        const m = o.ledger(pid, wasteFromRoute, route, null, "return_waste", {
           allocations: wasteParts,
           lossCost: wasteLossCost,
           reason: nonSellableReason,
           dispatchId: d.id,
         });
+        for (const a of wasteParts) {
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "return_waste",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            routeLocation: route,
+            routeQuantityAfter: 0,
+          });
+        }
       }
 
       let shortageLossCost = null;
@@ -1158,11 +1204,24 @@ async function closure(o, p) {
         shortageLossCost = knownCost
           ? round(loss.reduce((s, a) => s + a.quantity * a.productionCost, 0))
           : null;
-        o.ledger(pid, shortage, route, null, "shortage", {
+        const m = o.ledger(pid, shortage, route, null, "shortage", {
           allocations: loss,
           lossCost: shortageLossCost,
           dispatchId: d.id,
         });
+        for (const a of loss) {
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "shortage",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            routeLocation: route,
+            routeQuantityAfter: 0,
+          });
+        }
       }
 
       if (overage > 0) {
@@ -1183,11 +1242,23 @@ async function closure(o, p) {
           createdBy: o.actor,
         });
         o.move(e, warehouse, overage);
-        o.ledger(pid, overage, null, warehouse, "overage", {
+        const m = o.ledger(pid, overage, null, warehouse, "overage", {
           lotId,
           allocations: [],
           dispatchId: d.id,
           note: "Sobrante físico sin asignación de lote verificable; separado en cuarentena hasta revisar su origen.",
+        });
+        physicalEvidence.push({
+          movementId: m.id,
+          type: "overage",
+          productId: pid,
+          lotId,
+          lotCode: "SOBRANTE POR REVISAR",
+          quantity: overage,
+          movementCreatedAt: m.createdAt,
+          warehouseLocation: warehouse,
+          warehouseQuantityAfter: overage,
+          quarantined: true,
         });
       }
 
@@ -1288,6 +1359,7 @@ async function closure(o, p) {
       status: "warehouse_done",
       products: rows,
       warehouseBreakdown,
+      physicalEvidence,
       warehouseClosedBy: o.actor,
       warehouseClosedAt: o.now,
     };
@@ -1558,9 +1630,12 @@ handlers.reopen = async (o, p) => {
   check(p.reason?.trim(), "La razón de la reapertura es obligatoria.");
   const reason = p.reason.trim();
   const c = await o.read("distClosures", p.closureId);
-  check(c?.status === "closed", "Solo se puede reabrir un cierre finalizado.");
+  check(c, "No se encontró el cierre a reabrir.");
+  check(c.status !== "reopened", "El cierre ya fue reabierto.");
+  check(c.status === "closed" || c.status === "warehouse_done", "Solo se puede reabrir un cierre finalizado.");
   const d = await o.read("distDispatches", c.dispatchId);
-  check(d?.status === "closed", "El despacho no está cerrado.");
+  check(d, "No se encontró el despacho asociado.");
+  check(d.status === "closed" || d.status === "open", "El despacho no está cerrado.");
   const others = await o.query("distDispatches", "routeId", c.routeId);
   check(
     !others.some((x) => x.id !== d.id && x.status === "open"),
@@ -1576,24 +1651,62 @@ handlers.reopen = async (o, p) => {
     ["return", "return_merma", "return_waste", "shortage", "overage"].includes(m.type) &&
     !reversed.has(m.id),
   );
+  check(closureMovements.length > 0, "No hay movimientos físicos pendientes de revertir en este cierre.");
+
+  const closureMovementIds = new Set(allMovements.map((m) => m.id));
+  const evidenceList = c.physicalEvidence || [];
 
   for (const m of closureMovements) {
     const e = await o.loadStock(m.productId, warehouse);
+    const productMovements = await o.query("distStockMovements", "productId", m.productId);
+
     if (m.type === "return" || m.type === "return_merma") {
       const allocations = m.allocations || [];
       for (const part of allocations) {
-        const lot = e.lots.find((item) => item.id === part.lotId);
+        const lotId = part.lotId;
+        const lot = e.lots.find((item) => item.id === lotId);
         check(
           lot && round(lot.quantities?.[warehouse] || 0) >= part.quantity,
           "El inventario tuvo movimientos posteriores; requiere revisión manual.",
         );
+
+        const ev = evidenceList.find((x) => x.movementId === m.id && x.lotId === lotId);
+        if (ev && ev.warehouseQuantityAfter !== undefined) {
+          check(
+            round(lot.quantities?.[warehouse] || 0) === ev.warehouseQuantityAfter,
+            "El inventario tuvo movimientos posteriores; requiere revisión manual.",
+          );
+        }
+
+        // Buscar movimientos posteriores que afecten a este lote en este almacén
+        const subsequentMov = productMovements.find((other) => {
+          if (other.id === m.id || closureMovementIds.has(other.id)) return false;
+          if (other.createdAt < m.createdAt) return false;
+          const touchesLot = other.lotId === lotId || (other.allocations || []).some((a) => a.lotId === lotId);
+          if (!touchesLot) return false;
+          const touchesWh = other.fromLocation === warehouse || other.toLocation === warehouse ||
+            (warehouse === "central" && (other.fromLocation === "central" || other.toLocation === "central"));
+          return touchesWh;
+        });
+
+        check(!subsequentMov, "El inventario tuvo movimientos posteriores; requiere revisión manual.");
       }
     } else if (m.type === "overage") {
-      const lot = e.lots.find((item) => item.id === m.lotId && item.quarantined);
+      const lotId = m.lotId;
+      const lot = e.lots.find((item) => item.id === lotId && item.quarantined);
       check(
-        lot && round(lot.quantities?.[warehouse] || 0) >= m.quantity,
+        lot && round(lot.quantities?.[warehouse] || 0) === m.quantity,
         "El inventario tuvo movimientos posteriores; requiere revisión manual.",
       );
+
+      const subsequentMov = productMovements.find((other) => {
+        if (other.id === m.id || closureMovementIds.has(other.id)) return false;
+        if (other.createdAt < m.createdAt) return false;
+        const touchesLot = other.lotId === lotId || (other.allocations || []).some((a) => a.lotId === lotId);
+        return touchesLot;
+      });
+
+      check(!subsequentMov, "El inventario tuvo movimientos posteriores; requiere revisión manual.");
     }
   }
 

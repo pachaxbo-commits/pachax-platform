@@ -656,21 +656,10 @@ service cloud.firestore {
       return distWarehouseOwns(restaurantId, dispatch.get('warehouseId', 'central'));
     }
     match /restaurants/{restaurantId}/distClosures/{closureId} {
-      allow read: if distAdmin(restaurantId) || distWarehouse(restaurantId)
-        || (distDistributor(restaurantId) && resource.data.get('distributorUid', '') == request.auth.uid)
-        || (distDistributor(restaurantId) && resource.data.get('returnDeclaredBy', '') == request.auth.uid);
-      allow create: if distTenantMatches(restaurantId)
-        && distOwnsRoute(restaurantId, request.resource.data.get('routeId', ''))
-        && request.resource.data.keys().hasOnly(['id', 'restaurantId', 'dispatchId', 'routeId', 'distributorUid', 'distributorName', 'declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey'])
-        && request.resource.data.distributorUid == request.auth.uid
-        && request.resource.data.returnDeclaredBy == request.auth.uid;
-      allow update: if distTenantMatches(restaurantId)
-        && distOwnsRoute(restaurantId, resource.data.get('routeId', ''))
-        && resource.data.get('warehouseClosedBy', '') == ''
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey', 'distributorUid', 'distributorName'])
-        && request.resource.data.distributorUid == request.auth.uid
-        && request.resource.data.returnDeclaredBy == request.auth.uid;
-      allow delete: if false;
+      allow read: if distAdmin(restaurantId)
+        || (distWarehouse(restaurantId) && distWarehouseOwns(restaurantId, resource.data.get('warehouseId', 'central')))
+        || (distDistributor(restaurantId) && ((distOwnsRoute(restaurantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid) || resource.data.get('returnDeclaredBy', '') == request.auth.uid));
+      allow create, update, delete: if false;
     }
 
     // Configuración técnica separada de toda la información comercial. El rol
@@ -1164,9 +1153,9 @@ service cloud.firestore {
       return tDistWarehouseOwns(tenantId, dispatch.get('warehouseId', 'central'));
     }
     match /tenants/{tenantId}/distClosures/{closureId} {
-      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
-        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid)
-        || (tDistDistributor(tenantId) && resource.data.get('returnDeclaredBy', '') == request.auth.uid);
+      allow read: if tDistAdmin(tenantId)
+        || (tDistWarehouse(tenantId) && tDistWarehouseOwns(tenantId, resource.data.get('warehouseId', 'central')))
+        || (tDistDistributor(tenantId) && ((tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid) || resource.data.get('returnDeclaredBy', '') == request.auth.uid));
       allow create, update, delete: if false;
     }
 

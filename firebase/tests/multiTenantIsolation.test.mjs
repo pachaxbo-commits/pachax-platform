@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { doc, getDoc, getDocs, collection, setDoc } from 'firebase/firestore'
+import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from 'firebase/firestore'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) throw new Error('Proyecto no autorizado para QA.')
@@ -99,6 +99,17 @@ try {
   await forgedOperation.set({ id: `forged-${suffix}`, tenantId: ids.distribution, branchId: 'main', createdBy: ids.ownerA, createdAt: new Date().toISOString(), type: 'creditStatus', payload: { customerId: 'customer' }, status: 'queued' })
   await processCommand(admin, forgedOperation)
   assert.equal((await forgedOperation.get()).data().status, 'rejected'); pass('Function rechaza actor de otro tenant aunque el documento fue sembrado por Admin SDK')
+  const closurePath = `tenants/${ids.distribution}/distClosures/closure-test-${suffix}`
+  await admin.doc(closurePath).set({ id: `closure-test-${suffix}`, tenantId: ids.distribution, branchId: 'main', routeId: 'north', distributorUid: ids.sellerB, warehouseId: 'central', status: 'closed' })
+  const sellerBClient = env.authenticatedContext(ids.sellerB).firestore()
+  const distOwnerClient = env.authenticatedContext(ids.ownerB).firestore()
+  const foreignOwnerClient = env.authenticatedContext(ids.ownerA).firestore()
+  await assertSucceeds(getDoc(doc(distOwnerClient, 'tenants', ids.distribution, 'distClosures', `closure-test-${suffix}`))); pass('owner distribución lee cierre del tenant')
+  await assertSucceeds(getDoc(doc(sellerBClient, 'tenants', ids.distribution, 'distClosures', `closure-test-${suffix}`))); pass('distribuidor asignado lee su cierre')
+  await assertFails(getDoc(doc(foreignOwnerClient, 'tenants', ids.distribution, 'distClosures', `closure-test-${suffix}`))); pass('owner de otro tenant no lee cierre ajeno')
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'tenants', ids.distribution, 'distClosures', `closure-test-${suffix}`))); pass('no autenticado no lee cierre')
+  await assertFails(setDoc(doc(sellerBClient, 'tenants', ids.distribution, 'distClosures', `closure-test-${suffix}`), { status: 'reopened' }, { merge: true })); pass('cliente no modifica distClosures')
+  await assertFails(deleteDoc(doc(distOwnerClient, 'tenants', ids.distribution, 'distClosures', `closure-test-${suffix}`))); pass('cliente no elimina distClosures')
 
   for (const [owner, own, foreign] of [[ids.ownerA, ids.restaurant, ids.distribution], [ids.ownerB, ids.distribution, ids.gelateria], [ids.ownerC, ids.gelateria, ids.restaurant], [ids.ownerD, ids.nightclub, ids.restaurant]]) {
     const client = env.authenticatedContext(owner).firestore()
@@ -190,7 +201,7 @@ try {
   await assertFails(getDocs(collection(cashier, 'tenants', ids.restaurant, 'members'))); pass('caja no lista ni administra usuarios')
   await assertFails(setDoc(doc(cashier, 'tenants', ids.restaurant, 'members', 'forged'), member('forged', ids.restaurant, 'owner'))); pass('cliente no crea memberships')
 
-  assert.equal(checks, 59)
+  assert.equal(checks, 65)
   fs.mkdirSync('docs/qa-pachax', { recursive: true })
   fs.writeFileSync('docs/qa-pachax/multi-tenant-isolation-result.json', JSON.stringify({ passed: true, checks, projectId, at: new Date().toISOString() }, null, 2))
   console.log(`${checks} comprobaciones multiempresa aprobadas`)
