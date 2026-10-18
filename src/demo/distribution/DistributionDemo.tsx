@@ -1,5 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
-import { createDistributionDataset } from '../datasets'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { DemoDatasetMode } from '../datasets/types'
 import { DistributionPrinterModal } from '../../modules/distribution/views/DistributionPrinterModal'
 import {
@@ -9,6 +8,9 @@ import {
 } from '../../modules/distribution/views/DistributionExperience'
 import { hasPermission } from '../../services/permissionService'
 import type { UserRole, Permission } from '../../types'
+import { DemoDistributionRepository } from './demoDistributionRepository'
+import { setDistributionRepositoryAdapter } from '../../modules/distribution/data/distributionRepository'
+import { enterDemoMode, exitDemoMode } from '../core/demoContext'
 
 export function DistributionDemo({
   simulatedRole = 'admin',
@@ -26,14 +28,36 @@ export function DistributionDemo({
   resetKey?: number
 }) {
   const [isPrinterOpen, setIsPrinterOpen] = useState(false)
-  const initialDataset = useRef(createDistributionDataset(datasetMode))
-  const [currentData, setCurrentData] = useState(() => initialDataset.current.data)
+  const repoRef = useRef<DemoDistributionRepository | null>(null)
+  if (!repoRef.current) {
+    repoRef.current = new DemoDistributionRepository(datasetMode)
+  }
+
+  const [currentData, setCurrentData] = useState(() => repoRef.current!.getData())
 
   const prevResetRef = useRef(`${datasetMode}:${resetKey}`)
   if (prevResetRef.current !== `${datasetMode}:${resetKey}`) {
     prevResetRef.current = `${datasetMode}:${resetKey}`
-    setCurrentData(createDistributionDataset(datasetMode).data)
+    repoRef.current.reset(datasetMode)
+    setCurrentData(repoRef.current.getData())
   }
+
+  useEffect(() => {
+    enterDemoMode('route_distribution')
+    const repo = repoRef.current || new DemoDistributionRepository(datasetMode)
+    repoRef.current = repo
+    setDistributionRepositoryAdapter(repo)
+
+    const unsub = repo.subscribeAll((data) => {
+      setCurrentData({ ...data })
+    })
+
+    return () => {
+      unsub()
+      setDistributionRepositoryAdapter(null)
+      exitDemoMode()
+    }
+  }, [datasetMode, resetKey])
 
   const [dayKeys, setDayKeys] = useState<string[]>(() => {
     return [new Date().toISOString().slice(0, 10)]
@@ -45,13 +69,26 @@ export function DistributionDemo({
   const session: DistributionSession = {
     tenantId: 'preview-distribution',
     restaurantName: companyName || 'Distribuidora Demo',
-    uid: role === 'distributor' ? 'v1' : 'admin-preview-uid',
+    uid:
+      role === 'distributor'
+        ? 'v1'
+        : role === 'warehouse'
+        ? 'w1'
+        : role === 'support'
+        ? 's1'
+        : role === 'owner'
+        ? 'owner-preview-uid'
+        : 'admin-preview-uid',
     userName:
       role === 'distributor'
         ? 'Hugo Distribuidor'
         : role === 'warehouse'
         ? 'Almacén Central'
-        : 'Administrador',
+        : role === 'support'
+        ? 'Soporte Técnico'
+        : role === 'owner'
+        ? 'Propietario Demo'
+        : 'Administrador Demo',
     role,
     warehouseId: 'central',
     routeId: role === 'distributor' ? 'route-norte' : null,
@@ -77,7 +114,7 @@ export function DistributionDemo({
         logoUrl={logoUrl}
         companyName={companyName || 'Distribuidora Demo'}
         onSignOut={() => {
-          // Acción simulada en modo demo
+          window.location.assign('/')
         }}
         onOpenPrinterSettings={() => setIsPrinterOpen(true)}
       />

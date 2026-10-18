@@ -21,7 +21,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Mesas, meseros, cuentas abiertas y servicio completo.',
     demoPath: '/demo/restaurant',
     studioTemplateId: 'restaurant',
-    status: 'available',
+    status: 'coming_soon',
   },
   {
     id: 'hamburger',
@@ -30,7 +30,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Pedidos ágiles de mostrador, mesa de entrega, para llevar o delivery, con cocina, caja e inventario.',
     demoPath: '/demo/hamburger',
     studioTemplateId: 'hamburger',
-    status: 'available',
+    status: 'coming_soon',
   },
   {
     id: 'distribution',
@@ -48,7 +48,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Vende por unidad o peso con caja ágil e inventario de mostrador.',
     demoPath: '/demo/retail',
     studioTemplateId: 'retail',
-    status: 'available',
+    status: 'coming_soon',
   },
   {
     id: 'nightclub',
@@ -57,7 +57,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Controla mesas, rondas, barra, cuentas abiertas y caja durante toda la noche.',
     demoPath: '/demo/nightclub',
     studioTemplateId: 'nightclub',
-    status: 'available',
+    status: 'coming_soon',
   },
 ])
 

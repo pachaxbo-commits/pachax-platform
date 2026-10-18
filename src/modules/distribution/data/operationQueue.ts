@@ -5,19 +5,21 @@ import {
   getDocFromCache,
   updateDoc,
 } from "firebase/firestore";
-import { getFirebaseContext } from "../../../lib/firebase";
-import { getActiveTenant } from "../../../store/activeTenant";
+import { getFirebaseContext } from "../../../lib/firebase.ts";
+import { getActiveTenant } from "../../../store/activeTenant.ts";
 
 export class RejectedOperationError extends Error {
   rejected = true;
 }
-let online = navigator.onLine;
-window.addEventListener("online", () => {
-  online = true;
-});
-window.addEventListener("offline", () => {
-  online = false;
-});
+let online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+if (typeof window !== 'undefined') {
+  window.addEventListener("online", () => {
+    online = true;
+  });
+  window.addEventListener("offline", () => {
+    online = false;
+  });
+}
 export interface PendingOperation {
   id: string;
   type: string;

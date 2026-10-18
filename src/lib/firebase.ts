@@ -1,6 +1,6 @@
-import { getActiveTenant } from '../store/activeTenant'
-import { gateway } from '../services/gateway'
-import { validateFirebaseEnvironment } from '../config/firebaseEnvironment'
+import { getActiveTenant } from '../store/activeTenant.ts'
+import { gateway } from '../services/gateway.ts'
+import { validateFirebaseEnvironment } from '../config/firebaseEnvironment.ts'
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
 import {
   browserLocalPersistence,

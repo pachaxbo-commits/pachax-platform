@@ -1,6 +1,6 @@
-import type { PendingOperation } from './operationQueue'
-import { submitOperation } from './operationQueue'
-import { normalizeCI } from '../domain/customerIdentity'
+import type { PendingOperation } from './operationQueue.ts'
+import { submitOperation } from './operationQueue.ts'
+import { normalizeCI } from '../domain/customerIdentity.ts'
 import {
   collection,
   runTransaction,
@@ -16,8 +16,8 @@ import {
   type Unsubscribe,
   type WriteBatch,
 } from 'firebase/firestore'
-import { getFirebaseContext } from '../../../lib/firebase'
-import { centralBalanceId, round2, toDayKey, collectionQrAmount } from '../domain/engine'
+import { getFirebaseContext } from '../../../lib/firebase.ts'
+import { centralBalanceId, round2, toDayKey, collectionQrAmount } from '../domain/engine.ts'
 import type {
   DistBalance,
   DistWarehouse,
@@ -38,8 +38,8 @@ import type {
   DistLot, DistTransfer, DistClaim, DistCreditStatus, DistCreditOverride,
   PaymentKind,
   SourceLocation,
-} from '../types'
-import { DEFAULT_SUPPORT_SETTINGS, type SupportSettings } from './supportMaintenance'
+} from '../types.ts'
+import { DEFAULT_SUPPORT_SETTINGS, type SupportSettings } from './supportMaintenance.ts'
 
 /**
  * Repositorio de distribucion movil.
@@ -74,15 +74,78 @@ export const DIST_COLLECTIONS = {
 
 const SCHEMA_VERSION = 1
 
+export interface DistributionRepositoryAdapter {
+  warehouseBalanceId?(warehouseId: string, productId: string): string
+  subscribeWarehouses(onData: (rows: DistWarehouse[]) => void, onError?: (error: Error) => void): () => void
+  subscribeQrVerifications(routeId: string | null, onData: (rows: DistQrVerification[]) => void, onError?: (error: Error) => void): () => void
+  createWarehouse(name: string): Promise<void>
+  transferWarehouseStock(from: string, to: string, line: DistDispatchLine, note: string, operationId: string): Promise<void>
+  verifyQr(sourceType: 'sale' | 'collection' | 'claim', sourceId: string, reference: string): Promise<void>
+  declareRouteReturn(
+    dispatch: DistDispatch,
+    payloadOrQuantities: DeclareRouteReturnPayload | Record<string, number | DistPhysicalReturnBreakdown>,
+    declaredReturnMermas?: Record<string, number>,
+    declaredReturnNonSellables?: Record<string, number>,
+    declaredReturnNonSellableReasons?: Record<string, string>,
+  ): Promise<void>
+  subscribeProducts(onData: (rows: DistProduct[]) => void, onError?: (error: Error) => void): () => void
+  subscribeRoutes(onData: (rows: DistRoute[]) => void, onError?: (error: Error) => void): () => void
+  subscribeCustomers(onData: (rows: DistCustomer[]) => void, onError?: (error: Error) => void): () => void
+  subscribeBalances(onData: (rows: DistBalance[]) => void, onError?: (error: Error) => void): () => void
+  subscribeOpenDispatches(routeId: string | null, onData: (rows: DistDispatch[]) => void, onError?: (error: Error) => void, distributorUid?: string): () => void
+  subscribeSales(dayKeys: string[], routeId: string | null, onData: (rows: DistSale[]) => void, onError?: (error: Error) => void, distributorUid?: string): () => void
+  subscribeCollections(dayKeys: string[], routeId: string | null, onData: (rows: DistCollection[]) => void, onError?: (error: Error) => void, distributorUid?: string): () => void
+  subscribeExpenses(dayKeys: string[], routeId: string | null, onData: (rows: DistExpense[]) => void, onError?: (error: Error) => void, distributorUid?: string): () => void
+  subscribeReceivables(routeId: string | null, onData: (rows: DistReceivable[]) => void, onError?: (error: Error) => void, distributorUid?: string): () => void
+  subscribeClosures(dayKeys: string[], routeId: string | null, onData: (rows: DistClosure[]) => void, onError?: (error: Error) => void, distributorUid?: string): () => void
+  saveProduct(product: Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }): Promise<void>
+  saveRoute(route: Omit<DistRoute, 'tenantId' | 'createdAt'> & { createdAt?: string }): Promise<void>
+  saveCustomer(input: CustomerInput): Promise<DistCustomer>
+  registerIntake(lines: DistDispatchLine[], note: string, operationId?: string): Promise<string | void>
+  registerAdjustment(line: DistDispatchLine, note: string, operationId?: string, warehouseId?: string): Promise<string | void>
+  confirmDispatch(input: ConfirmDispatchInput): Promise<string>
+  addDispatchLoad(input: AddDispatchLoadInput): Promise<string>
+  registerSale(input: RegisterSaleInput): Promise<DistSale>
+  registerCollection(input: RegisterCollectionInput): Promise<DistCollection>
+  registerExpense(input: RegisterExpenseInput): Promise<DistExpense>
+  subscribeSupportSettings(onData: (settings: SupportSettings) => void, onError?: (error: Error) => void): () => void
+  deleteExpense(expenseId: string): Promise<void>
+  deleteProduct(productId: string): Promise<void>
+  saveClosure(input: SaveClosureInput): Promise<string>
+  reopenClosure(closure: DistClosure, reason?: string): Promise<void>
+  subscribeLots(onData: (rows: DistLot[]) => void, onError?: (error: Error) => void): () => void
+  subscribeOperations(onData: (rows: PendingOperation[]) => void, onError?: (error: Error) => void): () => void
+  subscribeMovements(onData: (rows: DistStockMovement[]) => void, onError?: (error: Error) => void): () => void
+  subscribeTransfers(onData: (rows: DistTransfer[]) => void, onError?: (error: Error) => void): () => void
+  subscribeClaims(routeId: string | null, onData: (rows: DistClaim[]) => void, onError?: (error: Error) => void): () => void
+  subscribeCreditStatus(onData: (rows: DistCreditStatus[]) => void, onError?: (error: Error) => void): () => void
+  subscribeCreditOverrides(onData: (rows: DistCreditOverride[]) => void, onError?: (error: Error) => void): () => void
+  submitCreditOverride(input: { customerId?: string; reason?: string; days?: number; validUntil?: string; revoke?: boolean; overrideId?: string }): Promise<void>
+  registerClaim(payload: Record<string, unknown>, operationId: string): Promise<void>
+}
+
+let activeRepositoryAdapter: DistributionRepositoryAdapter | null = null
+
+export function setDistributionRepositoryAdapter(adapter: DistributionRepositoryAdapter | null): void {
+  activeRepositoryAdapter = adapter
+}
+
+export function getDistributionRepositoryAdapter(): DistributionRepositoryAdapter | null {
+  return activeRepositoryAdapter
+}
+
 export function warehouseBalanceId(warehouseId: string, productId: string): string {
+  if (activeRepositoryAdapter?.warehouseBalanceId) return activeRepositoryAdapter.warehouseBalanceId(warehouseId, productId)
   return warehouseId === 'central' ? centralBalanceId(productId) : `warehouse__${warehouseId}__${productId}`
 }
 
 export function subscribeWarehouses(onData: (rows: DistWarehouse[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeWarehouses(onData, onError)
   return subscribeQuery<DistWarehouse>(ctx => collectionRef(ctx, DIST_COLLECTIONS.warehouses), onData, onError)
 }
 
 export function subscribeQrVerifications(routeId: string | null, onData: (rows: DistQrVerification[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeQrVerifications(routeId, onData, onError)
   return subscribeQuery<DistQrVerification>(ctx => {
     const ref = collectionRef(ctx, DIST_COLLECTIONS.qrVerifications)
     return routeId ? query(ref, where('routeId', '==', routeId)) : ref
@@ -90,6 +153,7 @@ export function subscribeQrVerifications(routeId: string | null, onData: (rows: 
 }
 
 export async function createWarehouse(name: string) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.createWarehouse(name)
   if (!name.trim()) throw new Error('Ingresa el nombre del almacen.')
   const ctx = await getContext()
   const id = newOperationId('wh')
@@ -100,10 +164,12 @@ export async function createWarehouse(name: string) {
 
 /** Transferencias administrativas conectadas: lectura y descuento atomicos. */
 export async function transferWarehouseStock(from: string, to: string, line: DistDispatchLine, note: string, operationId: string) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.transferWarehouseStock(from, to, line, note, operationId)
   await submitOperation('transfer', { from, to, line, note }, operationId)
 }
 
 export async function verifyQr(sourceType: 'sale' | 'collection' | 'claim', sourceId: string, reference: string) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.verifyQr(sourceType, sourceId, reference)
   if (!reference.trim()) throw new Error('Ingresa la referencia bancaria de la verificacion.')
   const ctx = await getContext()
   await runTransaction(ctx.db, async tx => {
@@ -137,6 +203,15 @@ export async function declareRouteReturn(
   declaredReturnNonSellables?: Record<string, number>,
   declaredReturnNonSellableReasons?: Record<string, string>,
 ) {
+  if (activeRepositoryAdapter) {
+    return activeRepositoryAdapter.declareRouteReturn(
+      dispatch,
+      payloadOrQuantities,
+      declaredReturnMermas,
+      declaredReturnNonSellables,
+      declaredReturnNonSellableReasons,
+    )
+  }
   let payload: Record<string, unknown>
   if ('dispatchId' in payloadOrQuantities) {
     payload = {
@@ -246,7 +321,7 @@ let syncState: DistSyncState = {
   isOnline: typeof navigator === 'undefined' ? true : navigator.onLine,
   pending: 0,
   hasUnsyncedWrites: false,
-  lastError: localStorage.getItem('pachax_dist_sync_error'),
+  lastError: typeof localStorage === 'undefined' ? null : localStorage.getItem('pachax_dist_sync_error'),
   lastSyncedAt: null,
 }
 
@@ -381,18 +456,22 @@ function subscribeQuery<T>(
 }
 
 export function subscribeProducts(onData: (rows: DistProduct[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeProducts(onData, onError)
   return subscribeQuery<DistProduct>((context) => collectionRef(context, DIST_COLLECTIONS.products), rows => onData(rows.filter(product => !product.deleted)), onError)
 }
 
 export function subscribeRoutes(onData: (rows: DistRoute[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeRoutes(onData, onError)
   return subscribeQuery<DistRoute>((context) => collectionRef(context, DIST_COLLECTIONS.routes), onData, onError)
 }
 
 export function subscribeCustomers(onData: (rows: DistCustomer[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeCustomers(onData, onError)
   return subscribeQuery<DistCustomer>((context) => collectionRef(context, DIST_COLLECTIONS.customers), onData, onError)
 }
 
 export function subscribeBalances(onData: (rows: DistBalance[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeBalances(onData, onError)
   return subscribeQuery<DistBalance>((context) => collectionRef(context, DIST_COLLECTIONS.balances), onData, onError)
 }
 
@@ -403,6 +482,7 @@ export function subscribeOpenDispatches(
   onError?: (error: Error) => void,
   distributorUid?: string,
 ) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeOpenDispatches(routeId, onData, onError, distributorUid)
   return subscribeQuery<DistDispatch>(
     (context) => {
       const base = collectionRef(context, DIST_COLLECTIONS.dispatches)
@@ -449,6 +529,7 @@ export function subscribeSales(
   onError?: (error: Error) => void,
   distributorUid?: string,
 ) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeSales(dayKeys, routeId, onData, onError, distributorUid)
   return subscribeDayScoped<DistSale>(DIST_COLLECTIONS.sales, dayKeys, routeId, onData, onError, distributorUid ? { field: 'sellerUid', uid: distributorUid } : undefined)
 }
 
@@ -459,6 +540,7 @@ export function subscribeCollections(
   onError?: (error: Error) => void,
   distributorUid?: string,
 ) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeCollections(dayKeys, routeId, onData, onError, distributorUid)
   return subscribeDayScoped<DistCollection>(DIST_COLLECTIONS.collections, dayKeys, routeId, onData, onError, distributorUid ? { field: 'collectedByUid', uid: distributorUid } : undefined)
 }
 
@@ -469,6 +551,7 @@ export function subscribeExpenses(
   onError?: (error: Error) => void,
   distributorUid?: string,
 ) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeExpenses(dayKeys, routeId, onData, onError, distributorUid)
   return subscribeDayScoped<DistExpense>(DIST_COLLECTIONS.expenses, dayKeys, routeId, rows => onData(rows.filter(expense => !expense.voided)), onError, distributorUid ? { field: 'registeredByUid', uid: distributorUid } : undefined)
 }
 
@@ -479,6 +562,7 @@ export function subscribeReceivables(
   onError?: (error: Error) => void,
   distributorUid?: string,
 ) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeReceivables(routeId, onData, onError, distributorUid)
   return subscribeQuery<DistReceivable>(
     (context) => {
       const base = collectionRef(context, DIST_COLLECTIONS.receivables)
@@ -497,6 +581,7 @@ export function subscribeClosures(
   onError?: (error: Error) => void,
   distributorUid?: string,
 ) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeClosures(dayKeys, routeId, onData, onError, distributorUid)
   void dayKeys
   return subscribeQuery<DistClosure>(
     ctx => distributorUid
@@ -514,6 +599,7 @@ export function subscribeClosures(
 // ---------------------------------------------------------------------------
 
 export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveProduct(product)
   const context = await getContext()
   const batch = writeBatch(context.db)
   const now = new Date().toISOString()
@@ -532,6 +618,7 @@ export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'creat
 }
 
 export async function saveRoute(route: Omit<DistRoute, 'tenantId' | 'createdAt'> & { createdAt?: string }) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveRoute(route)
   const context = await getContext()
   const batch = writeBatch(context.db)
   batch.set(
@@ -557,6 +644,7 @@ export interface CustomerInput {
 }
 
 export async function saveCustomer(input: CustomerInput): Promise<DistCustomer> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveCustomer(input)
   const context = await getContext()
   const now = new Date().toISOString()
   const id = input.id || newOperationId('cust')
@@ -609,6 +697,7 @@ export async function saveCustomer(input: CustomerInput): Promise<DistCustomer> 
 
 /** Ingreso de mercaderia al almacen central */
 export async function registerIntake(lines: DistDispatchLine[], note: string, operationId = newOperationId('intake')) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.registerIntake(lines, note, operationId)
   await submitOperation('intake', { lines, note }, operationId)
   return operationId
 }
@@ -620,6 +709,7 @@ export async function registerAdjustment(
   operationId = newOperationId('adjust'),
   warehouseId = 'central',
 ) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.registerAdjustment(line, note, operationId, warehouseId)
   await submitOperation('adjustment', { line, note, warehouseId }, operationId)
   return operationId
 }
@@ -641,6 +731,7 @@ export interface ConfirmDispatchInput {
 
 /** Confirma un despacho: descuenta central y carga la ruta (una sola vez). */
 export async function confirmDispatch(input: ConfirmDispatchInput): Promise<string> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.confirmDispatch(input)
   const id = input.operationId || newOperationId('disp')
   await submitOperation('dispatch', input, id)
   return id
@@ -656,6 +747,7 @@ export interface AddDispatchLoadInput {
 
 /** Aumento de carga sobre un despacho abierto, conservando el historial. */
 export async function addDispatchLoad(input: AddDispatchLoadInput): Promise<string> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.addDispatchLoad(input)
   const id = input.operationId || newOperationId('add')
   await submitOperation('addition', input, id)
   return id
@@ -692,6 +784,7 @@ export interface RegisterSaleInput {
  * cobrar cuando hay credito. Funciona sin conexion.
  */
 export async function registerSale(input: RegisterSaleInput): Promise<DistSale> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.registerSale(input)
   const context = await getContext()
   const provisional = { ...input, ...baseDocFields(context, new Date().toISOString()), id: input.operationId, pendingConfirmation: true } as DistSale
   return submitOperation<DistSale>('sale', input, input.operationId, provisional)
@@ -723,6 +816,7 @@ export interface RegisterCollectionInput {
  * salesTotal. Reduce el saldo de la cuenta por cobrar y conserva el historial.
  */
 export async function registerCollection(input: RegisterCollectionInput): Promise<DistCollection> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.registerCollection(input)
   const context = await getContext()
   const customerId = input.customerId || input.receivable?.customerId || ''
   const customerName = input.customerName || input.receivable?.customerName || ''
@@ -767,20 +861,24 @@ export interface RegisterExpenseInput {
 }
 
 export async function registerExpense(input: RegisterExpenseInput): Promise<DistExpense> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.registerExpense(input)
   const context = await getContext()
   const provisional = { ...input, ...baseDocFields(context, new Date().toISOString()), id: input.operationId } as DistExpense
   return submitOperation<DistExpense>('expense', input, input.operationId, provisional)
 }
 
 export function subscribeSupportSettings(onData: (settings: SupportSettings) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeSupportSettings(onData, onError)
   return subscribeQuery<SupportSettings>(ctx => collectionRef(ctx, 'supportConfig'), rows => onData({ ...DEFAULT_SUPPORT_SETTINGS, ...(rows[0] || {}) }), onError)
 }
 
 export async function deleteExpense(expenseId: string): Promise<void> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.deleteExpense(expenseId)
   await submitOperation('deleteExpense', { expenseId }, newOperationId('delete-expense'))
 }
 
 export async function deleteProduct(productId: string): Promise<void> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.deleteProduct(productId)
   await submitOperation('deleteProduct', { productId }, newOperationId('delete-product'))
 }
 
@@ -801,24 +899,53 @@ export interface SaveClosureInput {
  *   de modo que la ruta queda en cero y nunca se descuenta dos veces central.
  */
 export async function saveClosure(input: SaveClosureInput): Promise<string> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveClosure(input)
   await submitOperation('closure', { ...input, mode: input.applyStockReturn ? 'warehouse' : 'money', dispatchId: input.closure.dispatchId }, newOperationId('closure'))
   return input.closure.id
 }
 
 /** Reapertura administrativa de una ruta cerrada */
 export async function reopenClosure(closure: DistClosure, reason?: string): Promise<void> {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.reopenClosure(closure, reason)
   await submitOperation('reopen', { closureId: closure.id, reason: reason?.trim() || 'Reapertura administrativa' }, newOperationId('reopen'))
 }
 
-export function subscribeLots(onData: (rows: DistLot[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistLot>(ctx => collectionRef(ctx, 'distLots'), onData, onError) }
-export function subscribeOperations(onData: (rows: PendingOperation[]) => void, onError?: (error: Error) => void) { return subscribeQuery<PendingOperation>(ctx => query(collectionRef(ctx, 'distOperations'), where('createdBy', '==', ctx.uid), where('status', 'in', ['queued', 'rejected'])), onData, onError) }
-export function subscribeMovements(onData: (rows: DistStockMovement[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistStockMovement>(ctx => collectionRef(ctx, 'distStockMovements'), onData, onError) }
-export function subscribeTransfers(onData: (rows: DistTransfer[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistTransfer>(ctx => collectionRef(ctx, 'distTransfers'), onData, onError) }
-export function subscribeClaims(routeId: string | null, onData: (rows: DistClaim[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistClaim>(ctx => routeId ? query(collectionRef(ctx, 'distClaims'), where('routeId', '==', routeId)) : collectionRef(ctx, 'distClaims'), onData, onError) }
-export function subscribeCreditStatus(onData: (rows: DistCreditStatus[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistCreditStatus>(ctx => collectionRef(ctx, 'distCreditStatus'), onData, onError) }
-export function subscribeCreditOverrides(onData: (rows: DistCreditOverride[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistCreditOverride>(ctx => collectionRef(ctx, 'distCreditOverrides'), onData, onError) }
-export async function submitCreditOverride(input: { customerId?: string; reason?: string; days?: number; validUntil?: string; revoke?: boolean; overrideId?: string }) { return submitOperation<DistCreditOverride>('creditOverride', input, newOperationId('override')) }
-export async function registerClaim(payload: Record<string, unknown>, operationId: string) { return submitOperation<DistClaim>('claim', payload, operationId) }
+export function subscribeLots(onData: (rows: DistLot[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeLots(onData, onError)
+  return subscribeQuery<DistLot>(ctx => collectionRef(ctx, 'distLots'), onData, onError)
+}
+export function subscribeOperations(onData: (rows: PendingOperation[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeOperations(onData, onError)
+  return subscribeQuery<PendingOperation>(ctx => query(collectionRef(ctx, 'distOperations'), where('createdBy', '==', ctx.uid), where('status', 'in', ['queued', 'rejected'])), onData, onError)
+}
+export function subscribeMovements(onData: (rows: DistStockMovement[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeMovements(onData, onError)
+  return subscribeQuery<DistStockMovement>(ctx => collectionRef(ctx, 'distStockMovements'), onData, onError)
+}
+export function subscribeTransfers(onData: (rows: DistTransfer[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeTransfers(onData, onError)
+  return subscribeQuery<DistTransfer>(ctx => collectionRef(ctx, 'distTransfers'), onData, onError)
+}
+export function subscribeClaims(routeId: string | null, onData: (rows: DistClaim[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeClaims(routeId, onData, onError)
+  return subscribeQuery<DistClaim>(ctx => routeId ? query(collectionRef(ctx, 'distClaims'), where('routeId', '==', routeId)) : collectionRef(ctx, 'distClaims'), onData, onError)
+}
+export function subscribeCreditStatus(onData: (rows: DistCreditStatus[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeCreditStatus(onData, onError)
+  return subscribeQuery<DistCreditStatus>(ctx => collectionRef(ctx, 'distCreditStatus'), onData, onError)
+}
+export function subscribeCreditOverrides(onData: (rows: DistCreditOverride[]) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeCreditOverrides(onData, onError)
+  return subscribeQuery<DistCreditOverride>(ctx => collectionRef(ctx, 'distCreditOverrides'), onData, onError)
+}
+export async function submitCreditOverride(input: { customerId?: string; reason?: string; days?: number; validUntil?: string; revoke?: boolean; overrideId?: string }) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.submitCreditOverride(input)
+  return submitOperation<DistCreditOverride>('creditOverride', input, newOperationId('override'))
+}
+export async function registerClaim(payload: Record<string, unknown>, operationId: string) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.registerClaim(payload, operationId)
+  return submitOperation<DistClaim>('claim', payload, operationId)
+}
 
 export function dismissSyncError() {
   localStorage.removeItem('pachax_dist_sync_error')
