@@ -38,8 +38,22 @@ export function PlansSection() {
     setSaveError(null)
   }
 
+  const publishedInTemplate = plansForTemplate.filter((p) => p.status === 'published').length
+
   const handleSave = async () => {
     if (!formData) return
+
+    // Validar límite de 3 planes activos por template
+    if (formData.status === 'published') {
+      const activeCount = plansForTemplate.filter(
+        (p) => p.id !== formData.id && p.status === 'published',
+      ).length
+      if (activeCount >= 3) {
+        setSaveError('No se puede guardar como publicado: cada plantilla permite un máximo de 3 planes activos en el catálogo. Despublica otro plan primero o mantén este en borrador.')
+        return
+      }
+    }
+
     setIsProcessing(true)
     setSaveFeedback(null)
     setSaveError(null)
@@ -55,11 +69,22 @@ export function PlansSection() {
 
   const handleTogglePublish = async () => {
     if (!formData) return
+    const nextStatus = formData.status === 'published' ? 'draft' : 'published'
+
+    if (nextStatus === 'published') {
+      const activeCount = plansForTemplate.filter(
+        (p) => p.id !== formData.id && p.status === 'published',
+      ).length
+      if (activeCount >= 3) {
+        setSaveError('Cada plantilla permite un máximo de 3 planes activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.')
+        return
+      }
+      if (!window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este plan debe mostrarse públicamente con los importes actuales?')) return
+    }
+
     setIsProcessing(true)
     setSaveFeedback(null)
     setSaveError(null)
-    const nextStatus = formData.status === 'published' ? 'draft' : 'published'
-    if (nextStatus === 'published' && !window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este plan debe mostrarse públicamente con los importes actuales?')) return
     const res = await togglePublishPlan(formData.id, nextStatus)
     setIsProcessing(false)
     if (res.success) {
@@ -215,9 +240,20 @@ export function PlansSection() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Lista de Planes a la Izquierda */}
         <div className="lg:col-span-5 space-y-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
-            Planes configurados ({plansForTemplate.length})
-          </span>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Planes ({plansForTemplate.length})
+            </span>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                publishedInTemplate >= 3
+                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                  : 'bg-blue-50 text-blue-700 border border-blue-200'
+              }`}
+            >
+              Publicados: {publishedInTemplate} / 3 máx.
+            </span>
+          </div>
 
           {plansForTemplate.map((p) => {
             const isSelected = formData?.id === p.id
@@ -386,6 +422,75 @@ export function PlansSection() {
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
                   />
                 </div>
+              </div>
+
+              {/* Nivel de Tier, Orden, Badge y CTA */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Nivel de escala (Tier)
+                  </label>
+                  <select
+                    value={formData.tierLevel}
+                    onChange={(e) => setFormData({ ...formData, tierLevel: Number(e.target.value) as 1 | 2 | 3 })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900"
+                  >
+                    <option value={1}>Tier 1 (Entrada / Básico)</option>
+                    <option value={2}>Tier 2 (Crecimiento)</option>
+                    <option value={3}>Tier 3 (Escala / Pro)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Orden de columna
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formData.order || 1}
+                    onChange={(e) => setFormData({ ...formData, order: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Badge comercial
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Más elegido"
+                    value={formData.badge || ''}
+                    onChange={(e) => setFormData({ ...formData, badge: e.target.value || undefined })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Texto de botón CTA
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.ctaLabel || 'Elegir Plan'}
+                    onChange={(e) => setFormData({ ...formData, ctaLabel: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="planIsPopularCheck"
+                  checked={Boolean(formData.isPopular)}
+                  onChange={(e) => setFormData({ ...formData, isPopular: e.target.checked })}
+                  className="rounded border-slate-300 text-[#0066FF] focus:ring-[#0066FF]"
+                />
+                <label htmlFor="planIsPopularCheck" className="text-xs text-slate-700 font-semibold cursor-pointer">
+                  Marcar como plan recomendado / popular (destaca visualmente la columna)
+                </label>
               </div>
 
               <div>

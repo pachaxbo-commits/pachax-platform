@@ -291,6 +291,35 @@ export function TemplatesSection() {
             </div>
           </div>
 
+          {/* Orden de catálogo y Badge */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Orden en catálogo (1 = primero)
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={formData.order || 1}
+                onChange={(e) => setFormData({ ...formData, order: Number(e.target.value) })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:border-[#0066FF]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Badge destacado (opcional)
+              </label>
+              <input
+                type="text"
+                placeholder="Ej. Más popular, Recomendado"
+                value={formData.badge || ''}
+                onChange={(e) => setFormData({ ...formData, badge: e.target.value || undefined })}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0066FF]"
+              />
+            </div>
+          </div>
+
           {/* Rutas y Acciones */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -318,18 +347,31 @@ export function TemplatesSection() {
             </div>
           </div>
 
-          {/* Bullets / Capacidades */}
+          <div className="flex items-center gap-2 pt-1 pb-1">
+            <input
+              type="checkbox"
+              id="tplDemoEnabledCheck"
+              checked={formData.demoEnabled !== false}
+              onChange={(e) => setFormData({ ...formData, demoEnabled: e.target.checked })}
+              className="rounded border-slate-300 text-[#0066FF] focus:ring-[#0066FF]"
+            />
+            <label htmlFor="tplDemoEnabledCheck" className="text-xs text-slate-700 font-semibold cursor-pointer">
+              Demo interactiva habilitada para esta plantilla en la web pública
+            </label>
+          </div>
+
+          {/* Bullets / Capacidades resumidas */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Capacidades destacadas (Bullets)
+                Capacidades resumidas (Bullets de tarjeta)
               </label>
               <button
                 type="button"
                 onClick={handleAddBullet}
                 className="text-xs font-bold text-[#0066FF] hover:underline cursor-pointer"
               >
-                + Añadir capacidad
+                + Añadir bullet
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -344,6 +386,49 @@ export function TemplatesSection() {
                   <button
                     type="button"
                     onClick={() => handleRemoveBullet(idx)}
+                    className="w-6 h-6 rounded text-slate-400 hover:text-red-600 flex items-center justify-center text-xs cursor-pointer"
+                    title="Eliminar"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Características detalladas (Sección 2 Catálogo) */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Módulos y características completas (Features)
+              </label>
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, features: [...(prev.features || []), 'Nueva característica'] }))}
+                className="text-xs font-bold text-[#0066FF] hover:underline cursor-pointer"
+              >
+                + Añadir feature
+              </button>
+            </div>
+            <div className="space-y-2">
+              {(formData.features || []).map((feat, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={feat}
+                    onChange={(e) => {
+                      const updated = [...(formData.features || [])]
+                      updated[idx] = e.target.value
+                      setFormData({ ...formData, features: updated })
+                    }}
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (formData.features || []).filter((_, i) => i !== idx)
+                      setFormData({ ...formData, features: updated })
+                    }}
                     className="w-6 h-6 rounded text-slate-400 hover:text-red-600 flex items-center justify-center text-xs cursor-pointer"
                     title="Eliminar"
                   >

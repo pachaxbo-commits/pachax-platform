@@ -191,7 +191,15 @@ export function AdminShell() {
             <div className="min-w-0 flex-1">
               <p className="text-xs font-bold text-white truncate">{user.displayName}</p>
               <span className="text-[10px] font-medium text-emerald-400 block truncate">
-                {user.role === 'platform_owner' ? 'Platform Owner' : 'Platform Admin'}
+                {user.role === 'platform_owner'
+                  ? 'Platform Owner'
+                  : user.role === 'platform_admin'
+                  ? 'Platform Admin'
+                  : user.role === 'platform_support'
+                  ? 'Platform Support'
+                  : user.role === 'platform_finance'
+                  ? 'Platform Finance'
+                  : 'Platform Content'}
               </span>
             </div>
           </div>

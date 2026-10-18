@@ -393,6 +393,19 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
 
 export async function seedDefaultsToFirestore(): Promise<{ success: boolean; message: string }> {
   try {
+    const defaults = getDefaultConfig()
+    try {
+      const serverRes = await gateway<{ success: boolean; message: string }>('platformGateway', {
+        action: 'seedPlatformConfig',
+        defaults,
+      })
+      if (serverRes?.success) {
+        return serverRes
+      }
+    } catch (gateErr) {
+      console.warn('Fallback a transacción cliente para inicialización:', gateErr)
+    }
+
     const ctx = await getFirebaseContext()
     if (!ctx) return { success: false, message: 'Firebase no configurado.' }
     const claims = await ctx.auth.currentUser?.getIdTokenResult(true)
@@ -400,7 +413,6 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
       return { success: false, message: 'La inicialización requiere Platform Owner o Platform Admin.' }
     }
 
-    const defaults = getDefaultConfig()
     const now = new Date().toISOString()
     const userUid = ctx.auth.currentUser?.uid || 'system_bootstrap'
     const seedMissing = async (ref: ReturnType<typeof doc>, value: Record<string, unknown>) => {
@@ -455,7 +467,7 @@ export async function seedDefaultsToFirestore(): Promise<{ success: boolean; mes
         doc(ctx.db, 'platformPlans', item.id),
         {
           ...item,
-          status: 'draft', // DRAFT OBLIGATORIO: Precios no oficiales
+          status: 'draft',
           updatedAt: now,
           updatedBy: userUid,
         },
@@ -506,36 +518,38 @@ export async function updateTemplateInStore(
   updates: Partial<CommercialTemplateItem>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
-
     const current = loadCommercialConfig()
     const idx = current.templates.findIndex((t) => t.id === id)
     const existing = idx >= 0 ? current.templates[idx] : {}
     const updated = { ...existing, ...updates }
 
-    const payload: Record<string, unknown> = {
-      ...updated,
-      updatedAt: new Date().toISOString(),
-      updatedBy: ctx.auth.currentUser?.uid || null,
-    }
-    if (updates.status === 'published') {
-      payload.publishedAt = new Date().toISOString()
-      payload.publishedBy = ctx.auth.currentUser?.uid || null
+    try {
+      await gateway('platformGateway', { action: 'saveTemplate', template: updated })
+    } catch (gateErr) {
+      console.warn('Backend saveTemplate no disponible, aplicando mutación directa Firestore:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+
+      const payload: Record<string, unknown> = {
+        ...updated,
+        updatedAt: new Date().toISOString(),
+        updatedBy: ctx.auth.currentUser?.uid || null,
+      }
+      if (updates.status === 'published') {
+        payload.publishedAt = new Date().toISOString()
+        payload.publishedBy = ctx.auth.currentUser?.uid || null
+      }
+      await setDoc(doc(ctx.db, 'platformTemplates', id), payload, { merge: true })
+      await logPlatformAudit('template.update', `platformTemplates/${id}`, { status: updates.status })
     }
 
-    // 1. Escribir primero en Firestore
-    await setDoc(doc(ctx.db, 'platformTemplates', id), payload, { merge: true })
-    await logPlatformAudit('template.update', `platformTemplates/${id}`, { status: updates.status })
-
-    // 2. Solo tras éxito de Firestore se actualiza el store local
     if (idx >= 0) {
       current.templates[idx] = updated as CommercialTemplateItem
       saveCommercialConfig(current)
     }
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al guardar en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al guardar plantilla en Firestore.'
     console.error('Error persistiendo template en Firestore:', err)
     return { success: false, error }
   }
@@ -546,13 +560,23 @@ export async function updatePlanInStore(
   updates: Partial<TemplateTierPlan>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
-
     const current = loadCommercialConfig()
     const idx = current.plans.findIndex((p) => p.id === id)
     const existing = idx >= 0 ? current.plans[idx] : {}
     const updated = { ...existing, ...updates }
+
+    // Validación límite 3 planes activos por template
+    if (updated.status === 'published' && updated.templateId) {
+      const activeCount = current.plans.filter(
+        (p) => p.templateId === updated.templateId && p.id !== id && p.status === 'published',
+      ).length
+      if (activeCount >= 3) {
+        return {
+          success: false,
+          error: 'Cada plantilla permite un máximo de 3 planes activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
+        }
+      }
+    }
 
     await gateway('platformGateway', { action: 'savePlan', plan: updated })
 
@@ -577,14 +601,26 @@ export async function togglePublishPlanInStore(
   targetStatus: 'published' | 'draft',
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
+    const current = loadCommercialConfig()
+    const targetPlan = current.plans.find((p) => p.id === planId)
+
+    // Validación de seguridad: máximo 3 planes activos publicados por template
+    if (targetStatus === 'published' && targetPlan) {
+      const publishedCount = current.plans.filter(
+        (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published',
+      ).length
+      if (publishedCount >= 3) {
+        return {
+          success: false,
+          error: 'Cada plantilla permite un máximo de 3 planes activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
+        }
+      }
+    }
 
     // 1. Invocar acción en server-side con auditoría atómica
     await gateway('platformGateway', { action: 'publishPlan', planId, status: targetStatus })
 
     // 2. Actualizar store solo tras confirmación
-    const current = loadCommercialConfig()
     const idx = current.plans.findIndex((p) => p.id === planId)
     if (idx >= 0) {
       current.plans[idx] = {
@@ -605,9 +641,6 @@ export async function togglePublishPlanInStore(
 
 export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
-
     await gateway('platformGateway', { action: 'savePlan', plan: { ...plan, status: 'draft' } })
 
     const current = loadCommercialConfig()
@@ -622,9 +655,6 @@ export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ succe
 
 export async function deletePlanInStore(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
-
     await gateway('platformGateway', { action: 'deletePlan', planId: id })
 
     const current = loadCommercialConfig()
@@ -642,24 +672,29 @@ export async function updateExtraInStore(
   updates: Partial<CommercialExtraService>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
-
     const current = loadCommercialConfig()
     const idx = current.extras.findIndex((e) => e.id === id)
     const existing = idx >= 0 ? current.extras[idx] : {}
     const updated = { ...existing, ...updates }
 
-    await setDoc(
-      doc(ctx.db, 'platformExtras', id),
-      {
-        ...updated,
-        updatedAt: new Date().toISOString(),
-        updatedBy: ctx.auth.currentUser?.uid || null,
-      },
-      { merge: true },
-    )
-    await logPlatformAudit('extra.update', `platformExtras/${id}`, { status: updates.status })
+    try {
+      await gateway('platformGateway', { action: 'saveExtra', extra: updated })
+    } catch (gateErr) {
+      console.warn('Backend saveExtra no disponible, aplicando mutación directa Firestore:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+
+      await setDoc(
+        doc(ctx.db, 'platformExtras', id),
+        {
+          ...updated,
+          updatedAt: new Date().toISOString(),
+          updatedBy: ctx.auth.currentUser?.uid || null,
+        },
+        { merge: true },
+      )
+      await logPlatformAudit('extra.update', `platformExtras/${id}`, { status: updates.status })
+    }
 
     if (idx >= 0) {
       current.extras[idx] = updated as CommercialExtraService
@@ -672,26 +707,85 @@ export async function updateExtraInStore(
   }
 }
 
+export async function createExtraInStore(
+  extra: CommercialExtraService,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const draftExtra: CommercialExtraService = { ...extra, status: 'draft' }
+    try {
+      await gateway('platformGateway', { action: 'saveExtra', extra: draftExtra })
+    } catch (gateErr) {
+      console.warn('Backend saveExtra no disponible, aplicando mutación directa Firestore:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+
+      await setDoc(doc(ctx.db, 'platformExtras', draftExtra.id), {
+        ...draftExtra,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        updatedBy: ctx.auth.currentUser?.uid || null,
+      })
+      await logPlatformAudit('extra.create', `platformExtras/${draftExtra.id}`, { status: 'draft' })
+    }
+
+    const current = loadCommercialConfig()
+    current.extras.push(draftExtra)
+    saveCommercialConfig(current)
+    return { success: true }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al crear servicio extra en Firestore.'
+    return { success: false, error }
+  }
+}
+
+export async function deleteExtraInStore(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    try {
+      await gateway('platformGateway', { action: 'deleteExtra', extraId: id })
+    } catch (gateErr) {
+      console.warn('Backend deleteExtra no disponible, aplicando eliminación directa:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+      const { deleteDoc } = await import('firebase/firestore')
+      await deleteDoc(doc(ctx.db, 'platformExtras', id))
+      await logPlatformAudit('extra.delete', `platformExtras/${id}`)
+    }
+
+    const current = loadCommercialConfig()
+    current.extras = current.extras.filter((e) => e.id !== id)
+    saveCommercialConfig(current)
+    return { success: true }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al eliminar servicio extra en Firestore.'
+    return { success: false, error }
+  }
+}
+
 export async function updateLandingContentInStore(
   updates: Partial<LandingContentConfig>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
-
     const current = loadCommercialConfig()
     const updatedContent = { ...current.landingContent, ...updates }
 
-    await setDoc(
-      doc(ctx.db, 'platformConfig', 'publicLanding'),
-      {
-        ...updatedContent,
-        updatedAt: new Date().toISOString(),
-        updatedBy: ctx.auth.currentUser?.uid || null,
-      },
-      { merge: true },
-    )
-    await logPlatformAudit('landing.update', 'platformConfig/publicLanding')
+    try {
+      await gateway('platformGateway', { action: 'saveLandingContent', content: updatedContent })
+    } catch (gateErr) {
+      console.warn('Backend saveLandingContent no disponible, aplicando mutación directa:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+
+      await setDoc(
+        doc(ctx.db, 'platformConfig', 'publicLanding'),
+        {
+          ...updatedContent,
+          updatedAt: new Date().toISOString(),
+          updatedBy: ctx.auth.currentUser?.uid || null,
+        },
+        { merge: true },
+      )
+      await logPlatformAudit('landing.update', 'platformConfig/publicLanding')
+    }
 
     current.landingContent = updatedContent
     saveCommercialConfig(current)
@@ -707,24 +801,29 @@ export async function updateMediaAssetInStore(
   updates: Partial<MediaAssetItem>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const ctx = await getFirebaseContext()
-    if (!ctx) throw new Error('Firebase no conectado.')
-
     const current = loadCommercialConfig()
     const idx = current.mediaAssets.findIndex((m) => m.id === id)
     const existing = idx >= 0 ? current.mediaAssets[idx] : {}
     const updated = { ...existing, ...updates }
 
-    await setDoc(
-      doc(ctx.db, 'platformMedia', id),
-      {
-        ...updated,
-        updatedAt: new Date().toISOString(),
-        updatedBy: ctx.auth.currentUser?.uid || null,
-      },
-      { merge: true },
-    )
-    await logPlatformAudit('media.update', `platformMedia/${id}`)
+    try {
+      await gateway('platformGateway', { action: 'saveMediaAsset', asset: updated })
+    } catch (gateErr) {
+      console.warn('Backend saveMediaAsset no disponible, aplicando mutación directa:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+
+      await setDoc(
+        doc(ctx.db, 'platformMedia', id),
+        {
+          ...updated,
+          updatedAt: new Date().toISOString(),
+          updatedBy: ctx.auth.currentUser?.uid || null,
+        },
+        { merge: true },
+      )
+      await logPlatformAudit('media.update', `platformMedia/${id}`)
+    }
 
     if (idx >= 0) {
       current.mediaAssets[idx] = updated as MediaAssetItem
@@ -733,6 +832,58 @@ export async function updateMediaAssetInStore(
     return { success: true }
   } catch (err: unknown) {
     const error = err instanceof Error ? err.message : 'Error al guardar asset en Firestore.'
+    return { success: false, error }
+  }
+}
+
+export async function createMediaAssetInStore(
+  asset: MediaAssetItem,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    try {
+      await gateway('platformGateway', { action: 'saveMediaAsset', asset })
+    } catch (gateErr) {
+      console.warn('Backend saveMediaAsset no disponible, aplicando guardado directo:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+      await setDoc(doc(ctx.db, 'platformMedia', asset.id), {
+        ...asset,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        updatedBy: ctx.auth.currentUser?.uid || null,
+      })
+      await logPlatformAudit('media.create', `platformMedia/${asset.id}`)
+    }
+
+    const current = loadCommercialConfig()
+    current.mediaAssets.push(asset)
+    saveCommercialConfig(current)
+    return { success: true }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al registrar asset multimedia en Firestore.'
+    return { success: false, error }
+  }
+}
+
+export async function deleteMediaAssetInStore(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    try {
+      await gateway('platformGateway', { action: 'deleteMediaAsset', assetId: id })
+    } catch (gateErr) {
+      console.warn('Backend deleteMediaAsset no disponible, aplicando eliminación directa:', gateErr)
+      const ctx = await getFirebaseContext()
+      if (!ctx) throw new Error('Firebase no conectado.')
+      const { deleteDoc } = await import('firebase/firestore')
+      await deleteDoc(doc(ctx.db, 'platformMedia', id))
+      await logPlatformAudit('media.delete', `platformMedia/${id}`)
+    }
+
+    const current = loadCommercialConfig()
+    current.mediaAssets = current.mediaAssets.filter((m) => m.id !== id)
+    saveCommercialConfig(current)
+    return { success: true }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al eliminar asset multimedia en Firestore.'
     return { success: false, error }
   }
 }
@@ -786,8 +937,12 @@ export function useCommercialConfig() {
     createPlan: createPlanInStore,
     deletePlan: deletePlanInStore,
     updateExtra: updateExtraInStore,
+    createExtra: createExtraInStore,
+    deleteExtra: deleteExtraInStore,
     updateLandingContent: updateLandingContentInStore,
     updateMediaAsset: updateMediaAssetInStore,
+    createMediaAsset: createMediaAssetInStore,
+    deleteMediaAsset: deleteMediaAssetInStore,
     resetToDefaults: resetCommercialConfigToDefaults,
     seedDefaultsToFirestore,
   }

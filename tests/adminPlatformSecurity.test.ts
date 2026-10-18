@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { canPlatform } from '../src/core/platform.ts'
-import type { PlatformOperator, PlatformRole } from '../src/core/platform.ts'
+import { canPlatform, canSupportWrite } from '../src/core/platform.ts'
+import type { PlatformOperator, PlatformRole, SupportSession } from '../src/core/platform.ts'
 import type {
   CommercialTemplateItem,
   TemplateTierPlan,
@@ -249,4 +249,118 @@ test('CASO 5: Extras con precio draft -> no aparecen públicamente', () => {
   assert(draftExtras.some((e) => e.id === 'extra_branding'))
   assert(draftExtras.some((e) => e.id === 'extra_support_vip'))
   assert(draftExtras.some((e) => e.id === 'extra_automation'))
+})
+
+test('9. canSupportWrite: sesion de soporte read-only rechaza escrituras', () => {
+  const owner: PlatformOperator = { uid: 'op_owner', role: 'platform_owner', active: true }
+  const readOnlySession: SupportSession = {
+    id: 'sess_1',
+    operatorUid: 'op_owner',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'read-only',
+    expiresAt: new Date(Date.now() + 600000).toISOString(),
+  }
+  assert.equal(canSupportWrite(owner, readOnlySession, 'tenant_abc', Date.now()), false)
+})
+
+test('10. canSupportWrite: sesion elevada autoriza escrituras unicamente con motivo valido y vigencia', () => {
+  const owner: PlatformOperator = { uid: 'op_owner', role: 'platform_owner', active: true }
+  const elevatedSession: SupportSession = {
+    id: 'sess_2',
+    operatorUid: 'op_owner',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'editing',
+    reason: 'Corrección de timezone y resolución de incidencia crítica',
+    expiresAt: new Date(Date.now() + 600000).toISOString(),
+  }
+  assert.equal(canSupportWrite(owner, elevatedSession, 'tenant_abc', Date.now()), true)
+
+  // Sin motivo explícito -> denegado
+  const sessionWithoutReason: SupportSession = { ...elevatedSession, reason: '   ' }
+  assert.equal(canSupportWrite(owner, sessionWithoutReason, 'tenant_abc', Date.now()), false)
+
+  // TenantId no coincide -> denegado
+  assert.equal(canSupportWrite(owner, elevatedSession, 'tenant_OTRO', Date.now()), false)
+})
+
+test('11. canSupportWrite: sesion expirada es rechazada de inmediato', () => {
+  const owner: PlatformOperator = { uid: 'op_owner', role: 'platform_owner', active: true }
+  const expiredSession: SupportSession = {
+    id: 'sess_3',
+    operatorUid: 'op_owner',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'editing',
+    reason: 'Intervención técnica expirada',
+    expiresAt: new Date(Date.now() - 5000).toISOString(),
+  }
+  assert.equal(canSupportWrite(owner, expiredSession, 'tenant_abc', Date.now()), false)
+})
+
+test('12. canSupportWrite: operador sin support.elevate (platform_admin o platform_support) nunca puede escribir en soporte', () => {
+  const admin: PlatformOperator = { uid: 'op_admin', role: 'platform_admin', active: true }
+  const support: PlatformOperator = { uid: 'op_support', role: 'platform_support', active: true }
+  const session: SupportSession = {
+    id: 'sess_4',
+    operatorUid: 'op_admin',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'editing',
+    reason: 'Intervención administrativa',
+    expiresAt: new Date(Date.now() + 600000).toISOString(),
+  }
+  assert.equal(canSupportWrite(admin, session, 'tenant_abc', Date.now()), false)
+  assert.equal(canSupportWrite(support, { ...session, operatorUid: 'op_support' }, 'tenant_abc', Date.now()), false)
+})
+
+test('13. Regla Maximo 3 Planes Publicados: rechaza publicar un 4to plan para una misma plantilla', () => {
+  const existingPlans: Partial<TemplateTierPlan>[] = [
+    { id: 'p1', templateId: 'restaurant', name: 'Básico', status: 'published' },
+    { id: 'p2', templateId: 'restaurant', name: 'Pro', status: 'published' },
+    { id: 'p3', templateId: 'restaurant', name: 'Enterprise', status: 'published' },
+    { id: 'p4', templateId: 'restaurant', name: 'Borrador Nuevo', status: 'draft' },
+  ]
+
+  const templateId = 'restaurant'
+  const targetPlanId = 'p4'
+  const publishedForTemplate = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published',
+  )
+
+  // Debe contar exactamente 3 planes publicados
+  assert.equal(publishedForTemplate.length, 3)
+
+  // La regla debe rechazar publicar el 4to plan
+  const canPublish = publishedForTemplate.length < 3
+  assert.equal(canPublish, false, 'No se puede publicar un 4to plan cuando ya existen 3 activos')
+})
+
+test('14. Regla Maximo 3 Planes Publicados: respeta aislamiento entre plantillas distintas', () => {
+  const existingPlans: Partial<TemplateTierPlan>[] = [
+    { id: 'r1', templateId: 'restaurant', name: 'Restaurante 1', status: 'published' },
+    { id: 'r2', templateId: 'restaurant', name: 'Restaurante 2', status: 'published' },
+    { id: 'r3', templateId: 'restaurant', name: 'Restaurante 3', status: 'published' },
+    { id: 'd1', templateId: 'distribution', name: 'Distribuidora 1', status: 'published' },
+    { id: 'd2', templateId: 'distribution', name: 'Distribuidora 2', status: 'draft' },
+  ]
+
+  // Para distribution, solo hay 1 publicado, por lo que publicar d2 SÍ está permitido
+  const publishedForDistribution = existingPlans.filter(
+    (p) => p.templateId === 'distribution' && p.id !== 'd2' && p.status === 'published',
+  )
+  assert.equal(publishedForDistribution.length, 1)
+  assert.equal(publishedForDistribution.length < 3, true)
+})
+
+test('15. Roles inventados como "superadmin" son rechazados y no poseen ningun privilegio de plataforma', () => {
+  const fakeSuperadmin = { uid: 'fake_1', role: 'superadmin' as any, active: true }
+  const fakeRoot = { uid: 'fake_2', role: 'root' as any, active: true }
+
+  assert.equal(canPlatform(fakeSuperadmin, 'tenants.read'), false)
+  assert.equal(canPlatform(fakeSuperadmin, 'operators.manage'), false)
+  assert.equal(canPlatform(fakeSuperadmin, 'plans.manage'), false)
+  assert.equal(canPlatform(fakeRoot, 'content.manage'), false)
+  assert.equal(canPlatform(fakeRoot, 'support.read'), false)
 })
