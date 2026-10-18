@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   CheckCircle2,
   FileText,
@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
-import { DEFAULT_KITCHEN_PRINTER_CONFIG, type KitchenPrinterConfig } from './kitchenPrinterConfig'
+import type { KitchenPrinterConfig } from './kitchenPrinterConfig'
 import type { PrinterProfile } from '../../../types/printing'
 import {
   deletePrinterProfile,
@@ -41,7 +41,6 @@ type UIConnectionType = 'browser_dialog' | 'network_tcp' | 'bluetooth_spp'
 export function RestaurantPrinters({
   tenantId = 'principal',
   branchId = 'main',
-  config: _config = DEFAULT_KITCHEN_PRINTER_CONFIG,
   jobs = [],
   onSave,
   onPrintTest,
@@ -54,23 +53,33 @@ export function RestaurantPrinters({
   const [profiles, setProfiles] = useState<PrinterProfile[]>(() => loadPrinterProfiles(tenantId, branchId))
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(() => profiles[0]?.id || null)
 
+  const activeProfile = profiles.find((p) => p.id === (profiles[0]?.id || null))
+
   // Estado del formulario
-  const [name, setName] = useState('')
-  const [role, setRole] = useState<'kitchen' | 'receipt' | 'bar'>('kitchen')
-  const [connectionType, setConnectionType] = useState<UIConnectionType>('browser_dialog')
-  const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('80mm')
-  const [ipAddress, setIpAddress] = useState('192.168.1.200')
-  const [port, setPort] = useState('9100')
-  const [macAddress, setMacAddress] = useState('')
+  const [name, setName] = useState(activeProfile?.name || '')
+  const [role, setRole] = useState<'kitchen' | 'receipt' | 'bar'>(
+    activeProfile?.role === 'bar' ? 'bar' : activeProfile?.role === 'receipt' ? 'receipt' : 'kitchen'
+  )
+  const [connectionType, setConnectionType] = useState<UIConnectionType>(
+    activeProfile?.connectionType === 'bluetooth_spp'
+      ? 'bluetooth_spp'
+      : activeProfile?.connectionType === 'network_tcp'
+      ? 'network_tcp'
+      : 'browser_dialog'
+  )
+  const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>(activeProfile?.paperWidth || '80mm')
+  const [ipAddress, setIpAddress] = useState(activeProfile?.ipAddress || '192.168.1.200')
+  const [port, setPort] = useState(String(activeProfile?.port || activeProfile?.ipPort || 9100))
+  const [macAddress, setMacAddress] = useState(activeProfile?.macAddress || '')
 
   const [testStatus, setTestStatus] = useState<{ type: 'idle' | 'testing' | 'success' | 'error'; message?: string }>({
     type: 'idle',
   })
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  // Sincronizar selección de perfil
-  useEffect(() => {
-    const active = profiles.find((p) => p.id === selectedProfileId)
+  const selectProfile = (id: string | null, sourceProfiles = profiles) => {
+    setSelectedProfileId(id)
+    const active = sourceProfiles.find((p) => p.id === id)
     if (active) {
       setName(active.name)
       setRole(active.role === 'bar' ? 'bar' : active.role === 'receipt' ? 'receipt' : 'kitchen')
@@ -85,8 +94,8 @@ export function RestaurantPrinters({
       setIpAddress(active.ipAddress || '192.168.1.200')
       setPort(String(active.port || active.ipPort || 9100))
       setMacAddress(active.macAddress || '')
-    } else if (profiles.length === 0) {
-      setName('Impresora de Cocina')
+    } else {
+      setName('')
       setRole('kitchen')
       setConnectionType('browser_dialog')
       setPaperWidth('80mm')
@@ -94,14 +103,12 @@ export function RestaurantPrinters({
       setPort('9100')
       setMacAddress('')
     }
-  }, [selectedProfileId, profiles])
+  }
 
   const reloadProfiles = () => {
     const updated = loadPrinterProfiles(tenantId, branchId)
     setProfiles(updated)
-    if (!selectedProfileId && updated[0]) {
-      setSelectedProfileId(updated[0].id)
-    }
+    return updated
   }
 
   // Evaluar estado del dispositivo y compatibilidad
@@ -166,8 +173,8 @@ export function RestaurantPrinters({
     }
 
     savePrinterProfile(profile, tenantId, branchId)
-    setSelectedProfileId(id)
-    reloadProfiles()
+    const updated = reloadProfiles()
+    selectProfile(id, updated)
 
     // Sincronizar compatibilidad legacy si existe callback onSave
     onSave?.({
@@ -185,19 +192,14 @@ export function RestaurantPrinters({
   const handleDeleteProfile = (id: string) => {
     if (!window.confirm('¿Eliminar esta configuración de impresora?')) return
     deletePrinterProfile(id, tenantId, branchId)
-    if (selectedProfileId === id) setSelectedProfileId(null)
-    reloadProfiles()
+    const updated = reloadProfiles()
+    if (selectedProfileId === id) {
+      selectProfile(updated[0]?.id || null, updated)
+    }
   }
 
   const handleCreateNew = () => {
-    setSelectedProfileId(null)
-    setName('')
-    setRole('kitchen')
-    setConnectionType('browser_dialog')
-    setPaperWidth('80mm')
-    setIpAddress('192.168.1.200')
-    setPort('9100')
-    setMacAddress('')
+    selectProfile(null)
   }
 
   const handleTestPrint = async () => {
@@ -266,7 +268,7 @@ export function RestaurantPrinters({
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setSelectedProfileId(p.id)}
+                onClick={() => selectProfile(p.id)}
                 className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
                   isSelected
                     ? 'bg-slate-900 text-white shadow-xs'

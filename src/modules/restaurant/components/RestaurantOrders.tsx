@@ -71,7 +71,7 @@ export function RestaurantOrders({
             <button
               key={key}
               type="button"
-              onClick={() => setStatusFilter(key as any)}
+              onClick={() => setStatusFilter(key as 'all' | OrderStatus)}
               style={isActive ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' } : undefined}
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
                 isActive

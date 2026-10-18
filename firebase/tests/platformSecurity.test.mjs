@@ -210,16 +210,16 @@ try {
   const ordinaryUid = `user_prov_${suffix}`
   await auth.createUser({ uid: ordinaryUid, email: `${ordinaryUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Ordinario' })
 
-  // 1. completeOnboarding con restaurant_pos -> DENIED / failed-precondition
-  const onbRest = await callTenantGateway(ordinaryUid, {
+  // 1. completeOnboarding con hamburger_shop -> DENIED / failed-precondition
+  const onbHamb = await callTenantGateway(ordinaryUid, {
     action: 'completeOnboarding',
-    requestId: `onb_rest_${suffix}`,
-    companyName: 'Restaurante Bypass',
-    businessType: 'restaurant_pos',
+    requestId: `onb_hamb_${suffix}`,
+    companyName: 'Hamburguesas Bypass',
+    businessType: 'hamburger_shop',
   })
-  assert.equal(onbRest.body.error?.status, 'FAILED_PRECONDITION')
-  assert(onbRest.body.error?.message?.includes('todavía no está disponible para crear empresas'))
-  pass('tenantGateway completeOnboarding con restaurant_pos es DENEGADO (failed-precondition)')
+  assert.equal(onbHamb.body.error?.status, 'FAILED_PRECONDITION')
+  assert(onbHamb.body.error?.message?.includes('todavía no está disponible para crear empresas'))
+  pass('tenantGateway completeOnboarding con hamburger_shop es DENEGADO (failed-precondition)')
 
   // 2. completeOnboarding con nightclub_lounge -> DENIED / failed-precondition
   const onbNight = await callTenantGateway(ordinaryUid, {
@@ -246,9 +246,9 @@ try {
   // 4. createTenant con coming-soon BusinessType -> DENIED / failed-precondition
   const createComingSoon = await callTenantGateway(ordinaryUid, {
     action: 'createTenant',
-    operationId: `create_rest_${suffix}`,
-    name: 'Restaurante Create Bypass',
-    businessType: 'restaurant_pos',
+    operationId: `create_hamb_${suffix}`,
+    name: 'Hamburguesas Create Bypass',
+    businessType: 'hamburger_shop',
   })
   assert.equal(createComingSoon.body.error?.status, 'FAILED_PRECONDITION')
   assert(createComingSoon.body.error?.message?.includes('todavía no está disponible para crear empresas'))
@@ -266,7 +266,21 @@ try {
   assert(onbDist.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con route_distribution es PERMITIDO y converge')
 
-  assert.equal(checks, 39)
+  // 6. completeOnboarding con restaurant_pos -> PASS
+  const restUserUid = `user_rest_${suffix}`
+  await auth.createUser({ uid: restUserUid, email: `${restUserUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Restaurante' })
+  const onbRest = await callTenantGateway(restUserUid, {
+    action: 'completeOnboarding',
+    requestId: `onb_rest_${suffix}`,
+    companyName: 'Restaurante Autorizado',
+    businessType: 'restaurant_pos',
+  })
+  assert.equal(onbRest.response.status, 200)
+  assert.equal(onbRest.body.result?.template?.businessType, 'restaurant_pos')
+  assert(onbRest.body.result?.tenantId)
+  pass('tenantGateway completeOnboarding con restaurant_pos es PERMITIDO y converge')
+
+  assert.equal(checks, 40)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()
