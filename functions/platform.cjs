@@ -350,10 +350,17 @@ async function getPlatformStats(db, request) {
   };
 }
 
+const OFFICIAL_COMMERCIAL_TEMPLATES = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', 'custom']);
+const OFFICIAL_CANONICAL_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', null]);
+
 async function publishPlan(db, request) {
   const actor = await platformActor(db, request, 'plans.manage');
   const planId = cleanText(request.data?.planId, 'ID de plan', 1, 100);
-  const status = request.data?.status === 'published' ? 'published' : 'draft';
+  const status = cleanText(request.data?.status, 'Estado', 1, 20);
+
+  if (!['published', 'draft'].includes(status)) {
+    throw new HttpsError('invalid-argument', 'El estado del plan debe ser published o draft.');
+  }
 
   const planRef = db.doc(`platformPlans/${planId}`);
   const planSnap = await planRef.get();
@@ -361,15 +368,39 @@ async function publishPlan(db, request) {
     throw new HttpsError('not-found', 'Plan no encontrado.');
   }
 
-  const templateId = planSnap.data()?.templateId;
-  if (status === 'published' && templateId) {
-    const publishedSnap = await db.collection('platformPlans')
-      .where('templateId', '==', templateId)
-      .where('status', '==', 'published')
-      .get();
-    const otherPublished = publishedSnap.docs.filter(d => d.id !== planId);
-    if (otherPublished.length >= 3) {
-      throw new HttpsError('failed-precondition', 'Cada plantilla permite un máximo de 3 planes activos publicados simultáneamente en el catálogo.');
+  const planData = planSnap.data();
+  const templateId = planData.templateId;
+  if (!templateId || !OFFICIAL_COMMERCIAL_TEMPLATES.includes(templateId)) {
+    throw new HttpsError('invalid-argument', `Plantilla comercial no válida: ${templateId}`);
+  }
+
+  const planKind = planData.planKind === 'free' ? 'free' : 'paid';
+
+  if (status === 'published') {
+    if (planKind === 'free') {
+      if (Number(planData.monthlyPriceUSD || 0) !== 0 || Number(planData.annualPriceUSD || 0) !== 0) {
+        throw new HttpsError('failed-precondition', 'Un plan gratuito debe tener precio mensual y anual exactamente 0.');
+      }
+      if (planData.adsRequired !== true) {
+        throw new HttpsError('failed-precondition', 'Un plan gratuito requiere adsRequired=true.');
+      }
+      const freePublishedSnap = await db.collection('platformPlans')
+        .where('templateId', '==', templateId)
+        .where('status', '==', 'published')
+        .get();
+      const otherFreePublished = freePublishedSnap.docs.filter(d => d.id !== planId && d.data().planKind === 'free');
+      if (otherFreePublished.length >= 1) {
+        throw new HttpsError('failed-precondition', 'Cada plantilla permite como máximo 1 Plan Gratuito publicado simultáneamente.');
+      }
+    } else {
+      const paidPublishedSnap = await db.collection('platformPlans')
+        .where('templateId', '==', templateId)
+        .where('status', '==', 'published')
+        .get();
+      const otherPaidPublished = paidPublishedSnap.docs.filter(d => d.id !== planId && d.data().planKind !== 'free');
+      if (otherPaidPublished.length >= 3) {
+        throw new HttpsError('failed-precondition', 'Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo.');
+      }
     }
   }
 
@@ -389,7 +420,7 @@ async function publishPlan(db, request) {
   auditPlatform(db, batch, actor, status === 'published' ? 'plan.publish' : 'plan.unpublish', {
     resource: `platformPlans/${planId}`,
     reason: status === 'published' ? 'Publicación explícita de plan' : 'Despublicación de plan a borrador',
-    metadata: { planId, status, templateId },
+    metadata: { planId, status, templateId, planKind },
   });
 
   await batch.commit();
@@ -403,16 +434,59 @@ async function savePlan(db, request) {
     throw new HttpsError('invalid-argument', 'Datos de plan inválidos.');
   }
   const planId = cleanText(plan.id, 'ID de plan', 1, 100);
-  const templateId = plan.templateId ? cleanText(plan.templateId, 'ID de plantilla', 1, 50) : null;
+  const name = cleanText(plan.name, 'Nombre de plan', 1, 100);
+  const status = cleanText(plan.status || 'draft', 'Estado', 1, 20);
+  if (!['published', 'draft'].includes(status)) {
+    throw new HttpsError('invalid-argument', 'El estado del plan debe ser published o draft.');
+  }
 
-  if (plan.status === 'published' && templateId) {
-    const publishedSnap = await db.collection('platformPlans')
-      .where('templateId', '==', templateId)
-      .where('status', '==', 'published')
-      .get();
-    const otherPublished = publishedSnap.docs.filter(d => d.id !== planId);
-    if (otherPublished.length >= 3) {
-      throw new HttpsError('failed-precondition', 'Cada plantilla permite un máximo de 3 planes activos publicados simultáneamente en el catálogo.');
+  const templateId = cleanText(plan.templateId, 'ID de plantilla', 1, 50);
+  if (!OFFICIAL_COMMERCIAL_TEMPLATES.includes(templateId)) {
+    throw new HttpsError('invalid-argument', `Plantilla comercial no autorizada o no registrada: ${templateId}`);
+  }
+
+  const planKind = plan.planKind === 'free' ? 'free' : 'paid';
+  let monthlyPrice = Number(plan.monthlyPriceUSD ?? 0);
+  let annualPrice = Number(plan.annualPriceUSD ?? 0);
+
+  if (!Number.isFinite(monthlyPrice) || monthlyPrice < 0 || !Number.isFinite(annualPrice) || annualPrice < 0) {
+    throw new HttpsError('invalid-argument', 'Los precios deben ser valores numéricos válidos mayores o iguales a 0.');
+  }
+
+  let adsRequired = Boolean(plan.adsRequired);
+  let tierLevel = plan.tierLevel;
+
+  if (planKind === 'free') {
+    if (monthlyPrice !== 0 || annualPrice !== 0) {
+      throw new HttpsError('failed-precondition', 'Un plan gratuito debe tener precio mensual y anual exactamente 0.');
+    }
+    adsRequired = true;
+    tierLevel = undefined;
+  } else {
+    if (tierLevel !== undefined && ![1, 2, 3].includes(Number(tierLevel))) {
+      throw new HttpsError('invalid-argument', 'El tierLevel para un plan de pago debe ser 1, 2 o 3.');
+    }
+  }
+
+  if (status === 'published') {
+    if (planKind === 'free') {
+      const freePublishedSnap = await db.collection('platformPlans')
+        .where('templateId', '==', templateId)
+        .where('status', '==', 'published')
+        .get();
+      const otherFreePublished = freePublishedSnap.docs.filter(d => d.id !== planId && d.data().planKind === 'free');
+      if (otherFreePublished.length >= 1) {
+        throw new HttpsError('failed-precondition', 'Cada plantilla permite como máximo 1 Plan Gratuito publicado simultáneamente.');
+      }
+    } else {
+      const paidPublishedSnap = await db.collection('platformPlans')
+        .where('templateId', '==', templateId)
+        .where('status', '==', 'published')
+        .get();
+      const otherPaidPublished = paidPublishedSnap.docs.filter(d => d.id !== planId && d.data().planKind !== 'free');
+      if (otherPaidPublished.length >= 3) {
+        throw new HttpsError('failed-precondition', 'Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo.');
+      }
     }
   }
 
@@ -422,18 +496,31 @@ async function savePlan(db, request) {
 
   const payload = {
     ...plan,
+    id: planId,
+    name,
+    templateId,
+    planKind,
+    monthlyPriceUSD: monthlyPrice,
+    annualPriceUSD: annualPrice,
+    adsRequired,
+    status,
     updatedAt: now,
     updatedBy: actor.uid,
     createdAt: planSnap.exists ? (planSnap.data().createdAt || now) : now,
   };
+  if (tierLevel !== undefined) {
+    payload.tierLevel = Number(tierLevel);
+  } else {
+    delete payload.tierLevel;
+  }
 
   const batch = db.batch();
-  batch.set(planRef, payload, { merge: true });
+  batch.set(planRef, payload, { merge: false });
 
   auditPlatform(db, batch, actor, planSnap.exists ? 'plan.update' : 'plan.create', {
     resource: `platformPlans/${planId}`,
     reason: 'Guardado de configuración de plan comercial',
-    metadata: { planId, name: plan.name, status: plan.status, templateId },
+    metadata: { planId, name: plan.name, status, templateId, planKind },
   });
 
   await batch.commit();
@@ -470,12 +557,21 @@ async function saveTemplate(db, request) {
     throw new HttpsError('invalid-argument', 'Datos de plantilla inválidos.');
   }
   const templateId = cleanText(template.id, 'ID de plantilla', 1, 100);
+  if (!OFFICIAL_COMMERCIAL_TEMPLATES.includes(templateId)) {
+    throw new HttpsError('invalid-argument', `Plantilla comercial no autorizada o no registrada: ${templateId}`);
+  }
+
+  if (template.canonicalTemplateId !== undefined && !OFFICIAL_CANONICAL_TEMPLATE_IDS.includes(template.canonicalTemplateId)) {
+    throw new HttpsError('invalid-argument', `canonicalTemplateId no válido: ${template.canonicalTemplateId}`);
+  }
+
   const templateRef = db.doc(`platformTemplates/${templateId}`);
   const templateSnap = await templateRef.get();
   const now = FieldValue.serverTimestamp();
 
   const payload = {
     ...template,
+    id: templateId,
     updatedAt: now,
     updatedBy: actor.uid,
     createdAt: templateSnap.exists ? (templateSnap.data().createdAt || now) : now,
@@ -655,12 +751,13 @@ async function seedPlatformConfig(db, request) {
   // Templates
   if (Array.isArray(defaults.templates)) {
     for (const tpl of defaults.templates) {
-      if (!tpl.id) continue;
+      if (!tpl.id || !OFFICIAL_COMMERCIAL_TEMPLATES.includes(tpl.id)) continue;
       const ref = db.doc(`platformTemplates/${tpl.id}`);
       const snap = await ref.get();
       if (!snap.exists) {
         batch.set(ref, {
           ...tpl,
+          id: tpl.id,
           status: 'published',
           publishedAt: now,
           publishedBy: actor.uid,
@@ -693,12 +790,14 @@ async function seedPlatformConfig(db, request) {
   // Plans (Draft)
   if (Array.isArray(defaults.plans)) {
     for (const p of defaults.plans) {
-      if (!p.id) continue;
+      if (!p.id || !OFFICIAL_COMMERCIAL_TEMPLATES.includes(p.templateId)) continue;
       const ref = db.doc(`platformPlans/${p.id}`);
       const snap = await ref.get();
       if (!snap.exists) {
         batch.set(ref, {
           ...p,
+          id: p.id,
+          planKind: p.planKind === 'free' ? 'free' : 'paid',
           status: 'draft',
           updatedAt: now,
           updatedBy: actor.uid,

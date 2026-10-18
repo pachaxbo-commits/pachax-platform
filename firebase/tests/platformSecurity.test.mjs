@@ -188,7 +188,17 @@ try {
   await assertFails(setDoc(doc(contentClient, 'platformPlans', 'p_content_write'), { status: 'published', name: 'Hack Content' }))
   pass('platform_content no tiene permiso de escritura en platformPlans')
 
-  assert.equal(checks, 30)
+  // 6. Operador de plataforma (incluyendo owner) NO puede escribir directamente en colecciones platform por cliente (servidor autoritativo):
+  await assertFails(setDoc(doc(operatorClient, 'platformPlans', 'p_owner_direct'), { status: 'published', name: 'Direct Owner Write' }))
+  pass('operador Platform NO escribe directamente a platformPlans (servidor autoritativo estricto)')
+  await assertFails(setDoc(doc(operatorClient, 'platformAuditLogs', 'audit_client_write'), { action: 'audit.hack' }))
+  pass('operador Platform NO escribe directamente a platformAuditLogs')
+  await assertFails(setDoc(doc(operatorClient, 'platformTemplates', 't_owner_direct'), { status: 'published', name: 'Direct Template Write' }))
+  pass('operador Platform NO escribe directamente a platformTemplates')
+  await assertFails(setDoc(doc(operatorClient, 'platformConfig', 'publicLanding'), { status: 'published', title: 'Direct Config Write' }))
+  pass('operador Platform NO escribe directamente a platformConfig')
+
+  assert.equal(checks, 34)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()

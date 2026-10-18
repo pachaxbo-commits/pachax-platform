@@ -6,6 +6,7 @@ import { ActiveTemplateDetail } from './ActiveTemplateDetail'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../admin/types'
+import { canLaunchCommercialDemo } from '../../core/publicTemplates'
 
 interface HeroSectionProps {
   activeIndex: number
@@ -31,6 +32,9 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
   const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
 
   const handleSelectActiveCard = (template: CommercialTemplateItem) => {
+    if (!canLaunchCommercialDemo(template)) {
+      return
+    }
     if (template.id === 'restaurant' || template.templateId === 'restaurant') {
       setSelectedForModal(template)
       return

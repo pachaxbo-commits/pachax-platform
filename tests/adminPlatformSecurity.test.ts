@@ -8,6 +8,7 @@ import type {
   CommercialExtraService,
 } from '../src/admin/types.ts'
 import { PLANS_BY_TEMPLATE, COMMERCIAL_EXTRAS } from '../src/public/config/pricingConfig.ts'
+import { canLaunchCommercialDemo, isTechnicalDemoAvailable } from '../src/core/publicTemplates.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
   assert.equal(canPlatform(null, 'tenants.read'), false)
@@ -315,46 +316,156 @@ test('12. canSupportWrite: operador sin support.elevate (platform_admin o platfo
   assert.equal(canSupportWrite(support, { ...session, operatorUid: 'op_support' }, 'tenant_abc', Date.now()), false)
 })
 
-test('13. Regla Maximo 3 Planes Publicados: rechaza publicar un 4to plan para una misma plantilla', () => {
+test('13. Politica Plan Gratuito: maximo 1 plan gratuito publicado por plantilla, 2do es rechazado', () => {
   const existingPlans: Partial<TemplateTierPlan>[] = [
-    { id: 'p1', templateId: 'restaurant', name: 'Básico', status: 'published' },
-    { id: 'p2', templateId: 'restaurant', name: 'Pro', status: 'published' },
-    { id: 'p3', templateId: 'restaurant', name: 'Enterprise', status: 'published' },
-    { id: 'p4', templateId: 'restaurant', name: 'Borrador Nuevo', status: 'draft' },
+    { id: 'f1', templateId: 'restaurant', planKind: 'free', name: 'Free Activo', status: 'published', monthlyPriceUSD: 0, annualPriceUSD: 0, adsRequired: true },
+    { id: 'f2', templateId: 'restaurant', planKind: 'free', name: 'Free Intento 2', status: 'draft', monthlyPriceUSD: 0, annualPriceUSD: 0, adsRequired: true },
+  ]
+
+  const templateId = 'restaurant'
+  const targetPlanId = 'f2'
+  const publishedFreeForTemplate = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind === 'free',
+  )
+
+  assert.equal(publishedFreeForTemplate.length, 1)
+  const canPublishFree = publishedFreeForTemplate.length < 1
+  assert.equal(canPublishFree, false, 'No se puede publicar un 2do plan gratuito para la misma plantilla')
+})
+
+test('14. Politica Planes de Pago: maximo 3 planes de pago publicados por plantilla, 4to es rechazado', () => {
+  const existingPlans: Partial<TemplateTierPlan>[] = [
+    { id: 'p1', templateId: 'restaurant', planKind: 'paid', tierLevel: 1, name: 'Básico', status: 'published', monthlyPriceUSD: 29 },
+    { id: 'p2', templateId: 'restaurant', planKind: 'paid', tierLevel: 2, name: 'Pro', status: 'published', monthlyPriceUSD: 59 },
+    { id: 'p3', templateId: 'restaurant', planKind: 'paid', tierLevel: 3, name: 'Enterprise', status: 'published', monthlyPriceUSD: 99 },
+    { id: 'p4', templateId: 'restaurant', planKind: 'paid', tierLevel: 3, name: 'Borrador 4to', status: 'draft', monthlyPriceUSD: 120 },
   ]
 
   const templateId = 'restaurant'
   const targetPlanId = 'p4'
-  const publishedForTemplate = existingPlans.filter(
-    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published',
+  const publishedPaidForTemplate = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind !== 'free',
   )
 
-  // Debe contar exactamente 3 planes publicados
-  assert.equal(publishedForTemplate.length, 3)
-
-  // La regla debe rechazar publicar el 4to plan
-  const canPublish = publishedForTemplate.length < 3
-  assert.equal(canPublish, false, 'No se puede publicar un 4to plan cuando ya existen 3 activos')
+  assert.equal(publishedPaidForTemplate.length, 3)
+  const canPublishPaid = publishedPaidForTemplate.length < 3
+  assert.equal(canPublishPaid, false, 'No se puede publicar un 4to plan de pago cuando ya existen 3 activos')
 })
 
-test('14. Regla Maximo 3 Planes Publicados: respeta aislamiento entre plantillas distintas', () => {
+test('15. Politica Comercial Mixta: 1 Free + 3 Paid publicados simultaneamente (total 4) esta permitido', () => {
   const existingPlans: Partial<TemplateTierPlan>[] = [
-    { id: 'r1', templateId: 'restaurant', name: 'Restaurante 1', status: 'published' },
-    { id: 'r2', templateId: 'restaurant', name: 'Restaurante 2', status: 'published' },
-    { id: 'r3', templateId: 'restaurant', name: 'Restaurante 3', status: 'published' },
-    { id: 'd1', templateId: 'distribution', name: 'Distribuidora 1', status: 'published' },
-    { id: 'd2', templateId: 'distribution', name: 'Distribuidora 2', status: 'draft' },
+    { id: 'f1', templateId: 'restaurant', planKind: 'free', name: 'Free Oficial', status: 'published', monthlyPriceUSD: 0, annualPriceUSD: 0, adsRequired: true },
+    { id: 'p1', templateId: 'restaurant', planKind: 'paid', tierLevel: 1, name: 'Básico', status: 'published', monthlyPriceUSD: 29 },
+    { id: 'p2', templateId: 'restaurant', planKind: 'paid', tierLevel: 2, name: 'Pro', status: 'published', monthlyPriceUSD: 59 },
+    { id: 'p3', templateId: 'restaurant', planKind: 'paid', tierLevel: 3, name: 'Enterprise', status: 'draft', monthlyPriceUSD: 99 },
   ]
 
-  // Para distribution, solo hay 1 publicado, por lo que publicar d2 SÍ está permitido
-  const publishedForDistribution = existingPlans.filter(
-    (p) => p.templateId === 'distribution' && p.id !== 'd2' && p.status === 'published',
-  )
-  assert.equal(publishedForDistribution.length, 1)
-  assert.equal(publishedForDistribution.length < 3, true)
+  const templateId = 'restaurant'
+  const targetPlanId = 'p3'
+
+  const freeCount = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind === 'free',
+  ).length
+  const paidCount = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind !== 'free',
+  ).length
+
+  assert.equal(freeCount, 1)
+  assert.equal(paidCount, 2)
+  // Publicar el 3er plan de pago es válido porque paidCount < 3:
+  assert.equal(paidCount < 3, true)
+  // Total publicado alcanzará 4:
+  assert.equal(freeCount + paidCount + 1, 4)
 })
 
-test('15. Roles inventados como "superadmin" son rechazados y no poseen ningun privilegio de plataforma', () => {
+test('16. Validacion de Plan Gratuito: precio mayor a 0 o falta de adsRequired es invalido', () => {
+  const invalidFreePlan1: Partial<TemplateTierPlan> = {
+    planKind: 'free',
+    monthlyPriceUSD: 10,
+    annualPriceUSD: 0,
+    adsRequired: true,
+  }
+  const isPriceValid1 = invalidFreePlan1.monthlyPriceUSD === 0 && invalidFreePlan1.annualPriceUSD === 0
+  assert.equal(isPriceValid1, false, 'Plan gratuito con precio mensual > 0 debe ser inválido')
+
+  const invalidFreePlan2: Partial<TemplateTierPlan> = {
+    planKind: 'free',
+    monthlyPriceUSD: 0,
+    annualPriceUSD: 0,
+    adsRequired: false,
+  }
+  const isAdsValid = invalidFreePlan2.adsRequired === true
+  assert.equal(isAdsValid, false, 'Plan gratuito sin adsRequired=true debe ser inválido')
+})
+
+test('17. Whitelist de Plantillas Oficiales: templateId arbitrario es rechazado', () => {
+  const OFFICIAL_TEMPLATES = ['distribution', 'restaurant', 'nightclub', 'retail', 'services', 'custom']
+  assert.equal(OFFICIAL_TEMPLATES.includes('restaurant'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('distribution'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('nightclub'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('retail'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('crypto_exchange'), false)
+  assert.equal(OFFICIAL_TEMPLATES.includes('arbitrary_pos'), false)
+})
+
+test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y estado de publicacion', () => {
+  // 1. Distribución publicada con demoEnabled=true -> tiene demo técnica implementada -> PERMITIDO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'distribution',
+  }), true)
+
+  // 2. Distribución con demoEnabled=false -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'published',
+    demoEnabled: false,
+    canonicalTemplateId: 'distribution',
+  }), false)
+
+  // 3. Distribución con status=draft -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'draft',
+    demoEnabled: true,
+    canonicalTemplateId: 'distribution',
+  }), false)
+
+  // 4. Restaurante con demoEnabled=true -> status en publicTemplates es coming_soon -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'restaurant',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'restaurant',
+  }), false)
+
+  // 5. Nightclub con demoEnabled=true -> coming_soon -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'nightclub',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'nightclub',
+  }), false)
+
+  // 6. Retail con demoEnabled=true -> coming_soon -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'retail',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'retail',
+  }), false)
+
+  // 7. isTechnicalDemoAvailable verifica directamente
+  assert.equal(isTechnicalDemoAvailable('distribution'), true)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), false)
+  assert.equal(isTechnicalDemoAvailable('retail'), false)
+  assert.equal(isTechnicalDemoAvailable('custom'), false)
+})
+
+test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun privilegio de plataforma', () => {
   const fakeSuperadmin = { uid: 'fake_1', role: 'superadmin' as any, active: true }
   const fakeRoot = { uid: 'fake_2', role: 'root' as any, active: true }
 

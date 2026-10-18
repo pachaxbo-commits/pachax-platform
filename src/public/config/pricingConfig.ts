@@ -20,11 +20,14 @@ export interface PlanFeatureItem {
   highlight?: boolean
 }
 
+export type PlanKind = 'free' | 'paid'
+
 export interface TemplateTierPlan {
   id: string
   templateId: TemplateKey
   name: string
-  tierLevel: 1 | 2 | 3
+  planKind?: PlanKind
+  tierLevel?: 1 | 2 | 3
   /* DEMO_PLACEHOLDER: precio de referencia visual no oficial */
   monthlyPriceUSD: number
   annualPriceUSD: number
@@ -32,6 +35,7 @@ export interface TemplateTierPlan {
   billingPeriod: 'monthly' | 'annual'
   badge?: string // Ej. 'Más popular' o 'Recomendado'
   isPopular?: boolean
+  adsRequired?: boolean
   clientProfile: string // Para quién sirve / breve perfil de cliente
   limitsLabel?: string // Límites si existen (ej. '1 estación', 'Hasta 3 camiones', etc.)
   includedFeatures: string[]

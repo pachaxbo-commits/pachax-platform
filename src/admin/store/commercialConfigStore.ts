@@ -20,13 +20,9 @@ import {
   doc,
   getDoc,
   getDocs,
-  setDoc,
   collection,
   query,
   where,
-  serverTimestamp,
-  addDoc,
-  runTransaction,
 } from 'firebase/firestore'
 
 const STORAGE_KEY = 'pachax_commercial_config_v2'
@@ -112,7 +108,12 @@ function flattenDefaultPlans(): TemplateTierPlan[] {
   for (const k of keys) {
     const list = PLANS_BY_TEMPLATE[k]
     if (list) {
-      result.push(...list)
+      for (const p of list) {
+        result.push({
+          ...p,
+          planKind: p.planKind || 'paid',
+        })
+      }
     }
   }
   return result
@@ -195,25 +196,6 @@ export function saveCommercialConfig(config: StoredCommercialConfig): void {
     notifyUpdate()
   } catch (err) {
     console.error('Error guardando configuración comercial en almacenamiento local:', err)
-  }
-}
-
-// Registrar auditoría administrativa en Firestore
-async function logPlatformAudit(action: string, resource: string, metadata?: Record<string, unknown>) {
-  try {
-    const ctx = await getFirebaseContext()
-    const user = ctx?.auth.currentUser
-    if (ctx && user) {
-      await addDoc(collection(ctx.db, 'platformAuditLogs'), {
-        operatorUid: user.uid,
-        action,
-        resource,
-        metadata: metadata || null,
-        createdAt: serverTimestamp(),
-      })
-    }
-  } catch (err) {
-    console.warn('Auditoría platform no registrada en este entorno:', err)
   }
 }
 
@@ -394,110 +376,16 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
 export async function seedDefaultsToFirestore(): Promise<{ success: boolean; message: string }> {
   try {
     const defaults = getDefaultConfig()
-    try {
-      const serverRes = await gateway<{ success: boolean; message: string }>('platformGateway', {
-        action: 'seedPlatformConfig',
-        defaults,
-      })
-      if (serverRes?.success) {
-        return serverRes
-      }
-    } catch (gateErr) {
-      console.warn('Fallback a transacción cliente para inicialización:', gateErr)
-    }
-
-    const ctx = await getFirebaseContext()
-    if (!ctx) return { success: false, message: 'Firebase no configurado.' }
-    const claims = await ctx.auth.currentUser?.getIdTokenResult(true)
-    if (claims?.claims.platform !== true || !['platform_owner', 'platform_admin'].includes(String(claims.claims.platformRole))) {
-      return { success: false, message: 'La inicialización requiere Platform Owner o Platform Admin.' }
-    }
-
-    const now = new Date().toISOString()
-    const userUid = ctx.auth.currentUser?.uid || 'system_bootstrap'
-    const seedMissing = async (ref: ReturnType<typeof doc>, value: Record<string, unknown>) => {
-      await runTransaction(ctx.db, async transaction => {
-        if (!(await transaction.get(ref)).exists()) transaction.set(ref, value)
-      })
-    }
-
-    // 1. Landing (Published)
-    await seedMissing(
-      doc(ctx.db, 'platformConfig', 'publicLanding'),
-      {
-        ...defaults.landingContent,
-        status: 'published',
-        publishedAt: now,
-        publishedBy: userUid,
-        updatedAt: now,
-      },
-    )
-
-    // 2. Templates (Published si corresponden a las vitrinas actuales)
-    for (const item of defaults.templates) {
-      await seedMissing(
-        doc(ctx.db, 'platformTemplates', item.id),
-        {
-          ...item,
-          status: 'published',
-          publishedAt: now,
-          publishedBy: userUid,
-          updatedAt: now,
-        },
-      )
-    }
-
-    // 3. Media (Published)
-    for (const item of defaults.mediaAssets) {
-      await seedMissing(
-        doc(ctx.db, 'platformMedia', item.id),
-        {
-          ...item,
-          status: 'published',
-          publishedAt: now,
-          publishedBy: userUid,
-          updatedAt: now,
-        },
-      )
-    }
-
-    // 4. PLANES COMERCIALES: ESTRICTAMENTE DRAFT (PRECIOS NO DEFINITIVOS)
-    for (const item of defaults.plans) {
-      await seedMissing(
-        doc(ctx.db, 'platformPlans', item.id),
-        {
-          ...item,
-          status: 'draft',
-          updatedAt: now,
-          updatedBy: userUid,
-        },
-      )
-    }
-
-    // 5. Extras con importes referenciales en draft; cotización a medida sin importe permanece publicada.
-    for (const item of defaults.extras) {
-      await seedMissing(
-        doc(ctx.db, 'platformExtras', item.id),
-        {
-          ...item,
-          status: item.pricingType === 'custom_quote' ? 'published' : 'draft',
-          updatedAt: now,
-          updatedBy: userUid,
-        },
-      )
-    }
-
-    await logPlatformAudit('platform.config.seed', 'platformConfig/publicLanding', {
-      templatesCount: defaults.templates.length,
-      plansSeededAsDraft: defaults.plans.length,
+    const serverRes = await gateway<{ success: boolean; message: string }>('platformGateway', {
+      action: 'seedPlatformConfig',
+      defaults,
     })
-
-    return {
-      success: true,
-      message: 'Configuración oficial inicializada: planes y extras con importes en borrador; cotización a medida publicada sin precio fijo.',
+    if (serverRes?.success) {
+      return serverRes
     }
+    return { success: false, message: serverRes?.message || 'Error al inicializar configuración en el servidor.' }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Error sembrando datos en Firestore.'
+    const message = err instanceof Error ? err.message : 'Error comunicando con el servidor de plataforma.'
     return { success: false, message }
   }
 }
@@ -521,27 +409,9 @@ export async function updateTemplateInStore(
     const current = loadCommercialConfig()
     const idx = current.templates.findIndex((t) => t.id === id)
     const existing = idx >= 0 ? current.templates[idx] : {}
-    const updated = { ...existing, ...updates }
+    const updated = { ...existing, ...updates, id }
 
-    try {
-      await gateway('platformGateway', { action: 'saveTemplate', template: updated })
-    } catch (gateErr) {
-      console.warn('Backend saveTemplate no disponible, aplicando mutación directa Firestore:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-
-      const payload: Record<string, unknown> = {
-        ...updated,
-        updatedAt: new Date().toISOString(),
-        updatedBy: ctx.auth.currentUser?.uid || null,
-      }
-      if (updates.status === 'published') {
-        payload.publishedAt = new Date().toISOString()
-        payload.publishedBy = ctx.auth.currentUser?.uid || null
-      }
-      await setDoc(doc(ctx.db, 'platformTemplates', id), payload, { merge: true })
-      await logPlatformAudit('template.update', `platformTemplates/${id}`, { status: updates.status })
-    }
+    await gateway('platformGateway', { action: 'saveTemplate', template: updated })
 
     if (idx >= 0) {
       current.templates[idx] = updated as CommercialTemplateItem
@@ -549,8 +419,8 @@ export async function updateTemplateInStore(
     }
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al guardar plantilla en Firestore.'
-    console.error('Error persistiendo template en Firestore:', err)
+    const error = err instanceof Error ? err.message : 'Error al guardar plantilla en el servidor.'
+    console.error('Error persistiendo template en el servidor:', err)
     return { success: false, error }
   }
 }
@@ -563,17 +433,35 @@ export async function updatePlanInStore(
     const current = loadCommercialConfig()
     const idx = current.plans.findIndex((p) => p.id === id)
     const existing = idx >= 0 ? current.plans[idx] : {}
-    const updated = { ...existing, ...updates }
+    const updated = { ...existing, ...updates, id }
 
-    // Validación límite 3 planes activos por template
+    // Validación límite de planes activos por template (máx 1 gratuito, máx 3 de pago)
     if (updated.status === 'published' && updated.templateId) {
-      const activeCount = current.plans.filter(
-        (p) => p.templateId === updated.templateId && p.id !== id && p.status === 'published',
-      ).length
-      if (activeCount >= 3) {
-        return {
-          success: false,
-          error: 'Cada plantilla permite un máximo de 3 planes activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
+      if (updated.planKind === 'free') {
+        const freeCount = current.plans.filter(
+          (p) => p.templateId === updated.templateId && p.id !== id && p.status === 'published' && p.planKind === 'free',
+        ).length
+        if (freeCount >= 1) {
+          return {
+            success: false,
+            error: 'Cada plantilla permite un máximo de 1 plan gratuito activo publicado simultáneamente en el catálogo.',
+          }
+        }
+        if ((updated.monthlyPriceUSD || 0) > 0 || (updated.annualPriceUSD || 0) > 0) {
+          return {
+            success: false,
+            error: 'El plan gratuito debe tener precio 0.',
+          }
+        }
+      } else {
+        const paidCount = current.plans.filter(
+          (p) => p.templateId === updated.templateId && p.id !== id && p.status === 'published' && p.planKind !== 'free',
+        ).length
+        if (paidCount >= 3) {
+          return {
+            success: false,
+            error: 'Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
+          }
         }
       }
     }
@@ -587,8 +475,8 @@ export async function updatePlanInStore(
     }
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al guardar plan en Firestore.'
-    console.error('Error persistiendo plan en Firestore:', err)
+    const error = err instanceof Error ? err.message : 'Error al guardar plan en el servidor.'
+    console.error('Error persistiendo plan en el servidor:', err)
     return { success: false, error }
   }
 }
@@ -604,15 +492,27 @@ export async function togglePublishPlanInStore(
     const current = loadCommercialConfig()
     const targetPlan = current.plans.find((p) => p.id === planId)
 
-    // Validación de seguridad: máximo 3 planes activos publicados por template
+    // Validación de seguridad: máximo 1 plan gratuito y máximo 3 planes de pago publicados por template
     if (targetStatus === 'published' && targetPlan) {
-      const publishedCount = current.plans.filter(
-        (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published',
-      ).length
-      if (publishedCount >= 3) {
-        return {
-          success: false,
-          error: 'Cada plantilla permite un máximo de 3 planes activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
+      if (targetPlan.planKind === 'free') {
+        const publishedFreeCount = current.plans.filter(
+          (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published' && p.planKind === 'free',
+        ).length
+        if (publishedFreeCount >= 1) {
+          return {
+            success: false,
+            error: 'Cada plantilla permite un máximo de 1 plan gratuito activo publicado simultáneamente en el catálogo.',
+          }
+        }
+      } else {
+        const publishedPaidCount = current.plans.filter(
+          (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published' && p.planKind !== 'free',
+        ).length
+        if (publishedPaidCount >= 3) {
+          return {
+            success: false,
+            error: 'Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
+          }
         }
       }
     }
@@ -648,7 +548,7 @@ export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ succe
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al crear plan en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al crear plan en el servidor.'
     return { success: false, error }
   }
 }
@@ -662,7 +562,7 @@ export async function deletePlanInStore(id: string): Promise<{ success: boolean;
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al eliminar plan en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al eliminar plan en el servidor.'
     return { success: false, error }
   }
 }
@@ -675,26 +575,9 @@ export async function updateExtraInStore(
     const current = loadCommercialConfig()
     const idx = current.extras.findIndex((e) => e.id === id)
     const existing = idx >= 0 ? current.extras[idx] : {}
-    const updated = { ...existing, ...updates }
+    const updated = { ...existing, ...updates, id }
 
-    try {
-      await gateway('platformGateway', { action: 'saveExtra', extra: updated })
-    } catch (gateErr) {
-      console.warn('Backend saveExtra no disponible, aplicando mutación directa Firestore:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-
-      await setDoc(
-        doc(ctx.db, 'platformExtras', id),
-        {
-          ...updated,
-          updatedAt: new Date().toISOString(),
-          updatedBy: ctx.auth.currentUser?.uid || null,
-        },
-        { merge: true },
-      )
-      await logPlatformAudit('extra.update', `platformExtras/${id}`, { status: updates.status })
-    }
+    await gateway('platformGateway', { action: 'saveExtra', extra: updated })
 
     if (idx >= 0) {
       current.extras[idx] = updated as CommercialExtraService
@@ -702,7 +585,7 @@ export async function updateExtraInStore(
     }
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al guardar extra en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al guardar extra en el servidor.'
     return { success: false, error }
   }
 }
@@ -712,51 +595,28 @@ export async function createExtraInStore(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const draftExtra: CommercialExtraService = { ...extra, status: 'draft' }
-    try {
-      await gateway('platformGateway', { action: 'saveExtra', extra: draftExtra })
-    } catch (gateErr) {
-      console.warn('Backend saveExtra no disponible, aplicando mutación directa Firestore:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-
-      await setDoc(doc(ctx.db, 'platformExtras', draftExtra.id), {
-        ...draftExtra,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        updatedBy: ctx.auth.currentUser?.uid || null,
-      })
-      await logPlatformAudit('extra.create', `platformExtras/${draftExtra.id}`, { status: 'draft' })
-    }
+    await gateway('platformGateway', { action: 'saveExtra', extra: draftExtra })
 
     const current = loadCommercialConfig()
     current.extras.push(draftExtra)
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al crear servicio extra en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al crear servicio extra en el servidor.'
     return { success: false, error }
   }
 }
 
 export async function deleteExtraInStore(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    try {
-      await gateway('platformGateway', { action: 'deleteExtra', extraId: id })
-    } catch (gateErr) {
-      console.warn('Backend deleteExtra no disponible, aplicando eliminación directa:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-      const { deleteDoc } = await import('firebase/firestore')
-      await deleteDoc(doc(ctx.db, 'platformExtras', id))
-      await logPlatformAudit('extra.delete', `platformExtras/${id}`)
-    }
+    await gateway('platformGateway', { action: 'deleteExtra', extraId: id })
 
     const current = loadCommercialConfig()
     current.extras = current.extras.filter((e) => e.id !== id)
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al eliminar servicio extra en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al eliminar servicio extra en el servidor.'
     return { success: false, error }
   }
 }
@@ -768,30 +628,13 @@ export async function updateLandingContentInStore(
     const current = loadCommercialConfig()
     const updatedContent = { ...current.landingContent, ...updates }
 
-    try {
-      await gateway('platformGateway', { action: 'saveLandingContent', content: updatedContent })
-    } catch (gateErr) {
-      console.warn('Backend saveLandingContent no disponible, aplicando mutación directa:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-
-      await setDoc(
-        doc(ctx.db, 'platformConfig', 'publicLanding'),
-        {
-          ...updatedContent,
-          updatedAt: new Date().toISOString(),
-          updatedBy: ctx.auth.currentUser?.uid || null,
-        },
-        { merge: true },
-      )
-      await logPlatformAudit('landing.update', 'platformConfig/publicLanding')
-    }
+    await gateway('platformGateway', { action: 'saveLandingContent', content: updatedContent })
 
     current.landingContent = updatedContent
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al guardar contenido en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al guardar contenido en el servidor.'
     return { success: false, error }
   }
 }
@@ -804,26 +647,9 @@ export async function updateMediaAssetInStore(
     const current = loadCommercialConfig()
     const idx = current.mediaAssets.findIndex((m) => m.id === id)
     const existing = idx >= 0 ? current.mediaAssets[idx] : {}
-    const updated = { ...existing, ...updates }
+    const updated = { ...existing, ...updates, id }
 
-    try {
-      await gateway('platformGateway', { action: 'saveMediaAsset', asset: updated })
-    } catch (gateErr) {
-      console.warn('Backend saveMediaAsset no disponible, aplicando mutación directa:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-
-      await setDoc(
-        doc(ctx.db, 'platformMedia', id),
-        {
-          ...updated,
-          updatedAt: new Date().toISOString(),
-          updatedBy: ctx.auth.currentUser?.uid || null,
-        },
-        { merge: true },
-      )
-      await logPlatformAudit('media.update', `platformMedia/${id}`)
-    }
+    await gateway('platformGateway', { action: 'saveMediaAsset', asset: updated })
 
     if (idx >= 0) {
       current.mediaAssets[idx] = updated as MediaAssetItem
@@ -831,7 +657,7 @@ export async function updateMediaAssetInStore(
     }
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al guardar asset en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al guardar asset en el servidor.'
     return { success: false, error }
   }
 }
@@ -840,50 +666,28 @@ export async function createMediaAssetInStore(
   asset: MediaAssetItem,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    try {
-      await gateway('platformGateway', { action: 'saveMediaAsset', asset })
-    } catch (gateErr) {
-      console.warn('Backend saveMediaAsset no disponible, aplicando guardado directo:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-      await setDoc(doc(ctx.db, 'platformMedia', asset.id), {
-        ...asset,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        updatedBy: ctx.auth.currentUser?.uid || null,
-      })
-      await logPlatformAudit('media.create', `platformMedia/${asset.id}`)
-    }
+    await gateway('platformGateway', { action: 'saveMediaAsset', asset })
 
     const current = loadCommercialConfig()
     current.mediaAssets.push(asset)
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al registrar asset multimedia en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al registrar asset multimedia en el servidor.'
     return { success: false, error }
   }
 }
 
 export async function deleteMediaAssetInStore(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    try {
-      await gateway('platformGateway', { action: 'deleteMediaAsset', assetId: id })
-    } catch (gateErr) {
-      console.warn('Backend deleteMediaAsset no disponible, aplicando eliminación directa:', gateErr)
-      const ctx = await getFirebaseContext()
-      if (!ctx) throw new Error('Firebase no conectado.')
-      const { deleteDoc } = await import('firebase/firestore')
-      await deleteDoc(doc(ctx.db, 'platformMedia', id))
-      await logPlatformAudit('media.delete', `platformMedia/${id}`)
-    }
+    await gateway('platformGateway', { action: 'deleteMediaAsset', assetId: id })
 
     const current = loadCommercialConfig()
     current.mediaAssets = current.mediaAssets.filter((m) => m.id !== id)
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
-    const error = err instanceof Error ? err.message : 'Error al eliminar asset multimedia en Firestore.'
+    const error = err instanceof Error ? err.message : 'Error al eliminar asset multimedia en el servidor.'
     return { success: false, error }
   }
 }

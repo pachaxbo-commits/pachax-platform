@@ -66,3 +66,21 @@ export function getPublicTemplate(idOrBusinessType: string): PublicTemplateDefin
   if (!template) throw new Error('Plantilla pública no reconocida.')
   return template
 }
+
+export function isTechnicalDemoAvailable(idOrBusinessType: string): boolean {
+  const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
+  return template?.status === 'available'
+}
+
+export function canLaunchCommercialDemo(template: {
+  status: string
+  demoEnabled?: boolean
+  canonicalTemplateId?: string | null
+  templateId?: string
+  id?: string
+}): boolean {
+  if (template.status !== 'published') return false
+  if (template.demoEnabled !== true) return false
+  const targetId = template.canonicalTemplateId || template.templateId || template.id || ''
+  return isTechnicalDemoAvailable(targetId)
+}

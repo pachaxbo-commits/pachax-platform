@@ -1,5 +1,6 @@
 import { ArrowRight, Eye } from 'lucide-react'
 import type { CommercialTemplateItem } from '../../admin/types'
+import { canLaunchCommercialDemo } from '../../core/publicTemplates'
 import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 
@@ -20,6 +21,9 @@ export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateD
   }
 
   const handleViewDetails = () => {
+    if (!canLaunchCommercialDemo(template)) {
+      return
+    }
     if (onSelectDemo) {
       onSelectDemo(template)
       return
@@ -83,14 +87,26 @@ export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateD
 
         {/* Acciones de la Plantilla Activa */}
         <div className="w-full sm:w-auto shrink-0 flex flex-row sm:flex-col gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-          <button
-            type="button"
-            onClick={handleViewDetails}
-            className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs active:scale-98"
-          >
-            <Eye className="w-3.5 h-3.5 text-slate-500" />
-            <span>Ver demostración</span>
-          </button>
+          {canLaunchCommercialDemo(template) ? (
+            <button
+              type="button"
+              onClick={handleViewDetails}
+              className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs active:scale-98"
+            >
+              <Eye className="w-3.5 h-3.5 text-slate-500" />
+              <span>Ver demostración</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-400 text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
+              title="Demostración interactiva en desarrollo"
+            >
+              <Eye className="w-3.5 h-3.5 text-slate-400" />
+              <span>Demo próximamente</span>
+            </button>
+          )}
 
           <button
             type="button"
