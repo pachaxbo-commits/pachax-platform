@@ -17,6 +17,7 @@ import {
 import { BrandMark } from '../public/components/BrandMark'
 import { gateway } from '../services/gateway'
 import type { BusinessType } from '../core/platform'
+import { isTemplateProvisioningAvailable } from '../core/publicTemplates'
 
 interface OnboardingWizardProps {
   userEmail: string | null
@@ -56,40 +57,40 @@ const AVAILABLE_TEMPLATES: TemplateOption[] = [
     title: 'Producción y Distribución',
     subtitle: 'Rutas móviles, despachos, ventas, inventario por lotes y cobranza de créditos.',
     icon: Truck,
-    status: 'available',
-    badge: 'Disponible',
+    status: isTemplateProvisioningAvailable('route_distribution') ? 'available' : 'coming_soon',
+    badge: isTemplateProvisioningAvailable('route_distribution') ? 'Disponible' : 'Próximamente',
   },
   {
     type: 'restaurant_pos',
     title: 'Restaurante con salón',
     subtitle: 'Mesas, comandas, cocina, cuentas abiertas, caja y servicio de atención en salón.',
     icon: Utensils,
-    status: 'available',
-    badge: 'Disponible',
+    status: isTemplateProvisioningAvailable('restaurant_pos') ? 'available' : 'coming_soon',
+    badge: isTemplateProvisioningAvailable('restaurant_pos') ? 'Disponible' : 'Próximamente',
   },
   {
     type: 'hamburger_shop',
     title: 'Restaurante servicio rápido',
     subtitle: 'Mostrador, pedidos rápidos de cocina, para llevar y delivery.',
     icon: Utensils,
-    status: 'available',
-    badge: 'Disponible',
+    status: isTemplateProvisioningAvailable('hamburger_shop') ? 'available' : 'coming_soon',
+    badge: isTemplateProvisioningAvailable('hamburger_shop') ? 'Disponible' : 'Próximamente',
   },
   {
     type: 'nightclub_lounge',
     title: 'Club nocturno / Lounge',
     subtitle: 'Mesas, barra, rondas de consumo, cuentas abiertas y control nocturno.',
     icon: Music2,
-    status: 'available',
-    badge: 'Disponible',
+    status: isTemplateProvisioningAvailable('nightclub_lounge') ? 'available' : 'coming_soon',
+    badge: isTemplateProvisioningAvailable('nightclub_lounge') ? 'Disponible' : 'Próximamente',
   },
   {
     type: 'gelateria_weight_cafe',
     title: 'Comercio / Venta rápida',
     subtitle: 'Venta por peso y unidad de mostrador con caja e inventario.',
     icon: Store,
-    status: 'coming_soon',
-    badge: 'Próximamente',
+    status: isTemplateProvisioningAvailable('gelateria_weight_cafe') ? 'available' : 'coming_soon',
+    badge: isTemplateProvisioningAvailable('gelateria_weight_cafe') ? 'Disponible' : 'Próximamente',
   },
 ]
 
@@ -130,8 +131,7 @@ export function OnboardingWizard({
   }
 
   const handleNextStep2 = () => {
-    const templateDef = AVAILABLE_TEMPLATES.find(t => t.type === selectedTemplate)
-    if (templateDef?.status !== 'available') {
+    if (!isTemplateProvisioningAvailable(selectedTemplate)) {
       setError('La plantilla seleccionada está en proceso de consolidación. Selecciona una plantilla disponible.')
       return
     }
@@ -146,6 +146,10 @@ export function OnboardingWizard({
 
   const handleCreateTenant = async () => {
     if (isSubmitting) return
+    if (!isTemplateProvisioningAvailable(selectedTemplate)) {
+      setError('La plantilla seleccionada no está disponible para creación de empresas en este momento.')
+      return
+    }
     setError(null)
     setIsSubmitting(true)
 

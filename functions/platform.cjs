@@ -351,6 +351,7 @@ async function getPlatformStats(db, request) {
 }
 
 const OFFICIAL_COMMERCIAL_TEMPLATES = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', 'custom']);
+const PLAN_ELIGIBLE_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail']);
 const OFFICIAL_CANONICAL_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', null]);
 
 async function publishPlan(db, request) {
@@ -370,8 +371,8 @@ async function publishPlan(db, request) {
 
   const planData = planSnap.data();
   const templateId = planData.templateId;
-  if (!templateId || !OFFICIAL_COMMERCIAL_TEMPLATES.includes(templateId)) {
-    throw new HttpsError('invalid-argument', `Plantilla comercial no válida: ${templateId}`);
+  if (!templateId || !PLAN_ELIGIBLE_TEMPLATE_IDS.includes(templateId)) {
+    throw new HttpsError('invalid-argument', `Plantilla no elegible para planes de suscripción: ${templateId}`);
   }
 
   const planKind = planData.planKind === 'free' ? 'free' : 'paid';
@@ -441,8 +442,8 @@ async function savePlan(db, request) {
   }
 
   const templateId = cleanText(plan.templateId, 'ID de plantilla', 1, 50);
-  if (!OFFICIAL_COMMERCIAL_TEMPLATES.includes(templateId)) {
-    throw new HttpsError('invalid-argument', `Plantilla comercial no autorizada o no registrada: ${templateId}`);
+  if (!PLAN_ELIGIBLE_TEMPLATE_IDS.includes(templateId)) {
+    throw new HttpsError('invalid-argument', `Plantilla no elegible para planes de suscripción: ${templateId}`);
   }
 
   const planKind = plan.planKind === 'free' ? 'free' : 'paid';
@@ -755,15 +756,19 @@ async function seedPlatformConfig(db, request) {
       const ref = db.doc(`platformTemplates/${tpl.id}`);
       const snap = await ref.get();
       if (!snap.exists) {
-        batch.set(ref, {
+        const templateStatus = tpl.status === 'published' ? 'published' : 'draft';
+        const docData = {
           ...tpl,
           id: tpl.id,
-          status: 'published',
-          publishedAt: now,
-          publishedBy: actor.uid,
+          status: templateStatus,
           updatedAt: now,
           updatedBy: actor.uid,
-        });
+        };
+        if (templateStatus === 'published') {
+          docData.publishedAt = now;
+          docData.publishedBy = actor.uid;
+        }
+        batch.set(ref, docData);
       }
     }
   }
@@ -790,7 +795,7 @@ async function seedPlatformConfig(db, request) {
   // Plans (Draft)
   if (Array.isArray(defaults.plans)) {
     for (const p of defaults.plans) {
-      if (!p.id || !OFFICIAL_COMMERCIAL_TEMPLATES.includes(p.templateId)) continue;
+      if (!p.id || !PLAN_ELIGIBLE_TEMPLATE_IDS.includes(p.templateId)) continue;
       const ref = db.doc(`platformPlans/${p.id}`);
       const snap = await ref.get();
       if (!snap.exists) {
@@ -886,4 +891,6 @@ module.exports = {
   supportUpdateSettings,
   endSupport,
   queryAudit,
+  OFFICIAL_COMMERCIAL_TEMPLATES,
+  PLAN_ELIGIBLE_TEMPLATE_IDS,
 };

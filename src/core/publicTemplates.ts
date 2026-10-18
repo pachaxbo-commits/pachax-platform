@@ -61,6 +61,9 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
   },
 ])
 
+export const OFFICIAL_COMMERCIAL_TEMPLATES = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', 'custom'] as const)
+export const PLAN_ELIGIBLE_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail'] as const)
+
 export function getPublicTemplate(idOrBusinessType: string): PublicTemplateDefinition {
   const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
   if (!template) throw new Error('Plantilla pública no reconocida.')
@@ -68,6 +71,11 @@ export function getPublicTemplate(idOrBusinessType: string): PublicTemplateDefin
 }
 
 export function isTechnicalDemoAvailable(idOrBusinessType: string): boolean {
+  const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
+  return template?.status === 'available'
+}
+
+export function isTemplateProvisioningAvailable(idOrBusinessType: string): boolean {
   const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
   return template?.status === 'available'
 }
@@ -80,7 +88,8 @@ export function canLaunchCommercialDemo(template: {
   id?: string
 }): boolean {
   if (template.status !== 'published') return false
-  if (template.demoEnabled !== true) return false
+  if (template.demoEnabled === false) return false
   const targetId = template.canonicalTemplateId || template.templateId || template.id || ''
-  return isTechnicalDemoAvailable(targetId)
+  if (!isTechnicalDemoAvailable(targetId)) return false
+  return true
 }

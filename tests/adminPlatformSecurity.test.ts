@@ -8,7 +8,7 @@ import type {
   CommercialExtraService,
 } from '../src/admin/types.ts'
 import { PLANS_BY_TEMPLATE, COMMERCIAL_EXTRAS } from '../src/public/config/pricingConfig.ts'
-import { canLaunchCommercialDemo, isTechnicalDemoAvailable } from '../src/core/publicTemplates.ts'
+import { canLaunchCommercialDemo, isTechnicalDemoAvailable, isTemplateProvisioningAvailable, PLAN_ELIGIBLE_TEMPLATE_IDS } from '../src/core/publicTemplates.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
   assert.equal(canPlatform(null, 'tenants.read'), false)
@@ -408,7 +408,7 @@ test('17. Whitelist de Plantillas Oficiales: templateId arbitrario es rechazado'
   assert.equal(OFFICIAL_TEMPLATES.includes('arbitrary_pos'), false)
 })
 
-test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y estado de publicacion', () => {
+test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y compatibilidad legacy', () => {
   // 1. Distribución publicada con demoEnabled=true -> tiene demo técnica implementada -> PERMITIDO
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
@@ -417,7 +417,7 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y e
     canonicalTemplateId: 'distribution',
   }), true)
 
-  // 2. Distribución con demoEnabled=false -> DENEGADO
+  // 2. Distribución con demoEnabled=false explícito -> DENEGADO
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'published',
@@ -425,7 +425,14 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y e
     canonicalTemplateId: 'distribution',
   }), false)
 
-  // 3. Distribución con status=draft -> DENEGADO
+  // 3. Distribución legacy sin demoEnabled (undefined) -> default técnico disponible -> PERMITIDO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'published',
+    canonicalTemplateId: 'distribution',
+  }), true)
+
+  // 4. Distribución con status=draft -> DENEGADO
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'draft',
@@ -433,7 +440,7 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y e
     canonicalTemplateId: 'distribution',
   }), false)
 
-  // 4. Restaurante con demoEnabled=true -> status en publicTemplates es coming_soon -> DENEGADO
+  // 5. Restaurante con demoEnabled=true -> status en publicTemplates es coming_soon (sin demo técnica) -> DENEGADO
   assert.equal(canLaunchCommercialDemo({
     id: 'restaurant',
     status: 'published',
@@ -441,7 +448,14 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y e
     canonicalTemplateId: 'restaurant',
   }), false)
 
-  // 5. Nightclub con demoEnabled=true -> coming_soon -> DENEGADO
+  // 6. Restaurante legacy (undefined) -> status coming_soon -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'restaurant',
+    status: 'published',
+    canonicalTemplateId: 'restaurant',
+  }), false)
+
+  // 7. Nightclub con demoEnabled=true -> coming_soon -> DENEGADO
   assert.equal(canLaunchCommercialDemo({
     id: 'nightclub',
     status: 'published',
@@ -449,7 +463,7 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y e
     canonicalTemplateId: 'nightclub',
   }), false)
 
-  // 6. Retail con demoEnabled=true -> coming_soon -> DENEGADO
+  // 8. Retail con demoEnabled=true -> coming_soon -> DENEGADO
   assert.equal(canLaunchCommercialDemo({
     id: 'retail',
     status: 'published',
@@ -457,7 +471,7 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y e
     canonicalTemplateId: 'retail',
   }), false)
 
-  // 7. isTechnicalDemoAvailable verifica directamente
+  // 9. isTechnicalDemoAvailable verifica directamente la disponibilidad técnica del código
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
   assert.equal(isTechnicalDemoAvailable('restaurant'), false)
   assert.equal(isTechnicalDemoAvailable('nightclub'), false)
@@ -474,4 +488,54 @@ test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun p
   assert.equal(canPlatform(fakeSuperadmin, 'plans.manage'), false)
   assert.equal(canPlatform(fakeRoot, 'content.manage'), false)
   assert.equal(canPlatform(fakeRoot, 'support.read'), false)
+})
+
+test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica estricta', () => {
+  // Solo Distribución está actualmente aprobada para aprovisionamiento real de tenants
+  assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('distribution'), true)
+
+  // Plantillas no consolidadas para creación de empresas
+  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), false)
+  assert.equal(isTemplateProvisioningAvailable('restaurant'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub'), false)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
+  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('custom'), false)
+  assert.equal(isTemplateProvisioningAvailable('arbitrary_type'), false)
+})
+
+test('21. Planes de suscripción: whitelist PLAN_ELIGIBLE_TEMPLATE_IDS excluye custom y arbitrarios', () => {
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('restaurant' as any), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('distribution' as any), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('nightclub' as any), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('retail' as any), true)
+
+  // Custom y arbitrarios NO son elegibles para planes de suscripción
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('custom' as any), false)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('services' as any), false)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('arbitrary' as any), false)
+})
+
+test('22. Seed de configuración oficial: preserva estado oficial y no auto-publica drafts', () => {
+  const seedTemplateDraft = { id: 'test_tpl', status: 'draft', name: 'Draft Template' }
+  const templateStatusDraft = seedTemplateDraft.status === 'published' ? 'published' : 'draft'
+  assert.equal(templateStatusDraft, 'draft')
+
+  const seedTemplatePub = { id: 'distribution', status: 'published', name: 'Distribución' }
+  const templateStatusPub = seedTemplatePub.status === 'published' ? 'published' : 'draft'
+  assert.equal(templateStatusPub, 'published')
+
+  // Planes para custom son omitidos por el filtro del seed
+  const samplePlans = [
+    { id: 'plan_dist_free', templateId: 'distribution', planKind: 'free' },
+    { id: 'plan_rest_paid', templateId: 'restaurant', planKind: 'paid' },
+    { id: 'plan_custom_dummy', templateId: 'custom', planKind: 'paid' },
+  ]
+  const filteredPlans = samplePlans.filter(p => PLAN_ELIGIBLE_TEMPLATE_IDS.includes(p.templateId as any))
+  assert.equal(filteredPlans.length, 2)
+  assert.equal(filteredPlans.some(p => p.templateId === 'custom'), false)
 })

@@ -27,6 +27,7 @@ import {
 
 const STORAGE_KEY = 'pachax_commercial_config_v2'
 const EVENT_NAME = 'pachax:commercial-config-updated'
+export const PLAN_ELIGIBLE_TEMPLATE_IDS = ['restaurant', 'distribution', 'nightclub', 'retail'] as const
 
 // 1. Assets multimedia oficiales disponibles
 export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
@@ -435,6 +436,13 @@ export async function updatePlanInStore(
     const existing = idx >= 0 ? current.plans[idx] : {}
     const updated = { ...existing, ...updates, id }
 
+    if (updated.templateId && !PLAN_ELIGIBLE_TEMPLATE_IDS.includes(updated.templateId as any)) {
+      return {
+        success: false,
+        error: `La plantilla ${updated.templateId} no es elegible para planes de suscripción.`,
+      }
+    }
+
     // Validación límite de planes activos por template (máx 1 gratuito, máx 3 de pago)
     if (updated.status === 'published' && updated.templateId) {
       if (updated.planKind === 'free') {
@@ -541,6 +549,12 @@ export async function togglePublishPlanInStore(
 
 export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!plan.templateId || !PLAN_ELIGIBLE_TEMPLATE_IDS.includes(plan.templateId as any)) {
+      return {
+        success: false,
+        error: `La plantilla ${plan.templateId} no es elegible para planes de suscripción.`,
+      }
+    }
     await gateway('platformGateway', { action: 'savePlan', plan: { ...plan, status: 'draft' } })
 
     const current = loadCommercialConfig()

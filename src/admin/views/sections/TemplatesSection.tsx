@@ -3,6 +3,7 @@ import { RefreshCw, Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-reac
 import { syncAdminAllFromFirestore, useCommercialConfig } from '../../store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../types'
 import { COMMERCIAL_TEMPLATES } from '../../../public/config/commercialShowcase'
+import { isTechnicalDemoAvailable } from '../../../core/publicTemplates'
 
 export function TemplatesSection() {
   const { config, templatesState, updateTemplate, mediaAssets } = useCommercialConfig()
@@ -351,12 +352,17 @@ export function TemplatesSection() {
             <input
               type="checkbox"
               id="tplDemoEnabledCheck"
-              checked={formData.demoEnabled !== false}
+              checked={formData.demoEnabled ?? isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '')}
               onChange={(e) => setFormData({ ...formData, demoEnabled: e.target.checked })}
               className="rounded border-slate-300 text-[#0066FF] focus:ring-[#0066FF]"
             />
-            <label htmlFor="tplDemoEnabledCheck" className="text-xs text-slate-700 font-semibold cursor-pointer">
-              Demo interactiva habilitada para esta plantilla en la web pública
+            <label htmlFor="tplDemoEnabledCheck" className="text-xs text-slate-700 font-semibold cursor-pointer flex flex-wrap items-center gap-1.5">
+              <span>Demo interactiva habilitada para esta plantilla en la web pública</span>
+              {!isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '') && (
+                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-normal">
+                  (Demo técnica aún no implementada en el código)
+                </span>
+              )}
             </label>
           </div>
 
