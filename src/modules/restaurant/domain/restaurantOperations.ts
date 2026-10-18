@@ -1,6 +1,7 @@
 import type { CatalogCategory, Order, OrderItem, Product } from '../../../types'
-import type { RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantTable } from '../types.ts'
 import { settlePayments } from './restaurantEngine.ts'
+
 
 const active = (order: Order) => order.paymentStatus === 'pending' && order.status !== 'cancelled'
 

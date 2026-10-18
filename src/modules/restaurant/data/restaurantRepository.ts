@@ -10,7 +10,8 @@ import {
 import { getFirebaseContext } from '../../../lib/firebase'
 import { gateway } from '../../../services/gateway'
 import type { Order, OrderStatus, Product } from '../../../types'
-import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../types'
+
 import type { FloorAction } from '../domain/restaurantFloor'
 import type { RestaurantShift } from '../views/RestaurantExperience'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
@@ -746,10 +747,12 @@ export function subscribeCashMovements(
             category: data.category || 'other',
             description: data.description || '',
             amount: Number(data.amount) || 0,
-            paymentMethod: data.method || 'cash',
+            paymentMethod: data.method || data.paymentMethod || 'cash',
             createdAt: data.createdAt?.toDate?.() ? data.createdAt.toDate().toISOString() : (data.createdAt || ''),
             createdBy: data.actorUid || data.createdBy || '',
             note: data.note || '',
+            supplier: data.supplier || '',
+            workerId: data.workerId || '',
             active: data.active !== false,
           } as CashMovement
         })
@@ -777,15 +780,23 @@ export async function recordCashMovement(
     category: string
     description: string
     amount: number
+    paymentMethod?: CashMovement['paymentMethod']
     method?: 'cash' | 'qr' | 'card'
     note?: string
+    supplier?: string
+    workerId?: string
   }
 ): Promise<{ ok: boolean; movementId: string }> {
+  const method = movement.paymentMethod || movement.method || 'cash'
   return dispatchCommand<{ ok: boolean; movementId: string }>(
     tenantId,
     branchId,
     'recordCashMovement',
-    movement
+    {
+      ...movement,
+      method,
+      paymentMethod: method,
+    }
   )
 }
 
@@ -807,15 +818,21 @@ export async function updateCashMovement(
   tenantId: string,
   branchId: string,
   movementId: string,
-  data: { description?: string; category?: string; note?: string }
+  data: Partial<CashMovement> & { method?: 'cash' | 'qr' | 'card' }
 ): Promise<{ ok: boolean; movementId: string }> {
+  const method = data.paymentMethod || data.method
   return dispatchCommand<{ ok: boolean; movementId: string }>(
     tenantId,
     branchId,
     'updateCashMovement',
-    { movementId, ...data }
+    {
+      movementId,
+      ...data,
+      ...(method ? { method, paymentMethod: method } : {}),
+    }
   )
 }
+
 
 export async function archiveProduct(
   tenantId: string,

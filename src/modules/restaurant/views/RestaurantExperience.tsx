@@ -24,7 +24,7 @@ import { useBackButtonBridge } from '../../../hooks/useBackHandler'
 import { RestaurantDashboard } from '../components/RestaurantDashboard'
 import { RestaurantPOS } from '../components/RestaurantPOS'
 import { RestaurantTables } from '../components/RestaurantTables'
-import type { RestaurantSector } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../types'
 import type { FloorAction } from '../domain/restaurantFloor'
 import { visibleTables } from '../domain/restaurantFloor'
 import type { InventoryCount, InventoryShiftSnapshot, InventoryMovement, InventoryMovementType, InventoryShiftRow } from '../domain/inventoryEngine'
@@ -51,12 +51,8 @@ import { orderToReceiptData } from '../../../core/receiptService'
 import { getActiveReceiptPrinter } from '../../../services/printing/printerBootstrap'
 import { PrintEngineService } from '../../../services/printing/printEngineService'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
-import {
-  RESTAURANT_CATEGORIES,
-  RESTAURANT_EXTRAS,
-  type RestaurantTable,
-} from '../../../demo/mocks/restaurantMock'
-import type { Order, OrderStatus, Product } from '../../../types'
+import type { CatalogCategory, Order, OrderStatus, Product, ProductExtra } from '../../../types'
+
 import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
 import './restaurantKiosk.css'
 
@@ -116,8 +112,10 @@ export interface RestaurantExperienceProps {
   customers?: RestaurantCustomer[]
   shift: RestaurantShift | null
   shiftHistory?: RestaurantShift[]
-  categories?: typeof RESTAURANT_CATEGORIES
-  quickExtras?: typeof RESTAURANT_EXTRAS
+  isShiftOpen?: boolean
+  categories?: CatalogCategory[]
+  quickExtras?: ProductExtra[]
+
   onStartShift: (amount: number, openedAt: string, openedBy: string) => void | Promise<void>
   onCloseShift: (countedCash?: number) => boolean | Promise<boolean>
   onAddOrder: (order: Order) => boolean | Promise<boolean>
@@ -228,9 +226,11 @@ export function RestaurantExperience({
   customers = [],
   shift,
   shiftHistory = [],
-  categories = RESTAURANT_CATEGORIES,
-  quickExtras = RESTAURANT_EXTRAS,
+  isShiftOpen,
+  categories = [],
+  quickExtras = [],
   onStartShift,
+
   onCloseShift,
   onAddOrder,
   onAdvanceStatus,
@@ -283,6 +283,7 @@ export function RestaurantExperience({
   onUploadLogo,
 }: RestaurantExperienceProps) {
   const isCounterService = profile === 'counter_service'
+  const operationalShiftOpen = isShiftOpen !== undefined ? isShiftOpen : Boolean(shift)
   const [currentModule, setCurrentModule] = useState<RestaurantModuleId>(
     initialModule ?? (isCounterService ? 'pos' : 'dashboard')
   )
@@ -327,7 +328,7 @@ export function RestaurantExperience({
     }
   }, [isMoreDesktopOpen])
 
-  // Módulos visibles según el rol del usuario (o todos en admin/owner/team)
+  // Módulos visibles según permisos canónicos de la sesión
   const visibleModules = useMemo(() => {
     const role = session.role || 'admin'
     const counterModules: RestaurantModuleId[] = [
@@ -347,11 +348,50 @@ export function RestaurantExperience({
     const modules = isCounterService
       ? MODULE_DEFINITIONS.filter((module) => counterModules.includes(module.id))
       : MODULE_DEFINITIONS
+
+    if (session.can) {
+      return modules.filter((m) => {
+        switch (m.id) {
+          case 'dashboard':
+            return session.can!('cash.close') || session.can!('reports.read') || session.can!('settings.manage')
+          case 'pos':
+            return session.can!('sales.create')
+          case 'orders':
+            return session.can!('orders.read')
+          case 'tables':
+            return session.can!('orders.read')
+          case 'kitchen':
+            return session.can!('orders.manage')
+          case 'cash':
+            return session.can!('cash.close')
+          case 'inventory':
+            return session.can!('inventory.read')
+          case 'products':
+            return session.can!('products.manage')
+          case 'customers':
+            return session.can!('customers.read') || session.can!('customers.manage') || session.can!('settings.manage')
+          case 'reports':
+            return session.can!('reports.read')
+          case 'history':
+            return session.can!('orders.read') || session.can!('sales.read')
+          case 'users':
+            return session.can!('users.manage')
+          case 'settings':
+            return session.can!('settings.manage')
+          case 'printers':
+            return session.can!('settings.manage') || session.can!('orders.manage') || session.can!('cash.close')
+          default:
+            return false
+        }
+      })
+    }
+
     if (role === 'admin' || role === 'owner' || role === 'team') {
       return modules
     }
     return modules.filter((m) => m.roles.includes(role))
-  }, [session.role, isCounterService])
+  }, [session.can, session.role, isCounterService])
+
 
   const primaryModules = useMemo(() => {
     if (isCounterService) {
@@ -372,14 +412,6 @@ export function RestaurantExperience({
   const activeModule = visibleModules.some((m) => m.id === currentModule)
     ? currentModule
     : visibleModules[0]?.id ?? 'dashboard'
-
-  useEffect(() => {
-    if (visibleModules.length > 0 && !visibleModules.some((m) => m.id === currentModule)) {
-      const fallback = visibleModules[0].id
-      setCurrentModule(fallback)
-      onModuleChange?.(fallback)
-    }
-  }, [visibleModules, currentModule, onModuleChange])
 
   const isSecondaryActive = useMemo(() => {
     return secondaryModules.some((m) => m.id === activeModule)
@@ -447,9 +479,10 @@ export function RestaurantExperience({
             </div>
           </div>
           <div className="restaurant-header-actions">
-            <span className={`restaurant-shift-status ${shift ? 'is-open' : 'is-closed'}`}>
-              {shift ? 'Turno abierto' : 'Turno cerrado'}
+            <span className={`restaurant-shift-status ${operationalShiftOpen ? 'is-open' : 'is-closed'}`}>
+              {operationalShiftOpen ? 'Turno abierto' : 'Turno cerrado'}
             </span>
+
             {onSignOut && (
               <button
                 type="button"
@@ -570,7 +603,8 @@ export function RestaurantExperience({
               onCancelOrder={onCancelOrder}
               userRole={session.role}
               userName={session.userName}
-              enabled={!!shift}
+              userId={session.uid}
+              enabled={operationalShiftOpen}
               tables={visibleTables(tables)}
 
               customers={customers}
@@ -582,11 +616,12 @@ export function RestaurantExperience({
             <RestaurantTables
               tables={tables}
               sectors={sectors}
-              canManageFloor={['owner', 'admin', 'team'].includes(session.role)}
+              canManageFloor={session.can ? session.can('settings.manage') : ['owner', 'admin', 'team'].includes(session.role)}
               onFloorAction={onFloorAction}
               orders={orders}
               initialTableId={selectedTableId}
-              enabled={!!shift}
+              enabled={operationalShiftOpen}
+
               products={saleProducts}
               customers={customers}
               onSaveCustomer={onSaveCustomer}

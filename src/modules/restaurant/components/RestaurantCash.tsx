@@ -1,9 +1,8 @@
-import { restaurantStorage } from '../../../demo/restaurant/restaurantStorage'
 import { useEffect, useState, type ComponentType } from 'react'
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, CalendarClock, ChartNoAxesColumn, CircleAlert, CreditCard, Lock, MoreHorizontal, Pencil, Plus, Printer, ReceiptText, Search, Trash2, Unlock, Wallet } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
 import { Field, NumberInput, SelectInput, TextArea, TextInput } from '../../../components/ui/Form'
-import { RESTAURANT_STAFF, type RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantTable } from '../types'
 import type { Order, Product } from '../../../types'
 import { calculateCashShiftSummary, closingDifference, type CashMovement, type CashMovementCategory, type CashMovementType } from '../domain/cashEngine'
 import { buildCashClosurePrintDocument } from '../domain/cashPrint'
@@ -11,12 +10,10 @@ import { inventoryShiftRows, type InventoryCount, type InventoryMovement, type I
 import { RestaurantShiftInventory } from './RestaurantShiftInventory'
 
 type Shift = { id: string; openedAt: string; openedBy: string; openingFloat: number; closedAt?: string; stockSnapshot?: InventoryShiftSnapshot; inventoryCounts?: Record<string, InventoryCount> }
-const STORAGE = 'pachax:restaurant-demo:cash-movements:v1'
 const money = (amount: number) => `Bs ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const label: Record<CashMovementCategory, string> = { supply_purchase: 'Compra de insumos', worker_payment: 'Pago a trabajador', supplier_payment: 'Pago a proveedor', transport: 'Transporte', maintenance: 'Mantenimiento', services: 'Servicios', additional_cash: 'Ingreso adicional de efectivo', change_replenishment: 'Reposición de cambio', other: 'Otros' }
 const categories: Record<CashMovementType, CashMovementCategory[]> = { expense: ['supply_purchase','worker_payment','supplier_payment','transport','maintenance','services','other'], income: ['additional_cash','change_replenishment','other'] }
-const readStaff = () => { try { return JSON.parse(restaurantStorage.getItem('pachax:restaurant-demo:users:v1') || '') as typeof RESTAURANT_STAFF } catch { return RESTAURANT_STAFF } }
-const read = (): CashMovement[] => { try { return JSON.parse(restaurantStorage.getItem(STORAGE) || '[]') as CashMovement[] } catch { return [] } }
+
 
 export function RestaurantCash({
   shift,
@@ -54,8 +51,9 @@ export function RestaurantCash({
   onViewTables?: () => void
 }) {
   const [opening, setOpening] = useState('')
-  const [localMovements, setLocalMovements] = useState<CashMovement[]>(read)
+  const [localMovements, setLocalMovements] = useState<CashMovement[]>([])
   const movements = externalMovements !== undefined ? externalMovements : localMovements
+
   const [editing, setEditing] = useState<CashMovement | null>(null)
   const [removing, setRemoving] = useState<CashMovement | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
@@ -110,15 +108,23 @@ export function RestaurantCash({
       if (form.id) {
         if (onUpdateMovement) {
           await onUpdateMovement(form.id, {
-            description: form.description.trim(),
+            type: form.type,
             category: form.category,
+            description: form.description.trim(),
+            amount: form.amount,
+            paymentMethod: form.paymentMethod,
             note: form.note || '',
+            workerId: form.workerId || '',
+            supplier: form.supplier || '',
           })
         } else {
-          const updated = { ...form, description: form.description.trim(), note: form.note || '' }
+          const updated = {
+            ...form,
+            description: form.description.trim(),
+            note: form.note || '',
+          }
           const next = movements.map(item => item.id === updated.id ? updated : item)
           setLocalMovements(next)
-          restaurantStorage.setItem(STORAGE, JSON.stringify(next))
         }
         setEditing(null)
         setNotice('Movimiento actualizado correctamente.')
@@ -148,7 +154,6 @@ export function RestaurantCash({
           }
           const next = [movement, ...movements]
           setLocalMovements(next)
-          restaurantStorage.setItem(STORAGE, JSON.stringify(next))
         }
         setEditing(null)
         setNotice('Movimiento registrado correctamente.')
@@ -165,14 +170,14 @@ export function RestaurantCash({
       } else {
         const next = movements.filter(item => item.id !== removing.id)
         setLocalMovements(next)
-        restaurantStorage.setItem(STORAGE, JSON.stringify(next))
       }
       setRemoving(null)
-      setNotice('Movimiento eliminado.')
+      setNotice('Movimiento anulado.')
     } catch (err: unknown) {
       setNotice(err instanceof Error ? err.message : 'Error al eliminar movimiento.')
     }
   }
+
   const difference = summary && counted !== '' && Number.isFinite(Number(counted)) && Number(counted) >= 0 ? closingDifference(summary.expectedCash, Number(counted)) : null
   const printClosure = () => {
     if (!shift || !summary) return
@@ -190,10 +195,6 @@ export function RestaurantCash({
     try {
       const ok = await onCloseShift(Number(counted))
       if (!ok) { setNotice('Completa el arqueo físico de inventario antes de cerrar.'); return }
-      if (!onCreateMovement) {
-        const closures = (() => { try { return JSON.parse(restaurantStorage.getItem(`${STORAGE}:closures`) || '[]') as unknown[] } catch { return [] } })()
-        restaurantStorage.setItem(`${STORAGE}:closures`, JSON.stringify([{ shiftId: shift.id, closedAt: new Date().toISOString(), closedBy: userName, countedCash: Number(counted), difference, status: difference === 0 ? 'balanced' : difference < 0 ? 'shortage' : 'surplus', summary }, ...closures]))
-      }
       setClosing(false)
       setNotice(difference === 0 ? 'Turno cerrado. Caja cuadrada.' : `Turno cerrado con ${difference < 0 ? 'faltante' : 'sobrante'} de ${money(Math.abs(difference))}.`)
     } finally {
@@ -298,7 +299,7 @@ export function RestaurantCash({
         <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={printClosure} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"><Printer size={16} />Imprimir resumen de caja</button><button type="button" onClick={() => setClosing(true)} disabled={openTables.length > 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-40"><Lock size={15} />Arqueo y cierre de caja</button></div>
       </section>
     </> : <section className="rounded-2xl border border-slate-200 bg-white p-5"><p className="mb-4 text-sm text-slate-600">Debes iniciar un turno antes de realizar operaciones.</p><Field label="Fondo inicial / cambio en caja"><NumberInput min="0" value={opening} onChange={event => setOpening(event.target.value)} /></Field><button disabled={isStartingShift} onClick={async () => { const amount = Number(opening); if (Number.isFinite(amount) && amount >= 0 && !isStartingShift) { setIsStartingShift(true); try { await onStartShift(amount, new Date().toISOString(), userName) } finally { setIsStartingShift(false) } } }} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="mt-3 w-full rounded-xl p-3 font-bold shadow-xs disabled:opacity-50">{isStartingShift ? 'Iniciando turno...' : 'Confirmar e iniciar turno'}</button></section>}
-<Modal isOpen={!!editing} onClose={() => setEditing(null)} title={form.id ? 'Editar movimiento' : 'Registrar movimiento'} footer={<button onClick={submit} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="w-full rounded-xl p-3 font-bold shadow-xs">Guardar movimiento</button>}><div className="grid gap-3"><Field label="Tipo"><SelectInput value={form.type} onChange={event => { const type = event.target.value as CashMovementType; setForm({ ...form, type, category: categories[type][0] }) }}><option value="expense">Salida / gasto</option><option value="income">Entrada</option></SelectInput></Field><Field label="Categoría"><SelectInput value={form.category} onChange={event => setForm({ ...form, category: event.target.value as CashMovementCategory })}>{categories[form.type].map(item => <option key={item} value={item}>{label[item]}</option>)}</SelectInput></Field>{form.category === 'worker_payment' && <Field label="Trabajador"><SelectInput value={form.workerId || ''} onChange={event => setForm({ ...form, workerId: event.target.value })}><option value="">Seleccionar trabajador</option>{(staffMembers && staffMembers.length > 0 ? staffMembers.filter(worker => worker.active !== false) : readStaff().filter(worker => worker.active)).map(worker => <option key={worker.id} value={worker.id}>{worker.name}</option>)}</SelectInput></Field>}<Field label="Concepto / descripción" required><TextInput value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder={form.category === 'supply_purchase' ? 'Carne, papa, refrescos…' : 'Motivo del movimiento'} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Monto" required><NumberInput min="0.01" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} /></Field><Field label="Método de pago"><SelectInput value={form.paymentMethod} onChange={event => setForm({ ...form, paymentMethod: event.target.value as CashMovement['paymentMethod'] })}><option value="cash">Efectivo de caja</option><option value="qr">QR</option><option value="card">Tarjeta</option><option value="other">Otro</option></SelectInput></Field></div>{form.category === 'supply_purchase' && <Field label="Proveedor (opcional)"><TextInput value={form.supplier || ''} onChange={event => setForm({ ...form, supplier: event.target.value })} /></Field>}<Field label="Observación (opcional)"><TextArea value={form.note || ''} onChange={event => setForm({ ...form, note: event.target.value })} /></Field></div></Modal><Modal isOpen={!!removing} onClose={() => setRemoving(null)} title="Eliminar movimiento" footer={<div className="grid grid-cols-2 gap-2"><button onClick={() => setRemoving(null)} className="rounded-xl border p-3 font-bold">Cancelar</button><button onClick={handleRemove} className="rounded-xl bg-rose-700 p-3 font-bold text-white">Eliminar</button></div>}><p className="text-sm">¿Seguro que deseas eliminar este movimiento?</p></Modal><Modal isOpen={closing} onClose={() => setClosing(false)} title="Arqueo y cierre de caja" subtitle="Verifica el efectivo físico antes de confirmar." size="lg" footer={<div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setClosing(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-bold">Cancelar</button><button type="button" onClick={printClosure} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 px-4 text-sm font-bold"><Printer size={15} /> Imprimir</button><button type="button" disabled={difference === null || openTables.length > 0 || pendingInventory || isClosingShift} onClick={close} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="min-h-11 rounded-xl px-4 text-sm font-bold shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">{isClosingShift ? 'Cerrando turno...' : 'Confirmar cierre'}</button></div>}>
+<Modal isOpen={!!editing} onClose={() => setEditing(null)} title={form.id ? 'Editar movimiento' : 'Registrar movimiento'} footer={<button onClick={submit} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="w-full rounded-xl p-3 font-bold shadow-xs">Guardar movimiento</button>}><div className="grid gap-3"><Field label="Tipo"><SelectInput value={form.type} onChange={event => { const type = event.target.value as CashMovementType; setForm({ ...form, type, category: categories[type][0] }) }}><option value="expense">Salida / gasto</option><option value="income">Entrada</option></SelectInput></Field><Field label="Categoría"><SelectInput value={form.category} onChange={event => setForm({ ...form, category: event.target.value as CashMovementCategory })}>{categories[form.type].map(item => <option key={item} value={item}>{label[item]}</option>)}</SelectInput></Field>{form.category === 'worker_payment' && <Field label="Trabajador"><SelectInput value={form.workerId || ''} onChange={event => setForm({ ...form, workerId: event.target.value })}><option value="">Seleccionar trabajador</option>{staffMembers && staffMembers.length > 0 ? staffMembers.filter(worker => worker.active !== false).map(worker => <option key={worker.id} value={worker.id}>{worker.name}</option>) : <option value="" disabled>Sin trabajadores disponibles</option>}</SelectInput></Field>}<Field label="Concepto / descripción" required><TextInput value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder={form.category === 'supply_purchase' ? 'Carne, papa, refrescos…' : 'Motivo del movimiento'} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Monto" required><NumberInput min="0.01" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} /></Field><Field label="Método de pago"><SelectInput value={form.paymentMethod} onChange={event => setForm({ ...form, paymentMethod: event.target.value as CashMovement['paymentMethod'] })}><option value="cash">Efectivo de caja</option><option value="qr">QR</option><option value="card">Tarjeta</option><option value="other">Otro</option></SelectInput></Field></div>{form.category === 'supply_purchase' && <Field label="Proveedor (opcional)"><TextInput value={form.supplier || ''} onChange={event => setForm({ ...form, supplier: event.target.value })} /></Field>}<Field label="Observación (opcional)"><TextArea value={form.note || ''} onChange={event => setForm({ ...form, note: event.target.value })} /></Field></div></Modal><Modal isOpen={!!removing} onClose={() => setRemoving(null)} title="Eliminar movimiento" footer={<div className="grid grid-cols-2 gap-2"><button onClick={() => setRemoving(null)} className="rounded-xl border p-3 font-bold">Cancelar</button><button onClick={handleRemove} className="rounded-xl bg-rose-700 p-3 font-bold text-white">Eliminar</button></div>}><p className="text-sm">¿Seguro que deseas eliminar este movimiento?</p></Modal><Modal isOpen={closing} onClose={() => setClosing(false)} title="Arqueo y cierre de caja" subtitle="Verifica el efectivo físico antes de confirmar." size="lg" footer={<div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setClosing(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-bold">Cancelar</button><button type="button" onClick={printClosure} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 px-4 text-sm font-bold"><Printer size={15} /> Imprimir</button><button type="button" disabled={difference === null || openTables.length > 0 || pendingInventory || isClosingShift} onClick={close} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="min-h-11 rounded-xl px-4 text-sm font-bold shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">{isClosingShift ? 'Cerrando turno...' : 'Confirmar cierre'}</button></div>}>
   <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4"><Line label="Fondo inicial" value={money(shift?.openingFloat || 0)} /><Line label="Ventas efectivo" value={money(summary?.cashSales || 0)} /><Line label="Ventas QR" value={money(summary?.qrSales || 0)} /><Line label="Ventas tarjeta" value={money(summary?.cardSales || 0)} /><Line label="Total ventas" value={money(summary?.totalSales || 0)} /><Line label="Entradas efectivo" value={money(summary?.cashIncome || 0)} /><Line label="Salidas efectivo" value={money(summary?.cashOutflow || 0)} /><Line label="Gastos totales" value={money(summary?.totalExpenses || 0)} /></div>
   <div className="mt-5 grid gap-2 sm:grid-cols-3">
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Efectivo esperado</p><strong className="mt-1 block text-xl tabular-nums">{money(summary?.expectedCash || 0)}</strong></div>

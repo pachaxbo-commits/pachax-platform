@@ -245,7 +245,7 @@
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantCustomers/{customerId} {
-      allow read: if tPermission(tenantId,'customers.read','customers') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.read','sales');
+      allow read: if tPermission(tenantId,'customers.read','customers') || tPermission(tenantId,'customers.manage','customers') || tPermission(tenantId,'settings.manage','settings');
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantInventoryMovements/{movementId} {

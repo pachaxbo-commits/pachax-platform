@@ -483,37 +483,12 @@ async function applyRestaurantCommand(context) {
     return { ok: true, productId, archived: true }
   }
 
-  // 3g. Eliminar Producto Físicamente (Solo sin referencias históricas)
+  // 3g. Eliminar Producto Físicamente (Deshabilitado por política de integridad)
   if (type === 'deleteProduct') {
-    const productId = id(payload.productId || payload.id)
-    const productRef = root.collection('products').doc(productId)
-    const snap = await tx.get(productRef)
-    if (!snap.exists) throw new HttpsError('not-found', 'Producto no encontrado.')
-
-    // Verificar si es insumo de alguna receta
-    const prodsSnap = await tx.get(root.collection('products').where('tenantId', '==', actor.tenantId))
-    for (const doc of prodsSnap.docs) {
-      if (doc.id === productId) continue
-      const prod = doc.data()
-      if (Array.isArray(prod.recipe) && prod.recipe.some(part => part.ingredientId === productId)) {
-        throw new HttpsError('failed-precondition', 'El producto forma parte de una receta existente.')
-      }
-    }
-
-    // Verificar si tiene pedidos
-    const ordersSnap = await tx.get(root.collection('restaurantOrders').limit(100))
-    if (ordersSnap.docs.some(d => d.data().items?.some(it => it.productId === productId))) {
-      throw new HttpsError('failed-precondition', 'El producto tiene historial de pedidos y no puede eliminarse físicamente. Usa archivar.')
-    }
-
-    // Verificar si tiene movimientos de inventario
-    const movementsSnap = await tx.get(root.collection('restaurantInventoryMovements').where('productId', '==', productId).limit(1))
-    if (!movementsSnap.empty) {
-      throw new HttpsError('failed-precondition', 'El producto tiene movimientos de inventario y no puede eliminarse físicamente. Usa archivar.')
-    }
-
-    tx.delete(productRef)
-    return { ok: true, productId, deleted: true }
+    throw new HttpsError(
+      'failed-precondition',
+      'La eliminación física está deshabilitada. Usa archivar para preservar la integridad histórica.'
+    )
   }
 
   // Comandos operativos que requieren turno activo
@@ -629,7 +604,8 @@ async function applyRestaurantCommand(context) {
     const desc = text(payload.description, 200)
     const val = amount(payload.amount)
     if (val <= 0) throw new HttpsError('invalid-argument', 'El importe debe ser mayor a cero.')
-    const method = ['cash', 'qr', 'card'].includes(payload.method) ? payload.method : 'cash'
+    const rawMethod = payload.method || payload.paymentMethod
+    const method = ['cash', 'qr', 'card'].includes(rawMethod) ? rawMethod : 'cash'
     const movementId = id(payload.id || `cash_${operationId}`)
     const movementDoc = {
       id: movementId,
@@ -643,6 +619,8 @@ async function applyRestaurantCommand(context) {
       amount: val,
       method,
       note: payload.note ? text(payload.note, 500) : '',
+      workerId: payload.workerId ? text(payload.workerId, 100) : null,
+      supplier: payload.supplier ? text(payload.supplier, 150) : null,
       active: true,
       actorUid: actor.uid,
       createdAt: now,
@@ -698,7 +676,12 @@ async function applyRestaurantCommand(context) {
       throw new HttpsError('failed-precondition', 'Solo se pueden editar movimientos del turno activo.')
     }
     const patch = { updatedAt: now }
-    if (payload.description) patch.description = text(payload.description, 200)
+    if (payload.type) {
+      patch.type = payload.type === 'income' ? 'income' : 'expense'
+    }
+    if (payload.description !== undefined) {
+      patch.description = text(payload.description, 200)
+    }
     if (payload.category) {
       const validCategories = [
         'supply_purchase', 'worker_payment', 'supplier_payment', 'transport',
@@ -706,9 +689,26 @@ async function applyRestaurantCommand(context) {
       ]
       patch.category = validCategories.includes(payload.category) ? payload.category : 'other'
     }
-    if (payload.note !== undefined) patch.note = text(payload.note || '', 500)
+    if (payload.amount !== undefined) {
+      const val = amount(payload.amount)
+      if (val <= 0) throw new HttpsError('invalid-argument', 'El importe debe ser mayor a cero.')
+      patch.amount = val
+    }
+    const rawMethod = payload.method || payload.paymentMethod
+    if (rawMethod && ['cash', 'qr', 'card'].includes(rawMethod)) {
+      patch.method = rawMethod
+    }
+    if (payload.note !== undefined) {
+      patch.note = text(payload.note || '', 500)
+    }
+    if (payload.workerId !== undefined) {
+      patch.workerId = payload.workerId ? text(payload.workerId, 100) : null
+    }
+    if (payload.supplier !== undefined) {
+      patch.supplier = payload.supplier ? text(payload.supplier, 150) : null
+    }
     tx.update(ref, patch)
-    return { ok: true, movementId }
+    return { ok: true, movementId, movement: { ...m, ...patch } }
   }
 
   // 5. Abrir Cuenta en Mesa (Salón)
@@ -799,6 +799,13 @@ async function applyRestaurantCommand(context) {
     })) : []
 
     const prodMap = await resolveProductsAndIngredients(tx, root, items)
+    for (const item of items) {
+      if (!item.productId) continue
+      const prod = prodMap.get(item.productId)
+      if (prod && (prod.isActive === false || prod.availability === 'archived')) {
+        throw new HttpsError('failed-precondition', `El producto ${prod.name || item.productId} está inactivo o archivado y no puede agregarse a la orden.`)
+      }
+    }
     const { requirements, totalPerProduct } = computeItemInventoryRequirements(items, prodMap)
     const allowNegativeStock = actor.tenant.configuration?.allowNegativeStock === true
     checkSufficientStock(totalPerProduct, prodMap, allowNegativeStock)
@@ -870,8 +877,11 @@ async function applyRestaurantCommand(context) {
     const newLines = []
     for (const item of inputItems) {
       const productId = id(item.productId)
-      const quantity = Math.max(1, Number(item.quantity) || 1)
       const pData = prodMap.get(productId)
+      if (pData && (pData.isActive === false || pData.availability === 'archived')) {
+        throw new HttpsError('failed-precondition', `El producto ${pData.name || productId} está inactivo o archivado y no puede agregarse al pedido.`)
+      }
+      const quantity = Math.max(1, Number(item.quantity) || 1)
       const unitPrice = pData ? amount(pData.price) : amount(item.price || item.unitPrice || 0)
       const name = pData?.name || item.name || 'Producto'
       const lineTotal = money(unitPrice * quantity)

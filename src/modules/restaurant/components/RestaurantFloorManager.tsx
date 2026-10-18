@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Plus, X } from 'lucide-react'
-import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../types'
 import type { FloorAction } from '../domain/restaurantFloor'
+
 
 type Props = {
   sectors: RestaurantSector[]

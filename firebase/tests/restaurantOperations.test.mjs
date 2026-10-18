@@ -854,7 +854,7 @@ try {
     'Mesero no debe poder registrar movimientos de caja'
   )
 
-  // Cajero registra egreso en efectivo de Bs 45
+  // Cajero registra egreso en efectivo de Bs 45 con metadatos
   const mov1 = await call('cashier_user', 'recordCashMovement', 'mov-expense-1', {
     type: 'expense',
     category: 'supply_purchase',
@@ -862,19 +862,39 @@ try {
     amount: 45,
     paymentMethod: 'cash',
     supplier: 'Mercado Central',
+    workerId: 'worker_ana',
   })
   assert.ok(mov1.movementId)
 
-  // Actualizar movimiento
+  // Actualizar movimiento con todos los campos editables
   await call('cashier_user', 'updateCashMovement', 'mov-update-1', {
     movementId: mov1.movementId,
     description: 'Compra de verduras y frutas',
     note: 'Factura #1234',
+    amount: 45,
+    supplier: 'Mercado Central S.R.L.',
+    workerId: 'worker_ana_m',
   })
   const mov1Doc = (await root.collection('restaurantCashMovements').doc(mov1.movementId).get()).data()
   assert.equal(mov1Doc.description, 'Compra de verduras y frutas')
   assert.equal(mov1Doc.note, 'Factura #1234')
+  assert.equal(mov1Doc.supplier, 'Mercado Central S.R.L.')
+  assert.equal(mov1Doc.workerId, 'worker_ana_m')
+  assert.equal(mov1Doc.amount, 45)
+  assert.equal(mov1Doc.method, 'cash')
   assert.equal(mov1Doc.active, true)
+
+  // Cajero registra gasto con QR de Bs 50 (NO debe alterar expectedCash de efectivo físico)
+  const movQR = await call('cashier_user', 'recordCashMovement', 'mov-expense-qr', {
+    type: 'expense',
+    category: 'transport',
+    description: 'Flete transporte QR',
+    amount: 50,
+    paymentMethod: 'qr',
+  })
+  const movQRDoc = (await root.collection('restaurantCashMovements').doc(movQR.movementId).get()).data()
+  assert.equal(movQRDoc.method, 'qr')
+  assert.equal(movQRDoc.amount, 50)
 
   // Cajero registra ingreso en efectivo de Bs 100
   const mov2 = await call('cashier_user', 'recordCashMovement', 'mov-income-1', {
@@ -903,11 +923,22 @@ try {
   assert.equal(cancelledDoc.active, false)
   assert.equal(cancelledDoc.cancelledBy, 'owner_user')
   assert.equal(cancelledDoc.cancelReason, 'Registrado por error en turno incorrecto')
+
+  // Intentar editar movimiento anulado debe fallar
+  await assert.rejects(
+    () => call('cashier_user', 'updateCashMovement', 'mov-edit-cancelled-fail', {
+      movementId: movToCancel.movementId,
+      description: 'Intento de edición sobre movimiento anulado',
+    }),
+    err => err.code === 'failed-precondition',
+    'No se puede editar un movimiento de caja anulado'
+  )
   console.log('PASS Movimientos de caja registrados, actualizados y anulados con auditoría completa.')
 
   // 34. Cierre de turno y conciliación con movimientos manuales
   console.log('34. Conciliación y arqueo considerando movimientos manuales...')
-  // Fondo inicial 200 + Ingreso 100 - Egreso 45 = Esperado 255 (el de 30 anulado NO cuenta)
+  // Fondo inicial 200 + Ingreso 100 - Egreso efectivo 45 = Esperado 255
+  // (el egreso QR de 50 no afecta caja física y el de 30 anulado no cuenta)
   const closeRes2 = await call('cashier_user', 'closeShift', 'op-close-2', {
     shiftId: shiftMov.shiftId,
     countedCash: 255,
@@ -919,7 +950,17 @@ try {
   assert.equal(closedMovShiftDoc.difference, 0)
   assert.equal(closedMovShiftDoc.cashIncome, 100)
   assert.equal(closedMovShiftDoc.cashOutflow, 45)
-  console.log('PASS Cierre de caja calculó exactamente los movimientos activos e ignoró los anulados.')
+  console.log('PASS Cierre de caja calculó exactamente los movimientos activos en efectivo e ignoró QR y anulados.')
+
+  // Intentar editar movimiento cuando el turno ya cerró debe fallar
+  await assert.rejects(
+    () => call('cashier_user', 'updateCashMovement', 'mov-edit-after-close-fail', {
+      movementId: mov1.movementId,
+      description: 'Intento de edición tras cierre de turno',
+    }),
+    err => err.code === 'failed-precondition',
+    'No se puede editar movimientos cuando el turno está cerrado'
+  )
 
   // 35. Archivación de productos (archiveProduct)
   console.log('35. Archivación de productos...')
@@ -950,9 +991,40 @@ try {
   assert.equal(archivedDoc.archivedBy, 'admin_user')
   console.log('PASS Producto archivado con estado inactivo, no visible y auditado.')
 
-  // 36. Eliminación física segura de producto (deleteProduct)
-  console.log('36. Eliminación física condicionada...')
-  // Crear un producto sin ninguna referencia
+  // Abrir turno para probar venta
+  const shiftArchivedTest = await call('cashier_user', 'openShift', 'shift-archived-test', { openingFloat: 100 })
+
+  // Intentar vender producto archivado en addOrder debe fallar en backend
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-archived-rejected', {
+      items: [{ productId: 'prod_vino_especial', name: 'Vino Tinto Reserva', basePrice: 150, quantity: 1 }],
+      total: 150,
+    }),
+    err => err.code === 'failed-precondition',
+    'addOrder debe rechazar venta de producto archivado'
+  )
+
+  // Crear una orden válida para probar addProduct con producto archivado
+  const validOrder = await call('waiter_user', 'addOrder', 'order-valid-pre-add', {
+    items: [{ productId: 'prod_1', name: 'Lomo a la Pimienta', basePrice: 58, quantity: 1 }],
+    total: 58,
+  })
+  assert.ok(validOrder.orderId)
+
+  // Intentar agregar producto archivado mediante addProduct a orden existente debe fallar en backend
+  await assert.rejects(
+    () => call('waiter_user', 'addProduct', 'add-archived-to-order-fail', {
+      orderId: validOrder.orderId,
+      items: [{ productId: 'prod_vino_especial', quantity: 1, basePrice: 150 }],
+    }),
+    err => err.code === 'failed-precondition',
+    'addProduct debe rechazar agregar producto archivado a orden existente'
+  )
+  console.log('PASS Backend rechaza venta de productos archivados en addOrder y addProduct.')
+
+  // 36. Eliminación física deshabilitada (deleteProduct reject)
+  console.log('36. Eliminación física deshabilitada en favor de archivación...')
+  // Crear un producto sin dependencias
   await call('admin_user', 'saveProduct', 'prod-to-delete-create', {
     product: {
       id: 'prod_unreferenced',
@@ -961,11 +1033,15 @@ try {
       restaurantType: 'beverage',
     },
   })
-  // Eliminar el producto no referenciado
-  await call('admin_user', 'deleteProduct', 'del-admin-ok', { productId: 'prod_unreferenced' })
-  const deletedDoc = await root.collection('products').doc('prod_unreferenced').get()
-  assert.equal(deletedDoc.exists, false)
-  console.log('PASS Eliminación física completada para producto sin dependencias.')
+  // Intentar eliminar físicamente debe ser rechazado con failed-precondition
+  await assert.rejects(
+    () => call('admin_user', 'deleteProduct', 'del-admin-rejected', { productId: 'prod_unreferenced' }),
+    err => err.code === 'failed-precondition' && err.message.includes('eliminación física está deshabilitada'),
+    'deleteProduct debe ser rechazado con failed-precondition'
+  )
+  const productStillExists = await root.collection('products').doc('prod_unreferenced').get()
+  assert.equal(productStillExists.exists, true, 'El producto se mantiene intacto al rechazarse el borrado físico')
+  console.log('PASS Eliminación física rechazada con política estricta de archivo.')
 
   console.log('\n==================================================')
   console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (36/36)')

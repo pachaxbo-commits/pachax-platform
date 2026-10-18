@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Palette, Check, MapPin, Plus, Trash2 } from 'lucide-react'
 import { DEFAULT_RESTAURANT_THEME, RESTAURANT_THEME_PRESETS, restaurantThemeStyle, validRestaurantColor, type RestaurantThemeColors } from '../views/restaurantTheme'
-import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../types'
 import type { FloorAction } from '../domain/restaurantFloor'
+
 import type { BusinessIdentity } from '../../../core/businessIdentity'
 import { BusinessIdentitySettings } from '../../../components/settings/BusinessIdentitySettings'
 

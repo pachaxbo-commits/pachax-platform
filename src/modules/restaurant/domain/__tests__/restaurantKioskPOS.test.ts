@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import test from 'node:test'
-import { RESTAURANT_CATEGORIES, RESTAURANT_PRODUCTS } from '../../../../demo/mocks/restaurantMock.ts'
+import { RESTAURANT_CATEGORIES, RESTAURANT_PRODUCTS } from './fixtures.ts'
 import { makeRestaurantOrderItem, placeRestaurantOrder, completeRestaurantPayment, completeRestaurantGift } from '../restaurantOperations.ts'
 import { restaurantThemeStyle, DEFAULT_RESTAURANT_THEME, RESTAURANT_THEME_PRESETS } from '../../views/restaurantTheme.ts'
 import type { CartItem, Order, PaymentSummary, Product } from '../../../../types'

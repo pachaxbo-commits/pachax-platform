@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { confirmInventoryLines, convertInventoryQuantity, inventoryShiftRows, openingInventorySnapshot, returnInventoryLine, stockAwareProducts, changeInventoryStock, reconcileInventoryLedger } from '../inventoryEngine.ts'
-import { RESTAURANT_INVENTORY_PRODUCTS, RESTAURANT_PRODUCTS } from '../../../../demo/mocks/restaurantMock.ts'
+import { RESTAURANT_INVENTORY_PRODUCTS, RESTAURANT_PRODUCTS } from './fixtures.ts'
 
 const at = '2026-09-24T20:00:00Z'
 const product = (id, stockBase, baseUnit = 'unit', extra = {}) => ({ id, name: id, categoryId: 'beverages', price: 12, image: '', availability: 'available', sortOrder: 0, isActive: true, isVisible: true, restaurantType: 'direct', baseUnit, stockBase, minimumStockBase: 2, ...extra })

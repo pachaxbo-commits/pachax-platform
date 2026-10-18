@@ -1,10 +1,10 @@
 import { CajaView } from '../../../components/CajaView'
 import type { CartItem, CatalogCategory, Order, OrderStatus, PaymentMethod, PaymentSummary, Product, ProductExtra } from '../../../types'
-import type { RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantTable } from '../types'
 import { makeRestaurantOrderItem } from '../domain/restaurantOperations'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
 
-export function RestaurantPOS({ categories, products, quickExtras, orders, onAddOrder, onSetOrderStatus, onCancelOrder, onConfirmPayment, enabled = true, tables = [], customers = [], userRole = 'cashier', userName, counterServiceMode = false }: {
+export function RestaurantPOS({ categories, products, quickExtras, orders, onAddOrder, onSetOrderStatus, onCancelOrder, onConfirmPayment, enabled = true, tables = [], customers = [], userRole = 'cashier', userName, userId, counterServiceMode = false }: {
   categories: CatalogCategory[]
   products: Product[]
   quickExtras: ProductExtra[]
@@ -18,8 +18,10 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
   customers?: RestaurantCustomer[]
   userRole?: string
   userName: string
+  userId?: string
   counterServiceMode?: boolean
 }) {
+
   const nextSeq = Math.max(44, ...orders.map(order => order.sequence || 0)) + 1
 
   const handleSubmitOrder = async (input: {
@@ -86,7 +88,7 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
     <CajaView
       nextOrderNumber={String(nextSeq).padStart(3, '0')}
       categories={categories} products={products} quickExtras={quickExtras} orders={orders}
-      userRole={userRole} userId="demo-cashier-id" userName={userName}
+      userRole={userRole} userId={userId || userName} userName={userName}
       onSubmitOrder={handleSubmitOrder} onConfirmPayment={handleConfirmPayment}
       onCancelOrder={async orderId => onCancelOrder(orderId)}
       onDeleteOrder={async orderId => { await onCancelOrder(orderId) }}

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { DollarSign, Users, ChefHat, X, Clock, Wallet } from 'lucide-react'
 import type { Order } from '../../../types'
-import type { RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantTable } from '../types'
 import { visibleTables } from '../domain/restaurantFloor'
+
 
 type Shift = { id: string; openedAt: string; openedBy: string; openingFloat: number; closedAt?: string; expectedCashAtClose?: number }
 const fmt = (amount: number) => `Bs ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

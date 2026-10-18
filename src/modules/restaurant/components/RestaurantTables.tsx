@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Clock, Plus, Search, Users, X } from 'lucide-react'
 import type { Order, Product } from '../../../types'
-import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../types'
 import type { FloorAction } from '../domain/restaurantFloor'
+
 import { RestaurantFloorManager } from './RestaurantFloorManager'
 import { resolveOrderTable } from '../domain/restaurantOperations'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
