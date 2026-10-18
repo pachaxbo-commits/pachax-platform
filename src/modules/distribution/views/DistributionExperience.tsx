@@ -270,12 +270,16 @@ export function DistributionExperience({
 
   const roleLabel =
     session.role === 'support'
-      ? 'Soporte técnico'
+      ? 'Soporte'
       : session.role === 'distributor'
       ? 'Distribuidor'
       : session.role === 'warehouse'
       ? 'Almacén'
-      : 'Administración'
+      : session.role === 'accountant'
+      ? 'Contabilidad'
+      : session.role === 'owner'
+      ? 'Propietario'
+      : 'Administrador'
 
   return (
     <div

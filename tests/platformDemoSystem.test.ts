@@ -21,6 +21,7 @@ import {
   subscribeCustomers,
 } from '../src/modules/distribution/data/distributionRepository.ts'
 import { hasPermission, getRoleDefaultPermissions } from '../src/services/permissionService.ts'
+import { getActiveTenant } from '../src/store/activeTenant.ts'
 import { getTemplate } from '../src/core/templates.ts'
 import { PUBLIC_TEMPLATES } from '../src/core/publicTemplates.ts'
 
@@ -138,26 +139,30 @@ test('4. Navigation between modules preserves state across operations', async ()
   setDistributionRepositoryAdapter(null)
 })
 
-test('5. Role switching preserves state', async () => {
+test('5. Role switching preserves state across canonical roles (Owner -> Accountant)', async () => {
   clearDemoState('route_distribution')
   const repo = new DemoDistributionRepository('full')
   setDistributionRepositoryAdapter(repo)
 
-  // Crear un cliente como admin
+  // Crear un cliente como Propietario (Owner)
   await saveCustomer({
     name: 'Bodega de Roles',
     identityNumber: '9988776',
   })
 
-  // Simular cambio de rol: los datos del repo deben mantenerse idénticos
+  // Simular cambio de rol: Owner -> Accountant
   const dataBefore = repo.getData()
   const custFound = dataBefore.customers.find(c => c.name === 'Bodega de Roles')
   assert.ok(custFound)
 
-  // Cambio de rol simulado no toca el adapter ni el dataset
+  // Cambio de rol simulado conserva exactamente los datos del repo
   const dataAfter = repo.getData()
   assert.equal(dataAfter.customers.length, dataBefore.customers.length)
   assert.equal(dataAfter.balances.length, dataBefore.balances.length)
+  assert.equal(dataAfter.products.length, dataBefore.products.length)
+
+  // El selector no modifica activeTenant, ni crea memberships, ni toca Firebase
+  assert.equal(getActiveTenant(), null)
 
   setDistributionRepositoryAdapter(null)
 })
@@ -242,7 +247,43 @@ test('11. Roles use canonical permissions in distribution template', () => {
   const template = getTemplate('route_distribution')
   const roleIds = template.roles.map(r => r.id)
 
-  assert.deepEqual(roleIds, ['owner', 'admin', 'warehouse', 'distributor', 'support'])
+  assert.deepEqual(roleIds, ['owner', 'admin', 'accountant', 'warehouse', 'distributor', 'support'])
+
+  // Todos los roles demostrables tienen etiquetas visibles comprensibles
+  const ownerRole = template.roles.find(r => r.id === 'owner')
+  assert.ok(ownerRole)
+  assert.equal(ownerRole.name, 'Propietario')
+
+  const adminRole = template.roles.find(r => r.id === 'admin')
+  assert.ok(adminRole)
+  assert.equal(adminRole.name, 'Administrador')
+
+  const accountantRole = template.roles.find(r => r.id === 'accountant')
+  assert.ok(accountantRole)
+  assert.equal(accountantRole.name, 'Contabilidad')
+
+  const warehouseRole = template.roles.find(r => r.id === 'warehouse')
+  assert.ok(warehouseRole)
+  assert.equal(warehouseRole.name, 'Almacén')
+
+  const distributorRole = template.roles.find(r => r.id === 'distributor')
+  assert.ok(distributorRole)
+  assert.equal(distributorRole.name, 'Distribuidor')
+
+  const supportRole = template.roles.find(r => r.id === 'support')
+  assert.ok(supportRole)
+  assert.equal(supportRole.name, 'Soporte')
+
+  // Accountant usa permisos canónicos: reportes, caja, créditos, cobros, pero NO gestión de soporte ni settings
+  assert.equal(hasPermission('accountant', 'dist.reports.view'), true)
+  assert.equal(hasPermission('accountant', 'dist.credit.view'), true)
+  assert.equal(hasPermission('accountant', 'dist.collection.create'), true)
+  assert.equal(hasPermission('accountant', 'dist.customer.manage'), true)
+  assert.equal(hasPermission('accountant', 'dist.inventory.view'), true)
+  assert.equal(hasPermission('accountant', 'cash.close'), true)
+  assert.equal(hasPermission('accountant', 'settings.manage'), false)
+  assert.equal(hasPermission('accountant', 'support.settings.manage'), false)
+  assert.equal(hasPermission('accountant', 'support.reset.prepare'), false)
 
   // Admin tiene permisos completos de distribución
   assert.equal(hasPermission('admin', 'dist.products.manage'), true)

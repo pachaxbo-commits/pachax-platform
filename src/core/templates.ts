@@ -6,10 +6,15 @@ const allPermissions: readonly Permission[] = [
   'reports.read', 'users.manage', 'settings.manage', 'dispatch.create', 'route.close', 'cash.close',
   'support.reset.prepare',
 ]
-const owner: RolePreset = { id: 'owner', name: 'Dueño', permissions: allPermissions }
-const admin: RolePreset = { id: 'admin', name: 'Administración', permissions: allPermissions }
+const owner: RolePreset = { id: 'owner', name: 'Propietario', permissions: allPermissions }
+const admin: RolePreset = { id: 'admin', name: 'Administrador', permissions: allPermissions }
 const cashier: RolePreset = { id: 'cashier', name: 'Caja', permissions: ['sales.read', 'sales.create', 'orders.read', 'customers.read', 'cash.close'] }
 const inventory: RolePreset = { id: 'inventory', name: 'Inventario', permissions: ['inventory.read', 'inventory.manage', 'products.manage'] }
+const accountant: RolePreset = {
+  id: 'accountant',
+  name: 'Contabilidad',
+  permissions: ['sales.read', 'inventory.read', 'customers.read', 'credits.read', 'reports.read', 'cash.close'],
+}
 const common: ModuleDefinition[] = [
   { id: 'sales', name: 'Ventas', capability: 'sales', permission: 'sales.read' },
   { id: 'sell', name: 'Nueva venta', capability: 'sales', permission: 'sales.create' },
@@ -57,9 +62,10 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     roles: [
       owner,
       admin,
+      accountant,
       { id: 'warehouse', name: 'Almacén', permissions: ['inventory.read', 'inventory.manage', 'dispatch.create', 'route.close'] },
       { id: 'distributor', name: 'Distribuidor', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect', 'route.close'] },
-      { id: 'support', name: 'Soporte técnico', permissions: ['support.reset.prepare'] },
+      { id: 'support', name: 'Soporte', permissions: ['support.reset.prepare'] },
     ],
     units: ['kg', 'g', 'unit', 'package', 'box', 'liter'], pos: 'route', inventory: 'lots-and-routes',
     // Validation of the migrated adapter is required before advertising these in the new tenant shell.

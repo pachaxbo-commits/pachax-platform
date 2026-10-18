@@ -76,6 +76,8 @@ export function DistributionDemo({
         ? 'w1'
         : role === 'support'
         ? 's1'
+        : role === 'accountant'
+        ? 'acc1'
         : role === 'owner'
         ? 'owner-preview-uid'
         : 'admin-preview-uid',
@@ -86,6 +88,8 @@ export function DistributionDemo({
         ? 'Almacén Central'
         : role === 'support'
         ? 'Soporte Técnico'
+        : role === 'accountant'
+        ? 'Contador Demo'
         : role === 'owner'
         ? 'Propietario Demo'
         : 'Administrador Demo',
