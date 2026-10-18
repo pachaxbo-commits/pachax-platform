@@ -324,14 +324,17 @@ export function TemplatesSection() {
           {/* Rutas y Acciones */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Ruta de demostración (Demo Route)
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                <span>Ruta de demostración (Técnica)</span>
+                <span className="text-[10px] text-slate-400 font-normal">Solo lectura</span>
               </label>
               <input
                 type="text"
+                readOnly
+                disabled
                 value={formData.demoRoute}
-                onChange={(e) => setFormData({ ...formData, demoRoute: e.target.value, demoPath: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800"
+                className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-500 cursor-not-allowed select-all"
+                title="La ruta de demostración interactiva proviene de la definición técnica canónica y es inmutable desde el panel administrativo."
               />
             </div>
 

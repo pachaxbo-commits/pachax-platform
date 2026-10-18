@@ -10,14 +10,27 @@ const platform = require('./platform.cjs');
 const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
 const { executeRestaurantCommand } = require('./restaurant.cjs');
+const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
 exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);
-    case 'completeOnboarding': return onboarding.completeOnboarding(db, auth, request);
-    case 'createTenant': return tenants.createTenant(db, auth, request);
+    case 'completeOnboarding': {
+      const bType = request.data?.businessType;
+      if (!isTemplateProvisioningAvailable(bType)) {
+        throw new HttpsError('failed-precondition', 'La plantilla seleccionada todavía no está disponible para crear empresas.');
+      }
+      return onboarding.completeOnboarding(db, auth, request);
+    }
+    case 'createTenant': {
+      const bType = request.data?.businessType;
+      if (!isTemplateProvisioningAvailable(bType)) {
+        throw new HttpsError('failed-precondition', 'La plantilla seleccionada todavía no está disponible para crear empresas.');
+      }
+      return tenants.createTenant(db, auth, request);
+    }
     case 'listMemberships': return tenants.listMemberships(db, request);
     case 'selectTenant': return tenants.selectTenant(db, request);
     case 'updateSettings': return tenants.updateSettings(db, request);

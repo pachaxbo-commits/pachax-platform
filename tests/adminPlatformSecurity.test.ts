@@ -8,7 +8,14 @@ import type {
   CommercialExtraService,
 } from '../src/admin/types.ts'
 import { PLANS_BY_TEMPLATE, COMMERCIAL_EXTRAS } from '../src/public/config/pricingConfig.ts'
-import { canLaunchCommercialDemo, isTechnicalDemoAvailable, isTemplateProvisioningAvailable, PLAN_ELIGIBLE_TEMPLATE_IDS } from '../src/core/publicTemplates.ts'
+import {
+  canLaunchCommercialDemo,
+  isTechnicalDemoAvailable,
+  isTemplateProvisioningAvailable,
+  PLAN_ELIGIBLE_TEMPLATE_IDS,
+  PUBLIC_TEMPLATES,
+  OFFICIAL_COMMERCIAL_TEMPLATES,
+} from '../src/core/publicTemplates.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
   assert.equal(canPlatform(null, 'tenants.read'), false)
@@ -538,4 +545,105 @@ test('22. Seed de configuración oficial: preserva estado oficial y no auto-publ
   const filteredPlans = samplePlans.filter(p => PLAN_ELIGIBLE_TEMPLATE_IDS.includes(p.templateId as any))
   assert.equal(filteredPlans.length, 2)
   assert.equal(filteredPlans.some(p => p.templateId === 'custom'), false)
+})
+
+test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution habilitado, coming-soon bloqueado, Custom sin aprovisionamiento y sin fallback silencioso', () => {
+  // Aprovisionamiento habilitado solo para Distribution
+  assert.equal(isTemplateProvisioningAvailable('distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
+
+  // Coming-soon bloqueados para creación de empresas
+  assert.equal(isTemplateProvisioningAvailable('restaurant'), false)
+  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), false)
+  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
+
+  // Custom preserva flujo a medida (WhatsApp/contacto), no aprovisiona tenant directo
+  assert.equal(isTemplateProvisioningAvailable('custom'), false)
+
+  // Lógica de PublicRegisterView: cuando se recibe un templateParam en la URL
+  function resolveInitialRegisterTemplate(templateParam: string | null): string {
+    const param = templateParam || ''
+    return param ? (isTemplateProvisioningAvailable(param) ? param : '') : 'route_distribution'
+  }
+
+  // Sin parámetro: default a 'route_distribution'
+  assert.equal(resolveInitialRegisterTemplate(null), 'route_distribution')
+  assert.equal(resolveInitialRegisterTemplate(''), 'route_distribution')
+
+  // Parámetro válido disponible: se selecciona directamente
+  assert.equal(resolveInitialRegisterTemplate('route_distribution'), 'route_distribution')
+
+  // Parámetro no disponible / coming-soon: NO debe haber fallback silencioso a Distribution
+  assert.equal(resolveInitialRegisterTemplate('restaurant'), '')
+  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), '')
+  assert.equal(resolveInitialRegisterTemplate('nightclub'), '')
+  assert.equal(resolveInitialRegisterTemplate('retail'), '')
+  assert.equal(resolveInitialRegisterTemplate('custom'), '')
+  assert.equal(resolveInitialRegisterTemplate('invalid_template'), '')
+})
+
+test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de demoRoute y coherencia canónica', () => {
+  // Las rutas técnicas de demo están definidas canónicamente en PUBLIC_TEMPLATES
+  const distDef = PUBLIC_TEMPLATES.find(p => p.id === 'distribution')
+  assert.ok(distDef)
+  assert.equal(distDef.demoPath, '/demo/distribution')
+
+  const restDef = PUBLIC_TEMPLATES.find(p => p.id === 'restaurant')
+  assert.ok(restDef)
+  assert.equal(restDef.demoPath, '/demo/restaurant')
+
+  // demoEnabled: false continúa bloqueando la demo comercial incluso si technicalDemoAvailable es true
+  assert.equal(
+    canLaunchCommercialDemo({
+      status: 'published',
+      demoEnabled: false,
+      canonicalTemplateId: 'distribution',
+    }),
+    false
+  )
+
+  // Invariante de identidad técnica:
+  // Una plantilla no puede remapear su canonicalTemplateId a otra plantilla distinta
+  function validateTemplateIdentity(templateId: string, canonicalTemplateId?: string | null): boolean {
+    const validCanonical = ['restaurant', 'distribution', 'nightclub', 'retail', null]
+    if (canonicalTemplateId !== undefined) {
+      if (!validCanonical.includes(canonicalTemplateId)) return false
+      if (templateId === 'custom') {
+        if (canonicalTemplateId !== null) return false
+      } else if (canonicalTemplateId !== templateId) {
+        return false
+      }
+    }
+    return true
+  }
+
+  // Distribución mantiene identidad distribución
+  assert.equal(validateTemplateIdentity('distribution', 'distribution'), true)
+  // Restaurante no puede remapearse a distribución
+  assert.equal(validateTemplateIdentity('restaurant', 'distribution'), false)
+  // Retail no puede remapearse a restaurante
+  assert.equal(validateTemplateIdentity('retail', 'restaurant'), false)
+  // ID canónico arbitrario es rechazado
+  assert.equal(validateTemplateIdentity('distribution', 'arbitrary_canonical' as any), false)
+  // Custom solo admite null
+  assert.equal(validateTemplateIdentity('custom', null), true)
+  assert.equal(validateTemplateIdentity('custom', 'distribution'), false)
+
+  // Invariante de ruta técnica: demoRoute no puede modificarse arbitrariamente
+  function validateDemoRoute(templateId: string, requestedRoute?: string): boolean {
+    const publicDef = PUBLIC_TEMPLATES.find(p => p.id === templateId)
+    if (!publicDef) return true
+    if (requestedRoute && requestedRoute !== publicDef.demoPath) return false
+    return true
+  }
+
+  assert.equal(validateDemoRoute('distribution', '/demo/distribution'), true)
+  assert.equal(validateDemoRoute('distribution', '/demo/custom_override'), false)
+  assert.equal(validateDemoRoute('restaurant', '/demo/restaurant'), true)
+  assert.equal(validateDemoRoute('restaurant', '/demo/distribution'), false)
 })

@@ -1,6 +1,6 @@
 import { ArrowRight, Eye } from 'lucide-react'
 import type { CommercialTemplateItem } from '../../admin/types'
-import { canLaunchCommercialDemo } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
 import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 
@@ -13,11 +13,13 @@ export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateD
   const { navigate } = usePublicRouter()
 
   const handleUseTemplate = () => {
-    if (template.canonicalTemplateId) {
-      navigate(`/register?template=${template.canonicalTemplateId}`)
-    } else {
+    if (template.id === 'custom') {
       window.open(OFFICIAL_WHATSAPP.buildUrl(OFFICIAL_WHATSAPP.defaultCustomDevMessage), '_blank', 'noopener,noreferrer')
+      return
     }
+    const targetId = template.canonicalTemplateId || template.templateId || template.id
+    if (!isTemplateProvisioningAvailable(targetId)) return
+    navigate(`/register?template=${targetId}`)
   }
 
   const handleViewDetails = () => {
@@ -108,14 +110,34 @@ export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateD
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={handleUseTemplate}
-            className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
-          >
-            <span>Usar plantilla</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          {template.id === 'custom' ? (
+            <button
+              type="button"
+              onClick={handleUseTemplate}
+              className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+            >
+              <span>Cotizar a medida</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          ) : isTemplateProvisioningAvailable(template.canonicalTemplateId || template.templateId || template.id) ? (
+            <button
+              type="button"
+              onClick={handleUseTemplate}
+              className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+            >
+              <span>Usar plantilla</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
+              title="Plantilla en fase de consolidación técnica. Creación de empresas disponible próximamente."
+            >
+              <span>Próximamente</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

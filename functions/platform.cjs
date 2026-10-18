@@ -12,6 +12,7 @@ function resolveAdminAuth() {
   return getAuth();
 }
 const { BusinessTemplateRegistry } = require('./generated/templates.js');
+const { PUBLIC_TEMPLATES, OFFICIAL_COMMERCIAL_TEMPLATES, PLAN_ELIGIBLE_TEMPLATE_IDS } = require('./generated/publicTemplates.js');
 const { id } = require('./authorization.cjs');
 const { settingsPatch } = require('./tenants.cjs');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
@@ -350,8 +351,6 @@ async function getPlatformStats(db, request) {
   };
 }
 
-const OFFICIAL_COMMERCIAL_TEMPLATES = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', 'custom']);
-const PLAN_ELIGIBLE_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail']);
 const OFFICIAL_CANONICAL_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', null]);
 
 async function publishPlan(db, request) {
@@ -562,8 +561,30 @@ async function saveTemplate(db, request) {
     throw new HttpsError('invalid-argument', `Plantilla comercial no autorizada o no registrada: ${templateId}`);
   }
 
-  if (template.canonicalTemplateId !== undefined && !OFFICIAL_CANONICAL_TEMPLATE_IDS.includes(template.canonicalTemplateId)) {
-    throw new HttpsError('invalid-argument', `canonicalTemplateId no válido: ${template.canonicalTemplateId}`);
+  // Invariante de identidad técnica: no permitir que una plantilla se remapee arbitrariamente
+  if (template.canonicalTemplateId !== undefined) {
+    if (!OFFICIAL_CANONICAL_TEMPLATE_IDS.includes(template.canonicalTemplateId)) {
+      throw new HttpsError('invalid-argument', `canonicalTemplateId no válido: ${template.canonicalTemplateId}`);
+    }
+    if (templateId === 'custom') {
+      if (template.canonicalTemplateId !== null) {
+        throw new HttpsError('invalid-argument', 'Plantilla custom no tiene canonicalTemplateId.');
+      }
+    } else if (template.canonicalTemplateId !== templateId) {
+      throw new HttpsError('invalid-argument', `Identidad técnica no coincide con la plantilla oficial: ${templateId} vs ${template.canonicalTemplateId}`);
+    }
+  }
+
+  const publicDef = PUBLIC_TEMPLATES.find(p => p.id === templateId);
+
+  // Invariante de ruta técnica de demo: demoRoute y demoPath no son editables libremente por Admin
+  if (publicDef) {
+    if (template.demoRoute && template.demoRoute !== publicDef.demoPath) {
+      throw new HttpsError('invalid-argument', `La ruta de demo técnica es inmutable: ${publicDef.demoPath}`);
+    }
+    if (template.demoPath && template.demoPath !== publicDef.demoPath) {
+      throw new HttpsError('invalid-argument', `La ruta de demo técnica es inmutable: ${publicDef.demoPath}`);
+    }
   }
 
   const templateRef = db.doc(`platformTemplates/${templateId}`);
@@ -573,6 +594,10 @@ async function saveTemplate(db, request) {
   const payload = {
     ...template,
     id: templateId,
+    canonicalTemplateId: publicDef ? publicDef.id : null,
+    demoRoute: publicDef ? publicDef.demoPath : (template.demoRoute || ''),
+    demoPath: publicDef ? publicDef.demoPath : (template.demoPath || ''),
+    demoEnabled: templateId === 'custom' ? false : (template.demoEnabled ?? false),
     updatedAt: now,
     updatedBy: actor.uid,
     createdAt: templateSnap.exists ? (templateSnap.data().createdAt || now) : now,
