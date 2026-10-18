@@ -72,7 +72,7 @@ test('buildKitchenTicketHtml genera comanda térmica limpia sin precios ni datos
   const html = buildKitchenTicketHtml(payload, '80mm')
 
   // Datos esenciales de comanda presentes
-  assert.match(html, /COMANDA #1042/)
+  assert.match(html, /COMANDA.*#1042/)
   assert.match(html, /Pizzería Napolitana/)
   assert.match(html, /Mesa 4/)
   assert.match(html, /2x/)
@@ -88,10 +88,10 @@ test('buildKitchenTicketHtml genera comanda térmica limpia sin precios ni datos
   assert.doesNotMatch(html, /148/)
   assert.doesNotMatch(html, /Bs/)
   assert.doesNotMatch(html, /TOTAL/i)
-  assert.doesNotMatch(html, /REIMPRESION/)
+  assert.doesNotMatch(html, /REIMPRESI[OÓ]N/)
 })
 
-test('buildKitchenTicketHtml añade encabezado visible de *** REIMPRESION *** cuando isCopy es true', () => {
+test('buildKitchenTicketHtml añade encabezado visible de *** REIMPRESIÓN / COPIA *** cuando isCopy es true', () => {
   const payload: PrintJobPayload = {
     payloadSchemaVersion: 1,
     templateVersion: 'v1.0',
@@ -112,7 +112,7 @@ test('buildKitchenTicketHtml añade encabezado visible de *** REIMPRESION *** cu
   }
 
   const html = buildKitchenTicketHtml(payload, '58mm')
-  assert.match(html, /\*\*\* REIMPRESION \*\*\*/)
+  assert.match(html, /\*\*\* REIMPRESIÓN \/ COPIA \*\*\*/)
   assert.match(html, /size: 58mm auto/)
 })
 

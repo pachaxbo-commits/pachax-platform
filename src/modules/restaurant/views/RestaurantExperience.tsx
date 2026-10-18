@@ -21,28 +21,29 @@ import {
 } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
 import { useBackButtonBridge } from '../../../hooks/useBackHandler'
-import { RestaurantDashboard } from '../../../demo/restaurant/RestaurantDashboard'
-import { RestaurantPOS } from '../../../demo/restaurant/RestaurantPOS'
-import { RestaurantTables } from '../../../demo/restaurant/RestaurantTables'
+import { RestaurantDashboard } from '../components/RestaurantDashboard'
+import { RestaurantPOS } from '../components/RestaurantPOS'
+import { RestaurantTables } from '../components/RestaurantTables'
 import type { RestaurantSector } from '../../../demo/mocks/restaurantMock'
 import type { FloorAction } from '../domain/restaurantFloor'
 import { visibleTables } from '../domain/restaurantFloor'
 import type { InventoryCount, InventoryShiftSnapshot, InventoryMovement, InventoryMovementType, InventoryShiftRow } from '../domain/inventoryEngine'
 import { stockAwareProducts } from '../domain/inventoryEngine'
-import { RestaurantOrders } from '../../../demo/restaurant/RestaurantOrders'
-import { RestaurantKitchen } from '../../../demo/restaurant/RestaurantKitchen'
-import { RestaurantHistory } from '../../../demo/restaurant/RestaurantHistory'
-import { RestaurantCash } from '../../../demo/restaurant/RestaurantCash'
-import { RestaurantInventory } from '../../../demo/restaurant/RestaurantInventory'
-import { RestaurantProducts } from '../../../demo/restaurant/RestaurantProducts'
-import { RestaurantCustomers } from '../../../demo/restaurant/RestaurantCustomers'
+import type { CashMovement } from '../domain/cashEngine'
+import { RestaurantOrders } from '../components/RestaurantOrders'
+import { RestaurantKitchen } from '../components/RestaurantKitchen'
+import { RestaurantHistory } from '../components/RestaurantHistory'
+import { RestaurantCash } from '../components/RestaurantCash'
+import { RestaurantInventory } from '../components/RestaurantInventory'
+import { RestaurantProducts } from '../components/RestaurantProducts'
+import { RestaurantCustomers } from '../components/RestaurantCustomers'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
-import type { CustomerDraft } from '../../../demo/restaurant/RestaurantCustomerForm'
-import { RestaurantUsers, type RestaurantMember, type Role } from '../../../demo/restaurant/RestaurantUsers'
-import { RestaurantReports } from '../../../demo/restaurant/RestaurantReports'
-import { RestaurantSettings } from '../../../demo/restaurant/RestaurantSettings'
-import { RestaurantPrinters } from '../../../demo/restaurant/RestaurantPrinters'
-import type { KitchenPrinterConfig } from '../../../demo/restaurant/kitchenPrinterConfig'
+import type { CustomerDraft } from '../components/RestaurantCustomerForm'
+import { RestaurantUsers, type RestaurantMember, type Role } from '../components/RestaurantUsers'
+import { RestaurantReports } from '../components/RestaurantReports'
+import { RestaurantSettings } from '../components/RestaurantSettings'
+import { RestaurantPrinters } from '../components/RestaurantPrinters'
+import type { KitchenPrinterConfig } from '../components/kitchenPrinterConfig'
 import type { BusinessIdentity } from '../../../core/businessIdentity'
 import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
 import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
@@ -163,6 +164,12 @@ export interface RestaurantExperienceProps {
   onCreateMember?: (data: { name: string; email: string; role: Role; active: boolean; password?: string }) => Promise<void> | void
   onUpdateMember?: (id: string, data: { name: string; role: Role; active: boolean }) => Promise<void> | void
   onDeleteMember?: (id: string) => Promise<void> | void
+  cashMovements?: CashMovement[]
+  onCreateCashMovement?: (movement: Omit<CashMovement, 'id' | 'createdAt'>) => Promise<void> | void
+  onCancelCashMovement?: (movementId: string, reason?: string) => Promise<void> | void
+  onUpdateCashMovement?: (movementId: string, updates: Partial<CashMovement>) => Promise<void> | void
+  onArchiveProduct?: (productId: string) => Promise<void> | void
+  onDeleteProduct?: (productId: string) => Promise<void> | void
   businessIdentity?: BusinessIdentity
   onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
   onUploadLogo?: (file: File) => Promise<string>
@@ -265,6 +272,12 @@ export function RestaurantExperience({
   onCreateMember,
   onUpdateMember,
   onDeleteMember,
+  cashMovements,
+  onCreateCashMovement,
+  onCancelCashMovement,
+  onUpdateCashMovement,
+  onArchiveProduct,
+  onDeleteProduct,
   businessIdentity,
   onSaveBusinessIdentity,
   onUploadLogo,
@@ -615,6 +628,11 @@ export function RestaurantExperience({
               stockMovements={stockMovements}
               onCountInventoryItem={onCountInventoryItem}
               onViewTables={() => selectModule('tables')}
+              movements={cashMovements}
+              staffMembers={members}
+              onCreateMovement={onCreateCashMovement}
+              onCancelMovement={onCancelCashMovement}
+              onUpdateMovement={onUpdateCashMovement}
             />
           )}
           {activeModule === 'inventory' && <RestaurantInventory products={products} catalogCategories={categories} shift={shift} movements={stockMovements} onInventoryMovement={onInventoryMovement} onSaveProducts={onSaveProducts || (() => {})} />}
@@ -624,6 +642,8 @@ export function RestaurantExperience({
               products={products}
               orders={orders}
               onSaveProducts={onSaveProducts || (() => {})}
+              onArchiveProduct={onArchiveProduct}
+              onDeleteProduct={onDeleteProduct}
             />
           )}
           {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={['owner', 'admin', 'team'].includes(session.role)} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} />}

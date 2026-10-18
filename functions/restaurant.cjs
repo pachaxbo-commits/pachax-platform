@@ -24,6 +24,11 @@ const permissions = {
   assignCustomer: 'sales.create',
   recordInventoryMovement: 'inventory.manage',
   countInventoryItem: 'inventory.manage',
+  recordCashMovement: 'cash.close',
+  cancelCashMovement: 'cash.close',
+  updateCashMovement: 'cash.close',
+  archiveProduct: 'products.manage',
+  deleteProduct: 'products.manage',
 }
 
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
@@ -446,6 +451,71 @@ async function applyRestaurantCommand(context) {
     return { ok: true, movementId, nextStock }
   }
 
+  // 3f. Archivar Producto
+  if (type === 'archiveProduct') {
+    const productId = id(payload.productId || payload.id)
+    const productRef = root.collection('products').doc(productId)
+    const snap = await tx.get(productRef)
+    if (!snap.exists) throw new HttpsError('not-found', 'Producto no encontrado.')
+
+    // Validar si otros productos activos usan este producto como ingrediente en sus recetas
+    const activeProductsSnap = await tx.get(
+      root.collection('products')
+        .where('tenantId', '==', actor.tenantId)
+        .where('isActive', '==', true)
+    )
+    for (const doc of activeProductsSnap.docs) {
+      if (doc.id === productId) continue
+      const prod = doc.data()
+      if (Array.isArray(prod.recipe) && prod.recipe.some(part => part.ingredientId === productId)) {
+        throw new HttpsError('failed-precondition', `No se puede archivar ${snap.data().name} porque es insumo de la receta activa de ${prod.name}.`)
+      }
+    }
+
+    tx.update(productRef, {
+      isActive: false,
+      isVisible: false,
+      availability: 'archived',
+      archivedAt: now,
+      archivedBy: actor.uid,
+      updatedAt: now,
+    })
+    return { ok: true, productId, archived: true }
+  }
+
+  // 3g. Eliminar Producto Físicamente (Solo sin referencias históricas)
+  if (type === 'deleteProduct') {
+    const productId = id(payload.productId || payload.id)
+    const productRef = root.collection('products').doc(productId)
+    const snap = await tx.get(productRef)
+    if (!snap.exists) throw new HttpsError('not-found', 'Producto no encontrado.')
+
+    // Verificar si es insumo de alguna receta
+    const prodsSnap = await tx.get(root.collection('products').where('tenantId', '==', actor.tenantId))
+    for (const doc of prodsSnap.docs) {
+      if (doc.id === productId) continue
+      const prod = doc.data()
+      if (Array.isArray(prod.recipe) && prod.recipe.some(part => part.ingredientId === productId)) {
+        throw new HttpsError('failed-precondition', 'El producto forma parte de una receta existente.')
+      }
+    }
+
+    // Verificar si tiene pedidos
+    const ordersSnap = await tx.get(root.collection('restaurantOrders').limit(100))
+    if (ordersSnap.docs.some(d => d.data().items?.some(it => it.productId === productId))) {
+      throw new HttpsError('failed-precondition', 'El producto tiene historial de pedidos y no puede eliminarse físicamente. Usa archivar.')
+    }
+
+    // Verificar si tiene movimientos de inventario
+    const movementsSnap = await tx.get(root.collection('restaurantInventoryMovements').where('productId', '==', productId).limit(1))
+    if (!movementsSnap.empty) {
+      throw new HttpsError('failed-precondition', 'El producto tiene movimientos de inventario y no puede eliminarse físicamente. Usa archivar.')
+    }
+
+    tx.delete(productRef)
+    return { ok: true, productId, deleted: true }
+  }
+
   // Comandos operativos que requieren turno activo
   const state = await tx.get(stateRef)
   const activeShiftId = state.data()?.activeShiftId
@@ -503,9 +573,11 @@ async function applyRestaurantCommand(context) {
     let cashIncome = 0, cashOutflow = 0
     for (const doc of movementsSnap.docs) {
       const m = doc.data()
-      if (!m.method || m.method === 'cash') {
-        if (m.type === 'income') cashIncome = money(cashIncome + amount(m.amount))
-        else if (m.type === 'expense' || m.type === 'refund') cashOutflow = money(cashOutflow + amount(m.amount))
+      if (m.active !== false) {
+        if (!m.method || m.method === 'cash') {
+          if (m.type === 'income') cashIncome = money(cashIncome + amount(m.amount))
+          else if (m.type === 'expense' || m.type === 'refund') cashOutflow = money(cashOutflow + amount(m.amount))
+        }
       }
     }
 
@@ -543,6 +615,100 @@ async function applyRestaurantCommand(context) {
 
     tx.set(stateRef, { activeShiftId: null, updatedAt: now }, { merge: true })
     return { shiftId, countedCash, expectedCash, difference, totalSales }
+  }
+
+  // 4b. Registrar Movimiento Manual de Caja (Ingreso / Egreso)
+  if (type === 'recordCashMovement') {
+    if (!activeShiftId) throw new HttpsError('failed-precondition', 'No hay turno activo para registrar movimientos de caja.')
+    const moveType = payload.type === 'income' ? 'income' : 'expense'
+    const validCategories = [
+      'supply_purchase', 'worker_payment', 'supplier_payment', 'transport',
+      'maintenance', 'services', 'additional_cash', 'change_replenishment', 'other',
+    ]
+    const category = validCategories.includes(payload.category) ? payload.category : 'other'
+    const desc = text(payload.description, 200)
+    const val = amount(payload.amount)
+    if (val <= 0) throw new HttpsError('invalid-argument', 'El importe debe ser mayor a cero.')
+    const method = ['cash', 'qr', 'card'].includes(payload.method) ? payload.method : 'cash'
+    const movementId = id(payload.id || `cash_${operationId}`)
+    const movementDoc = {
+      id: movementId,
+      operationId,
+      tenantId: actor.tenantId,
+      branchId,
+      shiftId: activeShiftId,
+      type: moveType,
+      category,
+      description: desc,
+      amount: val,
+      method,
+      note: payload.note ? text(payload.note, 500) : '',
+      active: true,
+      actorUid: actor.uid,
+      createdAt: now,
+      updatedAt: now,
+    }
+    tx.set(root.collection('restaurantCashMovements').doc(movementId), movementDoc)
+    return { ok: true, movementId, movement: movementDoc }
+  }
+
+  // 4c. Anular Movimiento de Caja
+  if (type === 'cancelCashMovement') {
+    if (!activeShiftId) throw new HttpsError('failed-precondition', 'No hay turno activo.')
+    const movementId = id(payload.movementId || payload.id)
+    const ref = root.collection('restaurantCashMovements').doc(movementId)
+    const snap = await tx.get(ref)
+    if (!snap.exists) throw new HttpsError('not-found', 'Movimiento de caja no encontrado.')
+    const m = snap.data()
+    if (m.type === 'sale') {
+      throw new HttpsError('failed-precondition', 'No se puede anular un movimiento de venta directamente desde caja.')
+    }
+    if (m.active === false) {
+      throw new HttpsError('failed-precondition', 'El movimiento ya fue anulado.')
+    }
+    if (m.shiftId !== activeShiftId) {
+      throw new HttpsError('failed-precondition', 'Solo se pueden anular movimientos del turno activo.')
+    }
+    const reason = text(payload.reason || 'Anulación manual', 200)
+    tx.update(ref, {
+      active: false,
+      cancelledAt: now,
+      cancelledBy: actor.uid,
+      cancelReason: reason,
+      updatedAt: now,
+    })
+    return { ok: true, movementId, active: false }
+  }
+
+  // 4d. Editar Movimiento de Caja
+  if (type === 'updateCashMovement') {
+    if (!activeShiftId) throw new HttpsError('failed-precondition', 'No hay turno activo.')
+    const movementId = id(payload.movementId || payload.id)
+    const ref = root.collection('restaurantCashMovements').doc(movementId)
+    const snap = await tx.get(ref)
+    if (!snap.exists) throw new HttpsError('not-found', 'Movimiento de caja no encontrado.')
+    const m = snap.data()
+    if (m.type === 'sale') {
+      throw new HttpsError('failed-precondition', 'No se puede editar un movimiento de venta desde caja.')
+    }
+    if (m.active === false) {
+      throw new HttpsError('failed-precondition', 'No se puede editar un movimiento anulado.')
+    }
+    if (m.shiftId !== activeShiftId) {
+      throw new HttpsError('failed-precondition', 'Solo se pueden editar movimientos del turno activo.')
+    }
+    const patch = { updatedAt: now }
+    if (payload.description) patch.description = text(payload.description, 200)
+    if (payload.category) {
+      const validCategories = [
+        'supply_purchase', 'worker_payment', 'supplier_payment', 'transport',
+        'maintenance', 'services', 'additional_cash', 'change_replenishment', 'other',
+      ]
+      patch.category = validCategories.includes(payload.category) ? payload.category : 'other'
+    }
+    if (payload.note !== undefined) patch.note = text(payload.note || '', 500)
+    tx.update(ref, patch)
+    return { ok: true, movementId }
   }
 
   // 5. Abrir Cuenta en Mesa (Salón)

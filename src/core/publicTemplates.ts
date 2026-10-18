@@ -11,6 +11,8 @@ export interface PublicTemplateDefinition {
   demoPath: `/demo/${PublicTemplateId}`
   studioTemplateId: PublicTemplateId
   status: PublicTemplateStatus
+  provisioningStatus?: PublicTemplateStatus
+  demoStatus?: PublicTemplateStatus
 }
 
 export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.freeze([
@@ -22,6 +24,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/restaurant',
     studioTemplateId: 'restaurant',
     status: 'coming_soon',
+    provisioningStatus: 'available',
+    demoStatus: 'coming_soon',
   },
   {
     id: 'hamburger',
@@ -31,6 +35,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/hamburger',
     studioTemplateId: 'hamburger',
     status: 'coming_soon',
+    provisioningStatus: 'coming_soon',
+    demoStatus: 'coming_soon',
   },
   {
     id: 'distribution',
@@ -40,6 +46,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/distribution',
     studioTemplateId: 'distribution',
     status: 'available',
+    provisioningStatus: 'available',
+    demoStatus: 'available',
   },
   {
     id: 'retail',
@@ -49,6 +57,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/retail',
     studioTemplateId: 'retail',
     status: 'coming_soon',
+    provisioningStatus: 'coming_soon',
+    demoStatus: 'coming_soon',
   },
   {
     id: 'nightclub',
@@ -58,6 +68,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/nightclub',
     studioTemplateId: 'nightclub',
     status: 'coming_soon',
+    provisioningStatus: 'coming_soon',
+    demoStatus: 'coming_soon',
   },
 ])
 
@@ -72,12 +84,12 @@ export function getPublicTemplate(idOrBusinessType: string): PublicTemplateDefin
 
 export function isTechnicalDemoAvailable(idOrBusinessType: string): boolean {
   const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
-  return template?.status === 'available'
+  return (template?.demoStatus ?? template?.status) === 'available'
 }
 
 export function isTemplateProvisioningAvailable(idOrBusinessType: string): boolean {
   const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
-  return template?.status === 'available'
+  return (template?.provisioningStatus ?? template?.status) === 'available'
 }
 
 export function canLaunchCommercialDemo(template: {

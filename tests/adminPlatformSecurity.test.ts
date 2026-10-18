@@ -498,13 +498,13 @@ test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun p
 })
 
 test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica estricta', () => {
-  // Solo Distribución está actualmente aprobada para aprovisionamiento real de tenants
+  // Distribución y Restaurante están aprobados para aprovisionamiento real de tenants
   assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
 
   // Plantillas no consolidadas para creación de empresas
-  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), false)
-  assert.equal(isTemplateProvisioningAvailable('restaurant'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), false)
@@ -547,14 +547,20 @@ test('22. Seed de configuración oficial: preserva estado oficial y no auto-publ
   assert.equal(filteredPlans.some(p => p.templateId === 'custom'), false)
 })
 
-test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution habilitado, coming-soon bloqueado, Custom sin aprovisionamiento y sin fallback silencioso', () => {
-  // Aprovisionamiento habilitado solo para Distribution
+test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y Restaurant habilitados, coming-soon bloqueados, Custom sin aprovisionamiento y sin fallback silencioso', () => {
+  // Aprovisionamiento habilitado para Distribution y Restaurant
   assert.equal(isTemplateProvisioningAvailable('distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
+
+  // Demo técnica desacoplada de aprovisionamiento: Distribution disponible, Restaurant bloqueado/coming_soon
+  assert.equal(isTechnicalDemoAvailable('distribution'), true)
+  assert.equal(isTechnicalDemoAvailable('route_distribution'), true)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
+  assert.equal(isTechnicalDemoAvailable('restaurant_pos'), false)
 
   // Coming-soon bloqueados para creación de empresas
-  assert.equal(isTemplateProvisioningAvailable('restaurant'), false)
-  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
   assert.equal(isTemplateProvisioningAvailable('nightclub'), false)
@@ -577,10 +583,10 @@ test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution hab
 
   // Parámetro válido disponible: se selecciona directamente
   assert.equal(resolveInitialRegisterTemplate('route_distribution'), 'route_distribution')
+  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), 'restaurant_pos')
 
   // Parámetro no disponible / coming-soon: NO debe haber fallback silencioso a Distribution
-  assert.equal(resolveInitialRegisterTemplate('restaurant'), '')
-  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), '')
+  assert.equal(resolveInitialRegisterTemplate('hamburger'), '')
   assert.equal(resolveInitialRegisterTemplate('nightclub'), '')
   assert.equal(resolveInitialRegisterTemplate('retail'), '')
   assert.equal(resolveInitialRegisterTemplate('custom'), '')

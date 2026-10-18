@@ -835,8 +835,140 @@ try {
   assert.equal((await hambRoot.collection('products').doc('ing_queso').get()).data().stockBase, 6)
   console.log('PASS Transacción rechazada atómicamente por stock insuficiente sin tocar insumos.')
 
+  // 33. Control de movimientos de caja (recordCashMovement, updateCashMovement, cancelCashMovement)
+  console.log('33. Movimientos de caja (ingresos, egresos y anulación con auditoría)...')
+  // Abrir nuevo turno en tenant principal
+  const shiftMov = await call('cashier_user', 'openShift', 'op-shift-mov', { openingFloat: 200 })
+  assert.ok(shiftMov.shiftId)
+
+  // Mesero sin permiso cash.close no puede registrar movimientos
+  await assert.rejects(
+    () => call('waiter_user', 'recordCashMovement', 'mov-waiter-denied', {
+      type: 'expense',
+      category: 'supply_purchase',
+      description: 'Compra no autorizada',
+      amount: 50,
+      paymentMethod: 'cash',
+    }),
+    err => err.code === 'permission-denied',
+    'Mesero no debe poder registrar movimientos de caja'
+  )
+
+  // Cajero registra egreso en efectivo de Bs 45
+  const mov1 = await call('cashier_user', 'recordCashMovement', 'mov-expense-1', {
+    type: 'expense',
+    category: 'supply_purchase',
+    description: 'Compra de verduras de urgencia',
+    amount: 45,
+    paymentMethod: 'cash',
+    supplier: 'Mercado Central',
+  })
+  assert.ok(mov1.movementId)
+
+  // Actualizar movimiento
+  await call('cashier_user', 'updateCashMovement', 'mov-update-1', {
+    movementId: mov1.movementId,
+    description: 'Compra de verduras y frutas',
+    note: 'Factura #1234',
+  })
+  const mov1Doc = (await root.collection('restaurantCashMovements').doc(mov1.movementId).get()).data()
+  assert.equal(mov1Doc.description, 'Compra de verduras y frutas')
+  assert.equal(mov1Doc.note, 'Factura #1234')
+  assert.equal(mov1Doc.active, true)
+
+  // Cajero registra ingreso en efectivo de Bs 100
+  const mov2 = await call('cashier_user', 'recordCashMovement', 'mov-income-1', {
+    type: 'income',
+    category: 'additional_cash',
+    description: 'Aporte de cambio por el dueño',
+    amount: 100,
+    paymentMethod: 'cash',
+  })
+  assert.ok(mov2.movementId)
+
+  // Registrar un movimiento para anular
+  const movToCancel = await call('cashier_user', 'recordCashMovement', 'mov-cancel-target', {
+    type: 'expense',
+    category: 'maintenance',
+    description: 'Gasto erróneo a anular',
+    amount: 30,
+    paymentMethod: 'cash',
+  })
+  // Anular movimiento
+  await call('owner_user', 'cancelCashMovement', 'mov-cancel-op', {
+    movementId: movToCancel.movementId,
+    reason: 'Registrado por error en turno incorrecto',
+  })
+  const cancelledDoc = (await root.collection('restaurantCashMovements').doc(movToCancel.movementId).get()).data()
+  assert.equal(cancelledDoc.active, false)
+  assert.equal(cancelledDoc.cancelledBy, 'owner_user')
+  assert.equal(cancelledDoc.cancelReason, 'Registrado por error en turno incorrecto')
+  console.log('PASS Movimientos de caja registrados, actualizados y anulados con auditoría completa.')
+
+  // 34. Cierre de turno y conciliación con movimientos manuales
+  console.log('34. Conciliación y arqueo considerando movimientos manuales...')
+  // Fondo inicial 200 + Ingreso 100 - Egreso 45 = Esperado 255 (el de 30 anulado NO cuenta)
+  const closeRes2 = await call('cashier_user', 'closeShift', 'op-close-2', {
+    shiftId: shiftMov.shiftId,
+    countedCash: 255,
+  })
+  assert.equal(closeRes2.difference, 0)
+  const closedMovShiftDoc = (await root.collection('restaurantShifts').doc(shiftMov.shiftId).get()).data()
+  assert.equal(closedMovShiftDoc.status, 'closed')
+  assert.equal(closedMovShiftDoc.expectedCash, 255)
+  assert.equal(closedMovShiftDoc.difference, 0)
+  assert.equal(closedMovShiftDoc.cashIncome, 100)
+  assert.equal(closedMovShiftDoc.cashOutflow, 45)
+  console.log('PASS Cierre de caja calculó exactamente los movimientos activos e ignoró los anulados.')
+
+  // 35. Archivación de productos (archiveProduct)
+  console.log('35. Archivación de productos...')
+  // Crear un producto para archivar
+  await call('admin_user', 'saveProduct', 'prod-to-archive-create', {
+    product: {
+      id: 'prod_vino_especial',
+      name: 'Vino Tinto Reserva',
+      price: 150,
+      restaurantType: 'beverage',
+      isActive: true,
+      isVisible: true,
+    },
+  })
+  // Mesero sin products.manage no puede archivar
+  await assert.rejects(
+    () => call('waiter_user', 'archiveProduct', 'archive-waiter-fail', { productId: 'prod_vino_especial' }),
+    err => err.code === 'permission-denied',
+    'Mesero no puede archivar productos'
+  )
+  // Admin archiva el producto
+  await call('admin_user', 'archiveProduct', 'archive-admin-ok', { productId: 'prod_vino_especial' })
+  const archivedDoc = (await root.collection('products').doc('prod_vino_especial').get()).data()
+  assert.equal(archivedDoc.isActive, false)
+  assert.equal(archivedDoc.isVisible, false)
+  assert.equal(archivedDoc.availability, 'archived')
+  assert.ok(archivedDoc.archivedAt)
+  assert.equal(archivedDoc.archivedBy, 'admin_user')
+  console.log('PASS Producto archivado con estado inactivo, no visible y auditado.')
+
+  // 36. Eliminación física segura de producto (deleteProduct)
+  console.log('36. Eliminación física condicionada...')
+  // Crear un producto sin ninguna referencia
+  await call('admin_user', 'saveProduct', 'prod-to-delete-create', {
+    product: {
+      id: 'prod_unreferenced',
+      name: 'Producto Sin Referencia',
+      price: 20,
+      restaurantType: 'beverage',
+    },
+  })
+  // Eliminar el producto no referenciado
+  await call('admin_user', 'deleteProduct', 'del-admin-ok', { productId: 'prod_unreferenced' })
+  const deletedDoc = await root.collection('products').doc('prod_unreferenced').get()
+  assert.equal(deletedDoc.exists, false)
+  console.log('PASS Eliminación física completada para producto sin dependencias.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (32/32)')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (36/36)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {

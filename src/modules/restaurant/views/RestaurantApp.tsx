@@ -12,7 +12,8 @@ import type { Order, Product } from '../../../types'
 import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
 import type { InventoryMovement } from '../domain/inventoryEngine'
-import type { RestaurantMember } from '../../../demo/restaurant/RestaurantUsers'
+import type { CashMovement } from '../domain/cashEngine'
+import type { RestaurantMember } from '../components/RestaurantUsers'
 import {
   subscribeOperationalState,
   subscribeActiveShift,
@@ -24,6 +25,12 @@ import {
   subscribeCustomers,
   subscribeInventoryMovements,
   subscribeMembers,
+  subscribeCashMovements,
+  recordCashMovement,
+  cancelCashMovement,
+  updateCashMovement,
+  archiveProduct,
+  deleteProduct,
   openShift,
   closeShift,
   openTableOrder,
@@ -111,6 +118,7 @@ export function RestaurantApp({
   const [customers, setCustomers] = useState<RestaurantCustomer[]>([])
   const [stockMovements, setStockMovements] = useState<InventoryMovement[]>([])
   const [members, setMembers] = useState<RestaurantMember[]>([])
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>([])
   const [syncError, setSyncError] = useState<string | null>(null)
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>([])
   const [lastPrintedComanda, setLastPrintedComanda] = useState<PrintJobPayload | null>(null)
@@ -200,6 +208,24 @@ export function RestaurantApp({
     return subscribeActiveShift(tenantId, operationalState.activeShiftId, setShift, (err: Error) => {
       console.warn('[RestaurantApp] Error al consultar turno activo:', err.message)
     })
+  }, [tenantId, operationalState.activeShiftId])
+
+  // Subscribe to cash movements whenever activeShiftId changes
+  useEffect(() => {
+    if (!tenantId || !operationalState.activeShiftId) {
+      setCashMovements([])
+      return
+    }
+
+    return subscribeCashMovements(
+      tenantId,
+      'main',
+      operationalState.activeShiftId,
+      setCashMovements,
+      (err: Error) => {
+        console.warn('[RestaurantApp] Error al consultar movimientos de caja:', err.message)
+      }
+    )
   }, [tenantId, operationalState.activeShiftId])
 
   const activeShift = operationalState.activeShiftId ? shift : null
@@ -463,6 +489,52 @@ export function RestaurantApp({
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Error al guardar productos.'
             window.alert(msg)
+          }
+        }}
+        onArchiveProduct={async (productId) => {
+          try {
+            await archiveProduct(tenantId, 'main', productId)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al archivar producto.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        onDeleteProduct={async (productId) => {
+          try {
+            await deleteProduct(tenantId, 'main', productId)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al eliminar producto.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        cashMovements={cashMovements}
+        onCreateCashMovement={async (mov) => {
+          try {
+            await recordCashMovement(tenantId, 'main', mov)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al registrar movimiento de caja.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        onCancelCashMovement={async (movementId, reason) => {
+          try {
+            await cancelCashMovement(tenantId, 'main', movementId, reason)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al anular movimiento de caja.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        onUpdateCashMovement={async (movementId, updates) => {
+          try {
+            await updateCashMovement(tenantId, 'main', movementId, updates)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al actualizar movimiento de caja.'
+            window.alert(msg)
+            throw err
           }
         }}
         stockMovements={stockMovements}

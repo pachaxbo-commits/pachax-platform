@@ -1,0 +1,97 @@
+import { restaurantStorage } from '../../../demo/restaurant/restaurantStorage'
+import { useState } from 'react'
+import { Clock3, MoreHorizontal, Pencil, Plus, Shield, Trash2 } from 'lucide-react'
+import { Modal } from '../../../components/ui/Modal'
+import { Field, SelectInput, TextInput } from '../../../components/ui/Form'
+import { RESTAURANT_STAFF } from '../../../demo/mocks/restaurantMock'
+
+export type Role = 'owner' | 'admin' | 'cashier' | 'waiter' | 'kitchen' | 'inventory'
+export type RestaurantMember = { id: string; name: string; email: string; role: Role; roleName?: string; active: boolean }
+type Staff = { id: string; name: string; email: string; role: Role; roleName: string; active: boolean }
+type Attendance = { staffId: string; checkIn: string; checkOut?: string }
+const ROLE_LABEL: Record<Role, string> = { owner: 'Propietario', admin: 'Administrador', cashier: 'Caja', waiter: 'Mesero', kitchen: 'Cocina', inventory: 'Inventario' }
+const STORAGE = 'pachax:restaurant-demo:users:v1'
+const read = <T,>(fallback: T, key = STORAGE): T => { try { return JSON.parse(restaurantStorage.getItem(key) || '') as T } catch { return fallback } }
+const time = (value?: string) => value ? new Date(value).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) : '—'
+
+export function RestaurantUsers({
+  currentRole,
+  onSelectRole,
+  members,
+  onCreateMember,
+  onUpdateMember,
+  onDeleteMember,
+}: {
+  currentRole: string
+  onSelectRole?: (roleId: string) => void
+  members?: RestaurantMember[]
+  onCreateMember?: (data: { name: string; email: string; role: Role; active: boolean; password?: string }) => Promise<void> | void
+  onUpdateMember?: (id: string, data: { name: string; role: Role; active: boolean }) => Promise<void> | void
+  onDeleteMember?: (id: string) => Promise<void> | void
+}) {
+  const isProductive = Boolean(members || onCreateMember)
+  const [localStaff, setLocalStaff] = useState<Staff[]>(() => isProductive ? [] : read(RESTAURANT_STAFF as Staff[]))
+  const staff: Staff[] = members
+    ? members.map(m => ({ id: m.id, name: m.name, email: m.email, role: m.role, roleName: m.roleName || ROLE_LABEL[m.role] || m.role, active: m.active }))
+    : localStaff
+  const [attendance, setAttendance] = useState<Attendance[]>(() => isProductive ? [] : read<Attendance[]>([], `${STORAGE}:attendance`))
+  const [editing, setEditing] = useState<Staff | null>(null), [removing, setRemoving] = useState<Staff | null>(null), [openMenu, setOpenMenu] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [form, setForm] = useState({ name: '', email: '', role: 'waiter' as Role, active: true, password: '' })
+  const [notice, setNotice] = useState('')
+  const saveLocalStaff = (next: Staff[]) => { setLocalStaff(next); restaurantStorage.setItem(STORAGE, JSON.stringify(next)) }
+  const saveAttendance = (next: Attendance[]) => { setAttendance(next); restaurantStorage.setItem(`${STORAGE}:attendance`, JSON.stringify(next)) }
+  const beginCreate = () => { setForm({ name: '', email: '', role: 'waiter', active: true, password: '' }); setEditing({ id: '', name: '', email: '', role: 'waiter', roleName: '', active: true }) }
+  const submit = async () => {
+    if (submitting) return
+    if (!form.name.trim() || !/^\S+@\S+\.\S+$/.test(form.email)) { setNotice('Completa nombre y un correo válido.'); return }
+    if (!editing?.id && (!form.password || form.password.length < 8)) {
+      setNotice('La contraseña es obligatoria y debe tener al menos 8 caracteres.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      if (editing?.id) {
+        if (onUpdateMember) {
+          await onUpdateMember(editing.id, { name: form.name.trim(), role: form.role, active: form.active })
+        } else {
+          const member: Staff = { id: editing.id, name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role, roleName: ROLE_LABEL[form.role], active: form.active }
+          saveLocalStaff(staff.map(item => item.id === member.id ? member : item))
+        }
+        setEditing(null); setNotice('Usuario actualizado correctamente.')
+      } else {
+        if (onCreateMember) {
+          await onCreateMember({ name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role, active: form.active, password: form.password })
+        } else {
+          const member: Staff = { id: crypto.randomUUID(), name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role, roleName: ROLE_LABEL[form.role], active: form.active }
+          saveLocalStaff([...staff, member])
+        }
+        setEditing(null); setNotice('Usuario creado correctamente.')
+      }
+    } catch (err: unknown) {
+      setNotice(err instanceof Error ? err.message : 'Error al guardar usuario.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+  const remove = async () => {
+    if (!removing || deleting) return
+    setDeleting(true)
+    try {
+      if (onDeleteMember) {
+        await onDeleteMember(removing.id)
+      } else {
+        saveLocalStaff(staff.filter(item => item.id !== removing.id))
+      }
+      setNotice('Usuario eliminado.')
+      setRemoving(null)
+    } catch (err: unknown) {
+      setNotice(err instanceof Error ? err.message : 'Error al eliminar usuario.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+  const toggleAttendance = (staffId: string) => { const active = attendance.find(item => item.staffId === staffId && !item.checkOut); const now = new Date().toISOString(); saveAttendance(active ? attendance.map(item => item === active ? { ...item, checkOut: now } : item) : [{ staffId, checkIn: now }, ...attendance]) }
+  return <div className="space-y-6"><header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-slate-900">{isProductive ? 'Usuarios' : 'Usuarios y asistencia'}</h1><p className="text-sm text-slate-500">{isProductive ? 'Personal y roles del restaurante.' : 'Personal, roles y registro diario del restaurante.'}</p></div><button onClick={beginCreate} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold shadow-xs transition-opacity hover:opacity-95" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}><Plus size={16} /> Nuevo usuario</button></header>{notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{notice}</p>}<section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{(Object.keys(ROLE_LABEL) as Role[]).map(role => <article key={role} className="rounded-2xl border border-slate-200 bg-white p-3"><div className="flex items-center gap-2"><Shield size={15} style={{ color: 'var(--primary)' }} /><strong className="text-xs">{ROLE_LABEL[role]}</strong></div><p className="mt-2 text-[11px] text-slate-500">{staff.filter(item => item.role === role).length} usuario(s) asignado(s)</p></article>)}</section><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{staff.map(member => { const onDuty = attendance.find(item => item.staffId === member.id && !item.checkOut); const last = attendance.find(item => item.staffId === member.id); return <article key={member.id} className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-xs"><div className="flex gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white">{member.name.slice(0,2).toUpperCase()}</span><div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold">{member.name}</h3><p className="truncate text-xs text-slate-500">{member.email}</p></div><button aria-label={`Administrar ${member.name}`} onClick={() => setOpenMenu(openMenu === member.id ? null : member.id)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><MoreHorizontal size={18} /></button></div>{openMenu === member.id && <div className="absolute right-4 top-14 z-10 grid w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"><button onClick={() => { setEditing(member); setForm({ name: member.name, email: member.email, role: member.role, active: member.active, password: '' }); setOpenMenu(null) }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50"><Pencil size={14} /> Editar</button><button onClick={() => { setRemoving(member); setOpenMenu(null) }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-700 hover:bg-rose-50"><Trash2 size={14} /> Eliminar</button></div>}<div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><span className="inline-flex gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold"><Shield size={12} />{member.roleName}</span>{onSelectRole && !isProductive && <button onClick={() => onSelectRole(member.role)} className={`rounded-lg px-2 py-1 text-xs font-semibold ${currentRole === member.role ? 'text-white' : 'text-slate-600 hover:bg-slate-100'}`} style={currentRole === member.role ? { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' } : undefined}>{currentRole === member.role ? 'Rol activo' : 'Simular rol'}</button>}</div>{!isProductive && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600"><p className="flex gap-1 font-semibold"><Clock3 size={13} /> Entrada {time(onDuty?.checkIn || last?.checkIn)} · Salida {time(last?.checkOut)}</p><button onClick={() => toggleAttendance(member.id)} className="mt-2 w-full rounded-xl py-2 text-xs font-bold transition-opacity hover:opacity-95" style={onDuty ? { border: '1px solid #e2e8f0', backgroundColor: '#ffffff', color: '#0f172a' } : { backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>{onDuty ? 'Registrar salida' : 'Registrar entrada'}</button></div>}</article> })}</div><Modal isOpen={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Editar usuario' : 'Nuevo usuario'} footer={<button disabled={submitting} onClick={submit} className="w-full rounded-xl p-3 text-sm font-bold disabled:opacity-50" style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}>{submitting ? 'Guardando...' : 'Guardar usuario'}</button>}><div className="grid gap-3"><Field label="Nombre" required><TextInput value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></Field><Field label="Correo electrónico" required><TextInput type="email" disabled={!!editing?.id} value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></Field>{!editing?.id && <Field label="Contraseña de acceso" required><TextInput type="password" value={form.password} placeholder="Mínimo 8 caracteres" onChange={event => setForm({ ...form, password: event.target.value })} /></Field>}<Field label="Rol"><SelectInput value={form.role} onChange={event => setForm({ ...form, role: event.target.value as Role })}>{(Object.keys(ROLE_LABEL) as Role[]).map(role => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}</SelectInput></Field><label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={form.active} onChange={event => setForm({ ...form, active: event.target.checked })} /> Usuario activo</label></div></Modal><Modal isOpen={!!removing} onClose={() => setRemoving(null)} title="Eliminar usuario" subtitle="Esta acción no se puede deshacer." footer={<div className="grid grid-cols-2 gap-2"><button onClick={() => setRemoving(null)} className="rounded-xl border p-3 text-sm font-bold">Cancelar</button><button disabled={deleting} onClick={remove} className="rounded-xl bg-rose-700 p-3 text-sm font-bold text-white disabled:opacity-50">{deleting ? 'Eliminando...' : 'Eliminar usuario'}</button></div>}><p className="text-sm text-slate-700">¿Seguro que deseas eliminar a <strong>{removing?.name}</strong>?</p></Modal></div>
+}

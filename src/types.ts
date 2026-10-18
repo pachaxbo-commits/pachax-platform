@@ -13,7 +13,7 @@ export type OrderStatus =
 export type PaymentMethod = 'cash' | 'qr' | 'card' | 'mixed'
 export type OrderSource = 'local' | 'whatsapp'
 export type FulfillmentType = 'table' | 'pickup' | 'delivery'
-export type ProductAvailability = 'available' | 'soldout'
+export type ProductAvailability = 'available' | 'soldout' | 'archived'
 export type UserRole =
   | 'superadmin'
   | 'owner'
