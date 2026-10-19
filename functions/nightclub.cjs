@@ -94,6 +94,17 @@ const text = (value, max = 200) => {
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value
 const fingerprint = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')
 
+function nightclubOperationAllowed(member, requiredPermission, legacyAllowedRoles) {
+  if (member.roleId === 'owner') return true
+  if (Array.isArray(member.nightclubPermissions)) {
+    if (Array.isArray(requiredPermission)) {
+      return requiredPermission.some(p => member.nightclubPermissions.includes(p))
+    }
+    return member.nightclubPermissions.includes(requiredPermission)
+  }
+  return legacyAllowedRoles.includes(member.roleId)
+}
+
 async function executeNightclubCommand(db, request) {
   const input = request.data || {}, type = input.commandType || input.action, permission = permissions[type]
   if (!permission) throw new HttpsError('invalid-argument', 'Comando Nightclub no reconocido.')
@@ -111,79 +122,162 @@ async function executeNightclubCommand(db, request) {
     if (!hasPermission(tenant.data(), member.data(), permission)) throw new HttpsError('permission-denied', 'Permiso revocado.')
     if (!member.data().branchIds?.includes(branchId)) throw new HttpsError('permission-denied', 'Sucursal no autorizada.')
 
-    // Validaciones estrictas por rol según especificación
-    const roleId = member.data().roleId
-    const ncPerms = Array.isArray(member.data().nightclubPermissions) ? member.data().nightclubPermissions : []
-    const hasNc = perm => ncPerms.includes(perm)
+    const memberData = member.data()
+    const checkExists = async (col, docId) => {
+      if (typeof docId !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(docId)) return false
+      const snap = await tx.get(root.collection(col).doc(docId))
+      return snap.exists
+    }
 
-    if (type === 'advanceRound' && !['owner', 'admin', 'bar'].includes(roleId) && !hasNc('bar.edit')) {
-      throw new HttpsError('permission-denied', 'Solo Barra puede preparar pedidos.')
-    }
-    if (type === 'deliverRound' && !['owner', 'admin', 'waiter', 'service'].includes(roleId) && !hasNc('accounts.edit')) {
-      throw new HttpsError('permission-denied', 'Solo Servicio puede entregar pedidos.')
-    }
-    if (type === 'finishOccupancy' && !['owner', 'admin', 'waiter', 'service'].includes(roleId) && !hasNc('accounts.edit')) {
-      throw new HttpsError('permission-denied', 'Solo Servicio puede cerrar mesas.')
-    }
-    if (type === 'refundRound' && !['owner', 'admin'].includes(roleId) && !hasNc('special.approveOperations')) {
-      throw new HttpsError('permission-denied', 'Solo Administración puede reembolsar.')
-    }
-    if (type === 'recordPayment' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('cash.create')) {
-      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden registrar pagos.')
-    }
-    if (type === 'reopenBill' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('accounts.edit')) {
-      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden reabrir la cuenta.')
-    }
-    if (['saveZone', 'deleteZone', 'saveTable', 'deleteTable'].includes(type) && !['owner', 'admin'].includes(roleId) && !hasNc('floor.create') && !hasNc('floor.delete')) {
-      throw new HttpsError('permission-denied', 'Solo Administración puede configurar zonas y mesas.')
-    }
-    if (['saveProduct', 'saveInventory', 'inventoryMovement'].includes(type) && !['owner', 'admin', 'inventory'].includes(roleId) && !hasNc('inventory.edit') && !hasNc('products.create')) {
-      throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden gestionar productos e insumos.')
-    }
-    if (['openShift', 'closeShift'].includes(type) && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('special.closeCash')) {
+    if (['openShift', 'closeShift'].includes(type) && !nightclubOperationAllowed(memberData, 'special.closeCash', ['owner', 'admin', 'cashier'])) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden gestionar turnos.')
     }
-    if (type === 'saveReservation' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(roleId) && !hasNc('floor.create')) {
-      throw new HttpsError('permission-denied', 'No tienes permiso para gestionar reservas.')
-    }
-    if (type === 'cancelReservation' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('floor.delete') && !hasNc('special.approveOperations')) {
-      throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden cancelar reservas.')
-    }
-    if (type === 'arriveReservation' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(roleId) && !hasNc('floor.edit')) {
-      throw new HttpsError('permission-denied', 'No tienes permiso para registrar la llegada de reservas.')
-    }
-    if (['savePromoter', 'deletePromoter', 'savePromoterEvent', 'savePromoterConsumption'].includes(type) && !['owner', 'admin'].includes(roleId) && !hasNc('promoters.edit')) {
-      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar relacionadores.')
-    }
-    if (['saveTicketSale', 'saveLoungeSale', 'markLoungePaid'].includes(type) && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('promoters.create')) {
-      throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden registrar ventas de relacionadores.')
-    }
-    if (type === 'recordCashMovement' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('cash.create')) {
+    if (type === 'recordCashMovement' && !nightclubOperationAllowed(memberData, 'cash.create', ['owner', 'admin', 'cashier'])) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden registrar movimientos de caja.')
     }
-    if (type === 'saveBottleInventory' && !['owner', 'admin', 'inventory'].includes(roleId) && !hasNc('inventory.create')) {
-      throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden registrar botellas.')
+    if (type === 'openAccount' && !nightclubOperationAllowed(memberData, 'accounts.create', ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para abrir cuentas.')
     }
-    if (['openBottle', 'bottleExit'].includes(type) && !['owner', 'admin', 'inventory', 'bar'].includes(roleId) && !hasNc('inventory.edit')) {
+    if (type === 'addRound' && !nightclubOperationAllowed(memberData, ['pos.create', 'accounts.edit'], ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para agregar pedidos.')
+    }
+    if (type === 'settleRound' && !nightclubOperationAllowed(memberData, ['pos.create', 'cash.create', 'bar.create'], ['owner', 'admin', 'cashier', 'waiter', 'service', 'bar'])) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para cobrar rondas.')
+    }
+    if (type === 'advanceRound' && !nightclubOperationAllowed(memberData, 'bar.edit', ['owner', 'admin', 'bar'])) {
+      throw new HttpsError('permission-denied', 'Solo Barra puede preparar pedidos.')
+    }
+    if (type === 'deliverRound' && !nightclubOperationAllowed(memberData, 'accounts.edit', ['owner', 'admin', 'waiter', 'service'])) {
+      throw new HttpsError('permission-denied', 'Solo Servicio puede entregar pedidos.')
+    }
+    if (type === 'requestBill' && !nightclubOperationAllowed(memberData, ['accounts.view', 'accounts.edit'], ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para solicitar la cuenta.')
+    }
+    if (type === 'reopenBill' && !nightclubOperationAllowed(memberData, 'accounts.edit', ['owner', 'admin', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden reabrir la cuenta.')
+    }
+    if (type === 'recordPayment' && !nightclubOperationAllowed(memberData, 'cash.create', ['owner', 'admin', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden registrar pagos.')
+    }
+    if (type === 'finishOccupancy' && !nightclubOperationAllowed(memberData, 'accounts.edit', ['owner', 'admin', 'waiter', 'service'])) {
+      throw new HttpsError('permission-denied', 'Solo Servicio puede cerrar mesas.')
+    }
+    if (type === 'refundRound' && !nightclubOperationAllowed(memberData, 'special.approveOperations', ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede reembolsar.')
+    }
+    if (type === 'cancelRound' && !nightclubOperationAllowed(memberData, ['accounts.edit', 'accounts.delete', 'special.approveOperations'], ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para cancelar rondas.')
+    }
+    if (type === 'saveZone') {
+      const isExisting = (payload.zone?.id || payload.id) ? await checkExists('nightclubZones', payload.zone?.id || payload.id) : false
+      const requiredFloorPerm = isExisting ? 'floor.edit' : 'floor.create'
+      if (!nightclubOperationAllowed(memberData, requiredFloorPerm, ['owner', 'admin'])) {
+        throw new HttpsError('permission-denied', 'Solo Administración puede configurar zonas y mesas.')
+      }
+    }
+    if (type === 'deleteZone' && !nightclubOperationAllowed(memberData, 'floor.delete', ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede configurar zonas y mesas.')
+    }
+    if (type === 'saveTable') {
+      const isExisting = (payload.table?.id || payload.id) ? await checkExists('nightclubTables', payload.table?.id || payload.id) : false
+      const requiredTablePerm = isExisting ? 'floor.edit' : 'floor.create'
+      if (!nightclubOperationAllowed(memberData, requiredTablePerm, ['owner', 'admin'])) {
+        throw new HttpsError('permission-denied', 'Solo Administración puede configurar zonas y mesas.')
+      }
+    }
+    if (type === 'deleteTable' && !nightclubOperationAllowed(memberData, 'floor.delete', ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede configurar zonas y mesas.')
+    }
+    if (type === 'saveProduct') {
+      const isExisting = (payload.product?.id || payload.id) ? await checkExists('catalog', payload.product?.id || payload.id) : false
+      const requiredProductPerm = isExisting ? 'products.edit' : 'products.create'
+      if (!nightclubOperationAllowed(memberData, requiredProductPerm, ['owner', 'admin'])) {
+        throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden gestionar productos e insumos.')
+      }
+    }
+    if (type === 'saveInventory') {
+      const isExisting = (payload.inventory?.id || payload.id) ? await checkExists('nightclubInventory', payload.inventory?.id || payload.id) : false
+      const requiredInvPerm = isExisting ? 'inventory.edit' : 'inventory.create'
+      if (!nightclubOperationAllowed(memberData, requiredInvPerm, ['owner', 'admin', 'inventory'])) {
+        throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden gestionar productos e insumos.')
+      }
+    }
+    if (type === 'inventoryMovement' && !nightclubOperationAllowed(memberData, 'inventory.edit', ['owner', 'admin', 'inventory'])) {
+      throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden registrar movimientos de inventario.')
+    }
+    if (type === 'saveBottleInventory') {
+      const isExisting = (payload.bottle?.id || payload.id) ? await checkExists('nightclubBottleInventory', payload.bottle?.id || payload.id) : false
+      const requiredBottlePerm = isExisting ? 'inventory.edit' : 'inventory.create'
+      if (!nightclubOperationAllowed(memberData, requiredBottlePerm, ['owner', 'admin', 'inventory'])) {
+        throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden registrar botellas.')
+      }
+    }
+    if (['openBottle', 'bottleExit'].includes(type) && !nightclubOperationAllowed(memberData, 'inventory.edit', ['owner', 'admin', 'inventory', 'bar'])) {
       throw new HttpsError('permission-denied', 'Solo Barra o Inventario pueden gestionar botellas abiertas.')
     }
-    if (type === 'saveMember' && !['owner', 'admin'].includes(roleId) && !hasNc('members.create') && !hasNc('members.edit')) {
-      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar socios.')
+    if (type === 'saveCustomer') {
+      const isExisting = (payload.customer?.id || payload.id) ? await checkExists('nightclubCustomers', payload.customer?.id || payload.id) : false
+      const reqCustPerm = isExisting ? 'customers.edit' : 'customers.create'
+      if (!nightclubOperationAllowed(memberData, reqCustPerm, ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
+        throw new HttpsError('permission-denied', 'No tienes permiso para gestionar clientes.')
+      }
     }
-    if (type === 'registerCourtesy' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(roleId) && !hasNc('members.create')) {
-      throw new HttpsError('permission-denied', 'No tienes permiso para registrar cortesías.')
-    }
-    if (type === 'cancelCourtesy' && !['owner', 'admin'].includes(roleId) && !hasNc('members.delete')) {
-      throw new HttpsError('permission-denied', 'Solo Administración puede anular cortesías.')
-    }
-    if (type === 'payCommissions' && !['owner', 'admin'].includes(roleId) && !hasNc('special.approveOperations')) {
-      throw new HttpsError('permission-denied', 'Solo Administración puede pagar comisiones.')
-    }
-    if (['setCustomerStatus', 'saveCustomerIncident', 'deleteCustomerIncident'].includes(type) && !['owner', 'admin'].includes(roleId) && !hasNc('customers.delete')) {
+    if (type === 'setCustomerStatus' && !nightclubOperationAllowed(memberData, ['customers.edit', 'customers.delete'], ['owner', 'admin'])) {
       throw new HttpsError('permission-denied', 'Solo Administración puede gestionar incidentes y estado de clientes.')
     }
-    if (type === 'assignCustomer' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(roleId) && !hasNc('accounts.edit')) {
+    if (type === 'saveCustomerIncident' && !nightclubOperationAllowed(memberData, ['customers.create', 'customers.edit'], ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar incidentes y estado de clientes.')
+    }
+    if (type === 'deleteCustomerIncident' && !nightclubOperationAllowed(memberData, 'customers.delete', ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar incidentes y estado de clientes.')
+    }
+    if (type === 'assignCustomer' && !nightclubOperationAllowed(memberData, 'accounts.edit', ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
       throw new HttpsError('permission-denied', 'No tienes permiso para asignar clientes.')
+    }
+    if (type === 'saveReservation') {
+      const isExisting = (payload.reservation?.id || payload.id) ? await checkExists('nightclubReservations', payload.reservation?.id || payload.id) : false
+      const reqResPerm = isExisting ? 'floor.edit' : 'floor.create'
+      if (!nightclubOperationAllowed(memberData, reqResPerm, ['owner', 'admin', 'cashier', 'waiter', 'service'])) {
+        throw new HttpsError('permission-denied', 'No tienes permiso para gestionar reservas.')
+      }
+    }
+    if (type === 'cancelReservation' && !nightclubOperationAllowed(memberData, ['floor.delete', 'special.approveOperations'], ['owner', 'admin', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden cancelar reservas.')
+    }
+    if (type === 'arriveReservation' && !nightclubOperationAllowed(memberData, 'floor.edit', ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para registrar la llegada de reservas.')
+    }
+    if (type === 'savePromoter') {
+      const isExisting = (payload.promoter?.id || payload.id) ? await checkExists('nightclubPromoters', payload.promoter?.id || payload.id) : false
+      const reqPromPerm = isExisting ? 'promoters.edit' : 'promoters.create'
+      if (!nightclubOperationAllowed(memberData, reqPromPerm, ['owner', 'admin'])) {
+        throw new HttpsError('permission-denied', 'Solo Administración puede gestionar relacionadores.')
+      }
+    }
+    if (type === 'deletePromoter' && !nightclubOperationAllowed(memberData, 'promoters.delete', ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar relacionadores.')
+    }
+    if (['savePromoterEvent', 'savePromoterConsumption'].includes(type) && !nightclubOperationAllowed(memberData, ['promoters.create', 'promoters.edit'], ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede gestionar relacionadores.')
+    }
+    if (['saveTicketSale', 'saveLoungeSale', 'markLoungePaid'].includes(type) && !nightclubOperationAllowed(memberData, 'promoters.create', ['owner', 'admin', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden registrar ventas de relacionadores.')
+    }
+    if (type === 'saveMember') {
+      const isExisting = (payload.member?.id || payload.id) ? await checkExists('nightclubMembers', payload.member?.id || payload.id) : false
+      const reqMemPerm = isExisting ? 'members.edit' : 'members.create'
+      if (!nightclubOperationAllowed(memberData, reqMemPerm, ['owner', 'admin'])) {
+        throw new HttpsError('permission-denied', 'Solo Administración puede gestionar socios.')
+      }
+    }
+    if (type === 'registerCourtesy' && !nightclubOperationAllowed(memberData, 'members.create', ['owner', 'admin', 'cashier', 'waiter', 'service'])) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para registrar cortesías.')
+    }
+    if (type === 'cancelCourtesy' && !nightclubOperationAllowed(memberData, 'members.delete', ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede anular cortesías.')
+    }
+    if (type === 'payCommissions' && !nightclubOperationAllowed(memberData, 'special.approveOperations', ['owner', 'admin'])) {
+      throw new HttpsError('permission-denied', 'Solo Administración puede pagar comisiones.')
     }
 
     const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now, member })

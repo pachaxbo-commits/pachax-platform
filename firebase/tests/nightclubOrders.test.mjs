@@ -1304,7 +1304,23 @@ try {
     roleId: 'waiter',
     status: 'active',
     branchIds: ['main'],
-    nightclubPermissions: ['floor.create', 'floor.edit', 'accounts.create', 'accounts.edit', 'pos.create'],
+    nightclubPermissions: ['floor.view', 'accounts.view', 'accounts.create', 'accounts.edit', 'pos.view', 'pos.create'],
+  })
+  await root.collection('members').doc('waiter-restricted').set({
+    uid: 'waiter-restricted',
+    tenantId,
+    roleId: 'waiter',
+    status: 'active',
+    branchIds: ['main'],
+    nightclubPermissions: ['floor.view'],
+  })
+  await root.collection('members').doc('waiter-empty').set({
+    uid: 'waiter-empty',
+    tenantId,
+    roleId: 'waiter',
+    status: 'active',
+    branchIds: ['main'],
+    nightclubPermissions: [],
   })
   // Regresión authorization: Presencia de campo permissions en membership NO otorga bypass a rol no autorizado
   await root.collection('members').doc('waiter-bypass').set({
@@ -1352,18 +1368,123 @@ try {
     inventoryMode: 'none',
   })
 
-  // 3. Abrir cuenta con usuario builtin personalizado (waiter-custom)
-  const acc9Op = await call('waiter-custom', 'openAccount', 'acc9-op', { target: { type: 'table', tableId: 'T-TEST9' } })
-  const acc9Id = acc9Op.accountId
-  assert.ok(acc9Id)
+  // TEST 8 REQUERIDO: waiter-restricted (solo floor.view) llamadas directas a openAccount, addRound, deliverRound, finishOccupancy -> DENIED
+  await assert.rejects(
+    () => call('waiter-restricted', 'openAccount', 'neg-wr-open', { target: { type: 'table', tableId: 'T-TEST9' } }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-restricted', 'addRound', 'neg-wr-add', { accountId: 'acc-placeholder', items: [{ productId: 'prod-active-9', quantity: 1 }] }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-restricted', 'deliverRound', 'neg-wr-del', { accountId: 'acc-placeholder', roundId: 'r-placeholder' }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-restricted', 'finishOccupancy', 'neg-wr-fin', { accountId: 'acc-placeholder' }),
+    err => err.code === 'permission-denied'
+  )
 
-  // waiter-custom NO tiene permisos de caja (no cash.create, no cash.close) -> denegado
+  // TEST 9 REQUERIDO: waiter-empty (nightclubPermissions: []) -> ZERO permisos -> llamadas directas DENIED
+  await assert.rejects(
+    () => call('waiter-empty', 'openAccount', 'neg-we-open', { target: { type: 'table', tableId: 'T-TEST9' } }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-empty', 'addRound', 'neg-we-add', { accountId: 'acc-placeholder', items: [{ productId: 'prod-active-9', quantity: 1 }] }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-empty', 'deliverRound', 'neg-we-del', { accountId: 'acc-placeholder', roundId: 'r-placeholder' }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-empty', 'finishOccupancy', 'neg-we-fin', { accountId: 'acc-placeholder' }),
+    err => err.code === 'permission-denied'
+  )
+
+  await root.collection('nightclubTables').doc('T-CUSTOM9').set({
+    id: 'T-CUSTOM9',
+    branchId: 'main',
+    name: 'Mesa Custom 9',
+    status: 'available',
+  })
+
+  // TEST 10 REQUERIDO: waiter-custom con floor.view, accounts.view, accounts.create, accounts.edit, pos.view, pos.create
+  // Puede abrir cuenta, agregar ronda y entregar
+  const accCustomOp = await call('waiter-custom', 'openAccount', 'acc-custom-op', { target: { type: 'table', tableId: 'T-CUSTOM9' } })
+  const accCustomId = accCustomOp.accountId
+  assert.ok(accCustomId)
+
+  const roundCustomOp = await call('waiter-custom', 'addRound', 'round-custom-op', {
+    accountId: accCustomId,
+    items: [{ productId: 'prod-active-9', quantity: 1 }],
+  })
+  assert.ok(roundCustomOp.roundId)
+
+  // waiter-custom NO tiene bar.edit, por lo que no puede avanzar la ronda
+  await assert.rejects(
+    () => call('waiter-custom', 'advanceRound', 'neg-waiter-custom-adv', {
+      accountId: accCustomId,
+      roundId: roundCustomOp.roundId,
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // Barra prepara la ronda para que waiter-custom con accounts.edit pueda entregarla
+  await call('bar', 'advanceRound', 'prep-custom-op', { accountId: accCustomId, roundId: roundCustomOp.roundId })
+  await call('bar', 'advanceRound', 'ready-custom-op', { accountId: accCustomId, roundId: roundCustomOp.roundId })
+
+  await call('waiter-custom', 'deliverRound', 'del-custom-op', {
+    accountId: accCustomId,
+    roundId: roundCustomOp.roundId,
+  })
+
+  // waiter-custom NO puede tocar caja, inventario, usuarios ni refund
+  await assert.rejects(
+    () => call('waiter-custom', 'recordPayment', 'neg-waiter-custom-pay', {
+      accountId: accCustomId,
+      amount: 30,
+      paymentMethod: 'cash',
+    }),
+    err => err.code === 'permission-denied'
+  )
   await assert.rejects(
     () => call('waiter-custom', 'recordCashMovement', 'neg-waiter-custom-cash', {
       movement: { type: 'income', amount: 30, method: 'cash', description: 'Intento de caja' },
     }),
     err => err.code === 'permission-denied'
   )
+  await assert.rejects(
+    () => call('waiter-custom', 'closeShift', 'neg-waiter-custom-shift', {
+      shiftId: shift9Id,
+      countedCash: 100,
+    }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-custom', 'saveInventory', 'neg-waiter-custom-inv', {
+      inventory: { name: 'Insumo' },
+    }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('waiter-custom', 'refundRound', 'neg-waiter-custom-ref', {
+      roundId: roundCustomOp.roundId,
+      reason: 'Reembolso no autorizado',
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // Cancelar la ronda de prueba como admin para restaurar saldo a 0 y permitir finishOccupancy
+  await call('admin', 'cancelRound', 'cancel-custom-op', { roundId: roundCustomOp.roundId, reason: 'Limpieza test' })
+  await call('waiter-custom', 'finishOccupancy', 'finish-custom-op', { accountId: accCustomId })
+
+  // 3. Abrir cuenta acc9 con usuario waiter legacy (sin matriz explícita)
+  const acc9Op = await call('waiter', 'openAccount', 'acc9-op', { target: { type: 'table', tableId: 'T-TEST9' } })
+  const acc9Id = acc9Op.accountId
+  assert.ok(acc9Id)
 
   // 4. addRound: rechazo de producto inactivo y producto inexistente
   await assert.rejects(

@@ -420,4 +420,32 @@ test('11. builtin customized role preserves canonical permissions while reflecti
   assert.equal(waiterRole.permissions.includes('sales.create'), true)
   assert.equal(waiterRole.permissions.includes('customers.read'), true)
   assert.equal(waiterRole.permissions.includes('cash.close'), false)
+
+  // Legacy fallback when permissions === undefined (uses role defaults):
+  const visibleLegacy = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: undefined,
+  })
+  assert.equal(visibleLegacy.includes('floor'), true)
+  assert.equal(visibleLegacy.includes('pos'), true)
+  assert.equal(visibleLegacy.includes('history'), true)
+  assert.equal(visibleLegacy.includes('dashboard'), false)
+  assert.equal(visibleLegacy.includes('cash'), false)
+
+  // Explicit empty matrix permissions = new Set([]) yields ZERO visible modules:
+  const visibleEmpty = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: new Set([]),
+  })
+  assert.deepEqual(visibleEmpty, [], 'Empty nightclubPermissions matrix yields ZERO visible modules')
+
+  // Explicit restricted matrix permissions = new Set(['floor.view']):
+  const visibleRestricted = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: new Set(['floor.view']),
+  })
+  assert.deepEqual(visibleRestricted, ['floor'], 'Only floor is visible')
 })

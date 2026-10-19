@@ -47,8 +47,9 @@ export function NightclubApp(props: NightclubAppProps) {
       return new Set<string>(NIGHTCLUB_ROLE_DEFAULTS.admin)
     }
     const activeTenant = getActiveTenant()
-    const persisted = (activeTenant?.membership as { nightclubPermissions?: readonly string[] } | undefined)?.nightclubPermissions
-    if (Array.isArray(persisted) && persisted.length > 0) {
+    const membership = activeTenant?.membership as { nightclubPermissions?: string[] } | undefined
+    const persisted = membership?.nightclubPermissions
+    if (Array.isArray(persisted)) {
       return new Set<string>(persisted)
     }
     const defaults = NIGHTCLUB_ROLE_DEFAULTS[normalizedRole] || []
