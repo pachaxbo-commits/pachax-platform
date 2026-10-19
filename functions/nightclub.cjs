@@ -189,14 +189,16 @@ async function executeNightclubCommand(db, request) {
       throw new HttpsError('permission-denied', 'Solo Administración puede configurar zonas y mesas.')
     }
     if (type === 'saveProduct') {
-      const isExisting = (payload.product?.id || payload.id) ? await checkExists('catalog', payload.product?.id || payload.id) : false
+      const productId = payload.product?.id || payload.id
+      const isExisting = productId ? await checkExists('nightclubProducts', productId) : false
       const requiredProductPerm = isExisting ? 'products.edit' : 'products.create'
-      if (!nightclubOperationAllowed(memberData, requiredProductPerm, ['owner', 'admin'])) {
+      if (!nightclubOperationAllowed(memberData, requiredProductPerm, ['owner', 'admin', 'inventory'])) {
         throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden gestionar productos e insumos.')
       }
     }
     if (type === 'saveInventory') {
-      const isExisting = (payload.inventory?.id || payload.id) ? await checkExists('nightclubInventory', payload.inventory?.id || payload.id) : false
+      const inventoryId = payload.item?.id || payload.inventory?.id || payload.id
+      const isExisting = inventoryId ? await checkExists('nightclubInventory', inventoryId) : false
       const requiredInvPerm = isExisting ? 'inventory.edit' : 'inventory.create'
       if (!nightclubOperationAllowed(memberData, requiredInvPerm, ['owner', 'admin', 'inventory'])) {
         throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden gestionar productos e insumos.')
@@ -206,7 +208,8 @@ async function executeNightclubCommand(db, request) {
       throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden registrar movimientos de inventario.')
     }
     if (type === 'saveBottleInventory') {
-      const isExisting = (payload.bottle?.id || payload.id) ? await checkExists('nightclubBottleInventory', payload.bottle?.id || payload.id) : false
+      const inventoryId = payload.draft?.id || payload.bottle?.id || payload.id
+      const isExisting = inventoryId ? await checkExists('nightclubInventory', inventoryId) : false
       const requiredBottlePerm = isExisting ? 'inventory.edit' : 'inventory.create'
       if (!nightclubOperationAllowed(memberData, requiredBottlePerm, ['owner', 'admin', 'inventory'])) {
         throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden registrar botellas.')

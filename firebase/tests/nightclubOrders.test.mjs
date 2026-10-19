@@ -1570,6 +1570,203 @@ try {
   assert.equal(close9.countedCash, 100)
   assert.equal(close9.difference, 0)
 
+  // 10. SEGURIDAD CREATE vs EDIT, INVENTARIO, BOTELLAS, LEGACY Y MATRIZ VACÍA
+  // Seeding de miembros especializados
+  await root.collection('members').doc('inv-prod-create').set({
+    uid: 'inv-prod-create',
+    tenantId,
+    roleId: 'inventory',
+    status: 'active',
+    branchIds: ['main'],
+    nightclubPermissions: ['products.view', 'products.create'],
+  })
+  await root.collection('members').doc('inv-prod-edit').set({
+    uid: 'inv-prod-edit',
+    tenantId,
+    roleId: 'inventory',
+    status: 'active',
+    branchIds: ['main'],
+    nightclubPermissions: ['products.view', 'products.edit'],
+  })
+  await root.collection('members').doc('inv-item-create').set({
+    uid: 'inv-item-create',
+    tenantId,
+    roleId: 'inventory',
+    status: 'active',
+    branchIds: ['main'],
+    nightclubPermissions: ['inventory.view', 'inventory.create'],
+  })
+  await root.collection('members').doc('inv-item-edit').set({
+    uid: 'inv-item-edit',
+    tenantId,
+    roleId: 'inventory',
+    status: 'active',
+    branchIds: ['main'],
+    nightclubPermissions: ['inventory.view', 'inventory.edit'],
+  })
+  await root.collection('members').doc('inv-legacy').set({
+    uid: 'inv-legacy',
+    tenantId,
+    roleId: 'inventory',
+    status: 'active',
+    branchIds: ['main'],
+  })
+  await root.collection('members').doc('inv-empty').set({
+    uid: 'inv-empty',
+    tenantId,
+    roleId: 'inventory',
+    status: 'active',
+    branchIds: ['main'],
+    nightclubPermissions: [],
+  })
+
+  // TEST 6: PRODUCTS CREATE vs EDIT
+  // inv-prod-create puede crear producto nuevo
+  const newProd = await call('inv-prod-create', 'saveProduct', 'op-create-prod-10', {
+    product: { id: 'prod-new-10', name: 'Ron Añejo Nuevo', price: 40 }
+  })
+  assert.equal(newProd.product.name, 'Ron Añejo Nuevo')
+  assert.equal((await data('nightclubProducts/prod-new-10')).name, 'Ron Añejo Nuevo')
+
+  // inv-prod-create NO puede modificar producto existente (falta products.edit)
+  await assert.rejects(
+    () => call('inv-prod-create', 'saveProduct', 'neg-inv-edit-prod', {
+      product: { id: 'prod-active-9', name: 'Ron Modificado Sin Permiso', price: 50 }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // inv-prod-edit puede modificar producto existente
+  const editedProd = await call('inv-prod-edit', 'saveProduct', 'op-edit-prod-10', {
+    product: { id: 'prod-new-10', name: 'Ron Añejo Editado', price: 45 }
+  })
+  assert.equal(editedProd.product.name, 'Ron Añejo Editado')
+  assert.equal((await data('nightclubProducts/prod-new-10')).name, 'Ron Añejo Editado')
+
+  // inv-prod-edit NO puede crear producto nuevo (falta products.create)
+  await assert.rejects(
+    () => call('inv-prod-edit', 'saveProduct', 'neg-inv-create-prod', {
+      product: { id: 'prod-unauth-new', name: 'Producto No Permitido', price: 30 }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // TEST 7: INVENTORY CREATE vs EDIT (payload.item)
+  // inv-item-create puede crear inventario nuevo
+  const newInv = await call('inv-item-create', 'saveInventory', 'op-create-inv-10', {
+    item: { id: 'inv-item-10', name: 'Limones Nuevos', unit: 'unit', current: 50 }
+  })
+  assert.equal(newInv.item.name, 'Limones Nuevos')
+  assert.equal((await data('nightclubInventory/inv-item-10')).name, 'Limones Nuevos')
+
+  // inv-item-create NO puede editar inventario existente (falta inventory.edit)
+  await assert.rejects(
+    () => call('inv-item-create', 'saveInventory', 'neg-inv-edit-item', {
+      item: { id: 'inv-cerveza', name: 'Cerveza Modificada Sin Permiso' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // inv-item-edit puede editar inventario existente
+  const editedInv = await call('inv-item-edit', 'saveInventory', 'op-edit-inv-10', {
+    item: { id: 'inv-item-10', name: 'Limones Editados', current: 40 }
+  })
+  assert.equal(editedInv.item.name, 'Limones Editados')
+  assert.equal((await data('nightclubInventory/inv-item-10')).current, 40)
+
+  // inv-item-edit NO puede crear inventario nuevo (falta inventory.create)
+  await assert.rejects(
+    () => call('inv-item-edit', 'saveInventory', 'neg-inv-create-item', {
+      item: { id: 'inv-unauth-new', name: 'Insumo No Permitido' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // TEST 8: BOTTLE INVENTORY CREATE vs EDIT (payload.draft + colección nightclubInventory)
+  // inv-item-create puede crear botella nueva
+  const newBottle = await call('inv-item-create', 'saveBottleInventory', 'op-create-bottle-10', {
+    draft: {
+      id: 'inv-bottle-10',
+      name: 'Whisky 12 Años',
+      category: 'Licores',
+      closedBottles: 5,
+      cost: 120,
+      capacityMl: 750,
+      sellBottle: true,
+      bottlePrice: 350
+    }
+  })
+  assert.equal(newBottle.item.name, 'Whisky 12 Años')
+  assert.equal((await data('nightclubInventory/inv-bottle-10')).name, 'Whisky 12 Años')
+
+  // inv-item-create NO puede editar botella existente (falta inventory.edit)
+  await assert.rejects(
+    () => call('inv-item-create', 'saveBottleInventory', 'neg-inv-edit-bottle', {
+      draft: { id: 'inv-bottle-10', name: 'Whisky Modificado Sin Permiso', closedBottles: 4, cost: 120, capacityMl: 750 }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // inv-item-edit puede editar botella existente
+  const editedBottle = await call('inv-item-edit', 'saveBottleInventory', 'op-edit-bottle-10', {
+    draft: {
+      id: 'inv-bottle-10',
+      name: 'Whisky 12 Años Reserva',
+      category: 'Licores',
+      closedBottles: 5,
+      cost: 130,
+      capacityMl: 750,
+      sellBottle: true,
+      bottlePrice: 380
+    }
+  })
+  assert.equal(editedBottle.item.name, 'Whisky 12 Años Reserva')
+  assert.equal((await data('nightclubInventory/inv-bottle-10')).name, 'Whisky 12 Años Reserva')
+
+  // inv-item-edit NO puede crear botella nueva (falta inventory.create)
+  await assert.rejects(
+    () => call('inv-item-edit', 'saveBottleInventory', 'neg-inv-create-bottle', {
+      draft: { id: 'inv-bottle-unauth', name: 'Tequila No Permitido', closedBottles: 3, cost: 100, capacityMl: 750 }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
+  // TEST 9: LEGACY REGRESSION (inventory sin matriz explícita = undefined)
+  const legacyProd = await call('inv-legacy', 'saveProduct', 'op-legacy-prod-10', {
+    product: { id: 'prod-legacy-10', name: 'Vino Tinto', price: 50 }
+  })
+  assert.equal(legacyProd.product.name, 'Vino Tinto')
+
+  const legacyInv = await call('inv-legacy', 'saveInventory', 'op-legacy-inv-10', {
+    item: { id: 'inv-legacy-10', name: 'Hielo', unit: 'unit', current: 100 }
+  })
+  assert.equal(legacyInv.item.name, 'Hielo')
+
+  const legacyBottle = await call('inv-legacy', 'saveBottleInventory', 'op-legacy-bottle-10', {
+    draft: { id: 'inv-bottle-legacy-10', name: 'Gin Clásico', category: 'Licores', closedBottles: 4, cost: 90, capacityMl: 750, sellBottle: true, bottlePrice: 280 }
+  })
+  assert.equal(legacyBottle.item.name, 'Gin Clásico')
+
+  // TEST 10: EMPTY MATRIX REGRESSION (inventory con matriz explícita vacía = [])
+  await assert.rejects(
+    () => call('inv-empty', 'saveProduct', 'neg-empty-prod-10', {
+      product: { id: 'prod-empty-fail', name: 'Prod Fallido' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('inv-empty', 'saveInventory', 'neg-empty-inv-10', {
+      item: { id: 'inv-empty-fail', name: 'Inv Fallido' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('inv-empty', 'saveBottleInventory', 'neg-empty-bottle-10', {
+      draft: { id: 'inv-bottle-fail', name: 'Bottle Fallido', cost: 10, capacityMl: 750 }
+    }),
+    err => err.code === 'permission-denied'
+  )
+
   console.log('PASS: Test 9 (Integridad económica, métodos de caja, permisos estrictos y productos inactivos) completado exitosamente.')
 } finally {
   await deleteApp(app)
