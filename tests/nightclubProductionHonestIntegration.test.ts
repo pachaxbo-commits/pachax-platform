@@ -19,6 +19,7 @@ import type {
   NightclubStaff,
 } from '../src/modules/nightclub/domain/nightclubAccounts.ts'
 import type { TenantNightclubActionsDeps } from '../src/modules/nightclub/application/tenantNightclubActions.ts'
+import { BusinessTemplateRegistry } from '../src/core/templates.ts'
 
 // TEST 1
 test('1. run rejects and surfaces error message without setting success notice when action throws', async () => {
@@ -388,4 +389,35 @@ test('10. subscribeActiveShift retains lastClosedShiftId so closing shift keeps 
   assert.equal(summary.expectedCash, 240, 'Opening float 200 + cash sales 40 = 240 expected cash')
   const diff = closedShift.countedCash - summary.expectedCash
   assert.equal(diff, 22, 'Counted 262 - Expected 240 = +22 cash diff')
+})
+
+// TEST 11
+test('11. builtin customized role preserves canonical permissions while reflecting explicit nightclubPermissions in UI visibility', () => {
+  // Builtin waiter with explicit nightclub permissions (no cash.view)
+  const waiterPerms = new Set(['floor.view', 'floor.create', 'accounts.view', 'accounts.create', 'pos.view', 'pos.create'])
+  const visible = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: waiterPerms,
+  })
+
+  // Visible modules include granted modules
+  assert.equal(visible.includes('floor'), true)
+  assert.equal(visible.includes('pos'), true)
+  assert.equal(visible.includes('accounts'), true)
+
+  // Module cash is NOT visible when cash.view is omitted
+  assert.equal(visible.includes('cash'), false)
+  assert.equal(visible.includes('bar'), false)
+  assert.equal(visible.includes('inventory'), false)
+  assert.equal(visible.includes('users'), false)
+
+  // Canonical role permissions in template remain authoritative:
+  const template = BusinessTemplateRegistry.nightclub_lounge
+  const waiterRole = template.roles.find(r => r.id === 'waiter')!
+  assert.equal(waiterRole.permissions.includes('orders.read'), true)
+  assert.equal(waiterRole.permissions.includes('orders.manage'), true)
+  assert.equal(waiterRole.permissions.includes('sales.create'), true)
+  assert.equal(waiterRole.permissions.includes('customers.read'), true)
+  assert.equal(waiterRole.permissions.includes('cash.close'), false)
 })

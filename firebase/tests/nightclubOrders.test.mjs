@@ -9,14 +9,17 @@ process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8185'
 const require = createRequire(new URL('../../functions/package.json', import.meta.url))
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
+const { getAuth } = require('firebase-admin/auth')
 const { getTemplate } = require('./generated/templates.js')
 const { executeNightclubCommand } = require('./nightclub.cjs')
+const { manageMember } = require('./tenants.cjs')
 
 const suffix = Date.now().toString(36)
 const tenantId = `orders_${suffix}`
 const otherTenantId = `other_${suffix}`
 const app = initializeApp({ projectId }, `nightclub-orders-${suffix}`)
 const db = getFirestore(app)
+const auth = getAuth(app)
 const root = db.doc(`tenants/${tenantId}`)
 const otherRoot = db.doc(`tenants/${otherTenantId}`)
 
@@ -1262,7 +1265,25 @@ try {
   console.log('PASS: Test 8 (N3B.1 Inventario físico, snapshots, reversiones y permisos) completado exitosamente.')
 
   console.log('=== TEST 9: INTEGRIDAD ECONÓMICA, MÉTODOS DE CAJA, PERMISOS ESTRICTOS Y PRODUCTOS INACTIVOS ===')
-  // Setup additional members: partner, supervisor, custom role
+  // Test Negativo: Intentar crear miembro con custom role vía flujo REAL (createMember) -> DENIED / invalid-argument
+  await assert.rejects(
+    () => manageMember(db, auth, {
+      auth: { uid: 'admin' },
+      data: {
+        action: 'createMember',
+        tenantId,
+        operationId: 'create-custom-lead-op',
+        displayName: 'Lead Service Custom',
+        email: 'lead.custom@club.bo',
+        password: 'SecurePassword123!',
+        roleId: 'custom:lead_service',
+        nightclubPermissions: ['floor.view', 'floor.create', 'floor.edit'],
+      },
+    }),
+    err => err.code === 'invalid-argument' && err.message.includes('Rol no válido')
+  )
+
+  // Setup additional members: partner, supervisor, and builtin waiter with customized nightclubPermissions
   await root.collection('members').doc('partner').set({
     uid: 'partner',
     tenantId,
@@ -1277,15 +1298,30 @@ try {
     status: 'active',
     branchIds: ['main'],
   })
-  await root.collection('members').doc('custom-lead').set({
-    uid: 'custom-lead',
+  await root.collection('members').doc('waiter-custom').set({
+    uid: 'waiter-custom',
     tenantId,
-    roleId: 'custom:lead_service',
+    roleId: 'waiter',
     status: 'active',
     branchIds: ['main'],
-    permissions: ['orders.read', 'orders.manage', 'sales.create'],
     nightclubPermissions: ['floor.create', 'floor.edit', 'accounts.create', 'accounts.edit', 'pos.create'],
   })
+  // Regresión authorization: Presencia de campo permissions en membership NO otorga bypass a rol no autorizado
+  await root.collection('members').doc('waiter-bypass').set({
+    uid: 'waiter-bypass',
+    tenantId,
+    roleId: 'waiter',
+    status: 'active',
+    branchIds: ['main'],
+    permissions: ['settings.manage'],
+    nightclubPermissions: ['accounts.view'],
+  })
+  await assert.rejects(
+    () => call('waiter-bypass', 'saveZone', 'neg-bypass-zone', {
+      draft: { name: 'Zona No Autorizada' },
+    }),
+    err => err.code === 'permission-denied'
+  )
 
   // 1. Iniciar Turno 9 con Bs 100
   const shift9Op = await call('cashier', 'openShift', 'shift9-op', { openingFloat: 100 })
@@ -1316,10 +1352,18 @@ try {
     inventoryMode: 'none',
   })
 
-  // 3. Abrir cuenta con custom role
-  const acc9Op = await call('custom-lead', 'openAccount', 'acc9-op', { target: { type: 'table', tableId: 'T-TEST9' } })
+  // 3. Abrir cuenta con usuario builtin personalizado (waiter-custom)
+  const acc9Op = await call('waiter-custom', 'openAccount', 'acc9-op', { target: { type: 'table', tableId: 'T-TEST9' } })
   const acc9Id = acc9Op.accountId
   assert.ok(acc9Id)
+
+  // waiter-custom NO tiene permisos de caja (no cash.create, no cash.close) -> denegado
+  await assert.rejects(
+    () => call('waiter-custom', 'recordCashMovement', 'neg-waiter-custom-cash', {
+      movement: { type: 'income', amount: 30, method: 'cash', description: 'Intento de caja' },
+    }),
+    err => err.code === 'permission-denied'
+  )
 
   // 4. addRound: rechazo de producto inactivo y producto inexistente
   await assert.rejects(

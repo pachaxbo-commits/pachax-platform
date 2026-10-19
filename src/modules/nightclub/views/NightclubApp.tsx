@@ -21,13 +21,8 @@ interface NightclubAppProps {
 
 /** Production Nightclub Experience connected to real multi-tenant Firestore & Functions. */
 export function NightclubApp(props: NightclubAppProps) {
-  const [activeIdentity, setActiveIdentity] = useState<BusinessIdentity | undefined>(props.businessIdentity)
-
-  useEffect(() => {
-    if (props.businessIdentity) {
-      setActiveIdentity(props.businessIdentity)
-    }
-  }, [props.businessIdentity])
+  const [customIdentity, setCustomIdentity] = useState<BusinessIdentity | null>(null)
+  const activeIdentity = customIdentity || props.businessIdentity
 
   useEffect(() => {
     if (props.tenantId) {
@@ -37,7 +32,7 @@ export function NightclubApp(props: NightclubAppProps) {
 
   const handleSaveBusinessIdentity = async (newIdentity: BusinessIdentity) => {
     await updateTenantBusinessIdentity(props.tenantId, newIdentity)
-    setActiveIdentity(newIdentity)
+    setCustomIdentity(newIdentity)
   }
 
   const handleUploadLogo = async (file: File) => {
@@ -46,14 +41,32 @@ export function NightclubApp(props: NightclubAppProps) {
 
   const normalizedRole = props.role === 'owner' ? 'admin' : (props.role as NightclubBuiltinRole)
 
-  const effectivePermissions = useMemo(() => {
+  // 1. Nightclub UX / Operational permissions (floor.*, accounts.*, bar.*, cash.*, special.*)
+  const nightclubPermissions = useMemo(() => {
+    if (props.role === 'owner') {
+      return new Set<string>(NIGHTCLUB_ROLE_DEFAULTS.admin)
+    }
+    const activeTenant = getActiveTenant()
+    const persisted = (activeTenant?.membership as { nightclubPermissions?: readonly string[] } | undefined)?.nightclubPermissions
+    if (Array.isArray(persisted) && persisted.length > 0) {
+      return new Set<string>(persisted)
+    }
+    const defaults = NIGHTCLUB_ROLE_DEFAULTS[normalizedRole] || []
+    return new Set<string>(defaults)
+  }, [props.role, normalizedRole])
+
+  // 2. Canonical Platform permissions for Firestore Rules subscriptions & operations
+  const canonicalPermissions = useMemo(() => {
     const activeTenant = getActiveTenant()
     const platformPerms = activeTenant?.permissions ?? (
       BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === props.role)?.permissions ?? []
     )
-    const defaults = NIGHTCLUB_ROLE_DEFAULTS[normalizedRole] || []
-    return new Set<string>([...platformPerms, ...defaults])
-  }, [props.role, normalizedRole])
+    const perms = new Set<string>(platformPerms)
+    if (nightclubPermissions.has('special.manageUsers')) {
+      perms.add('users.manage')
+    }
+    return perms
+  }, [props.role, nightclubPermissions])
 
   const controller = useTenantNightclubController({
     tenantId: props.tenantId,
@@ -62,7 +75,7 @@ export function NightclubApp(props: NightclubAppProps) {
     role: props.role,
     companyName: activeIdentity?.tradeName || props.companyName,
     logoUrl: activeIdentity?.showLogo !== false ? (activeIdentity?.logoUrl || props.logoUrl) : undefined,
-    permissions: effectivePermissions,
+    permissions: canonicalPermissions,
   })
 
   return (
@@ -83,7 +96,7 @@ export function NightclubApp(props: NightclubAppProps) {
         tenantId={props.tenantId}
         branchId="main"
         businessIdentity={activeIdentity}
-        permissions={effectivePermissions}
+        permissions={nightclubPermissions}
         onSaveBusinessIdentity={handleSaveBusinessIdentity}
         onUploadLogo={handleUploadLogo}
         {...controller}

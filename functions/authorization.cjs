@@ -15,7 +15,7 @@ function hasPermission(tenant, membership, permission) {
   const template = getTemplate(tenant.businessType);
   if (tenant.businessType === 'nightclub_lounge' && permission === 'users.manage' && Array.isArray(membership.nightclubPermissions) && membership.nightclubPermissions.includes('special.manageUsers')) return tenant.configuration.features.users === true;
   const role = template.roles.find(item => item.id === membership.roleId);
-  const allowed = role?.permissions.includes(permission) || (Array.isArray(membership.permissions) && membership.permissions.includes(permission));
+  const allowed = role?.permissions.includes(permission);
   if (!allowed) return false;
   const capability = { sales: 'sales', orders: 'orders', inventory: 'inventory', products: 'inventory', customers: 'customers', credits: 'credits', reports: 'reports', users: 'users', settings: 'settings', support: 'settings', dispatch: 'dispatch', route: 'routes', cash: 'cash' }[permission.split('.')[0]];
   return template.capabilities.includes(capability) && tenant.configuration.features[capability] === true;
