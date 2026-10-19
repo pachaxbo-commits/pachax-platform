@@ -41,6 +41,13 @@ const text = (value, max = 200) => {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.')
   return value.trim()
 }
+const optText = (value, max = 200) => {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string') throw new HttpsError('invalid-argument', 'Texto inválido.')
+  if (!value.trim()) return null
+  if (value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.')
+  return value.trim()
+}
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value
 const fingerprint = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')
 
@@ -893,15 +900,200 @@ async function applyRestaurantCommand(context) {
     }
   }
 
+  // Helper compartido para validación y procesamiento de pagos
+  function processPaymentRecord({
+    tx,
+    root,
+    actor,
+    branchId,
+    shiftId,
+    orderId,
+    operationId,
+    now,
+    total,
+    paymentInput,
+  }) {
+    if (!paymentInput || typeof paymentInput !== 'object') {
+      throw new HttpsError('invalid-argument', 'Datos de pago requeridos.')
+    }
+
+    const rawMethod = paymentInput.method || paymentInput.paymentMethod || paymentInput.payment?.method
+    if (!rawMethod) {
+      throw new HttpsError('invalid-argument', 'Método de pago no especificado.')
+    }
+    const method = text(rawMethod, 20)
+    if (!['cash', 'qr', 'card', 'mixed'].includes(method)) {
+      throw new HttpsError('invalid-argument', `Método de pago no reconocido: "${rawMethod}".`)
+    }
+
+    const paymentObj = paymentInput.payment || paymentInput
+    const cashAmount = amount(method === 'cash' ? total : method === 'mixed' ? (paymentObj.cashAmount ?? 0) : 0)
+    const qrAmount = amount(method === 'qr' ? total : method === 'mixed' ? (paymentObj.qrAmount ?? 0) : 0)
+    const cardAmount = amount(method === 'card' ? total : method === 'mixed' ? (paymentObj.cardAmount ?? 0) : 0)
+
+    if (money(cashAmount + qrAmount + cardAmount) !== total) {
+      throw new HttpsError('invalid-argument', 'El desglose del pago no coincide con el total.')
+    }
+
+    const received = amount(
+      paymentObj.received ??
+      paymentObj.cashReceived ??
+      paymentInput.received ??
+      paymentInput.cashReceived ??
+      (method === 'cash' ? total : cashAmount)
+    )
+    if (cashAmount > 0 && received < cashAmount) {
+      throw new HttpsError('invalid-argument', 'Efectivo recibido insuficiente.')
+    }
+    const change = cashAmount > 0 ? money(received - cashAmount) : 0
+
+    // Construcción de entradas canónicas para order.payments (sin componentes en 0)
+    const payments = []
+    if (method === 'cash') {
+      payments.push({
+        id: `pay_${operationId}_cash`,
+        method: 'cash',
+        amount: total,
+        received,
+        change,
+        createdAt: now,
+        createdBy: actor.uid,
+      })
+    } else if (method === 'qr') {
+      payments.push({
+        id: `pay_${operationId}_qr`,
+        method: 'qr',
+        amount: total,
+        received: total,
+        change: 0,
+        createdAt: now,
+        createdBy: actor.uid,
+      })
+    } else if (method === 'card') {
+      payments.push({
+        id: `pay_${operationId}_card`,
+        method: 'card',
+        amount: total,
+        received: total,
+        change: 0,
+        createdAt: now,
+        createdBy: actor.uid,
+      })
+    } else if (method === 'mixed') {
+      if (cashAmount > 0) {
+        payments.push({
+          id: `pay_${operationId}_cash`,
+          method: 'cash',
+          amount: cashAmount,
+          received,
+          change,
+          createdAt: now,
+          createdBy: actor.uid,
+        })
+      }
+      if (qrAmount > 0) {
+        payments.push({
+          id: `pay_${operationId}_qr`,
+          method: 'qr',
+          amount: qrAmount,
+          received: qrAmount,
+          change: 0,
+          createdAt: now,
+          createdBy: actor.uid,
+        })
+      }
+      if (cardAmount > 0) {
+        payments.push({
+          id: `pay_${operationId}_card`,
+          method: 'card',
+          amount: cardAmount,
+          received: cardAmount,
+          change: 0,
+          createdAt: now,
+          createdBy: actor.uid,
+        })
+      }
+    }
+
+    // Documento maestro restaurantPayments
+    const paymentId = `payment_${operationId}`
+    const paymentRecord = {
+      id: paymentId,
+      operationId,
+      tenantId: actor.tenantId,
+      branchId,
+      shiftId,
+      orderId,
+      method,
+      amount: total,
+      cashAmount,
+      qrAmount,
+      cardAmount,
+      received,
+      change,
+      createdAt: now,
+      actorUid: actor.uid,
+    }
+    tx.create(root.collection('restaurantPayments').doc(paymentId), paymentRecord)
+
+    // Movimiento restaurantCashMovements si y sólo si hubo efectivo
+    if (cashAmount > 0) {
+      const movementId = `cash_${operationId}`
+      tx.create(root.collection('restaurantCashMovements').doc(movementId), {
+        id: movementId,
+        operationId,
+        tenantId: actor.tenantId,
+        branchId,
+        shiftId,
+        orderId,
+        type: 'sale',
+        method: 'cash',
+        amount: cashAmount,
+        actorUid: actor.uid,
+        createdAt: now,
+      })
+    }
+
+    return {
+      paymentId,
+      paymentStatus: 'paid',
+      paymentMethod: method,
+      payment: {
+        method,
+        cashAmount,
+        qrAmount,
+        cardAmount,
+        cashReceived: received,
+        change,
+      },
+      payments,
+      paidAt: now,
+      paidBy: actor.uid,
+      closedAt: now,
+      accountStatus: 'closed',
+      change,
+      total,
+    }
+  }
+
   // 6. Crear Orden Directa / POS
   if (type === 'addOrder') {
     const rawOrder = payload.order || payload
     if (!rawOrder || typeof rawOrder !== 'object') throw new HttpsError('invalid-argument', 'Orden requerida.')
-    const orderId = id(rawOrder.id || `order_${operationId}`)
+    const rawId = payload.orderId || rawOrder.id
+    const orderId = rawId ? id(rawId) : `order_${operationId}`
     const orderRef = root.collection('restaurantOrders').doc(orderId)
     const existing = await tx.get(orderRef)
-    if (existing.exists) return { orderId, order: existing.data() }
+    if (existing.exists) return { orderId, order: existing.data(), total: existing.data().total }
 
+    // 1. Validar intención de estado de pago (solo 'pending' o 'paid')
+    const rawPaymentStatus = rawOrder.paymentStatus ? String(rawOrder.paymentStatus).trim().toLowerCase() : 'pending'
+    if (rawPaymentStatus !== 'pending' && rawPaymentStatus !== 'paid') {
+      throw new HttpsError('invalid-argument', `Estado de pago inválido: "${rawOrder.paymentStatus}". Se espera "pending" o "paid".`)
+    }
+    const isPaid = rawPaymentStatus === 'paid'
+
+    // 2. Manejo y validación de mesa
     let tableRef = null
     let tableData = null
     if (rawOrder.tableId) {
@@ -910,6 +1102,16 @@ async function applyRestaurantCommand(context) {
       if (tableSnap.exists) tableData = tableSnap.data()
     }
 
+    const isCounterService = actor.tenant.businessType === 'hamburger_shop' || actor.tenant.configuration?.serviceModel === 'counter_service'
+    const isReferenceTable = isCounterService && (rawOrder.referenceOnly === true || rawOrder.isReferenceTable === true)
+
+    if (tableRef && tableData && !isReferenceTable) {
+      if (tableData.status === 'occupied' && tableData.activeOrderId && tableData.activeOrderId !== orderId) {
+        throw new HttpsError('aborted', 'La mesa ya se encuentra ocupada.')
+      }
+    }
+
+    // 3. Validación y precios autoritativos de ítems
     const rawItems = Array.isArray(rawOrder.items) ? rawOrder.items : []
     if (!rawItems.length) {
       throw new HttpsError('invalid-argument', 'La orden debe contener al menos un producto.')
@@ -925,40 +1127,119 @@ async function applyRestaurantCommand(context) {
     const productSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0))
     const total = productSubtotal
 
+    // 4. Procesamiento de pago si se crea como pagado (Paid-at-creation atómico)
+    let paymentFields = {}
+    if (isPaid) {
+      const paymentResult = processPaymentRecord({
+        tx,
+        root,
+        actor,
+        branchId,
+        shiftId: activeShiftId,
+        orderId,
+        operationId,
+        now,
+        total,
+        paymentInput: rawOrder.payment || rawOrder,
+      })
+      paymentFields = {
+        paymentStatus: 'paid',
+        paymentMethod: paymentResult.paymentMethod,
+        expectedPaymentMethod: null,
+        payment: paymentResult.payment,
+        payments: paymentResult.payments,
+        paidAt: paymentResult.paidAt,
+        paidBy: paymentResult.paidBy,
+        closedAt: paymentResult.closedAt,
+        accountStatus: 'closed',
+      }
+    } else {
+      let validExpectedMethod = null
+      const rawExpected = rawOrder.expectedPaymentMethod || rawOrder.paymentMethod
+      if (['cash', 'qr', 'card', 'mixed'].includes(rawExpected)) {
+        validExpectedMethod = rawExpected
+      }
+      paymentFields = {
+        paymentStatus: 'pending',
+        paymentMethod: null,
+        expectedPaymentMethod: validExpectedMethod,
+        payment: null,
+        payments: [],
+        paidAt: null,
+        paidBy: null,
+        closedAt: null,
+        accountStatus: 'open',
+      }
+    }
+
+    // 5. Allowlist estricto de campos del documento de orden
+    const displayNumber = optText(rawOrder.displayNumber, 20) || `#${orderId.slice(-4).toUpperCase()}`
+    const orderSource = optText(rawOrder.orderSource, 30) || 'local'
+    const fulfillmentType = optText(rawOrder.fulfillmentType, 30) || (tableData ? 'table' : 'pickup')
+    const tableId = tableData ? tableData.id : (rawOrder.tableId ? id(rawOrder.tableId) : null)
+    const tableInfo = tableData ? tableData.name : optText(rawOrder.tableInfo, 50)
+    const customerId = rawOrder.customerId ? id(rawOrder.customerId) : null
+    const customerName = optText(rawOrder.customerName, 100) || (tableData ? tableData.name : 'Cliente')
+    const customerPhone = optText(rawOrder.customerPhone, 30)
+    const deliveryAddress = optText(rawOrder.deliveryAddress, 200)
+    const note = optText(rawOrder.note, 300) || ''
+    const diners = rawOrder.diners ? Math.max(1, Number(rawOrder.diners) || 1) : null
+
     const orderDoc = {
-      ...rawOrder,
       id: orderId,
       tenantId: actor.tenantId,
       branchId,
       shiftId: activeShiftId,
-      displayNumber: rawOrder.displayNumber || `#${orderId.slice(-4).toUpperCase()}`,
-      status: rawOrder.status || 'pending',
-      accountStatus: rawOrder.accountStatus || 'open',
-      paymentStatus: rawOrder.paymentStatus || 'pending',
-      paymentMethod: rawOrder.paymentMethod || null,
-      expectedPaymentMethod: rawOrder.expectedPaymentMethod || null,
-      orderSource: rawOrder.orderSource || 'local',
-      fulfillmentType: rawOrder.fulfillmentType || (tableData ? 'table' : 'pickup'),
-      tableId: tableData ? tableData.id : rawOrder.tableId || null,
-      tableInfo: tableData ? tableData.name : rawOrder.tableInfo || null,
+      displayNumber,
+      status: 'pending', // SIEMPRE pending al crear; no se permite bypass
+      accountStatus: paymentFields.accountStatus,
+      paymentStatus: paymentFields.paymentStatus,
+      paymentMethod: paymentFields.paymentMethod,
+      expectedPaymentMethod: paymentFields.expectedPaymentMethod,
+      payment: paymentFields.payment,
+      payments: paymentFields.payments,
+      paidAt: paymentFields.paidAt,
+      paidBy: paymentFields.paidBy,
+      closedAt: paymentFields.closedAt,
+      orderSource,
+      fulfillmentType,
+      tableId,
+      tableInfo,
+      diners,
+      customerId,
+      customerName,
+      customerPhone,
+      deliveryAddress,
+      note,
       items,
       total,
       productSubtotal,
-      createdAt: rawOrder.createdAt || now,
-      createdBy: rawOrder.createdBy || actor.uid,
+      createdAt: now,
+      createdBy: actor.uid,
+      updatedAt: now,
+    }
+
+    if (isReferenceTable) {
+      orderDoc.referenceOnly = true
+      orderDoc.isReferenceTable = true
     }
 
     tx.create(orderRef, orderDoc)
-    if (tableRef && tableData && !rawOrder.referenceOnly && !rawOrder.isReferenceTable) {
-      tx.update(tableRef, {
-        status: 'occupied',
-        activeOrderId: orderId,
-        openedAt: now,
-        openedBy: actor.uid,
-        updatedAt: now,
-      })
+
+    // 6. Actualización de estado de mesa (si aplica)
+    if (tableRef && tableData && !isReferenceTable) {
+      if (!isPaid) {
+        tx.update(tableRef, {
+          status: 'occupied',
+          activeOrderId: orderId,
+          openedAt: now,
+          openedBy: actor.uid,
+          updatedAt: now,
+        })
+      }
     }
 
+    // 7. Deducción de inventario
     applyInventoryDeduction({ tx, root, actor, branchId, activeShiftId, orderId, operationId, now, requirements, prodMap })
 
     return { orderId, order: orderDoc, total }
@@ -1292,82 +1573,28 @@ async function applyRestaurantCommand(context) {
     }
 
     const total = money(order.total)
-    const rawMethod = payload.method || payload.payment?.method
-    const method = text(rawMethod, 20)
-    if (!['cash', 'qr', 'card', 'mixed'].includes(method)) {
-      throw new HttpsError('invalid-argument', 'Método de pago no reconocido.')
-    }
-
-    const cashAmount = amount(method === 'cash' ? total : method === 'mixed' ? (payload.cashAmount ?? payload.payment?.cashAmount ?? 0) : 0)
-    const qrAmount = amount(method === 'qr' ? total : method === 'mixed' ? (payload.qrAmount ?? payload.payment?.qrAmount ?? 0) : 0)
-    const cardAmount = amount(method === 'card' ? total : method === 'mixed' ? (payload.cardAmount ?? payload.payment?.cardAmount ?? 0) : 0)
-
-    if (money(cashAmount + qrAmount + cardAmount) !== total) {
-      throw new HttpsError('invalid-argument', 'El desglose del pago no coincide con el total.')
-    }
-
-    const received = amount(payload.received ?? payload.payment?.received ?? payload.payment?.cashReceived ?? (method === 'cash' ? total : cashAmount))
-    if (cashAmount > 0 && received < cashAmount) {
-      throw new HttpsError('invalid-argument', 'Efectivo recibido insuficiente.')
-    }
-    const change = cashAmount > 0 ? money(received - cashAmount) : 0
-
-    const paymentId = `payment_${operationId}`
-    const paymentRecord = {
-      id: paymentId,
-      operationId,
-      tenantId: actor.tenantId,
+    const paymentResult = processPaymentRecord({
+      tx,
+      root,
+      actor,
       branchId,
       shiftId: order.shiftId || activeShiftId,
       orderId,
-      method,
-      amount: total,
-      cashAmount,
-      qrAmount,
-      cardAmount,
-      received,
-      change,
-      createdAt: now,
-      actorUid: actor.uid,
-    }
-    tx.create(root.collection('restaurantPayments').doc(paymentId), paymentRecord)
-
-    if (cashAmount > 0) {
-      const movementId = `cash_${operationId}`
-      tx.create(root.collection('restaurantCashMovements').doc(movementId), {
-        id: movementId,
-        operationId,
-        tenantId: actor.tenantId,
-        branchId,
-        shiftId: order.shiftId || activeShiftId,
-        orderId,
-        type: 'sale',
-        method: 'cash',
-        amount: cashAmount,
-        actorUid: actor.uid,
-        createdAt: now,
-      })
-    }
-
-    const paymentEntry = {
-      id: paymentId,
-      method: method === 'mixed' ? 'cash' : method,
-      amount: total,
-      received,
-      change,
-      createdAt: now,
-      createdBy: actor.uid,
-    }
+      operationId,
+      now,
+      total,
+      paymentInput: payload,
+    })
 
     tx.update(orderRef, {
-      paymentStatus: 'paid',
-      paymentMethod: method,
-      payment: { method, cashAmount, qrAmount, cardAmount, cashReceived: received, change },
-      payments: [paymentEntry],
-      paidAt: now,
-      paidBy: actor.uid,
-      closedAt: now,
-      accountStatus: 'closed',
+      paymentStatus: paymentResult.paymentStatus,
+      paymentMethod: paymentResult.paymentMethod,
+      payment: paymentResult.payment,
+      payments: paymentResult.payments,
+      paidAt: paymentResult.paidAt,
+      paidBy: paymentResult.paidBy,
+      closedAt: paymentResult.closedAt,
+      accountStatus: paymentResult.accountStatus,
       updatedAt: now,
     })
 
@@ -1382,7 +1609,7 @@ async function applyRestaurantCommand(context) {
       })
     }
 
-    return { orderId, paymentId, total, change }
+    return { orderId, paymentId: paymentResult.paymentId, total: paymentResult.total, change: paymentResult.change }
   }
 
   // 15. Asignar Cliente a Pedido

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import { calculateCashShiftSummary } from '../../src/modules/restaurant/domain/cashEngine.ts'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) {
@@ -1288,8 +1289,394 @@ try {
   assert.equal(paidCardOrder.paymentStatus, 'paid')
   console.log('PASS Liquidación verificada contra total autoritativo del pedido.')
 
+  // 43. A, F, G, H: addOrder pending server-authoritative y resistencia a spoofing de lifecycle
+  console.log('43. Creación de pedido pendiente y rechazo de spoofing de lifecycle...')
+  const spoofedPending = await call('waiter_user', 'addOrder', 'op-spoof-pending', {
+    order: {
+      status: 'delivered',
+      accountStatus: 'closed',
+      createdBy: 'attacker_user',
+      createdAt: '2000-01-01T00:00:00.000Z',
+      paidAt: '2000-01-01T00:00:00.000Z',
+      paidBy: 'attacker_user',
+      payments: [{ method: 'cash', amount: 0.01 }],
+      shiftId: 'fake_shift_id',
+      tenantId: 'fake_tenant_id',
+      branchId: 'fake_branch_id',
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  assert.ok(spoofedPending.orderId)
+  const pendingDoc = (await root.collection('restaurantOrders').doc(spoofedPending.orderId).get()).data()
+  assert.equal(pendingDoc.status, 'pending', 'El estado inicial debe ser forzosamente pending')
+  assert.equal(pendingDoc.accountStatus, 'open', 'La cuenta debe estar abierta para pedido pending')
+  assert.equal(pendingDoc.paymentStatus, 'pending', 'El estado de pago debe ser pending')
+  assert.equal(pendingDoc.paymentMethod, null, 'paymentMethod debe ser null para pending')
+  assert.equal(pendingDoc.createdBy, 'waiter_user', 'createdBy debe ser el actor UID real, no el spoofed')
+  assert.notEqual(pendingDoc.createdAt, '2000-01-01T00:00:00.000Z', 'createdAt debe ser generado por el servidor')
+  assert.equal(pendingDoc.paidAt, null, 'paidAt no debe existir en pending')
+  assert.equal(pendingDoc.paidBy, null, 'paidBy no debe existir en pending')
+  assert.deepEqual(pendingDoc.payments, [], 'payments inyectados por el cliente deben ser ignorados')
+  assert.equal(pendingDoc.tenantId, tenantId, 'tenantId debe ser el del contexto')
+  assert.equal(pendingDoc.branchId, 'main', 'branchId debe ser el del contexto')
+
+  // Verificar que NO se crearon documentos en restaurantPayments ni restaurantCashMovements
+  const paymentsQueryPending = await root.collection('restaurantPayments').where('orderId', '==', spoofedPending.orderId).get()
+  assert.equal(paymentsQueryPending.empty, true, 'No debe existir restaurantPayments para pedido pending')
+  const cashQueryPending = await root.collection('restaurantCashMovements').where('orderId', '==', spoofedPending.orderId).get()
+  assert.equal(cashQueryPending.empty, true, 'No debe existir cash movement para pedido pending')
+  console.log('PASS Lifecycle server-authoritative garantizado; bypass de estado, actor y pagos rechazado.')
+
+  // 44. J: Rechazo de paymentStatus inválido ('gift', 'cortesía', 'otro')
+  console.log('44. Rechazo de estados de pago no autorizados (gift, cortesía)...')
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-gift-attempt', {
+      order: {
+        paymentStatus: 'gift',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'paymentStatus gift debe ser rechazado con invalid-argument'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-cortesia-attempt', {
+      order: {
+        paymentStatus: 'cortesía',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'paymentStatus cortesía debe ser rechazado con invalid-argument'
+  )
+  console.log('PASS Estados de pago inválidos (gift/cortesía) rechazados con invalid-argument.')
+
+  // 45. K: Rechazo de datos de pago incompletos o insuficientes en paid-at-creation
+  console.log('45. Rechazo de datos de pago inconsistentes en creación...')
+  // Paid sin método
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-paid-no-method', {
+      order: {
+        paymentStatus: 'paid',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Pedido paid sin método debe fallar con invalid-argument'
+  )
+  // Paid con desglose insuficiente en mixed
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-paid-mixed-underpay', {
+      order: {
+        paymentStatus: 'paid',
+        paymentMethod: 'mixed',
+        payment: { cashAmount: 1, qrAmount: 1 }, // total es 58
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Desglose menor al total debe fallar con invalid-argument'
+  )
+  // Paid con efectivo recibido menor al cashAmount
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-paid-cash-underpay', {
+      order: {
+        paymentStatus: 'paid',
+        paymentMethod: 'cash',
+        payment: { received: 20 }, // total es 58
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Efectivo recibido menor debe fallar con invalid-argument'
+  )
+  console.log('PASS Validaciones de integridad de pago en creación aplicadas estrictamente.')
+
+  // 46. B: addOrder paid cash (atómico al crear)
+  console.log('46. Creación atómica de pedido pagado en efectivo (paid-at-creation)...')
+  const paidCashOrder = await call('cashier_user', 'addOrder', 'op-paid-cash-create', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'cash',
+      payment: { method: 'cash', cashReceived: 70 },
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  assert.ok(paidCashOrder.orderId)
+  assert.equal(paidCashOrder.total, 58)
+  const cashDoc = (await root.collection('restaurantOrders').doc(paidCashOrder.orderId).get()).data()
+  assert.equal(cashDoc.paymentStatus, 'paid')
+  assert.equal(cashDoc.accountStatus, 'closed')
+  assert.equal(cashDoc.paymentMethod, 'cash')
+  assert.equal(cashDoc.paidBy, 'cashier_user')
+  assert.ok(cashDoc.paidAt)
+  assert.equal(cashDoc.payments.length, 1)
+  assert.equal(cashDoc.payments[0].method, 'cash')
+  assert.equal(cashDoc.payments[0].amount, 58)
+  assert.equal(cashDoc.payments[0].received, 70)
+  assert.equal(cashDoc.payments[0].change, 12)
+
+  const cashPayDoc = (await root.collection('restaurantPayments').doc(`payment_op-paid-cash-create`).get()).data()
+  assert.equal(cashPayDoc.amount, 58)
+  assert.equal(cashPayDoc.cashAmount, 58)
+  assert.equal(cashPayDoc.change, 12)
+
+  const cashMovDoc = (await root.collection('restaurantCashMovements').doc(`cash_op-paid-cash-create`).get()).data()
+  assert.equal(cashMovDoc.type, 'sale')
+  assert.equal(cashMovDoc.method, 'cash')
+  assert.equal(cashMovDoc.amount, 58)
+  console.log('PASS Pedido pagado en efectivo creado atómicamente con registros de pago y caja.')
+
+  // 47. C: addOrder paid QR (atómico al crear, sin cash movement)
+  console.log('47. Creación atómica de pedido pagado con QR...')
+  const paidQROrder = await call('cashier_user', 'addOrder', 'op-paid-qr-create', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'qr',
+      payment: { method: 'qr' },
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  const qrDoc = (await root.collection('restaurantOrders').doc(paidQROrder.orderId).get()).data()
+  assert.equal(qrDoc.paymentStatus, 'paid')
+  assert.equal(qrDoc.accountStatus, 'closed')
+  assert.equal(qrDoc.paymentMethod, 'qr')
+  assert.equal(qrDoc.payments.length, 1)
+  assert.equal(qrDoc.payments[0].method, 'qr')
+  assert.equal(qrDoc.payments[0].amount, 58)
+
+  const qrPayDoc = (await root.collection('restaurantPayments').doc(`payment_op-paid-qr-create`).get()).data()
+  assert.equal(qrPayDoc.qrAmount, 58)
+  assert.equal(qrPayDoc.cashAmount, 0)
+
+  const qrCashMov = await root.collection('restaurantCashMovements').doc(`cash_op-paid-qr-create`).get()
+  assert.equal(qrCashMov.exists, false, 'Pago con QR NO debe generar movimiento en restaurantCashMovements')
+  console.log('PASS Pedido pagado con QR registrado sin alterar movimientos de efectivo.')
+
+  // 48. D: addOrder paid card (atómico al crear, sin cash movement)
+  console.log('48. Creación atómica de pedido pagado con tarjeta...')
+  const paidCardOrder2 = await call('cashier_user', 'addOrder', 'op-paid-card-create', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'card',
+      payment: { method: 'card' },
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  const cardDoc = (await root.collection('restaurantOrders').doc(paidCardOrder2.orderId).get()).data()
+  assert.equal(cardDoc.paymentStatus, 'paid')
+  assert.equal(cardDoc.paymentMethod, 'card')
+  assert.equal(cardDoc.payments.length, 1)
+  assert.equal(cardDoc.payments[0].method, 'card')
+
+  const cardCashMov = await root.collection('restaurantCashMovements').doc(`cash_op-paid-card-create`).get()
+  assert.equal(cardCashMov.exists, false, 'Pago con tarjeta NO debe generar movimiento en restaurantCashMovements')
+  console.log('PASS Pedido pagado con tarjeta registrado sin alterar movimientos de efectivo.')
+
+  // 49. E, M & 15: addOrder paid mixed + convergencia total de expectedCash entre UI y closeShift
+  console.log('49. Pago mixto atómico y convergencia UI/backend de expectedCash...')
+  // Primero cerramos el turno actual de pruebas
+  const currentPendingOrders = await root.collection('restaurantOrders').where('shiftId', '==', shiftArchivedTest.shiftId).where('paymentStatus', '==', 'pending').get()
+  for (const doc of currentPendingOrders.docs) {
+    if (doc.data().status !== 'cancelled') {
+      await call('waiter_user', 'cancelOrder', `clean-cancel-${doc.id}`, { orderId: doc.id })
+    }
+  }
+  // Cerramos turno previo
+  const curShiftSnap = await root.collection('restaurantShifts').doc(shiftArchivedTest.shiftId).get()
+  if (curShiftSnap.data().status === 'open') {
+    const curSummary = await root.collection('restaurantPayments').where('shiftId', '==', shiftArchivedTest.shiftId).get()
+    let curExpected = curShiftSnap.data().openingFloat || 0
+    for (const pDoc of curSummary.docs) {
+      curExpected += pDoc.data().cashAmount || 0
+    }
+    await call('cashier_user', 'closeShift', 'op-close-prev', { countedCash: curExpected })
+  }
+
+  // Abrir nuevo turno limpio con openingFloat 100
+  const shiftMixed = await call('cashier_user', 'openShift', 'shift-mixed-clean', { openingFloat: 100 })
+  assert.ok(shiftMixed.shiftId)
+
+  // Crear producto de 100 Bs
+  await call('admin_user', 'saveProduct', 'prod-pack-100-create', {
+    product: {
+      id: 'prod_pack_100',
+      name: 'Combo Parrillero 100',
+      price: 100,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+
+  // Crear pedido mixto de Bs 100 (Cash 20 + QR 80)
+  const mixedOrder = await call('cashier_user', 'addOrder', 'op-mixed-order', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'mixed',
+      payment: {
+        method: 'mixed',
+        cashAmount: 20,
+        qrAmount: 80,
+        cardAmount: 0,
+        cashReceived: 20,
+      },
+      items: [{ productId: 'prod_pack_100', quantity: 1 }],
+    },
+  })
+  assert.equal(mixedOrder.total, 100)
+
+  const mixedDoc = (await root.collection('restaurantOrders').doc(mixedOrder.orderId).get()).data()
+  assert.equal(mixedDoc.paymentStatus, 'paid')
+  assert.equal(mixedDoc.accountStatus, 'closed')
+  // Comprobar entradas canónicas en order.payments (entries separadas, NUNCA total como cash)
+  assert.equal(mixedDoc.payments.length, 2, 'Deben existir exactamente 2 entradas para cash y qr (sin card 0)')
+  const cashEntry = mixedDoc.payments.find(p => p.method === 'cash')
+  const qrEntry = mixedDoc.payments.find(p => p.method === 'qr')
+  assert.ok(cashEntry, 'Entrada de cash debe existir')
+  assert.ok(qrEntry, 'Entrada de qr debe existir')
+  assert.equal(cashEntry.amount, 20, 'Entrada de efectivo debe ser exactamente 20')
+  assert.equal(qrEntry.amount, 80, 'Entrada de QR debe ser exactamente 80')
+
+  // Comprobar documento maestro restaurantPayments
+  const mixedPayDoc = (await root.collection('restaurantPayments').doc(`payment_op-mixed-order`).get()).data()
+  assert.equal(mixedPayDoc.amount, 100)
+  assert.equal(mixedPayDoc.cashAmount, 20)
+  assert.equal(mixedPayDoc.qrAmount, 80)
+  assert.equal(mixedPayDoc.cardAmount, 0)
+
+  // Comprobar que restaurantCashMovements SOLO registró los 20 Bs de efectivo
+  const mixedCashMov = (await root.collection('restaurantCashMovements').doc(`cash_op-mixed-order`).get()).data()
+  assert.equal(mixedCashMov.amount, 20, 'Movimiento de caja debe ser exclusivamente por 20 Bs (NUNCA 100)')
+
+  // 10. Comprobar convergencia absoluta entre calculateCashShiftSummary (UI/dominio) y closeShift (servidor)
+  const uiSummary = calculateCashShiftSummary(100, [mixedDoc], shiftMixed.shiftId, [])
+  assert.equal(uiSummary.cashSales, 20)
+  assert.equal(uiSummary.qrSales, 80)
+  assert.equal(uiSummary.cardSales, 0)
+  assert.equal(uiSummary.totalSales, 100)
+  assert.equal(uiSummary.expectedCash, 120, 'expectedCash debe ser 120 (100 inicial + 20 efectivo), NUNCA 200')
+
+  // Cierre en servidor
+  const closeMixedRes = await call('cashier_user', 'closeShift', 'op-close-mixed', {
+    countedCash: 120,
+  })
+  assert.equal(closeMixedRes.expectedCash, 120)
+  assert.equal(closeMixedRes.difference, 0)
+
+  const closedMixedShift = (await root.collection('restaurantShifts').doc(shiftMixed.shiftId).get()).data()
+  assert.equal(closedMixedShift.status, 'closed')
+  assert.equal(closedMixedShift.expectedCash, 120)
+  assert.equal(closedMixedShift.cashSales, 20)
+  assert.equal(closedMixedShift.qrSales, 80)
+  assert.equal(closedMixedShift.difference, 0)
+  console.log('PASS Pago mixto verificado: entries separadas, movimiento solo por cash (20 Bs) y convergencia UI/backend 120 Bs.')
+
+  // 50. L & 14: Regresión recordPayment en orden pending y bloqueo estricto de doble cobro
+  console.log('50. Flujo recordPayment sobre orden pendiente y rechazo de doble cobro...')
+  // Abrir nuevo turno
+  const shiftPendingFlow = await call('cashier_user', 'openShift', 'shift-pending-flow', { openingFloat: 150 })
+  // Crear orden pending
+  const orderForLaterPay = await call('waiter_user', 'addOrder', 'op-order-for-later', {
+    order: {
+      paymentStatus: 'pending',
+      items: [{ productId: 'prod_1', quantity: 1 }], // 58 Bs
+    },
+  })
+  const initialPendingDoc = (await root.collection('restaurantOrders').doc(orderForLaterPay.orderId).get()).data()
+  assert.equal(initialPendingDoc.paymentStatus, 'pending')
+  assert.equal(initialPendingDoc.accountStatus, 'open')
+  assert.deepEqual(initialPendingDoc.payments, [])
+
+  // Cobrar con recordPayment mixto: Cash 30 + QR 28
+  const payLaterRes = await call('cashier_user', 'recordPayment', 'op-pay-later-mixed', {
+    orderId: orderForLaterPay.orderId,
+    method: 'mixed',
+    cashAmount: 30,
+    qrAmount: 28,
+    received: 30,
+  })
+  assert.equal(payLaterRes.total, 58)
+  assert.equal(payLaterRes.change, 0)
+
+  const paidLaterDoc = (await root.collection('restaurantOrders').doc(orderForLaterPay.orderId).get()).data()
+  assert.equal(paidLaterDoc.paymentStatus, 'paid')
+  assert.equal(paidLaterDoc.accountStatus, 'closed')
+  assert.equal(paidLaterDoc.payments.length, 2)
+  assert.equal(paidLaterDoc.payments.find(p => p.method === 'cash').amount, 30)
+  assert.equal(paidLaterDoc.payments.find(p => p.method === 'qr').amount, 28)
+
+  // Intentar segundo cobro debe ser rechazado con failed-precondition
+  await assert.rejects(
+    () => call('cashier_user', 'recordPayment', 'op-double-pay-fail', {
+      orderId: orderForLaterPay.orderId,
+      method: 'cash',
+      received: 58,
+    }),
+    err => err.code === 'failed-precondition',
+    'Segundo cobro sobre orden pagada debe ser rechazado con failed-precondition'
+  )
+
+  // Cerrar turno: 150 inicial + 30 cash = 180
+  const closePendingFlow = await call('cashier_user', 'closeShift', 'op-close-pending-flow', {
+    countedCash: 180,
+  })
+  assert.equal(closePendingFlow.expectedCash, 180)
+  assert.equal(closePendingFlow.difference, 0)
+  console.log('PASS recordPayment procesado con entradas canónicas y doble cobro bloqueado.')
+
+  // 51. 16: Integridad de salón y mesa en restaurant_pos
+  console.log('51. Integridad de ocupación de mesa en restaurant_pos...')
+  // Abrir nuevo turno
+  const shiftTableTest = await call('cashier_user', 'openShift', 'shift-table-test', { openingFloat: 100 })
+  // Mesa tbl-1 está available
+  const tblBefore = (await root.collection('restaurantTables').doc('tbl-1').get()).data()
+  assert.equal(tblBefore.status, 'available')
+
+  // Intento de cliente de usar flags referenceOnly / isReferenceTable en tenant restaurant_pos
+  const tableOrder = await call('waiter_user', 'addOrder', 'op-table-order-test', {
+    order: {
+      tableId: 'tbl-1',
+      referenceOnly: true,
+      isReferenceTable: true,
+      paymentStatus: 'pending',
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  assert.ok(tableOrder.orderId)
+  // En restaurant_pos la mesa DEBE quedar ocupada con activeOrderId asignado
+  const tblOccupied = (await root.collection('restaurantTables').doc('tbl-1').get()).data()
+  assert.equal(tblOccupied.status, 'occupied', 'En restaurant_pos la mesa debe ocuparse atómicamente')
+  assert.equal(tblOccupied.activeOrderId, tableOrder.orderId)
+
+  // Intento de abrir otra orden sobre la mesa ya ocupada debe fallar con aborted
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-table-collision-fail', {
+      order: {
+        tableId: 'tbl-1',
+        paymentStatus: 'pending',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'aborted',
+    'No se puede abrir una nueva orden sobre una mesa ya ocupada'
+  )
+
+  // Cobrar la orden de la mesa libera la mesa automáticamente
+  await call('cashier_user', 'recordPayment', 'op-table-pay', {
+    orderId: tableOrder.orderId,
+    method: 'cash',
+    received: 58,
+  })
+  const tblFreedTableTest = (await root.collection('restaurantTables').doc('tbl-1').get()).data()
+  assert.equal(tblFreedTableTest.status, 'available', 'La mesa debe quedar disponible tras el cobro')
+  assert.equal(tblFreedTableTest.activeOrderId, null)
+
+  // Cerrar turno de mesa: 100 + 58 = 158
+  await call('cashier_user', 'closeShift', 'op-close-table-shift', { countedCash: 158 })
+  console.log('PASS Integridad de salón respetada; bypass de mesa bloqueado y liberación atómica comprobada.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (42/42)')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (51/51)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {
