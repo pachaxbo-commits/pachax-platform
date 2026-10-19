@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment -- Node test executes outside browser TypeScript project. */
 // @ts-nocheck Node executes this file outside the browser TypeScript project.
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -17,4 +18,65 @@ test('efectivo esperado excluye QR, tarjeta y gastos no pagados con efectivo', (
   assert.equal(closingDifference(summary.expectedCash, 1150), 0)
   assert.equal(closingDifference(summary.expectedCash, 1140), -10)
   assert.equal(closingDifference(summary.expectedCash, 1170), 20)
+})
+
+test('movimientos anulados (active: false) son excluidos del arqueo y cálculo de caja', () => {
+  const orders = [
+    { shiftId: 's', paymentStatus: 'paid', payments: [{ method: 'cash', amount: 500 }] },
+  ]
+  const movements = [
+    { shiftId: 's', type: 'expense', paymentMethod: 'cash', amount: 50, active: true },
+    { shiftId: 's', type: 'expense', paymentMethod: 'cash', amount: 100, active: false }, // ANULADO
+    { shiftId: 's', type: 'income', paymentMethod: 'cash', amount: 80, active: true },
+    { shiftId: 's', type: 'income', paymentMethod: 'cash', amount: 200, active: false }, // ANULADO
+  ]
+  // float 100 + ventas cash 500 + income 80 - expense 50 = expected 630
+  const summary = calculateCashShiftSummary(100, orders, 's', movements)
+  assert.equal(summary.cashSales, 500)
+  assert.equal(summary.cashIncome, 80)
+  assert.equal(summary.cashOutflow, 50)
+  assert.equal(summary.totalExpenses, 50)
+  assert.equal(summary.expectedCash, 630)
+})
+
+test('movimientos de otro turno son estrictamente ignorados', () => {
+  const orders = []
+  const movements = [
+    { shiftId: 'other_shift', type: 'expense', paymentMethod: 'cash', amount: 300, active: true },
+    { shiftId: 'target_shift', type: 'income', paymentMethod: 'cash', amount: 150, active: true },
+  ]
+  const summary = calculateCashShiftSummary(200, orders, 'target_shift', movements)
+  assert.equal(summary.cashIncome, 150)
+  assert.equal(summary.cashOutflow, 0)
+  assert.equal(summary.expectedCash, 350)
+})
+
+test('movimientos con método other, qr y card no alteran expectedCash ni cashIncome/cashOutflow', () => {
+  const orders = []
+  const initialFloat = 500
+
+  // 1. Incomes: solo cash altera cashIncome y expectedCash
+  const incomes = [
+    { shiftId: 's', type: 'income', paymentMethod: 'cash', amount: 100 },
+    { shiftId: 's', type: 'income', paymentMethod: 'qr', amount: 100 },
+    { shiftId: 's', type: 'income', paymentMethod: 'card', amount: 100 },
+    { shiftId: 's', type: 'income', paymentMethod: 'other', amount: 100 },
+  ]
+  const incomeSummary = calculateCashShiftSummary(initialFloat, orders, 's', incomes)
+  assert.equal(incomeSummary.cashIncome, 100)
+  assert.equal(incomeSummary.cashOutflow, 0)
+  assert.equal(incomeSummary.expectedCash, 600) // 500 + 100 cash
+
+  // 2. Expenses: solo cash altera cashOutflow y reduce expectedCash, pero totalExpenses suma todos
+  const expenses = [
+    { shiftId: 's', type: 'expense', paymentMethod: 'cash', amount: 40 },
+    { shiftId: 's', type: 'expense', paymentMethod: 'qr', amount: 40 },
+    { shiftId: 's', type: 'expense', paymentMethod: 'card', amount: 40 },
+    { shiftId: 's', type: 'expense', paymentMethod: 'other', amount: 40 },
+  ]
+  const expenseSummary = calculateCashShiftSummary(initialFloat, orders, 's', expenses)
+  assert.equal(expenseSummary.cashIncome, 0)
+  assert.equal(expenseSummary.cashOutflow, 40)
+  assert.equal(expenseSummary.totalExpenses, 160)
+  assert.equal(expenseSummary.expectedCash, 460) // 500 - 40 cash
 })

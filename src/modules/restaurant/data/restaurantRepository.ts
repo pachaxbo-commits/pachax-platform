@@ -10,13 +10,15 @@ import {
 import { getFirebaseContext } from '../../../lib/firebase'
 import { gateway } from '../../../services/gateway'
 import type { Order, OrderStatus, Product } from '../../../types'
-import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../types'
+
 import type { FloorAction } from '../domain/restaurantFloor'
 import type { RestaurantShift } from '../views/RestaurantExperience'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
-import type { CustomerDraft } from '../../../demo/restaurant/RestaurantCustomerForm'
+import type { CustomerDraft } from '../components/RestaurantCustomerForm'
 import type { InventoryMovement, InventoryMovementType } from '../domain/inventoryEngine'
-import type { RestaurantMember, Role } from '../../../demo/restaurant/RestaurantUsers'
+import type { CashMovement } from '../domain/cashEngine'
+import type { RestaurantMember, Role } from '../components/RestaurantUsers'
 
 export interface RestaurantOperationalState {
   activeShiftId: string | null
@@ -713,4 +715,147 @@ export async function deleteTenantMember(
     tenantId,
     uid,
   })
+}
+
+export function subscribeCashMovements(
+  tenantId: string,
+  _branchId: string,
+  shiftId: string,
+  onNext: (movements: CashMovement[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  let unsub: (() => void) | null = null
+  let active = true
+
+  getFirebaseContext().then(ctx => {
+    if (!active || !ctx) return
+    const col = collection(ctx.db, 'tenants', tenantId, 'restaurantCashMovements')
+    const q = query(
+      col,
+      where('shiftId', '==', shiftId)
+    )
+    unsub = onSnapshot(
+      q,
+      snap => {
+        if (!active) return
+        const movements: CashMovement[] = snap.docs.map(d => {
+          const data = d.data()
+          return {
+            id: d.id,
+            shiftId: data.shiftId || shiftId,
+            type: data.type,
+            category: data.category || 'other',
+            description: data.description || '',
+            amount: Number(data.amount) || 0,
+            paymentMethod: data.method || data.paymentMethod || 'cash',
+            createdAt: data.createdAt?.toDate?.() ? data.createdAt.toDate().toISOString() : (data.createdAt || ''),
+            createdBy: data.actorUid || data.createdBy || '',
+            note: data.note || '',
+            supplier: data.supplier || '',
+            workerId: data.workerId || '',
+            active: data.active !== false,
+          } as CashMovement
+        })
+        onNext(movements)
+      },
+      err => {
+        if (active && onError) onError(err)
+      }
+    )
+  }).catch(err => {
+    if (active && onError) onError(err)
+  })
+
+  return () => {
+    active = false
+    if (unsub) unsub()
+  }
+}
+
+export async function recordCashMovement(
+  tenantId: string,
+  branchId: string,
+  movement: {
+    type: 'income' | 'expense'
+    category: string
+    description: string
+    amount: number
+    paymentMethod?: CashMovement['paymentMethod']
+    method?: 'cash' | 'qr' | 'card' | 'other'
+    note?: string
+    supplier?: string
+    workerId?: string
+  }
+): Promise<{ ok: boolean; movementId: string }> {
+  const method = movement.paymentMethod || movement.method || 'cash'
+  return dispatchCommand<{ ok: boolean; movementId: string }>(
+    tenantId,
+    branchId,
+    'recordCashMovement',
+    {
+      ...movement,
+      method,
+      paymentMethod: method,
+    }
+  )
+}
+
+export async function cancelCashMovement(
+  tenantId: string,
+  branchId: string,
+  movementId: string,
+  reason?: string
+): Promise<{ ok: boolean; movementId: string; active: boolean }> {
+  return dispatchCommand<{ ok: boolean; movementId: string; active: boolean }>(
+    tenantId,
+    branchId,
+    'cancelCashMovement',
+    { movementId, reason }
+  )
+}
+
+export async function updateCashMovement(
+  tenantId: string,
+  branchId: string,
+  movementId: string,
+  data: Partial<CashMovement> & { method?: 'cash' | 'qr' | 'card' | 'other' }
+): Promise<{ ok: boolean; movementId: string }> {
+  const method = data.paymentMethod || data.method
+  return dispatchCommand<{ ok: boolean; movementId: string }>(
+    tenantId,
+    branchId,
+    'updateCashMovement',
+    {
+      movementId,
+      ...data,
+      ...(method ? { method, paymentMethod: method } : {}),
+    }
+  )
+}
+
+
+export async function archiveProduct(
+  tenantId: string,
+  branchId: string,
+  productId: string
+): Promise<{ ok: boolean; productId: string; archived: boolean }> {
+  return dispatchCommand<{ ok: boolean; productId: string; archived: boolean }>(
+    tenantId,
+    branchId,
+    'archiveProduct',
+    { productId }
+  )
+}
+
+export async function deleteProduct(
+  tenantId: string,
+  branchId: string,
+  productId: string
+): Promise<{ ok: boolean; productId: string; deleted: boolean }> {
+  return dispatchCommand<{ ok: boolean; productId: string; deleted: boolean }>(
+    tenantId,
+    branchId,
+    'deleteProduct',
+    { productId }
+  )
 }

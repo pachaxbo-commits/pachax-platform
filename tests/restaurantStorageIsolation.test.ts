@@ -2,7 +2,7 @@
 // @ts-nocheck
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { restaurantStorage } from '../../../../demo/restaurant/restaurantStorage.ts'
+import { restaurantStorage } from '../src/demo/restaurant/restaurantStorage.ts'
 
 test('Restaurant Studio y demo pública usan claves distintas y reset solo toca Studio', () => {
   const previousWindow = globalThis.window
@@ -34,7 +34,7 @@ test('Restaurant Studio y demo pública usan claves distintas y reset solo toca 
 })
 
 test('Claves de impresoras aisladas estrictamente entre Producción, Studio y Demo', async () => {
-  const { getPrinterStorageKey } = await import('../../../../services/printing/printerProfiles.ts')
+  const { getPrinterStorageKey } = await import('../src/services/printing/printerProfiles.ts')
   const prodKey = getPrinterStorageKey('tenant-real-abc', 'main')
   const studioKey = getPrinterStorageKey('studio-restaurant', 'main')
   const demoKey = getPrinterStorageKey('demo-restaurant', 'main')

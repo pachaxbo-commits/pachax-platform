@@ -1,7 +1,8 @@
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
-import { getFirebaseContext } from '../../../lib/firebase'
-import { LEGACY_FUNCTIONS_REGION } from '../../../config/functions'
+import { getFirebaseContext } from '../../../lib/firebase.ts'
+import { LEGACY_FUNCTIONS_REGION } from '../../../config/functions.ts'
+import { isDemoModeActive, getDemoItem, setDemoItem, clearDemoState } from '../../../demo/core/demoContext.ts'
 
 export interface DistributionOperationalSettings {
   expiryAlertDays: number
@@ -61,6 +62,17 @@ async function callable<TInput, TOutput>(name: string) {
 }
 
 export async function loadSupportSettings(): Promise<DistributionOperationalSettings> {
+  if (isDemoModeActive()) {
+    const raw = getDemoItem('route_distribution', 'support_settings')
+    if (raw) {
+      try {
+        return { ...DEFAULT_SUPPORT_SETTINGS, ...JSON.parse(raw) }
+      } catch {
+        // Fallback
+      }
+    }
+    return { ...DEFAULT_SUPPORT_SETTINGS }
+  }
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no está configurado.')
   const snapshot = await getDoc(doc(context.db, 'tenants', context.tenantId, 'supportConfig', 'main'))
@@ -68,6 +80,18 @@ export async function loadSupportSettings(): Promise<DistributionOperationalSett
 }
 
 export async function saveSupportSettings(settings: Partial<DistributionOperationalSettings>): Promise<void> {
+  if (isDemoModeActive()) {
+    const current = await loadSupportSettings()
+    const updated = {
+      ...current,
+      ...settings,
+      expiryAlertDays: Number.isInteger(settings.expiryAlertDays) ? settings.expiryAlertDays! : current.expiryAlertDays,
+      creditBlockDays: Number.isInteger(settings.creditBlockDays) ? settings.creditBlockDays! : current.creditBlockDays,
+      requireQrVerification: settings.requireQrVerification !== undefined ? Boolean(settings.requireQrVerification) : current.requireQrVerification,
+    }
+    setDemoItem('route_distribution', 'support_settings', JSON.stringify(updated))
+    return
+  }
   const context = await getFirebaseContext()
   if (!context?.auth.currentUser) throw new Error('Inicia sesión para guardar la configuración.')
   // Solo se persisten las políticas operativas canónicas en supportConfig
@@ -86,11 +110,37 @@ export async function saveSupportSettings(settings: Partial<DistributionOperatio
 }
 
 export async function prepareCleanDelivery(): Promise<ResetPreview> {
+  if (isDemoModeActive()) {
+    return {
+      requestId: `demo_reset_${Date.now()}`,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      totalDocuments: 24,
+      counts: {
+        distCustomers: 3,
+        distBalances: 3,
+        distDispatches: 1,
+        distSales: 2,
+        distReceivables: 1,
+        distCollections: 1,
+        distExpenses: 1,
+      },
+      preserved: ['supportConfig', 'preview-distribution'],
+    }
+  }
   const call = await callable<{ action: 'prepareCleanDelivery' }, ResetPreview>('changePachaxMemberPassword')
   return (await call({ action: 'prepareCleanDelivery' })).data
 }
 
 export async function executeCleanDelivery(input: { requestId: string; password: string; phrase: string }): Promise<ResetResult> {
+  if (isDemoModeActive()) {
+    clearDemoState('route_distribution')
+    return {
+      resetId: input.requestId,
+      backupId: `demo_backup_${Date.now()}`,
+      deletedDocuments: 24,
+      completedAt: new Date().toISOString(),
+    }
+  }
   const context = await getFirebaseContext()
   const user = context?.auth.currentUser
   if (!user?.email) throw new Error('La cuenta actual no puede confirmar su identidad.')

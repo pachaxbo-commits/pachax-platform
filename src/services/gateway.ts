@@ -1,6 +1,6 @@
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions'
-import { getFirebaseContext } from '../lib/firebase'
-import { PACHAX_FUNCTIONS_REGION } from '../config/functions'
+import { getFirebaseContext } from '../lib/firebase.ts'
+import { PACHAX_FUNCTIONS_REGION } from '../config/functions.ts'
 let connected = false
 export async function gateway<T>(name: 'tenantGateway' | 'platformGateway', payload: Record<string, unknown>): Promise<T> {
   const context = await getFirebaseContext()

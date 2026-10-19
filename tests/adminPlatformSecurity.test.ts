@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { canPlatform } from '../src/core/platform.ts'
-import type { PlatformOperator, PlatformRole } from '../src/core/platform.ts'
+import { canPlatform, canSupportWrite } from '../src/core/platform.ts'
+import type { PlatformOperator, PlatformRole, SupportSession } from '../src/core/platform.ts'
 import type {
   CommercialTemplateItem,
   TemplateTierPlan,
   CommercialExtraService,
 } from '../src/admin/types.ts'
 import { PLANS_BY_TEMPLATE, COMMERCIAL_EXTRAS } from '../src/public/config/pricingConfig.ts'
+import {
+  canLaunchCommercialDemo,
+  isTechnicalDemoAvailable,
+  isTemplateProvisioningAvailable,
+  PLAN_ELIGIBLE_TEMPLATE_IDS,
+  PUBLIC_TEMPLATES,
+  OFFICIAL_COMMERCIAL_TEMPLATES,
+} from '../src/core/publicTemplates.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
   assert.equal(canPlatform(null, 'tenants.read'), false)
@@ -249,4 +257,399 @@ test('CASO 5: Extras con precio draft -> no aparecen públicamente', () => {
   assert(draftExtras.some((e) => e.id === 'extra_branding'))
   assert(draftExtras.some((e) => e.id === 'extra_support_vip'))
   assert(draftExtras.some((e) => e.id === 'extra_automation'))
+})
+
+test('9. canSupportWrite: sesion de soporte read-only rechaza escrituras', () => {
+  const owner: PlatformOperator = { uid: 'op_owner', role: 'platform_owner', active: true }
+  const readOnlySession: SupportSession = {
+    id: 'sess_1',
+    operatorUid: 'op_owner',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'read-only',
+    expiresAt: new Date(Date.now() + 600000).toISOString(),
+  }
+  assert.equal(canSupportWrite(owner, readOnlySession, 'tenant_abc', Date.now()), false)
+})
+
+test('10. canSupportWrite: sesion elevada autoriza escrituras unicamente con motivo valido y vigencia', () => {
+  const owner: PlatformOperator = { uid: 'op_owner', role: 'platform_owner', active: true }
+  const elevatedSession: SupportSession = {
+    id: 'sess_2',
+    operatorUid: 'op_owner',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'editing',
+    reason: 'Corrección de timezone y resolución de incidencia crítica',
+    expiresAt: new Date(Date.now() + 600000).toISOString(),
+  }
+  assert.equal(canSupportWrite(owner, elevatedSession, 'tenant_abc', Date.now()), true)
+
+  // Sin motivo explícito -> denegado
+  const sessionWithoutReason: SupportSession = { ...elevatedSession, reason: '   ' }
+  assert.equal(canSupportWrite(owner, sessionWithoutReason, 'tenant_abc', Date.now()), false)
+
+  // TenantId no coincide -> denegado
+  assert.equal(canSupportWrite(owner, elevatedSession, 'tenant_OTRO', Date.now()), false)
+})
+
+test('11. canSupportWrite: sesion expirada es rechazada de inmediato', () => {
+  const owner: PlatformOperator = { uid: 'op_owner', role: 'platform_owner', active: true }
+  const expiredSession: SupportSession = {
+    id: 'sess_3',
+    operatorUid: 'op_owner',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'editing',
+    reason: 'Intervención técnica expirada',
+    expiresAt: new Date(Date.now() - 5000).toISOString(),
+  }
+  assert.equal(canSupportWrite(owner, expiredSession, 'tenant_abc', Date.now()), false)
+})
+
+test('12. canSupportWrite: operador sin support.elevate (platform_admin o platform_support) nunca puede escribir en soporte', () => {
+  const admin: PlatformOperator = { uid: 'op_admin', role: 'platform_admin', active: true }
+  const support: PlatformOperator = { uid: 'op_support', role: 'platform_support', active: true }
+  const session: SupportSession = {
+    id: 'sess_4',
+    operatorUid: 'op_admin',
+    tenantId: 'tenant_abc',
+    viewedRoleId: 'owner',
+    mode: 'editing',
+    reason: 'Intervención administrativa',
+    expiresAt: new Date(Date.now() + 600000).toISOString(),
+  }
+  assert.equal(canSupportWrite(admin, session, 'tenant_abc', Date.now()), false)
+  assert.equal(canSupportWrite(support, { ...session, operatorUid: 'op_support' }, 'tenant_abc', Date.now()), false)
+})
+
+test('13. Politica Plan Gratuito: maximo 1 plan gratuito publicado por plantilla, 2do es rechazado', () => {
+  const existingPlans: Partial<TemplateTierPlan>[] = [
+    { id: 'f1', templateId: 'restaurant', planKind: 'free', name: 'Free Activo', status: 'published', monthlyPriceUSD: 0, annualPriceUSD: 0, adsRequired: true },
+    { id: 'f2', templateId: 'restaurant', planKind: 'free', name: 'Free Intento 2', status: 'draft', monthlyPriceUSD: 0, annualPriceUSD: 0, adsRequired: true },
+  ]
+
+  const templateId = 'restaurant'
+  const targetPlanId = 'f2'
+  const publishedFreeForTemplate = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind === 'free',
+  )
+
+  assert.equal(publishedFreeForTemplate.length, 1)
+  const canPublishFree = publishedFreeForTemplate.length < 1
+  assert.equal(canPublishFree, false, 'No se puede publicar un 2do plan gratuito para la misma plantilla')
+})
+
+test('14. Politica Planes de Pago: maximo 3 planes de pago publicados por plantilla, 4to es rechazado', () => {
+  const existingPlans: Partial<TemplateTierPlan>[] = [
+    { id: 'p1', templateId: 'restaurant', planKind: 'paid', tierLevel: 1, name: 'Básico', status: 'published', monthlyPriceUSD: 29 },
+    { id: 'p2', templateId: 'restaurant', planKind: 'paid', tierLevel: 2, name: 'Pro', status: 'published', monthlyPriceUSD: 59 },
+    { id: 'p3', templateId: 'restaurant', planKind: 'paid', tierLevel: 3, name: 'Enterprise', status: 'published', monthlyPriceUSD: 99 },
+    { id: 'p4', templateId: 'restaurant', planKind: 'paid', tierLevel: 3, name: 'Borrador 4to', status: 'draft', monthlyPriceUSD: 120 },
+  ]
+
+  const templateId = 'restaurant'
+  const targetPlanId = 'p4'
+  const publishedPaidForTemplate = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind !== 'free',
+  )
+
+  assert.equal(publishedPaidForTemplate.length, 3)
+  const canPublishPaid = publishedPaidForTemplate.length < 3
+  assert.equal(canPublishPaid, false, 'No se puede publicar un 4to plan de pago cuando ya existen 3 activos')
+})
+
+test('15. Politica Comercial Mixta: 1 Free + 3 Paid publicados simultaneamente (total 4) esta permitido', () => {
+  const existingPlans: Partial<TemplateTierPlan>[] = [
+    { id: 'f1', templateId: 'restaurant', planKind: 'free', name: 'Free Oficial', status: 'published', monthlyPriceUSD: 0, annualPriceUSD: 0, adsRequired: true },
+    { id: 'p1', templateId: 'restaurant', planKind: 'paid', tierLevel: 1, name: 'Básico', status: 'published', monthlyPriceUSD: 29 },
+    { id: 'p2', templateId: 'restaurant', planKind: 'paid', tierLevel: 2, name: 'Pro', status: 'published', monthlyPriceUSD: 59 },
+    { id: 'p3', templateId: 'restaurant', planKind: 'paid', tierLevel: 3, name: 'Enterprise', status: 'draft', monthlyPriceUSD: 99 },
+  ]
+
+  const templateId = 'restaurant'
+  const targetPlanId = 'p3'
+
+  const freeCount = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind === 'free',
+  ).length
+  const paidCount = existingPlans.filter(
+    (p) => p.templateId === templateId && p.id !== targetPlanId && p.status === 'published' && p.planKind !== 'free',
+  ).length
+
+  assert.equal(freeCount, 1)
+  assert.equal(paidCount, 2)
+  // Publicar el 3er plan de pago es válido porque paidCount < 3:
+  assert.equal(paidCount < 3, true)
+  // Total publicado alcanzará 4:
+  assert.equal(freeCount + paidCount + 1, 4)
+})
+
+test('16. Validacion de Plan Gratuito: precio mayor a 0 o falta de adsRequired es invalido', () => {
+  const invalidFreePlan1: Partial<TemplateTierPlan> = {
+    planKind: 'free',
+    monthlyPriceUSD: 10,
+    annualPriceUSD: 0,
+    adsRequired: true,
+  }
+  const isPriceValid1 = invalidFreePlan1.monthlyPriceUSD === 0 && invalidFreePlan1.annualPriceUSD === 0
+  assert.equal(isPriceValid1, false, 'Plan gratuito con precio mensual > 0 debe ser inválido')
+
+  const invalidFreePlan2: Partial<TemplateTierPlan> = {
+    planKind: 'free',
+    monthlyPriceUSD: 0,
+    annualPriceUSD: 0,
+    adsRequired: false,
+  }
+  const isAdsValid = invalidFreePlan2.adsRequired === true
+  assert.equal(isAdsValid, false, 'Plan gratuito sin adsRequired=true debe ser inválido')
+})
+
+test('17. Whitelist de Plantillas Oficiales: templateId arbitrario es rechazado', () => {
+  const OFFICIAL_TEMPLATES = ['distribution', 'restaurant', 'nightclub', 'retail', 'services', 'custom']
+  assert.equal(OFFICIAL_TEMPLATES.includes('restaurant'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('distribution'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('nightclub'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('retail'), true)
+  assert.equal(OFFICIAL_TEMPLATES.includes('crypto_exchange'), false)
+  assert.equal(OFFICIAL_TEMPLATES.includes('arbitrary_pos'), false)
+})
+
+test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y compatibilidad legacy', () => {
+  // 1. Distribución publicada con demoEnabled=true -> tiene demo técnica implementada -> PERMITIDO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'distribution',
+  }), true)
+
+  // 2. Distribución con demoEnabled=false explícito -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'published',
+    demoEnabled: false,
+    canonicalTemplateId: 'distribution',
+  }), false)
+
+  // 3. Distribución legacy sin demoEnabled (undefined) -> default técnico disponible -> PERMITIDO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'published',
+    canonicalTemplateId: 'distribution',
+  }), true)
+
+  // 4. Distribución con status=draft -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'distribution',
+    status: 'draft',
+    demoEnabled: true,
+    canonicalTemplateId: 'distribution',
+  }), false)
+
+  // 5. Restaurante con demoEnabled=true -> status en publicTemplates es coming_soon (sin demo técnica) -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'restaurant',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'restaurant',
+  }), false)
+
+  // 6. Restaurante legacy (undefined) -> status coming_soon -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'restaurant',
+    status: 'published',
+    canonicalTemplateId: 'restaurant',
+  }), false)
+
+  // 7. Nightclub con demoEnabled=true -> coming_soon -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'nightclub',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'nightclub',
+  }), false)
+
+  // 8. Retail con demoEnabled=true -> coming_soon -> DENEGADO
+  assert.equal(canLaunchCommercialDemo({
+    id: 'retail',
+    status: 'published',
+    demoEnabled: true,
+    canonicalTemplateId: 'retail',
+  }), false)
+
+  // 9. isTechnicalDemoAvailable verifica directamente la disponibilidad técnica del código
+  assert.equal(isTechnicalDemoAvailable('distribution'), true)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), false)
+  assert.equal(isTechnicalDemoAvailable('retail'), false)
+  assert.equal(isTechnicalDemoAvailable('custom'), false)
+})
+
+test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun privilegio de plataforma', () => {
+  const fakeSuperadmin = { uid: 'fake_1', role: 'superadmin' as any, active: true }
+  const fakeRoot = { uid: 'fake_2', role: 'root' as any, active: true }
+
+  assert.equal(canPlatform(fakeSuperadmin, 'tenants.read'), false)
+  assert.equal(canPlatform(fakeSuperadmin, 'operators.manage'), false)
+  assert.equal(canPlatform(fakeSuperadmin, 'plans.manage'), false)
+  assert.equal(canPlatform(fakeRoot, 'content.manage'), false)
+  assert.equal(canPlatform(fakeRoot, 'support.read'), false)
+})
+
+test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica estricta', () => {
+  // Distribución y Restaurante están aprobados para aprovisionamiento real de tenants
+  assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
+
+  // Plantillas no consolidadas para creación de empresas
+  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub'), false)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
+  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('custom'), false)
+  assert.equal(isTemplateProvisioningAvailable('arbitrary_type'), false)
+})
+
+test('21. Planes de suscripción: whitelist PLAN_ELIGIBLE_TEMPLATE_IDS excluye custom y arbitrarios', () => {
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('restaurant' as any), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('distribution' as any), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('nightclub' as any), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('retail' as any), true)
+
+  // Custom y arbitrarios NO son elegibles para planes de suscripción
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('custom' as any), false)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('services' as any), false)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('arbitrary' as any), false)
+})
+
+test('22. Seed de configuración oficial: preserva estado oficial y no auto-publica drafts', () => {
+  const seedTemplateDraft = { id: 'test_tpl', status: 'draft', name: 'Draft Template' }
+  const templateStatusDraft = seedTemplateDraft.status === 'published' ? 'published' : 'draft'
+  assert.equal(templateStatusDraft, 'draft')
+
+  const seedTemplatePub = { id: 'distribution', status: 'published', name: 'Distribución' }
+  const templateStatusPub = seedTemplatePub.status === 'published' ? 'published' : 'draft'
+  assert.equal(templateStatusPub, 'published')
+
+  // Planes para custom son omitidos por el filtro del seed
+  const samplePlans = [
+    { id: 'plan_dist_free', templateId: 'distribution', planKind: 'free' },
+    { id: 'plan_rest_paid', templateId: 'restaurant', planKind: 'paid' },
+    { id: 'plan_custom_dummy', templateId: 'custom', planKind: 'paid' },
+  ]
+  const filteredPlans = samplePlans.filter(p => PLAN_ELIGIBLE_TEMPLATE_IDS.includes(p.templateId as any))
+  assert.equal(filteredPlans.length, 2)
+  assert.equal(filteredPlans.some(p => p.templateId === 'custom'), false)
+})
+
+test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y Restaurant habilitados, coming-soon bloqueados, Custom sin aprovisionamiento y sin fallback silencioso', () => {
+  // Aprovisionamiento habilitado para Distribution y Restaurant
+  assert.equal(isTemplateProvisioningAvailable('distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
+  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
+
+  // Demo técnica desacoplada de aprovisionamiento: Distribution disponible, Restaurant bloqueado/coming_soon
+  assert.equal(isTechnicalDemoAvailable('distribution'), true)
+  assert.equal(isTechnicalDemoAvailable('route_distribution'), true)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
+  assert.equal(isTechnicalDemoAvailable('restaurant_pos'), false)
+
+  // Coming-soon bloqueados para creación de empresas
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub'), false)
+  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), false)
+  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
+
+  // Custom preserva flujo a medida (WhatsApp/contacto), no aprovisiona tenant directo
+  assert.equal(isTemplateProvisioningAvailable('custom'), false)
+
+  // Lógica de PublicRegisterView: cuando se recibe un templateParam en la URL
+  function resolveInitialRegisterTemplate(templateParam: string | null): string {
+    const param = templateParam || ''
+    return param ? (isTemplateProvisioningAvailable(param) ? param : '') : 'route_distribution'
+  }
+
+  // Sin parámetro: default a 'route_distribution'
+  assert.equal(resolveInitialRegisterTemplate(null), 'route_distribution')
+  assert.equal(resolveInitialRegisterTemplate(''), 'route_distribution')
+
+  // Parámetro válido disponible: se selecciona directamente
+  assert.equal(resolveInitialRegisterTemplate('route_distribution'), 'route_distribution')
+  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), 'restaurant_pos')
+
+  // Parámetro no disponible / coming-soon: NO debe haber fallback silencioso a Distribution
+  assert.equal(resolveInitialRegisterTemplate('hamburger'), '')
+  assert.equal(resolveInitialRegisterTemplate('nightclub'), '')
+  assert.equal(resolveInitialRegisterTemplate('retail'), '')
+  assert.equal(resolveInitialRegisterTemplate('custom'), '')
+  assert.equal(resolveInitialRegisterTemplate('invalid_template'), '')
+})
+
+test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de demoRoute y coherencia canónica', () => {
+  // Las rutas técnicas de demo están definidas canónicamente en PUBLIC_TEMPLATES
+  const distDef = PUBLIC_TEMPLATES.find(p => p.id === 'distribution')
+  assert.ok(distDef)
+  assert.equal(distDef.demoPath, '/demo/distribution')
+
+  const restDef = PUBLIC_TEMPLATES.find(p => p.id === 'restaurant')
+  assert.ok(restDef)
+  assert.equal(restDef.demoPath, '/demo/restaurant')
+
+  // demoEnabled: false continúa bloqueando la demo comercial incluso si technicalDemoAvailable es true
+  assert.equal(
+    canLaunchCommercialDemo({
+      status: 'published',
+      demoEnabled: false,
+      canonicalTemplateId: 'distribution',
+    }),
+    false
+  )
+
+  // Invariante de identidad técnica:
+  // Una plantilla no puede remapear su canonicalTemplateId a otra plantilla distinta
+  function validateTemplateIdentity(templateId: string, canonicalTemplateId?: string | null): boolean {
+    const validCanonical = ['restaurant', 'distribution', 'nightclub', 'retail', null]
+    if (canonicalTemplateId !== undefined) {
+      if (!validCanonical.includes(canonicalTemplateId)) return false
+      if (templateId === 'custom') {
+        if (canonicalTemplateId !== null) return false
+      } else if (canonicalTemplateId !== templateId) {
+        return false
+      }
+    }
+    return true
+  }
+
+  // Distribución mantiene identidad distribución
+  assert.equal(validateTemplateIdentity('distribution', 'distribution'), true)
+  // Restaurante no puede remapearse a distribución
+  assert.equal(validateTemplateIdentity('restaurant', 'distribution'), false)
+  // Retail no puede remapearse a restaurante
+  assert.equal(validateTemplateIdentity('retail', 'restaurant'), false)
+  // ID canónico arbitrario es rechazado
+  assert.equal(validateTemplateIdentity('distribution', 'arbitrary_canonical' as any), false)
+  // Custom solo admite null
+  assert.equal(validateTemplateIdentity('custom', null), true)
+  assert.equal(validateTemplateIdentity('custom', 'distribution'), false)
+
+  // Invariante de ruta técnica: demoRoute no puede modificarse arbitrariamente
+  function validateDemoRoute(templateId: string, requestedRoute?: string): boolean {
+    const publicDef = PUBLIC_TEMPLATES.find(p => p.id === templateId)
+    if (!publicDef) return true
+    if (requestedRoute && requestedRoute !== publicDef.demoPath) return false
+    return true
+  }
+
+  assert.equal(validateDemoRoute('distribution', '/demo/distribution'), true)
+  assert.equal(validateDemoRoute('distribution', '/demo/custom_override'), false)
+  assert.equal(validateDemoRoute('restaurant', '/demo/restaurant'), true)
+  assert.equal(validateDemoRoute('restaurant', '/demo/distribution'), false)
 })

@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { Order, OrderItem } from '../../../../types.ts'
-import type { RestaurantTable } from '../../../../demo/mocks/restaurantMock.ts'
+import type { RestaurantTable } from '../../types.ts'
 import { placeRestaurantOrder } from '../restaurantOperations.ts'
 
 const sampleTables: RestaurantTable[] = [

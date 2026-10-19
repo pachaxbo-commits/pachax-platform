@@ -38,8 +38,37 @@ export function PlansSection() {
     setSaveError(null)
   }
 
+  const publishedFreeInTemplate = plansForTemplate.filter((p) => p.status === 'published' && p.planKind === 'free').length
+  const publishedPaidInTemplate = plansForTemplate.filter((p) => p.status === 'published' && p.planKind !== 'free').length
+
   const handleSave = async () => {
     if (!formData) return
+
+    // Validar límite de planes por template (máx 1 gratuito, máx 3 de pago)
+    if (formData.status === 'published') {
+      if (formData.planKind === 'free') {
+        const freeCount = plansForTemplate.filter(
+          (p) => p.id !== formData.id && p.status === 'published' && p.planKind === 'free',
+        ).length
+        if (freeCount >= 1) {
+          setSaveError('No se puede guardar como publicado: cada plantilla permite un máximo de 1 plan gratuito activo en el catálogo. Despublica el actual primero o mantén este en borrador.')
+          return
+        }
+        if (Number(formData.monthlyPriceUSD || 0) > 0 || Number(formData.annualPriceUSD || 0) > 0) {
+          setSaveError('El plan gratuito debe tener precio 0.')
+          return
+        }
+      } else {
+        const paidCount = plansForTemplate.filter(
+          (p) => p.id !== formData.id && p.status === 'published' && p.planKind !== 'free',
+        ).length
+        if (paidCount >= 3) {
+          setSaveError('No se puede guardar como publicado: cada plantilla permite un máximo de 3 planes de pago activos en el catálogo. Despublica otro plan primero o mantén este en borrador.')
+          return
+        }
+      }
+    }
+
     setIsProcessing(true)
     setSaveFeedback(null)
     setSaveError(null)
@@ -55,11 +84,32 @@ export function PlansSection() {
 
   const handleTogglePublish = async () => {
     if (!formData) return
+    const nextStatus = formData.status === 'published' ? 'draft' : 'published'
+
+    if (nextStatus === 'published') {
+      if (formData.planKind === 'free') {
+        const freeCount = plansForTemplate.filter(
+          (p) => p.id !== formData.id && p.status === 'published' && p.planKind === 'free',
+        ).length
+        if (freeCount >= 1) {
+          setSaveError('Cada plantilla permite un máximo de 1 plan gratuito activo publicado simultáneamente en el catálogo. Despublica el actual antes de activar este.')
+          return
+        }
+      } else {
+        const paidCount = plansForTemplate.filter(
+          (p) => p.id !== formData.id && p.status === 'published' && p.planKind !== 'free',
+        ).length
+        if (paidCount >= 3) {
+          setSaveError('Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.')
+          return
+        }
+        if (!window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este plan debe mostrarse públicamente con los importes actuales?')) return
+      }
+    }
+
     setIsProcessing(true)
     setSaveFeedback(null)
     setSaveError(null)
-    const nextStatus = formData.status === 'published' ? 'draft' : 'published'
-    if (nextStatus === 'published' && !window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este plan debe mostrarse públicamente con los importes actuales?')) return
     const res = await togglePublishPlan(formData.id, nextStatus)
     setIsProcessing(false)
     if (res.success) {
@@ -84,6 +134,7 @@ export function PlansSection() {
       id: newId,
       templateId: selectedTemplate,
       name: 'Nuevo Plan',
+      planKind: 'paid',
       tierLevel: 1,
       monthlyPriceUSD: 29,
       annualPriceUSD: 24,
@@ -215,9 +266,31 @@ export function PlansSection() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Lista de Planes a la Izquierda */}
         <div className="lg:col-span-5 space-y-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
-            Planes configurados ({plansForTemplate.length})
-          </span>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Planes ({plansForTemplate.length})
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                  publishedFreeInTemplate >= 1
+                    ? 'bg-purple-100 text-purple-900 border border-purple-300'
+                    : 'bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
+              >
+                Gratis: {publishedFreeInTemplate} / 1 máx.
+              </span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                  publishedPaidInTemplate >= 3
+                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                    : 'bg-blue-50 text-blue-700 border border-blue-200'
+                }`}
+              >
+                Pagos: {publishedPaidInTemplate} / 3 máx.
+              </span>
+            </div>
+          </div>
 
           {plansForTemplate.map((p) => {
             const isSelected = formData?.id === p.id
@@ -236,6 +309,15 @@ export function PlansSection() {
                     {p.name}
                   </h4>
                   <div className="flex items-center gap-1.5">
+                    {p.planKind === 'free' ? (
+                      <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                        Gratis
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                        Tier {p.tierLevel || 1}
+                      </span>
+                    )}
                     {p.isPopular && (
                       <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
                         Popular
@@ -254,8 +336,17 @@ export function PlansSection() {
                 </div>
 
                 <div className="flex items-baseline gap-1 text-slate-900 mb-2">
-                  <span className="text-xl font-black">${p.monthlyPriceUSD}</span>
-                  <span className="text-xs text-slate-500">USD/mes (anual: ${p.annualPriceUSD})</span>
+                  {p.planKind === 'free' ? (
+                    <>
+                      <span className="text-xl font-black">$0</span>
+                      <span className="text-xs text-slate-500">USD/mes (Gratis con anuncios)</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-xl font-black">${p.monthlyPriceUSD}</span>
+                      <span className="text-xs text-slate-500">USD/mes (anual: ${p.annualPriceUSD})</span>
+                    </>
+                  )}
                 </div>
 
                 <p className="text-xs text-slate-500 line-clamp-1">{p.clientProfile}</p>
@@ -321,7 +412,7 @@ export function PlansSection() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Nombre del plan
@@ -332,6 +423,37 @@ export function PlansSection() {
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Modalidad del plan
+                  </label>
+                  <select
+                    value={formData.planKind || 'paid'}
+                    onChange={(e) => {
+                      const newKind = e.target.value as 'free' | 'paid'
+                      setFormData({
+                        ...formData,
+                        planKind: newKind,
+                        ...(newKind === 'free'
+                          ? {
+                              monthlyPriceUSD: 0,
+                              annualPriceUSD: 0,
+                              adsRequired: true,
+                              badge: formData.badge || 'Gratis con anuncios',
+                            }
+                          : {
+                              tierLevel: formData.tierLevel || 1,
+                              adsRequired: false,
+                            }),
+                      })
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900"
+                  >
+                    <option value="paid">De Pago (Suscripción comercial)</option>
+                    <option value="free">Gratuito (Con anuncios obligatorios)</option>
+                  </select>
                 </div>
 
                 <div>
@@ -349,6 +471,15 @@ export function PlansSection() {
                 </div>
               </div>
 
+              {formData.planKind === 'free' && (
+                <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 text-xs font-medium flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Política de Plan Gratuito:</span> Publicidad obligatoria cuando el sistema publicitario PACHAX esté habilitado. Los precios están fijados en $0 USD y no requieren pasarela de pago.
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -356,9 +487,14 @@ export function PlansSection() {
                   </label>
                   <input
                     type="number"
-                    value={formData.monthlyPriceUSD}
+                    disabled={formData.planKind === 'free'}
+                    value={formData.planKind === 'free' ? 0 : formData.monthlyPriceUSD}
                     onChange={(e) => setFormData({ ...formData, monthlyPriceUSD: Number(e.target.value) })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900"
+                    className={`w-full border rounded-xl px-3 py-2 text-xs font-bold ${
+                      formData.planKind === 'free'
+                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                        : 'bg-slate-50 text-slate-900 border-slate-200'
+                    }`}
                   />
                 </div>
 
@@ -368,9 +504,14 @@ export function PlansSection() {
                   </label>
                   <input
                     type="number"
-                    value={formData.annualPriceUSD}
+                    disabled={formData.planKind === 'free'}
+                    value={formData.planKind === 'free' ? 0 : formData.annualPriceUSD}
                     onChange={(e) => setFormData({ ...formData, annualPriceUSD: Number(e.target.value) })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900"
+                    className={`w-full border rounded-xl px-3 py-2 text-xs font-bold ${
+                      formData.planKind === 'free'
+                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                        : 'bg-slate-50 text-slate-900 border-slate-200'
+                    }`}
                   />
                 </div>
 
@@ -386,6 +527,84 @@ export function PlansSection() {
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
                   />
                 </div>
+              </div>
+
+              {/* Nivel de Tier, Orden, Badge y CTA */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Nivel de escala (Tier)
+                  </label>
+                  {formData.planKind === 'free' ? (
+                    <input
+                      type="text"
+                      disabled
+                      value="No aplica (Plan Gratuito)"
+                      className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-400 cursor-not-allowed"
+                    />
+                  ) : (
+                    <select
+                      value={formData.tierLevel || 1}
+                      onChange={(e) => setFormData({ ...formData, tierLevel: Number(e.target.value) as 1 | 2 | 3 })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900"
+                    >
+                      <option value={1}>Tier 1 (Entrada / Básico)</option>
+                      <option value={2}>Tier 2 (Crecimiento)</option>
+                      <option value={3}>Tier 3 (Escala / Pro)</option>
+                    </select>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Orden de columna
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formData.order || 1}
+                    onChange={(e) => setFormData({ ...formData, order: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Badge comercial
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Más elegido"
+                    value={formData.badge || ''}
+                    onChange={(e) => setFormData({ ...formData, badge: e.target.value || undefined })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Texto de botón CTA
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.ctaLabel || 'Elegir Plan'}
+                    onChange={(e) => setFormData({ ...formData, ctaLabel: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="planIsPopularCheck"
+                  checked={Boolean(formData.isPopular)}
+                  onChange={(e) => setFormData({ ...formData, isPopular: e.target.checked })}
+                  className="rounded border-slate-300 text-[#0066FF] focus:ring-[#0066FF]"
+                />
+                <label htmlFor="planIsPopularCheck" className="text-xs text-slate-700 font-semibold cursor-pointer">
+                  Marcar como plan recomendado / popular (destaca visualmente la columna)
+                </label>
               </div>
 
               <div>

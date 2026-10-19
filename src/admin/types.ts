@@ -18,6 +18,7 @@ export interface CommercialTemplateItem {
   features: string[]
   demoRoute: string
   demoPath: string
+  demoEnabled?: boolean
   detailAnchor: string
   badge?: string
   status: 'published' | 'draft'
@@ -32,17 +33,21 @@ export interface CommercialTemplateItem {
   }
 }
 
+export type PlanKind = 'free' | 'paid'
+
 export interface TemplateTierPlan {
   id: string
   templateId: TemplateKey
   name: string
-  tierLevel: 1 | 2 | 3
+  planKind: PlanKind
+  tierLevel?: 1 | 2 | 3
   monthlyPriceUSD: number
   annualPriceUSD: number
   currency: 'USD' | 'BOB'
   billingPeriod: 'monthly' | 'annual'
   badge?: string
   isPopular?: boolean
+  adsRequired?: boolean
   clientProfile: string
   limitsLabel?: string
   includedFeatures: string[]

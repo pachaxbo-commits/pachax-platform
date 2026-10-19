@@ -32,6 +32,7 @@ export interface CommercialTemplateItem {
   features: string[]
   demoRoute: string
   demoPath: string
+  demoEnabled?: boolean
   detailAnchor: string
   badge?: string
   status: 'published' | 'draft'
@@ -72,6 +73,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     ],
     demoRoute: '/demo/restaurant',
     demoPath: '/demo/restaurant',
+    demoEnabled: false,
     detailAnchor: '#plantilla-restaurante',
     badge: 'Más popular',
     status: 'published',
@@ -110,6 +112,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     ],
     demoRoute: '/demo/distribution',
     demoPath: '/demo/distribution',
+    demoEnabled: true,
     detailAnchor: '#plantilla-distribuidora',
     status: 'published',
     order: 2,
@@ -147,6 +150,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     ],
     demoRoute: '/demo/nightclub',
     demoPath: '/demo/nightclub',
+    demoEnabled: false,
     detailAnchor: '#plantilla-nightclub',
     status: 'published',
     order: 3,
@@ -184,6 +188,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     ],
     demoRoute: '/demo/retail',
     demoPath: '/demo/retail',
+    demoEnabled: false,
     detailAnchor: '#plantilla-retail',
     status: 'published',
     order: 4,
@@ -221,6 +226,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     ],
     demoRoute: 'https://wa.me/59177987776?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20un%20desarrollo%20a%20medida%20en%20PACHAX%20Platform.',
     demoPath: 'https://wa.me/59177987776?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20un%20desarrollo%20a%20medida%20en%20PACHAX%20Platform.',
+    demoEnabled: false,
     detailAnchor: '#plantilla-custom',
     status: 'published',
     order: 5,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Shield, ShieldAlert, UserPlus, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Shield, ShieldAlert, UserPlus, RefreshCw, CheckCircle2, AlertCircle, FileText, Search } from 'lucide-react'
 import { gateway } from '../../../services/gateway'
 import type { PlatformRole } from '../../../core/platform'
 
@@ -12,11 +12,29 @@ interface OperatorRecord {
   updatedAt: string | null
 }
 
+export interface PlatformAuditRecord {
+  id: string
+  action: string
+  actorUid: string
+  actorRole: string
+  tenantId?: string | null
+  resource?: string | null
+  reason?: string | null
+  metadata?: Record<string, any>
+  createdAt?: string | null
+}
+
 export function AdministratorsSection() {
   const [operators, setOperators] = useState<OperatorRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+
+  // Auditoría de plataforma
+  const [auditLogs, setAuditLogs] = useState<PlatformAuditRecord[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [auditFilter, setAuditFilter] = useState('')
 
   // Formulario para crear o actualizar un operador
   const [targetUid, setTargetUid] = useState('')
@@ -42,8 +60,29 @@ export function AdministratorsSection() {
     }
   }
 
+  const fetchAuditLogs = async () => {
+    setAuditLoading(true)
+    setAuditError(null)
+    try {
+      const res = await gateway<PlatformAuditRecord[]>('platformGateway', {
+        action: 'queryAudit',
+        limit: 50,
+      })
+      if (Array.isArray(res)) {
+        setAuditLogs(res)
+      } else if (res && Array.isArray((res as any).logs)) {
+        setAuditLogs((res as any).logs)
+      }
+    } catch (err: unknown) {
+      setAuditError(err instanceof Error ? err.message : 'Error cargando bitácora de auditoría.')
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchOperators()
+    fetchAuditLogs()
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -99,6 +138,18 @@ export function AdministratorsSection() {
     }
   }
 
+  const filteredAuditLogs = auditLogs.filter((log) => {
+    if (!auditFilter.trim()) return true
+    const term = auditFilter.toLowerCase().trim()
+    return (
+      log.action.toLowerCase().includes(term) ||
+      log.actorUid.toLowerCase().includes(term) ||
+      log.actorRole.toLowerCase().includes(term) ||
+      (log.tenantId && log.tenantId.toLowerCase().includes(term)) ||
+      (log.reason && log.reason.toLowerCase().includes(term))
+    )
+  })
+
   return (
     <div className="space-y-8">
       {/* Encabezado */}
@@ -117,12 +168,15 @@ export function AdministratorsSection() {
 
         <button
           type="button"
-          onClick={fetchOperators}
-          disabled={isLoading}
+          onClick={() => {
+            fetchOperators()
+            fetchAuditLogs()
+          }}
+          disabled={isLoading || auditLoading}
           className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>Actualizar</span>
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading || auditLoading ? 'animate-spin' : ''}`} />
+          <span>Actualizar Todo</span>
         </button>
       </div>
 
@@ -287,6 +341,113 @@ export function AdministratorsSection() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Bitácora Inmutable de Auditoría de Plataforma */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden space-y-4 p-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-[#0066FF]" />
+              <h3 className="text-sm font-bold text-slate-900">
+                Bitácora Inmutable de Auditoría (platformAuditLogs)
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Trazabilidad criptográfica de acciones administrativas, sesiones técnicas y mutaciones de catálogo en el backend.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-64">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={auditFilter}
+                onChange={(e) => setAuditFilter(e.target.value)}
+                placeholder="Filtrar por acción o UID..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#0066FF]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={fetchAuditLogs}
+              disabled={auditLoading}
+              className="p-2 rounded-xl text-slate-600 hover:text-slate-950 hover:bg-slate-100 border border-slate-200 cursor-pointer disabled:opacity-50"
+              title="Actualizar bitácora"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${auditLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {auditError && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{auditError}</span>
+          </div>
+        )}
+
+        {auditLoading ? (
+          <div className="p-8 text-center text-slate-500 text-xs">
+            <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#0066FF]" />
+            Cargando registros de auditoría de servidor...
+          </div>
+        ) : filteredAuditLogs.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-xs">
+            <p>No se encontraron registros de auditoría que coincidan con la búsqueda.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="py-2.5 px-3">Fecha y Hora</th>
+                  <th className="py-2.5 px-3">Acción Registrada</th>
+                  <th className="py-2.5 px-3">Operador (UID / Rol)</th>
+                  <th className="py-2.5 px-3">Destino / Recurso</th>
+                  <th className="py-2.5 px-3">Motivo / Metadatos</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredAuditLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                      {log.createdAt ? log.createdAt.replace('T', ' ').slice(0, 19) : 'Sin fecha'}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="font-mono font-bold text-[#0066FF] text-[11px] bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                        {log.action}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="font-mono text-[10px] text-slate-800 font-semibold">{log.actorUid ? `${log.actorUid.slice(0, 12)}...` : 'Sistema'}</div>
+                      <div className="text-[9px] text-slate-400">{log.actorRole}</div>
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600">
+                      {log.tenantId ? (
+                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">tenant:{log.tenantId}</span>
+                      ) : log.resource ? (
+                        <span>{log.resource}</span>
+                      ) : (
+                        <span className="text-slate-400">Plataforma</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-[11px] text-slate-600 max-w-xs truncate">
+                      {log.reason ? (
+                        <span className="font-medium text-slate-800 italic">"{log.reason}"</span>
+                      ) : log.metadata ? (
+                        <span className="font-mono text-[10px] text-slate-400">{JSON.stringify(log.metadata)}</span>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

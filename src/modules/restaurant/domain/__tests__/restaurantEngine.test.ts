@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment -- Node test executes outside browser TypeScript project. */
 // @ts-nocheck Node executes this file directly, outside the browser TypeScript project.
 import assert from 'node:assert/strict'
 import test from 'node:test'

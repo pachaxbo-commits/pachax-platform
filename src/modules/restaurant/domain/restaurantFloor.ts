@@ -1,5 +1,5 @@
-import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
-import { INITIAL_SECTORS } from '../../../demo/mocks/restaurantMock.ts'
+import type { RestaurantSector, RestaurantTable } from '../types.ts'
+import { DEFAULT_RESTAURANT_SECTORS } from '../types.ts'
 
 export type FloorAction =
   | { type: 'sector.create'; id: string; name: string; description?: string }
@@ -17,7 +17,8 @@ const operational = (table: RestaurantTable) => Boolean(table.activeOrderId || t
 export const visibleTables = (tables: RestaurantTable[]) => tables.filter(table => !table.archivedAt && table.active !== false)
 
 export function migrateRestaurantFloor(tables: RestaurantTable[], savedSectors?: RestaurantSector[]) {
-  const sectors = savedSectors?.length || tables.length === 0 ? (savedSectors || INITIAL_SECTORS.map(sector => ({ ...sector }))) : INITIAL_SECTORS.map(sector => ({ ...sector }))
+  const sectors = savedSectors?.length || tables.length === 0 ? (savedSectors || DEFAULT_RESTAURANT_SECTORS.map(sector => ({ ...sector }))) : DEFAULT_RESTAURANT_SECTORS.map(sector => ({ ...sector }))
+
   const fallback = sectors.find(sector => sector.active)?.id || sectors[0]?.id
   const nextTables = tables.map((table, index) => ({
     ...table,

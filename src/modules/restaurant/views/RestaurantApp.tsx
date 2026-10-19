@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getBusinessTypeDefinition } from '../../../config/businessTypes'
 import { applyTenantTheme } from '../../../lib/tenantTheme'
 import { updateRestaurantBranding } from '../../../lib/firebase'
@@ -9,10 +9,14 @@ import {
   type RestaurantShift,
 } from './RestaurantExperience'
 import type { Order, Product } from '../../../types'
-import type { RestaurantSector, RestaurantTable } from '../../../demo/mocks/restaurantMock'
+import type { RestaurantSector, RestaurantTable } from '../types'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
 import type { InventoryMovement } from '../domain/inventoryEngine'
-import type { RestaurantMember } from '../../../demo/restaurant/RestaurantUsers'
+import type { CashMovement } from '../domain/cashEngine'
+import type { RestaurantMember } from '../components/RestaurantUsers'
+import { getActiveTenant } from '../../../store/activeTenant'
+import { BusinessTemplateRegistry } from '../../../core/templates'
+
 import {
   subscribeOperationalState,
   subscribeActiveShift,
@@ -24,6 +28,12 @@ import {
   subscribeCustomers,
   subscribeInventoryMovements,
   subscribeMembers,
+  subscribeCashMovements,
+  recordCashMovement,
+  cancelCashMovement,
+  updateCashMovement,
+  archiveProduct,
+  deleteProduct,
   openShift,
   closeShift,
   openTableOrder,
@@ -111,20 +121,16 @@ export function RestaurantApp({
   const [customers, setCustomers] = useState<RestaurantCustomer[]>([])
   const [stockMovements, setStockMovements] = useState<InventoryMovement[]>([])
   const [members, setMembers] = useState<RestaurantMember[]>([])
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>([])
   const [syncError, setSyncError] = useState<string | null>(null)
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>([])
   const [lastPrintedComanda, setLastPrintedComanda] = useState<PrintJobPayload | null>(null)
-  const [activeIdentity, setActiveIdentity] = useState<BusinessIdentity | undefined>(businessIdentity)
-
-  useEffect(() => {
-    if (businessIdentity) {
-      setActiveIdentity(businessIdentity)
-    }
-  }, [businessIdentity])
+  const [customIdentity, setCustomIdentity] = useState<BusinessIdentity | null>(null)
+  const activeIdentity = customIdentity || businessIdentity
 
   const handleSaveBusinessIdentity = async (newIdentity: BusinessIdentity) => {
     await updateTenantBusinessIdentity(tenantId, newIdentity)
-    setActiveIdentity(newIdentity)
+    setCustomIdentity(newIdentity)
     if (newIdentity.primaryColor && newIdentity.accentColor) {
       setThemeColors({
         primary: newIdentity.primaryColor,
@@ -157,6 +163,14 @@ export function RestaurantApp({
     }
   }, [tenantId])
 
+  const can = useCallback((perm: string) => {
+    const activeTenant = getActiveTenant()
+    const perms: readonly string[] = activeTenant?.permissions ?? (
+      BusinessTemplateRegistry.restaurant_pos.roles.find(r => r.id === role)?.permissions ?? []
+    )
+    return perms.includes(perm)
+  }, [role])
+
   // Subscriptions to real-time Firestore collections with error handling
   useEffect(() => {
     if (!tenantId) return
@@ -170,39 +184,83 @@ export function RestaurantApp({
       }
     }
 
-    const unsubOpState = subscribeOperationalState(tenantId, 'main', setOperationalState, handleSyncError('estado operativo'))
-    const unsubHistory = subscribeShiftHistory(tenantId, 'main', setShiftHistory, handleSyncError('historial de turnos'))
-    const unsubTables = subscribeTables(tenantId, 'main', setTables, handleSyncError('mesas'))
-    const unsubSectors = subscribeSectors(tenantId, setSectors, handleSyncError('sectores'))
-    const unsubOrders = subscribeOrders(tenantId, 'main', setOrders, handleSyncError('pedidos'))
-    const unsubProducts = subscribeProducts(tenantId, setProducts, handleSyncError('productos'))
-    const unsubCustomers = subscribeCustomers(tenantId, setCustomers, handleSyncError('clientes'))
-    const unsubMovements = subscribeInventoryMovements(tenantId, 'main', setStockMovements, handleSyncError('inventario'))
-    const unsubMembers = subscribeMembers(tenantId, setMembers, handleSyncError('personal'))
+    const unsubs: Array<(() => void) | undefined> = []
+
+    // 1. Estado operativo: roles con orders.read o cash.close
+    if (can('orders.read') || can('cash.close')) {
+      unsubs.push(subscribeOperationalState(tenantId, 'main', setOperationalState, handleSyncError('estado operativo')))
+    }
+
+    // 2. Historial de turnos: roles con cash.close o settings.manage
+    if (can('cash.close') || can('settings.manage')) {
+      unsubs.push(subscribeShiftHistory(tenantId, 'main', setShiftHistory, handleSyncError('historial de turnos')))
+    }
+
+    // 3. Mesas y sectores: roles con orders.read o settings.manage
+    if (can('orders.read') || can('settings.manage')) {
+      unsubs.push(subscribeTables(tenantId, 'main', setTables, handleSyncError('mesas')))
+      unsubs.push(subscribeSectors(tenantId, setSectors, handleSyncError('sectores')))
+    }
+
+    // 4. Pedidos: roles con orders.read, cash.close o sales.read
+    if (can('orders.read') || can('cash.close') || can('sales.read')) {
+      unsubs.push(subscribeOrders(tenantId, 'main', setOrders, handleSyncError('pedidos')))
+    }
+
+    // 5. Catálogo de productos: permitido para miembros activos del tenant
+    unsubs.push(subscribeProducts(tenantId, setProducts, handleSyncError('productos')))
+
+    // 6. Clientes CRM: solo si tiene customers.read o customers.manage o settings.manage
+    if (can('customers.read') || can('customers.manage') || can('settings.manage')) {
+      unsubs.push(subscribeCustomers(tenantId, setCustomers, handleSyncError('clientes')))
+    }
+
+    // 7. Movimientos de inventario: solo inventory.read o settings.manage
+    if (can('inventory.read') || can('settings.manage')) {
+      unsubs.push(subscribeInventoryMovements(tenantId, 'main', setStockMovements, handleSyncError('inventario')))
+    }
+
+    // 8. Personal / Members: solo users.manage
+    if (can('users.manage')) {
+      unsubs.push(subscribeMembers(tenantId, setMembers, handleSyncError('personal')))
+    }
 
     return () => {
-      unsubOpState()
-      unsubHistory()
-      unsubTables()
-      unsubSectors()
-      unsubOrders()
-      unsubProducts()
-      unsubCustomers()
-      unsubMovements()
-      unsubMembers()
+      unsubs.forEach(unsub => unsub?.())
     }
-  }, [tenantId])
+  }, [tenantId, role, can])
 
-  // Subscribe to active shift whenever activeShiftId changes
+  // Subscribe to active shift whenever activeShiftId changes (only if cash.close or settings.manage)
   useEffect(() => {
-    if (!tenantId || !operationalState.activeShiftId) return
+    if (!tenantId || !operationalState.activeShiftId || (!can('cash.close') && !can('settings.manage'))) {
+      return
+    }
 
     return subscribeActiveShift(tenantId, operationalState.activeShiftId, setShift, (err: Error) => {
       console.warn('[RestaurantApp] Error al consultar turno activo:', err.message)
     })
-  }, [tenantId, operationalState.activeShiftId])
+  }, [tenantId, operationalState.activeShiftId, role, can])
 
-  const activeShift = operationalState.activeShiftId ? shift : null
+  // Subscribe to cash movements whenever activeShiftId changes (only if cash.close or settings.manage)
+  useEffect(() => {
+    if (!tenantId || !operationalState.activeShiftId || (!can('cash.close') && !can('settings.manage'))) {
+      return
+    }
+
+    return subscribeCashMovements(
+      tenantId,
+      'main',
+      operationalState.activeShiftId,
+      setCashMovements,
+      (err: Error) => {
+        console.warn('[RestaurantApp] Error al consultar movimientos de caja:', err.message)
+      }
+    )
+  }, [tenantId, operationalState.activeShiftId, role, can])
+
+  const isShiftOpen = Boolean(operationalState.activeShiftId)
+  const activeShift = (can('cash.close') || can('settings.manage')) && operationalState.activeShiftId ? shift : null
+  const activeCashMovements = (can('cash.close') || can('settings.manage')) && operationalState.activeShiftId ? cashMovements : []
 
   const session: RestaurantSession = {
     tenantId,
@@ -210,7 +268,9 @@ export function RestaurantApp({
     uid,
     userName,
     role,
+    can,
   }
+
 
   const handlePrintBatch = async (orderId: string): Promise<boolean> => {
     const currentOrder = orders.find((o) => o.id === orderId)
@@ -419,6 +479,7 @@ export function RestaurantApp({
       )}
       <RestaurantExperience
         session={session}
+        isShiftOpen={isShiftOpen}
         logoUrl={logoUrl}
         companyName={companyName || restaurantName}
         themeColors={themeColors}
@@ -463,6 +524,52 @@ export function RestaurantApp({
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Error al guardar productos.'
             window.alert(msg)
+          }
+        }}
+        onArchiveProduct={async (productId) => {
+          try {
+            await archiveProduct(tenantId, 'main', productId)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al archivar producto.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        onDeleteProduct={async (productId) => {
+          try {
+            await deleteProduct(tenantId, 'main', productId)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al eliminar producto.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        cashMovements={activeCashMovements}
+        onCreateCashMovement={async (mov) => {
+          try {
+            await recordCashMovement(tenantId, 'main', mov)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al registrar movimiento de caja.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        onCancelCashMovement={async (movementId, reason) => {
+          try {
+            await cancelCashMovement(tenantId, 'main', movementId, reason)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al anular movimiento de caja.'
+            window.alert(msg)
+            throw err
+          }
+        }}
+        onUpdateCashMovement={async (movementId, updates) => {
+          try {
+            await updateCashMovement(tenantId, 'main', movementId, updates)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Error al actualizar movimiento de caja.'
+            window.alert(msg)
+            throw err
           }
         }}
         stockMovements={stockMovements}

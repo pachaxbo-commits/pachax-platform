@@ -72,7 +72,7 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
   }, [])
 
   const handleSeedDefaults = async () => {
-    if (!window.confirm('¿Inicializar únicamente los documentos oficiales que faltan? Las plantillas y la vitrina quedarán publicadas; planes y extras con precios quedarán en borrador. Los documentos existentes no se modificarán.')) return
+    if (!window.confirm('¿Inicializar únicamente los documentos oficiales que faltan? Se inicializarán los estados oficiales definidos para cada plantilla; planes y extras con importes referenciales quedarán en borrador. Los documentos existentes no se modificarán.')) return
     setSeedMessage('Sincronizando configuraciones oficiales con Firestore...')
     const res = await seedDefaultsToFirestore()
     setSeedMessage(res.message)
@@ -136,7 +136,7 @@ export function DashboardSection({ onNavigateTab }: DashboardSectionProps) {
             type="button"
             onClick={handleSeedDefaults}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
-            title="Publica los datos oficiales por defecto a Firestore si aún no existen"
+            title="Inicializa los estados oficiales definidos para cada plantilla en Firestore si aún no existen"
           >
             <Database className="w-3.5 h-3.5 text-blue-600" />
             <span>Inicializar configuración oficial</span>

@@ -152,7 +152,7 @@ const MOBILE_DISTRIBUTION: BusinessTypeDefinition = {
       navigableBy: ['admin', 'owner', 'superadmin', 'accountant', 'distributor', 'support'],
     },
   ],
-  roles: ['admin', 'owner', 'warehouse', 'distributor', 'support'],
+  roles: ['admin', 'owner', 'accountant', 'warehouse', 'distributor', 'support'],
   defaultCurrencyCode: 'BOB',
   defaultCurrencySymbol: 'Bs',
   theme: {

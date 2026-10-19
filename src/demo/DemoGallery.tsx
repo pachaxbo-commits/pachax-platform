@@ -81,9 +81,15 @@ export function DemoGallery() {
                     <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-900 flex items-center justify-center group-hover:bg-slate-900 group-hover:text-white transition">
                       <Icon className="w-6 h-6" />
                     </div>
-                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
-                      {d.tag}
-                    </span>
+                    {d.status === 'available' ? (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-full">
+                        Demo disponible
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-full">
+                        Próximamente
+                      </span>
+                    )}
                   </div>
 
                   <h2 className="text-xl font-bold text-slate-900 group-hover:text-teal-700 transition">
@@ -107,7 +113,7 @@ export function DemoGallery() {
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-900 group-hover:text-teal-700">
-                  <span>Probar demostración</span>
+                  <span>{d.status === 'available' ? 'Probar demostración' : 'Ver plantilla (Próximamente)'}</span>
                   <ArrowRight className="w-4 h-4 transform group-hover:translate-x-1 transition" />
                 </div>
               </a>

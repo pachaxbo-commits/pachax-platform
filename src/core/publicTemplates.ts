@@ -11,6 +11,8 @@ export interface PublicTemplateDefinition {
   demoPath: `/demo/${PublicTemplateId}`
   studioTemplateId: PublicTemplateId
   status: PublicTemplateStatus
+  provisioningStatus?: PublicTemplateStatus
+  demoStatus?: PublicTemplateStatus
 }
 
 export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.freeze([
@@ -21,7 +23,9 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Mesas, meseros, cuentas abiertas y servicio completo.',
     demoPath: '/demo/restaurant',
     studioTemplateId: 'restaurant',
-    status: 'available',
+    status: 'coming_soon',
+    provisioningStatus: 'available',
+    demoStatus: 'coming_soon',
   },
   {
     id: 'hamburger',
@@ -30,7 +34,9 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Pedidos ágiles de mostrador, mesa de entrega, para llevar o delivery, con cocina, caja e inventario.',
     demoPath: '/demo/hamburger',
     studioTemplateId: 'hamburger',
-    status: 'available',
+    status: 'coming_soon',
+    provisioningStatus: 'coming_soon',
+    demoStatus: 'coming_soon',
   },
   {
     id: 'distribution',
@@ -40,6 +46,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/distribution',
     studioTemplateId: 'distribution',
     status: 'available',
+    provisioningStatus: 'available',
+    demoStatus: 'available',
   },
   {
     id: 'retail',
@@ -48,7 +56,9 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Vende por unidad o peso con caja ágil e inventario de mostrador.',
     demoPath: '/demo/retail',
     studioTemplateId: 'retail',
-    status: 'available',
+    status: 'coming_soon',
+    provisioningStatus: 'coming_soon',
+    demoStatus: 'coming_soon',
   },
   {
     id: 'nightclub',
@@ -57,12 +67,41 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     shortDescription: 'Controla mesas, rondas, barra, cuentas abiertas y caja durante toda la noche.',
     demoPath: '/demo/nightclub',
     studioTemplateId: 'nightclub',
-    status: 'available',
+    status: 'coming_soon',
+    provisioningStatus: 'coming_soon',
+    demoStatus: 'coming_soon',
   },
 ])
+
+export const OFFICIAL_COMMERCIAL_TEMPLATES = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', 'custom'] as const)
+export const PLAN_ELIGIBLE_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail'] as const)
 
 export function getPublicTemplate(idOrBusinessType: string): PublicTemplateDefinition {
   const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
   if (!template) throw new Error('Plantilla pública no reconocida.')
   return template
+}
+
+export function isTechnicalDemoAvailable(idOrBusinessType: string): boolean {
+  const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
+  return (template?.demoStatus ?? template?.status) === 'available'
+}
+
+export function isTemplateProvisioningAvailable(idOrBusinessType: string): boolean {
+  const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
+  return (template?.provisioningStatus ?? template?.status) === 'available'
+}
+
+export function canLaunchCommercialDemo(template: {
+  status: string
+  demoEnabled?: boolean
+  canonicalTemplateId?: string | null
+  templateId?: string
+  id?: string
+}): boolean {
+  if (template.status !== 'published') return false
+  if (template.demoEnabled === false) return false
+  const targetId = template.canonicalTemplateId || template.templateId || template.id || ''
+  if (!isTechnicalDemoAvailable(targetId)) return false
+  return true
 }

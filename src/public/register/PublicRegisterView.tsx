@@ -12,7 +12,7 @@ import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import '../publicExperience.css'
 import type { BusinessType } from '../../core/platform'
-import { getPublicTemplate, PUBLIC_TEMPLATES } from '../../core/publicTemplates'
+import { getPublicTemplate, PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
@@ -43,6 +43,7 @@ const REGISTER_TEMPLATES = PUBLIC_TEMPLATES.map(template => ({
   id: template.businessType,
   name: template.title,
   desc: template.shortDescription,
+  status: template.status,
   ...REGISTER_PRESENTATION[template.id],
 }))
 
@@ -59,10 +60,11 @@ export function PublicRegisterView() {
   const [companyName, setCompanyName] = useState('')
 
   // Plantilla preseleccionada desde query param
-  const [selectedTemplate, setSelectedTemplate] = useState<BusinessType>(() => {
+  const [selectedTemplate, setSelectedTemplate] = useState<BusinessType | ''>(() => {
+    if (!templateParam) return 'route_distribution'
     const match = PUBLIC_TEMPLATES.find(template => template.id === templateParam || template.businessType === templateParam)
-    if (match) return match.businessType
-    return 'restaurant_pos'
+    if (match && isTemplateProvisioningAvailable(match.businessType)) return match.businessType
+    return '' // No hacer fallback silencioso a otra plantilla si el query param solicitó una no disponible
   })
 
   // Paleta de personalización
@@ -75,12 +77,20 @@ export function PublicRegisterView() {
   useEffect(() => {
     if (templateParam) {
       const match = PUBLIC_TEMPLATES.find(template => template.id === templateParam || template.businessType === templateParam)
-      if (match) setSelectedTemplate(match.businessType)
+      if (match && isTemplateProvisioningAvailable(match.businessType)) {
+        setSelectedTemplate(match.businessType)
+      } else {
+        setSelectedTemplate('')
+      }
     }
   }, [templateParam])
 
   const handleCompleteRegistration = async () => {
     if (submitting) return
+    if (!selectedTemplate || !isTemplateProvisioningAvailable(selectedTemplate)) {
+      setRegisterError('Por favor selecciona una plantilla disponible para creación de empresas.')
+      return
+    }
     setRegisterError(null)
     setSubmitting(true)
     try {
@@ -135,7 +145,7 @@ export function PublicRegisterView() {
       }
 
       // 3. Redirigir a la aplicación principal
-      window.location.href = '/'
+      window.location.href = '/platform'
     } catch (err: unknown) {
       setSubmitting(false)
       const errorObj = err as { code?: string; message?: string }
@@ -153,6 +163,11 @@ export function PublicRegisterView() {
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault()
+    if (currentStep === 3 && (!selectedTemplate || !isTemplateProvisioningAvailable(selectedTemplate))) {
+      setRegisterError('Por favor selecciona una plantilla disponible para creación de empresas.')
+      return
+    }
+    setRegisterError(null)
     if (currentStep < 5) {
       setCurrentStep((prev) => prev + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -348,18 +363,38 @@ export function PublicRegisterView() {
                 </p>
               </div>
 
+              {(() => {
+                const requestedMatch = templateParam ? PUBLIC_TEMPLATES.find(t => t.id === templateParam || t.businessType === templateParam) : null
+                if (requestedMatch && !isTemplateProvisioningAvailable(requestedMatch.businessType)) {
+                  return (
+                    <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs flex items-start gap-2.5">
+                      <span className="font-bold shrink-0 text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider">Aviso</span>
+                      <p className="leading-relaxed">
+                        La plantilla <strong>{requestedMatch.title}</strong> se encuentra actualmente en desarrollo y no está disponible para creación de empresas. Por favor selecciona una plantilla disponible a continuación.
+                      </p>
+                    </div>
+                  )
+                }
+                return null
+              })()}
+
               <div className="space-y-3">
                 {REGISTER_TEMPLATES.map((item) => {
                   const Icon = item.icon
                   const isSelected = selectedTemplate === item.id
+                  const isAvailable = isTemplateProvisioningAvailable(item.id)
                   return (
                     <div
                       key={item.id}
-                      onClick={() => setSelectedTemplate(item.id)}
-                      className={`p-4 rounded-2xl border transition cursor-pointer flex items-start gap-4 ${
+                      onClick={() => {
+                        if (isAvailable) setSelectedTemplate(item.id)
+                      }}
+                      className={`p-4 rounded-2xl border transition flex items-start gap-4 ${
                         isSelected
-                          ? 'border-slate-950 bg-slate-900/5 shadow-xs ring-1 ring-slate-950'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                          ? 'border-slate-950 bg-slate-900/5 shadow-xs ring-1 ring-slate-950 cursor-pointer'
+                          : isAvailable
+                          ? 'border-slate-200 hover:border-slate-300 bg-white cursor-pointer'
+                          : 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
                       }`}
                     >
                       <div
@@ -368,8 +403,15 @@ export function PublicRegisterView() {
                         <Icon className="w-5 h-5" />
                       </div>
                       <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-bold text-slate-900">{item.name}</h4>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-slate-900">{item.name}</h4>
+                            {!isAvailable && (
+                              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+                                Próximamente
+                              </span>
+                            )}
+                          </div>
                           {isSelected && <Check className="w-4 h-4 text-slate-950" />}
                         </div>
                         <p className="text-xs text-slate-500 mt-1 leading-relaxed">{item.desc}</p>
@@ -381,7 +423,8 @@ export function PublicRegisterView() {
 
               <button
                 type="submit"
-                className="w-full py-3.5 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-2 mt-4"
+                disabled={!selectedTemplate || !isTemplateProvisioningAvailable(selectedTemplate)}
+                className="w-full py-3.5 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-2 mt-4"
               >
                 <span>Continuar a personalización visual</span>
                 <ArrowRight className="w-4 h-4" />

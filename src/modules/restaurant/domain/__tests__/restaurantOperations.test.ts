@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { cancelRestaurantOrder, completeRestaurantGift, completeRestaurantPayment, placeRestaurantOrder, reconcileTableOrders, selectRestaurantProducts } from '../restaurantOperations.ts'
 import { consumePrintedBatch } from '../restaurantEngine.ts'
-import { INITIAL_RESTAURANT_ORDERS, INITIAL_TABLES, RESTAURANT_CATEGORIES, RESTAURANT_INVENTORY_PRODUCTS, RESTAURANT_PRODUCTS } from '../../../../demo/mocks/restaurantMock.ts'
+import { INITIAL_RESTAURANT_ORDERS, INITIAL_TABLES, RESTAURANT_CATEGORIES, RESTAURANT_INVENTORY_PRODUCTS, RESTAURANT_PRODUCTS } from './fixtures.ts'
 
 const at = '2026-09-23T13:42:00Z'
 const tables = [{ id: 't2', number: 2, name: 'Mesa 2', capacity: 4, status: 'available' }]

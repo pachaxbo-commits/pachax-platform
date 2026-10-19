@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import { calculateCashShiftSummary } from '../../src/modules/restaurant/domain/cashEngine.ts'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) {
@@ -835,8 +836,1344 @@ try {
   assert.equal((await hambRoot.collection('products').doc('ing_queso').get()).data().stockBase, 6)
   console.log('PASS Transacción rechazada atómicamente por stock insuficiente sin tocar insumos.')
 
+  // 33. Control de movimientos de caja (recordCashMovement, updateCashMovement, cancelCashMovement)
+  console.log('33. Movimientos de caja (ingresos, egresos y anulación con auditoría)...')
+  // Abrir nuevo turno en tenant principal
+  const shiftMov = await call('cashier_user', 'openShift', 'op-shift-mov', { openingFloat: 200 })
+  assert.ok(shiftMov.shiftId)
+
+  // Mesero sin permiso cash.close no puede registrar movimientos
+  await assert.rejects(
+    () => call('waiter_user', 'recordCashMovement', 'mov-waiter-denied', {
+      type: 'expense',
+      category: 'supply_purchase',
+      description: 'Compra no autorizada',
+      amount: 50,
+      paymentMethod: 'cash',
+    }),
+    err => err.code === 'permission-denied',
+    'Mesero no debe poder registrar movimientos de caja'
+  )
+
+  // Cajero registra egreso en efectivo de Bs 45 con metadatos
+  const mov1 = await call('cashier_user', 'recordCashMovement', 'mov-expense-1', {
+    type: 'expense',
+    category: 'supply_purchase',
+    description: 'Compra de verduras de urgencia',
+    amount: 45,
+    paymentMethod: 'cash',
+    supplier: 'Mercado Central',
+    workerId: 'worker_ana',
+  })
+  assert.ok(mov1.movementId)
+
+  // Actualizar movimiento con todos los campos editables
+  await call('cashier_user', 'updateCashMovement', 'mov-update-1', {
+    movementId: mov1.movementId,
+    description: 'Compra de verduras y frutas',
+    note: 'Factura #1234',
+    amount: 45,
+    supplier: 'Mercado Central S.R.L.',
+    workerId: 'worker_ana_m',
+  })
+  const mov1Doc = (await root.collection('restaurantCashMovements').doc(mov1.movementId).get()).data()
+  assert.equal(mov1Doc.description, 'Compra de verduras y frutas')
+  assert.equal(mov1Doc.note, 'Factura #1234')
+  assert.equal(mov1Doc.supplier, 'Mercado Central S.R.L.')
+  assert.equal(mov1Doc.workerId, 'worker_ana_m')
+  assert.equal(mov1Doc.amount, 45)
+  assert.equal(mov1Doc.method, 'cash')
+  assert.equal(mov1Doc.active, true)
+
+  // Cajero registra gasto con QR de Bs 50 (NO debe alterar expectedCash de efectivo físico)
+  const movQR = await call('cashier_user', 'recordCashMovement', 'mov-expense-qr', {
+    type: 'expense',
+    category: 'transport',
+    description: 'Flete transporte QR',
+    amount: 50,
+    paymentMethod: 'qr',
+  })
+  const movQRDoc = (await root.collection('restaurantCashMovements').doc(movQR.movementId).get()).data()
+  assert.equal(movQRDoc.method, 'qr')
+  assert.equal(movQRDoc.amount, 50)
+
+  // Cajero registra ingreso en efectivo de Bs 100
+  const mov2 = await call('cashier_user', 'recordCashMovement', 'mov-income-1', {
+    type: 'income',
+    category: 'additional_cash',
+    description: 'Aporte de cambio por el dueño',
+    amount: 100,
+    paymentMethod: 'cash',
+  })
+  assert.ok(mov2.movementId)
+
+  // Cajero registra egreso con 'other' de Bs 25 (NO debe alterar expectedCash ni cashOutflow)
+  const movOtherExp = await call('cashier_user', 'recordCashMovement', 'mov-expense-other', {
+    type: 'expense',
+    category: 'services',
+    description: 'Servicio pagado por otro método',
+    amount: 25,
+    paymentMethod: 'other',
+  })
+  const movOtherExpDoc = (await root.collection('restaurantCashMovements').doc(movOtherExp.movementId).get()).data()
+  assert.equal(movOtherExpDoc.method, 'other')
+  assert.equal(movOtherExpDoc.amount, 25)
+
+  // Cajero registra ingreso con 'other' de Bs 70 (NO debe alterar expectedCash ni cashIncome)
+  const movOtherInc = await call('cashier_user', 'recordCashMovement', 'mov-income-other', {
+    type: 'income',
+    category: 'other',
+    description: 'Ingreso no efectivo',
+    amount: 70,
+    paymentMethod: 'other',
+  })
+  const movOtherIncDoc = (await root.collection('restaurantCashMovements').doc(movOtherInc.movementId).get()).data()
+  assert.equal(movOtherIncDoc.method, 'other')
+  assert.equal(movOtherIncDoc.amount, 70)
+
+  // Intentar registrar movimiento con método inválido debe fallar con invalid-argument
+  await assert.rejects(
+    () => call('cashier_user', 'recordCashMovement', 'mov-invalid-method-fail', {
+      type: 'expense',
+      category: 'supply_purchase',
+      description: 'Intento con método inválido',
+      amount: 10,
+      paymentMethod: 'crypto',
+    }),
+    err => err.code === 'invalid-argument',
+    'Método de pago no reconocido debe ser rechazado con invalid-argument'
+  )
+
+  // Registrar un movimiento para anular
+  const movToCancel = await call('cashier_user', 'recordCashMovement', 'mov-cancel-target', {
+    type: 'expense',
+    category: 'maintenance',
+    description: 'Gasto erróneo a anular',
+    amount: 30,
+    paymentMethod: 'cash',
+  })
+  // Anular movimiento
+  await call('owner_user', 'cancelCashMovement', 'mov-cancel-op', {
+    movementId: movToCancel.movementId,
+    reason: 'Registrado por error en turno incorrecto',
+  })
+  const cancelledDoc = (await root.collection('restaurantCashMovements').doc(movToCancel.movementId).get()).data()
+  assert.equal(cancelledDoc.active, false)
+  assert.equal(cancelledDoc.cancelledBy, 'owner_user')
+  assert.equal(cancelledDoc.cancelReason, 'Registrado por error en turno incorrecto')
+
+  // Intentar editar movimiento anulado debe fallar
+  await assert.rejects(
+    () => call('cashier_user', 'updateCashMovement', 'mov-edit-cancelled-fail', {
+      movementId: movToCancel.movementId,
+      description: 'Intento de edición sobre movimiento anulado',
+    }),
+    err => err.code === 'failed-precondition',
+    'No se puede editar un movimiento de caja anulado'
+  )
+  console.log('PASS Movimientos de caja registrados, actualizados y anulados con auditoría completa.')
+
+  // 34. Cierre de turno y conciliación con movimientos manuales
+  console.log('34. Conciliación y arqueo considerando movimientos manuales...')
+  // Fondo inicial 200 + Ingreso 100 - Egreso efectivo 45 = Esperado 255
+  // (los egresos QR de 50 y other de 25 no afectan caja física, el ingreso other de 70 tampoco, y el de 30 anulado no cuenta)
+  const closeRes2 = await call('cashier_user', 'closeShift', 'op-close-2', {
+    shiftId: shiftMov.shiftId,
+    countedCash: 255,
+  })
+  assert.equal(closeRes2.difference, 0)
+  const closedMovShiftDoc = (await root.collection('restaurantShifts').doc(shiftMov.shiftId).get()).data()
+  assert.equal(closedMovShiftDoc.status, 'closed')
+  assert.equal(closedMovShiftDoc.expectedCash, 255)
+  assert.equal(closedMovShiftDoc.difference, 0)
+  assert.equal(closedMovShiftDoc.cashIncome, 100)
+  assert.equal(closedMovShiftDoc.cashOutflow, 45)
+  console.log('PASS Cierre de caja calculó exactamente los movimientos activos en efectivo e ignoró QR, other y anulados.')
+
+  // Intentar editar movimiento cuando el turno ya cerró debe fallar
+  await assert.rejects(
+    () => call('cashier_user', 'updateCashMovement', 'mov-edit-after-close-fail', {
+      movementId: mov1.movementId,
+      description: 'Intento de edición tras cierre de turno',
+    }),
+    err => err.code === 'failed-precondition',
+    'No se puede editar movimientos cuando el turno está cerrado'
+  )
+
+  // 35. Archivación de productos (archiveProduct)
+  console.log('35. Archivación de productos...')
+  // Crear un producto para archivar
+  await call('admin_user', 'saveProduct', 'prod-to-archive-create', {
+    product: {
+      id: 'prod_vino_especial',
+      name: 'Vino Tinto Reserva',
+      price: 150,
+      restaurantType: 'beverage',
+      isActive: true,
+      isVisible: true,
+    },
+  })
+  // Mesero sin products.manage no puede archivar
+  await assert.rejects(
+    () => call('waiter_user', 'archiveProduct', 'archive-waiter-fail', { productId: 'prod_vino_especial' }),
+    err => err.code === 'permission-denied',
+    'Mesero no puede archivar productos'
+  )
+  // Admin archiva el producto
+  await call('admin_user', 'archiveProduct', 'archive-admin-ok', { productId: 'prod_vino_especial' })
+  const archivedDoc = (await root.collection('products').doc('prod_vino_especial').get()).data()
+  assert.equal(archivedDoc.isActive, false)
+  assert.equal(archivedDoc.isVisible, false)
+  assert.equal(archivedDoc.availability, 'archived')
+  assert.ok(archivedDoc.archivedAt)
+  assert.equal(archivedDoc.archivedBy, 'admin_user')
+  console.log('PASS Producto archivado con estado inactivo, no visible y auditado.')
+
+  // Abrir turno para probar venta
+  const shiftArchivedTest = await call('cashier_user', 'openShift', 'shift-archived-test', { openingFloat: 100 })
+
+  // Intentar vender producto archivado en addOrder debe fallar en backend
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-archived-rejected', {
+      items: [{ productId: 'prod_vino_especial', name: 'Vino Tinto Reserva', basePrice: 150, quantity: 1 }],
+      total: 150,
+    }),
+    err => err.code === 'failed-precondition',
+    'addOrder debe rechazar venta de producto archivado'
+  )
+
+  // Crear el producto prod_1 antes de utilizarlo
+  await call('admin_user', 'saveProduct', 'prod-1-seed', {
+    product: {
+      id: 'prod_1',
+      name: 'Lomo a la Pimienta',
+      price: 58,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+
+  // Crear una orden válida para probar addProduct con producto archivado
+  const validOrder = await call('waiter_user', 'addOrder', 'order-valid-pre-add', {
+    items: [{ productId: 'prod_1', name: 'Lomo a la Pimienta', basePrice: 58, quantity: 1 }],
+    total: 58,
+  })
+  assert.ok(validOrder.orderId)
+
+  // Intentar agregar producto archivado mediante addProduct a orden existente debe fallar en backend
+  await assert.rejects(
+    () => call('waiter_user', 'addProduct', 'add-archived-to-order-fail', {
+      orderId: validOrder.orderId,
+      items: [{ productId: 'prod_vino_especial', quantity: 1, basePrice: 150 }],
+    }),
+    err => err.code === 'failed-precondition',
+    'addProduct debe rechazar agregar producto archivado a orden existente'
+  )
+  console.log('PASS Backend rechaza venta de productos archivados en addOrder y addProduct.')
+
+  // 36. Eliminación física deshabilitada (deleteProduct reject)
+  console.log('36. Eliminación física deshabilitada en favor de archivación...')
+  // Crear un producto sin dependencias
+  await call('admin_user', 'saveProduct', 'prod-to-delete-create', {
+    product: {
+      id: 'prod_unreferenced',
+      name: 'Producto Sin Referencia',
+      price: 20,
+      restaurantType: 'beverage',
+    },
+  })
+  // Intentar eliminar físicamente debe ser rechazado con failed-precondition
+  await assert.rejects(
+    () => call('admin_user', 'deleteProduct', 'del-admin-rejected', { productId: 'prod_unreferenced' }),
+    err => err.code === 'failed-precondition' && err.message.includes('eliminación física está deshabilitada'),
+    'deleteProduct debe ser rechazado con failed-precondition'
+  )
+  const productStillExists = await root.collection('products').doc('prod_unreferenced').get()
+  assert.equal(productStillExists.exists, true, 'El producto se mantiene intacto al rechazarse el borrado físico')
+  console.log('PASS Eliminación física rechazada con política estricta de archivo.')
+
+  // 37. Protección estricta contra manipulación de precios y nombres desde el cliente (addOrder)
+  console.log('37. Resistencia a alteración de precios y nombres en addOrder...')
+  await call('admin_user', 'saveProduct', 'prod-tamper-setup', {
+    product: {
+      id: 'prod_bife_chorizo',
+      name: 'Bife de Chorizo Premium',
+      price: 110,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+  // Cliente malicioso intenta enviar basePrice: 1, total: 1 y nombre adulterado
+  const tamperedOrder = await call('waiter_user', 'addOrder', 'order-tampered-attempt', {
+    items: [{
+      productId: 'prod_bife_chorizo',
+      name: 'Producto Hackeado Barato',
+      basePrice: 1,
+      price: 1,
+      lineTotal: 1,
+      quantity: 2,
+    }],
+    total: 2,
+    productSubtotal: 2,
+  })
+  assert.ok(tamperedOrder.orderId)
+  assert.equal(tamperedOrder.total, 220) // 110 * 2 calculado por servidor
+  const tamperedDoc = (await root.collection('restaurantOrders').doc(tamperedOrder.orderId).get()).data()
+  assert.equal(tamperedDoc.total, 220)
+  assert.equal(tamperedDoc.productSubtotal, 220)
+  assert.equal(tamperedDoc.items[0].name, 'Bife de Chorizo Premium') // Nombre canónico
+  assert.equal(tamperedDoc.items[0].basePrice, 110)
+  assert.equal(tamperedDoc.items[0].lineTotal, 220)
+  console.log('PASS Precios y nombres del cliente ignorados; servidor impone catálogo y totales autoritativos.')
+
+  // 38. Rechazo estricto de productos inexistentes (addOrder y addProduct)
+  console.log('38. Rechazo de productos desconocidos en addOrder y addProduct...')
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-fake-prod-fail', {
+      items: [{ productId: 'prod_fantasma_xyz', quantity: 1, basePrice: 50 }],
+    }),
+    err => err.code === 'not-found',
+    'addOrder debe fallar con not-found para productos que no existen'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'addProduct', 'add-fake-prod-fail', {
+      orderId: tamperedOrder.orderId,
+      items: [{ productId: 'prod_fantasma_xyz', quantity: 1, basePrice: 50 }],
+    }),
+    err => err.code === 'not-found',
+    'addProduct debe fallar con not-found para productos que no existen'
+  )
+  console.log('PASS Productos desconocidos rechazados con not-found.')
+
+  // 39. Rechazo de venta directa de insumos (restaurantType === ingredient)
+  console.log('39. Rechazo de venta directa de insumos en addOrder y addProduct...')
+  await call('admin_user', 'saveProduct', 'prod-raw-ingredient', {
+    product: {
+      id: 'ing_aceite_trufa',
+      name: 'Aceite de Trufa (Insumo)',
+      price: 90,
+      restaurantType: 'ingredient',
+      categoryId: 'cat-insumos',
+    },
+  })
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-ingredient-fail', {
+      items: [{ productId: 'ing_aceite_trufa', quantity: 1 }],
+    }),
+    err => err.code === 'failed-precondition',
+    'addOrder debe rechazar venta directa de insumos'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'addProduct', 'add-ingredient-fail', {
+      orderId: tamperedOrder.orderId,
+      items: [{ productId: 'ing_aceite_trufa', quantity: 1 }],
+    }),
+    err => err.code === 'failed-precondition',
+    'addProduct debe rechazar venta directa de insumos'
+  )
+  console.log('PASS Venta directa de insumos bloqueada con failed-precondition.')
+
+  // 40. Validación autoritativa de extras y opciones con resistencia a manipulación
+  console.log('40. Validación autoritativa de extras y opciones configuradas...')
+  await call('admin_user', 'saveProduct', 'prod-burguer-extras', {
+    product: {
+      id: 'prod_hamburguesa_doble',
+      name: 'Hamburguesa Doble Gourmet',
+      price: 45,
+      restaurantType: 'food',
+      categoryId: 'cat-hamb',
+      extras: [
+        { id: 'ext_bacon', name: 'Bacon Ahumado', price: 6 },
+        { id: 'ext_cheddar', name: 'Queso Cheddar Extra', price: 5 },
+      ],
+      options: [
+        { id: 'opt_termino_3_4', label: 'Término 3/4' },
+        { id: 'opt_bien_cocido', label: 'Bien Cocido' },
+      ],
+    },
+  })
+
+  // Cliente intenta manipular precio de extra (enviar precio 0.05 en vez de 6)
+  const orderWithExtras = await call('waiter_user', 'addOrder', 'order-extras-tamper-attempt', {
+    items: [{
+      productId: 'prod_hamburguesa_doble',
+      quantity: 2,
+      modifiers: {
+        extras: [
+          { id: 'ext_bacon', name: 'Bacon Ahumado', price: 0.05 },
+          { id: 'ext_cheddar', name: 'Queso Cheddar Extra', price: 0.01 },
+        ],
+        options: ['opt_termino_3_4'],
+        note: 'Papas crujientes',
+      },
+    }],
+  })
+  // Precio unitario autoritativo: 45 + 6 + 5 = 56. Por 2 unidades = 112
+  assert.equal(orderWithExtras.total, 112)
+  const extrasDoc = (await root.collection('restaurantOrders').doc(orderWithExtras.orderId).get()).data()
+  assert.equal(extrasDoc.total, 112)
+  assert.equal(extrasDoc.items[0].unitPrice, 56)
+  assert.equal(extrasDoc.items[0].lineTotal, 112)
+  assert.equal(extrasDoc.items[0].modifiers.extras[0].price, 6)
+  assert.equal(extrasDoc.items[0].modifiers.extras[1].price, 5)
+  assert.equal(extrasDoc.items[0].modifiers.options[0], 'Término 3/4')
+
+  // Intento de extra no existente debe fallar
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-fake-extra-fail', {
+      items: [{
+        productId: 'prod_hamburguesa_doble',
+        quantity: 1,
+        modifiers: {
+          extras: [{ id: 'ext_fake_gold', name: 'Oro Comestible', price: 100 }],
+        },
+      }],
+    }),
+    err => err.code === 'failed-precondition',
+    'Extra inexistente debe ser rechazado'
+  )
+
+  // Intento de opción no existente debe fallar
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-fake-option-fail', {
+      items: [{
+        productId: 'prod_hamburguesa_doble',
+        quantity: 1,
+        modifiers: {
+          options: ['opt_termino_carbonizado'],
+        },
+      }],
+    }),
+    err => err.code === 'failed-precondition',
+    'Opción no existente debe ser rechazada'
+  )
+  console.log('PASS Extras y opciones validados y cobrados autoritativamente.')
+
+  // 41. Anulación parcial de ítems con extras conserva unitPrice autoritativo
+  console.log('41. Anulación parcial de ítem con extras...')
+  const cancelExtraItemRes = await call('waiter_user', 'cancelOrderItem', 'cancel-extra-partial', {
+    orderId: orderWithExtras.orderId,
+    itemId: extrasDoc.items[0].id,
+    quantity: 1,
+  })
+  assert.ok(cancelExtraItemRes)
+  const orderAfterCancel = (await root.collection('restaurantOrders').doc(orderWithExtras.orderId).get()).data()
+  // Quedó 1 unidad a 56 Bs (45 + 11 extras)
+  assert.equal(orderAfterCancel.total, 56)
+  assert.equal(orderAfterCancel.productSubtotal, 56)
+  assert.equal(orderAfterCancel.items[0].quantity, 1)
+  assert.equal(orderAfterCancel.items[0].lineTotal, 56)
+  console.log('PASS Anulación parcial recalculó total y lineTotal respetando extras unitarios.')
+
+  // 42. Cobro autoritativo total y validación de liquidación completa
+  console.log('42. Verificación de liquidación en recordPayment con totales autoritativos...')
+  // Pago insuficiente debe ser rechazado
+  await assert.rejects(
+    () => call('cashier_user', 'recordPayment', 'pay-underpaid-fail', {
+      orderId: orderWithExtras.orderId,
+      method: 'cash',
+      received: 30, // total es 56
+    }),
+    err => err.code === 'invalid-argument',
+    'Pago menor al total debe ser rechazado'
+  )
+  // Pago exacto con tarjeta
+  const payCardRes = await call('cashier_user', 'recordPayment', 'pay-card-ok', {
+    orderId: orderWithExtras.orderId,
+    method: 'card',
+    received: 56,
+  })
+  assert.equal(payCardRes.total, 56)
+  assert.equal(payCardRes.change, 0)
+  const paidCardOrder = (await root.collection('restaurantOrders').doc(orderWithExtras.orderId).get()).data()
+  assert.equal(paidCardOrder.paymentStatus, 'paid')
+  console.log('PASS Liquidación verificada contra total autoritativo del pedido.')
+
+  // 43. A, F, G, H: addOrder pending server-authoritative y resistencia a spoofing de lifecycle
+  console.log('43. Creación de pedido pendiente y rechazo de spoofing de lifecycle...')
+  const spoofedPending = await call('waiter_user', 'addOrder', 'op-spoof-pending', {
+    order: {
+      status: 'delivered',
+      accountStatus: 'closed',
+      createdBy: 'attacker_user',
+      createdAt: '2000-01-01T00:00:00.000Z',
+      paidAt: '2000-01-01T00:00:00.000Z',
+      paidBy: 'attacker_user',
+      payments: [{ method: 'cash', amount: 0.01 }],
+      shiftId: 'fake_shift_id',
+      tenantId: 'fake_tenant_id',
+      branchId: 'fake_branch_id',
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  assert.ok(spoofedPending.orderId)
+  const pendingDoc = (await root.collection('restaurantOrders').doc(spoofedPending.orderId).get()).data()
+  assert.equal(pendingDoc.status, 'pending', 'El estado inicial debe ser forzosamente pending')
+  assert.equal(pendingDoc.accountStatus, 'open', 'La cuenta debe estar abierta para pedido pending')
+  assert.equal(pendingDoc.paymentStatus, 'pending', 'El estado de pago debe ser pending')
+  assert.equal(pendingDoc.paymentMethod, null, 'paymentMethod debe ser null para pending')
+  assert.equal(pendingDoc.createdBy, 'waiter_user', 'createdBy debe ser el actor UID real, no el spoofed')
+  assert.notEqual(pendingDoc.createdAt, '2000-01-01T00:00:00.000Z', 'createdAt debe ser generado por el servidor')
+  assert.equal(pendingDoc.paidAt, null, 'paidAt no debe existir en pending')
+  assert.equal(pendingDoc.paidBy, null, 'paidBy no debe existir en pending')
+  assert.deepEqual(pendingDoc.payments, [], 'payments inyectados por el cliente deben ser ignorados')
+  assert.equal(pendingDoc.tenantId, tenantId, 'tenantId debe ser el del contexto')
+  assert.equal(pendingDoc.branchId, 'main', 'branchId debe ser el del contexto')
+
+  // Verificar que NO se crearon documentos en restaurantPayments ni restaurantCashMovements
+  const paymentsQueryPending = await root.collection('restaurantPayments').where('orderId', '==', spoofedPending.orderId).get()
+  assert.equal(paymentsQueryPending.empty, true, 'No debe existir restaurantPayments para pedido pending')
+  const cashQueryPending = await root.collection('restaurantCashMovements').where('orderId', '==', spoofedPending.orderId).get()
+  assert.equal(cashQueryPending.empty, true, 'No debe existir cash movement para pedido pending')
+  console.log('PASS Lifecycle server-authoritative garantizado; bypass de estado, actor y pagos rechazado.')
+
+  // 44. J: Rechazo de paymentStatus inválido ('gift', 'cortesía', 'otro')
+  console.log('44. Rechazo de estados de pago no autorizados (gift, cortesía)...')
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-gift-attempt', {
+      order: {
+        paymentStatus: 'gift',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'paymentStatus gift debe ser rechazado con invalid-argument'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-cortesia-attempt', {
+      order: {
+        paymentStatus: 'cortesía',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'paymentStatus cortesía debe ser rechazado con invalid-argument'
+  )
+  console.log('PASS Estados de pago inválidos (gift/cortesía) rechazados con invalid-argument.')
+
+  // 45. K: Rechazo de datos de pago incompletos o insuficientes en paid-at-creation
+  console.log('45. Rechazo de datos de pago inconsistentes en creación...')
+  // Paid sin método
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-paid-no-method', {
+      order: {
+        paymentStatus: 'paid',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Pedido paid sin método debe fallar con invalid-argument'
+  )
+  // Paid con desglose insuficiente en mixed
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-paid-mixed-underpay', {
+      order: {
+        paymentStatus: 'paid',
+        paymentMethod: 'mixed',
+        payment: { cashAmount: 1, qrAmount: 1 }, // total es 58
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Desglose menor al total debe fallar con invalid-argument'
+  )
+  // Paid con efectivo recibido menor al cashAmount
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-paid-cash-underpay', {
+      order: {
+        paymentStatus: 'paid',
+        paymentMethod: 'cash',
+        payment: { received: 20 }, // total es 58
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'Efectivo recibido menor debe fallar con invalid-argument'
+  )
+  console.log('PASS Validaciones de integridad de pago en creación aplicadas estrictamente.')
+
+  // 46. B: addOrder paid cash (atómico al crear)
+  console.log('46. Creación atómica de pedido pagado en efectivo (paid-at-creation)...')
+  const paidCashOrder = await call('cashier_user', 'addOrder', 'op-paid-cash-create', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'cash',
+      payment: { method: 'cash', cashReceived: 70 },
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  assert.ok(paidCashOrder.orderId)
+  assert.equal(paidCashOrder.total, 58)
+  const cashDoc = (await root.collection('restaurantOrders').doc(paidCashOrder.orderId).get()).data()
+  assert.equal(cashDoc.paymentStatus, 'paid')
+  assert.equal(cashDoc.accountStatus, 'closed')
+  assert.equal(cashDoc.paymentMethod, 'cash')
+  assert.equal(cashDoc.paidBy, 'cashier_user')
+  assert.ok(cashDoc.paidAt)
+  assert.equal(cashDoc.payments.length, 1)
+  assert.equal(cashDoc.payments[0].method, 'cash')
+  assert.equal(cashDoc.payments[0].amount, 58)
+  assert.equal(cashDoc.payments[0].received, 70)
+  assert.equal(cashDoc.payments[0].change, 12)
+
+  const cashPayDoc = (await root.collection('restaurantPayments').doc(`payment_op-paid-cash-create`).get()).data()
+  assert.equal(cashPayDoc.amount, 58)
+  assert.equal(cashPayDoc.cashAmount, 58)
+  assert.equal(cashPayDoc.change, 12)
+
+  const cashMovDoc = (await root.collection('restaurantCashMovements').doc(`cash_op-paid-cash-create`).get()).data()
+  assert.equal(cashMovDoc.type, 'sale')
+  assert.equal(cashMovDoc.method, 'cash')
+  assert.equal(cashMovDoc.amount, 58)
+  console.log('PASS Pedido pagado en efectivo creado atómicamente con registros de pago y caja.')
+
+  // 47. C: addOrder paid QR (atómico al crear, sin cash movement)
+  console.log('47. Creación atómica de pedido pagado con QR...')
+  const paidQROrder = await call('cashier_user', 'addOrder', 'op-paid-qr-create', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'qr',
+      payment: { method: 'qr' },
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  const qrDoc = (await root.collection('restaurantOrders').doc(paidQROrder.orderId).get()).data()
+  assert.equal(qrDoc.paymentStatus, 'paid')
+  assert.equal(qrDoc.accountStatus, 'closed')
+  assert.equal(qrDoc.paymentMethod, 'qr')
+  assert.equal(qrDoc.payments.length, 1)
+  assert.equal(qrDoc.payments[0].method, 'qr')
+  assert.equal(qrDoc.payments[0].amount, 58)
+
+  const qrPayDoc = (await root.collection('restaurantPayments').doc(`payment_op-paid-qr-create`).get()).data()
+  assert.equal(qrPayDoc.qrAmount, 58)
+  assert.equal(qrPayDoc.cashAmount, 0)
+
+  const qrCashMov = await root.collection('restaurantCashMovements').doc(`cash_op-paid-qr-create`).get()
+  assert.equal(qrCashMov.exists, false, 'Pago con QR NO debe generar movimiento en restaurantCashMovements')
+  console.log('PASS Pedido pagado con QR registrado sin alterar movimientos de efectivo.')
+
+  // 48. D: addOrder paid card (atómico al crear, sin cash movement)
+  console.log('48. Creación atómica de pedido pagado con tarjeta...')
+  const paidCardOrder2 = await call('cashier_user', 'addOrder', 'op-paid-card-create', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'card',
+      payment: { method: 'card' },
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  const cardDoc = (await root.collection('restaurantOrders').doc(paidCardOrder2.orderId).get()).data()
+  assert.equal(cardDoc.paymentStatus, 'paid')
+  assert.equal(cardDoc.paymentMethod, 'card')
+  assert.equal(cardDoc.payments.length, 1)
+  assert.equal(cardDoc.payments[0].method, 'card')
+
+  const cardCashMov = await root.collection('restaurantCashMovements').doc(`cash_op-paid-card-create`).get()
+  assert.equal(cardCashMov.exists, false, 'Pago con tarjeta NO debe generar movimiento en restaurantCashMovements')
+  console.log('PASS Pedido pagado con tarjeta registrado sin alterar movimientos de efectivo.')
+
+  // 49. E, M & 15: addOrder paid mixed + convergencia total de expectedCash entre UI y closeShift
+  console.log('49. Pago mixto atómico y convergencia UI/backend de expectedCash...')
+  // Primero cerramos el turno actual de pruebas
+  const currentPendingOrders = await root.collection('restaurantOrders').where('shiftId', '==', shiftArchivedTest.shiftId).where('paymentStatus', '==', 'pending').get()
+  for (const doc of currentPendingOrders.docs) {
+    if (doc.data().status !== 'cancelled') {
+      await call('waiter_user', 'cancelOrder', `clean-cancel-${doc.id}`, { orderId: doc.id })
+    }
+  }
+  // Cerramos turno previo
+  const curShiftSnap = await root.collection('restaurantShifts').doc(shiftArchivedTest.shiftId).get()
+  if (curShiftSnap.data().status === 'open') {
+    const curSummary = await root.collection('restaurantPayments').where('shiftId', '==', shiftArchivedTest.shiftId).get()
+    let curExpected = curShiftSnap.data().openingFloat || 0
+    for (const pDoc of curSummary.docs) {
+      curExpected += pDoc.data().cashAmount || 0
+    }
+    await call('cashier_user', 'closeShift', 'op-close-prev', { countedCash: curExpected })
+  }
+
+  // Abrir nuevo turno limpio con openingFloat 100
+  const shiftMixed = await call('cashier_user', 'openShift', 'shift-mixed-clean', { openingFloat: 100 })
+  assert.ok(shiftMixed.shiftId)
+
+  // Crear producto de 100 Bs
+  await call('admin_user', 'saveProduct', 'prod-pack-100-create', {
+    product: {
+      id: 'prod_pack_100',
+      name: 'Combo Parrillero 100',
+      price: 100,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+
+  // Crear pedido mixto de Bs 100 (Cash 20 + QR 80)
+  const mixedOrder = await call('cashier_user', 'addOrder', 'op-mixed-order', {
+    order: {
+      paymentStatus: 'paid',
+      paymentMethod: 'mixed',
+      payment: {
+        method: 'mixed',
+        cashAmount: 20,
+        qrAmount: 80,
+        cardAmount: 0,
+        cashReceived: 20,
+      },
+      items: [{ productId: 'prod_pack_100', quantity: 1 }],
+    },
+  })
+  assert.equal(mixedOrder.total, 100)
+
+  const mixedDoc = (await root.collection('restaurantOrders').doc(mixedOrder.orderId).get()).data()
+  assert.equal(mixedDoc.paymentStatus, 'paid')
+  assert.equal(mixedDoc.accountStatus, 'closed')
+  // Comprobar entradas canónicas en order.payments (entries separadas, NUNCA total como cash)
+  assert.equal(mixedDoc.payments.length, 2, 'Deben existir exactamente 2 entradas para cash y qr (sin card 0)')
+  const cashEntry = mixedDoc.payments.find(p => p.method === 'cash')
+  const qrEntry = mixedDoc.payments.find(p => p.method === 'qr')
+  assert.ok(cashEntry, 'Entrada de cash debe existir')
+  assert.ok(qrEntry, 'Entrada de qr debe existir')
+  assert.equal(cashEntry.amount, 20, 'Entrada de efectivo debe ser exactamente 20')
+  assert.equal(qrEntry.amount, 80, 'Entrada de QR debe ser exactamente 80')
+
+  // Comprobar documento maestro restaurantPayments
+  const mixedPayDoc = (await root.collection('restaurantPayments').doc(`payment_op-mixed-order`).get()).data()
+  assert.equal(mixedPayDoc.amount, 100)
+  assert.equal(mixedPayDoc.cashAmount, 20)
+  assert.equal(mixedPayDoc.qrAmount, 80)
+  assert.equal(mixedPayDoc.cardAmount, 0)
+
+  // Comprobar que restaurantCashMovements SOLO registró los 20 Bs de efectivo
+  const mixedCashMov = (await root.collection('restaurantCashMovements').doc(`cash_op-mixed-order`).get()).data()
+  assert.equal(mixedCashMov.amount, 20, 'Movimiento de caja debe ser exclusivamente por 20 Bs (NUNCA 100)')
+
+  // 10. Comprobar convergencia absoluta entre calculateCashShiftSummary (UI/dominio) y closeShift (servidor)
+  const uiSummary = calculateCashShiftSummary(100, [mixedDoc], shiftMixed.shiftId, [])
+  assert.equal(uiSummary.cashSales, 20)
+  assert.equal(uiSummary.qrSales, 80)
+  assert.equal(uiSummary.cardSales, 0)
+  assert.equal(uiSummary.totalSales, 100)
+  assert.equal(uiSummary.expectedCash, 120, 'expectedCash debe ser 120 (100 inicial + 20 efectivo), NUNCA 200')
+
+  // Cierre en servidor
+  const closeMixedRes = await call('cashier_user', 'closeShift', 'op-close-mixed', {
+    countedCash: 120,
+  })
+  assert.equal(closeMixedRes.expectedCash, 120)
+  assert.equal(closeMixedRes.difference, 0)
+
+  const closedMixedShift = (await root.collection('restaurantShifts').doc(shiftMixed.shiftId).get()).data()
+  assert.equal(closedMixedShift.status, 'closed')
+  assert.equal(closedMixedShift.expectedCash, 120)
+  assert.equal(closedMixedShift.cashSales, 20)
+  assert.equal(closedMixedShift.qrSales, 80)
+  assert.equal(closedMixedShift.difference, 0)
+  console.log('PASS Pago mixto verificado: entries separadas, movimiento solo por cash (20 Bs) y convergencia UI/backend 120 Bs.')
+
+  // 50. L & 14: Regresión recordPayment en orden pending y bloqueo estricto de doble cobro
+  console.log('50. Flujo recordPayment sobre orden pendiente y rechazo de doble cobro...')
+  // Abrir nuevo turno
+  const shiftPendingFlow = await call('cashier_user', 'openShift', 'shift-pending-flow', { openingFloat: 150 })
+  // Crear orden pending
+  const orderForLaterPay = await call('waiter_user', 'addOrder', 'op-order-for-later', {
+    order: {
+      paymentStatus: 'pending',
+      items: [{ productId: 'prod_1', quantity: 1 }], // 58 Bs
+    },
+  })
+  const initialPendingDoc = (await root.collection('restaurantOrders').doc(orderForLaterPay.orderId).get()).data()
+  assert.equal(initialPendingDoc.paymentStatus, 'pending')
+  assert.equal(initialPendingDoc.accountStatus, 'open')
+  assert.deepEqual(initialPendingDoc.payments, [])
+
+  // Cobrar con recordPayment mixto: Cash 30 + QR 28
+  const payLaterRes = await call('cashier_user', 'recordPayment', 'op-pay-later-mixed', {
+    orderId: orderForLaterPay.orderId,
+    method: 'mixed',
+    cashAmount: 30,
+    qrAmount: 28,
+    received: 30,
+  })
+  assert.equal(payLaterRes.total, 58)
+  assert.equal(payLaterRes.change, 0)
+
+  const paidLaterDoc = (await root.collection('restaurantOrders').doc(orderForLaterPay.orderId).get()).data()
+  assert.equal(paidLaterDoc.paymentStatus, 'paid')
+  assert.equal(paidLaterDoc.accountStatus, 'closed')
+  assert.equal(paidLaterDoc.payments.length, 2)
+  assert.equal(paidLaterDoc.payments.find(p => p.method === 'cash').amount, 30)
+  assert.equal(paidLaterDoc.payments.find(p => p.method === 'qr').amount, 28)
+
+  // Intentar segundo cobro debe ser rechazado con failed-precondition
+  await assert.rejects(
+    () => call('cashier_user', 'recordPayment', 'op-double-pay-fail', {
+      orderId: orderForLaterPay.orderId,
+      method: 'cash',
+      received: 58,
+    }),
+    err => err.code === 'failed-precondition',
+    'Segundo cobro sobre orden pagada debe ser rechazado con failed-precondition'
+  )
+
+  // Cerrar turno: 150 inicial + 30 cash = 180
+  const closePendingFlow = await call('cashier_user', 'closeShift', 'op-close-pending-flow', {
+    countedCash: 180,
+  })
+  assert.equal(closePendingFlow.expectedCash, 180)
+  assert.equal(closePendingFlow.difference, 0)
+  console.log('PASS recordPayment procesado con entradas canónicas y doble cobro bloqueado.')
+
+  // 51. 16: Integridad de salón y mesa en restaurant_pos
+  console.log('51. Integridad de ocupación de mesa en restaurant_pos...')
+  // Abrir nuevo turno
+  const shiftTableTest = await call('cashier_user', 'openShift', 'shift-table-test', { openingFloat: 100 })
+  // Mesa tbl-1 está available
+  const tblBefore = (await root.collection('restaurantTables').doc('tbl-1').get()).data()
+  assert.equal(tblBefore.status, 'available')
+
+  // Intento de cliente de usar flags referenceOnly / isReferenceTable en tenant restaurant_pos
+  const tableOrder = await call('waiter_user', 'addOrder', 'op-table-order-test', {
+    order: {
+      tableId: 'tbl-1',
+      referenceOnly: true,
+      isReferenceTable: true,
+      paymentStatus: 'pending',
+      items: [{ productId: 'prod_1', quantity: 1 }],
+    },
+  })
+  assert.ok(tableOrder.orderId)
+  // En restaurant_pos la mesa DEBE quedar ocupada con activeOrderId asignado
+  const tblOccupied = (await root.collection('restaurantTables').doc('tbl-1').get()).data()
+  assert.equal(tblOccupied.status, 'occupied', 'En restaurant_pos la mesa debe ocuparse atómicamente')
+  assert.equal(tblOccupied.activeOrderId, tableOrder.orderId)
+
+  // Intento de abrir otra orden sobre la mesa ya ocupada debe fallar con aborted
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-table-collision-fail', {
+      order: {
+        tableId: 'tbl-1',
+        paymentStatus: 'pending',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'aborted',
+    'No se puede abrir una nueva orden sobre una mesa ya ocupada'
+  )
+
+  // Cobrar la orden de la mesa libera la mesa automáticamente
+  await call('cashier_user', 'recordPayment', 'op-table-pay', {
+    orderId: tableOrder.orderId,
+    method: 'cash',
+    received: 58,
+  })
+  const tblFreedTableTest = (await root.collection('restaurantTables').doc('tbl-1').get()).data()
+  assert.equal(tblFreedTableTest.status, 'available', 'La mesa debe quedar disponible tras el cobro')
+  assert.equal(tblFreedTableTest.activeOrderId, null)
+
+  // Cerrar turno de mesa: 100 + 58 = 158
+  await call('cashier_user', 'closeShift', 'op-close-table-shift', { countedCash: 158 })
+  console.log('PASS Integridad de salón respetada; bypass de mesa bloqueado y liberación atómica comprobada.')
+
+  // 52. Server-authoritative item status & fulfillment / orderSource validation
+  console.log('52. Item status inicial pending y validación de fulfillment y orderSource...')
+  await call('cashier_user', 'openShift', 'shift-sm-suite', { openingFloat: 100 })
+
+  // Rechazo de fulfillment inválido
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-fake-fulfillment', {
+      order: {
+        fulfillmentType: 'takeout_flying',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'fulfillmentType no reconocido debe fallar con invalid-argument'
+  )
+
+  // Rechazo de orderSource inválido
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-fake-source', {
+      order: {
+        orderSource: 'telegram_bot',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'orderSource no reconocido debe fallar con invalid-argument'
+  )
+
+  // Rechazo de delivery con tableId
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-delivery-table-conflict', {
+      order: {
+        fulfillmentType: 'delivery',
+        tableId: 'tbl-1',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'delivery con tableId debe fallar con invalid-argument'
+  )
+
+  // Rechazo de table sin tableId
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-table-no-table-id', {
+      order: {
+        fulfillmentType: 'table',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'table sin tableId debe fallar con invalid-argument'
+  )
+
+  // Creación válida pickup con item status manipulado a "delivered"
+  const pickupOrder = await call('waiter_user', 'addOrder', 'op-pickup-authoritative', {
+    order: {
+      fulfillmentType: 'pickup',
+      orderSource: 'whatsapp',
+      items: [
+        { productId: 'prod_1', quantity: 1, status: 'delivered' },
+      ],
+    },
+  })
+  assert.ok(pickupOrder.orderId)
+  const pickupDoc = (await root.collection('restaurantOrders').doc(pickupOrder.orderId).get()).data()
+  assert.equal(pickupDoc.fulfillmentType, 'pickup')
+  assert.equal(pickupDoc.orderSource, 'whatsapp')
+  assert.equal(pickupDoc.status, 'pending')
+  assert.equal(pickupDoc.items[0].status, 'pending', 'item.status en request debe ser ignorado y persistir como pending')
+  console.log('PASS Item status inicial pending y validación de enums de entrega y origen exitosas.')
+
+  // 53. Máquina de estados de Order (advanceStatus)
+  console.log('53. Máquina de estados de pedidos y rechazo de transiciones inválidas...')
+  // Intento de salto pending -> ready
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-jump-ready', {
+      orderId: pickupOrder.orderId,
+      status: 'ready',
+    }),
+    err => err.code === 'failed-precondition',
+    'pending -> ready debe ser rechazado'
+  )
+
+  // Intento de salto pending -> delivered
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-jump-deliv', {
+      orderId: pickupOrder.orderId,
+      status: 'delivered',
+    }),
+    err => err.code === 'failed-precondition',
+    'pending -> delivered debe ser rechazado'
+  )
+
+  // Intento de cancelación vía advanceStatus
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-cancel-via-advance', {
+      orderId: pickupOrder.orderId,
+      status: 'cancelled',
+    }),
+    err => err.code === 'failed-precondition',
+    'advanceStatus con cancelled debe ser rechazado'
+  )
+
+  // Intento con estado inválido
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-hacked-status', {
+      orderId: pickupOrder.orderId,
+      status: 'hacked',
+    }),
+    err => err.code === 'failed-precondition',
+    'advanceStatus con estado inválido debe ser rechazado'
+  )
+
+  // Transición válida: pending -> preparing
+  const adv1 = await call('kitchen_user', 'advanceStatus', 'op-adv-prep', {
+    orderId: pickupOrder.orderId,
+    status: 'preparing',
+  })
+  assert.equal(adv1.status, 'preparing')
+
+  // Intento de salto preparing -> delivered
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-jump-prep-deliv', {
+      orderId: pickupOrder.orderId,
+      status: 'delivered',
+    }),
+    err => err.code === 'failed-precondition',
+    'preparing -> delivered debe ser rechazado'
+  )
+
+  // Transición válida: preparing -> ready
+  const adv2 = await call('kitchen_user', 'advanceStatus', 'op-adv-ready', {
+    orderId: pickupOrder.orderId,
+  })
+  assert.equal(adv2.status, 'ready')
+
+  // Intento de retroceso ready -> preparing
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-retro-ready-prep', {
+      orderId: pickupOrder.orderId,
+      status: 'preparing',
+    }),
+    err => err.code === 'failed-precondition',
+    'ready -> preparing debe ser rechazado'
+  )
+
+  // Transición válida: ready -> delivered
+  const adv3 = await call('waiter_user', 'advanceStatus', 'op-adv-deliv', {
+    orderId: pickupOrder.orderId,
+    status: 'delivered',
+  })
+  assert.equal(adv3.status, 'delivered')
+
+  // Intento de avance desde delivered
+  await assert.rejects(
+    () => call('waiter_user', 'advanceStatus', 'op-post-deliv-fail', {
+      orderId: pickupOrder.orderId,
+      status: 'pending',
+    }),
+    err => err.code === 'failed-precondition',
+    'delivered -> pending debe ser rechazado'
+  )
+  console.log('PASS Máquina de estados de orden respetada estrictamente sin saltos ni retrocesos.')
+
+  // 54. Máquina de estados de Ítems y derivación coherente de Order status
+  console.log('54. Máquina de estados de ítems y derivación coherente de orden...')
+  const multiItemOrder = await call('waiter_user', 'addOrder', 'op-multi-item-order', {
+    order: {
+      fulfillmentType: 'pickup',
+      items: [
+        { id: 'it_line_a', productId: 'prod_1', quantity: 1 },
+        { id: 'it_line_b', productId: 'prod_1', quantity: 1 },
+      ],
+    },
+  })
+  assert.equal(multiItemOrder.order.status, 'pending')
+
+  // Intento salto ítem pending -> ready
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceItemStatus', 'op-it-jump-ready', {
+      orderId: multiItemOrder.orderId,
+      itemId: 'it_line_a',
+      status: 'ready',
+    }),
+    err => err.code === 'failed-precondition',
+    'ítem pending -> ready debe fallar'
+  )
+
+  // Intento cancelación ítem vía advanceItemStatus
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceItemStatus', 'op-it-cancel-via-adv', {
+      orderId: multiItemOrder.orderId,
+      itemId: 'it_line_a',
+      status: 'cancelled',
+    }),
+    err => err.code === 'failed-precondition',
+    'ítem advance a cancelled debe fallar'
+  )
+
+  // Avanzar línea A: pending -> preparing
+  const itAdv1 = await call('kitchen_user', 'advanceItemStatus', 'op-it-a-prep', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_a',
+    status: 'preparing',
+  })
+  assert.equal(itAdv1.itemStatus, 'preparing')
+  assert.equal(itAdv1.orderStatus, 'preparing', 'Orden debe pasar a preparing al iniciar preparación de una línea')
+
+  // Avanzar línea B: pending -> preparing
+  const itAdv2 = await call('kitchen_user', 'advanceItemStatus', 'op-it-b-prep', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_b',
+    status: 'preparing',
+  })
+  assert.equal(itAdv2.itemStatus, 'preparing')
+  assert.equal(itAdv2.orderStatus, 'preparing')
+
+  // Avanzar línea A: preparing -> ready (Línea B sigue preparing)
+  const itAdv3 = await call('kitchen_user', 'advanceItemStatus', 'op-it-a-ready', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_a',
+    status: 'ready',
+  })
+  assert.equal(itAdv3.itemStatus, 'ready')
+  assert.equal(itAdv3.orderStatus, 'preparing', 'Orden permanece preparing mientras alguna línea siga preparing')
+
+  // Avanzar línea B: preparing -> ready (Ambas listas)
+  const itAdv4 = await call('kitchen_user', 'advanceItemStatus', 'op-it-b-ready', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_b',
+    status: 'ready',
+  })
+  assert.equal(itAdv4.itemStatus, 'ready')
+  assert.equal(itAdv4.orderStatus, 'ready', 'Orden pasa a ready cuando todas las líneas están ready')
+
+  // Avanzar línea A: ready -> delivered (Línea B ready)
+  const itAdv5 = await call('waiter_user', 'advanceItemStatus', 'op-it-a-deliv', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_a',
+    status: 'delivered',
+  })
+  assert.equal(itAdv5.itemStatus, 'delivered')
+  assert.equal(itAdv5.orderStatus, 'ready', 'Orden permanece ready mientras existan líneas ready no entregadas')
+
+  // Avanzar línea B: ready -> delivered (Ambas entregadas)
+  const itAdv6 = await call('waiter_user', 'advanceItemStatus', 'op-it-b-deliv', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_b',
+    status: 'delivered',
+  })
+  assert.equal(itAdv6.itemStatus, 'delivered')
+  assert.equal(itAdv6.orderStatus, 'delivered', 'Orden pasa a delivered cuando todas las líneas están delivered')
+
+  // Cobrar órdenes de prueba para balancear turno
+  await call('cashier_user', 'recordPayment', 'pay-pickup-ord', {
+    orderId: pickupOrder.orderId,
+    method: 'cash',
+    received: 58,
+  })
+  await call('cashier_user', 'recordPayment', 'pay-multi-ord', {
+    orderId: multiItemOrder.orderId,
+    method: 'cash',
+    received: 116,
+  })
+  console.log('PASS Máquina de estados de ítems y orden derivada verificadas.')
+
+  // 55. CancelOrder real vs intento advanceStatus cancelled
+  console.log('55. Devolución de inventario estricta solo en cancelOrder...')
+  await call('admin_user', 'saveProduct', 'prod-stock-test-create', {
+    product: {
+      id: 'prod_stock_item',
+      name: 'Bife con Stock',
+      price: 60,
+      stockBase: 20,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+  const prodBeforeCancel = (await root.collection('products').doc('prod_stock_item').get()).data()
+  const stockBefore = prodBeforeCancel.stockBase
+  assert.equal(stockBefore, 20)
+
+  const orderToCancel = await call('waiter_user', 'addOrder', 'op-to-cancel-test', {
+    order: {
+      fulfillmentType: 'pickup',
+      items: [{ productId: 'prod_stock_item', quantity: 2 }],
+    },
+  })
+  const prodAfterSale = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodAfterSale.stockBase, stockBefore - 2)
+
+  // Intento de usar advanceStatus('cancelled')
+  await assert.rejects(
+    () => call('waiter_user', 'advanceStatus', 'op-adv-cancel-attempt', {
+      orderId: orderToCancel.orderId,
+      status: 'cancelled',
+    }),
+    err => err.code === 'failed-precondition',
+    'advanceStatus no puede cancelar pedidos'
+  )
+  const prodStillUnchanged = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodStillUnchanged.stockBase, stockBefore - 2, 'Stock no debe ser devuelto por advanceStatus fallido')
+
+  // CancelOrder real
+  const cancelRes = await call('waiter_user', 'cancelOrder', 'op-real-cancel', {
+    orderId: orderToCancel.orderId,
+    reason: 'Cancelación autorizada',
+  })
+  assert.equal(cancelRes.status, 'cancelled')
+  const prodRestored = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodRestored.stockBase, stockBefore, 'Stock debe retornar exactamente una vez tras cancelOrder')
+
+  // Reintento de cancelOrder (idempotencia sin doble retorno de stock)
+  await call('waiter_user', 'cancelOrder', 'op-real-cancel-repeat', {
+    orderId: orderToCancel.orderId,
+  })
+  const prodRepeat = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodRepeat.stockBase, stockBefore, 'Stock no debe duplicar devolución en reintentos')
+  console.log('PASS Stock devuelto únicamente por cancelOrder real y con idempotencia garantizada.')
+
+  // 56. Integridad de mesas y restricciones en updateTableStatus
+  console.log('56. Integridad de mesas y restricciones en updateTableStatus...')
+  // Rechazo de tableId inexistente
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-fake-table-add', {
+      order: {
+        tableId: 'tbl_inexistente_999',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'not-found',
+    'Mesa inexistente debe fallar con not-found'
+  )
+
+  // Crear mesa 2 en el plano
+  await call('admin_user', 'floorAction', 'floor-tbl-2-create', {
+    action: { type: 'table.create', id: 'tbl-2', name: 'Mesa 2', sectorId: 'sec-main', capacity: 4, shape: 'round', active: true },
+  })
+
+  // Crear mesa archivada para prueba
+  await root.collection('restaurantTables').doc('tbl-archived-test').set({
+    id: 'tbl-archived-test',
+    name: 'Mesa Archivada',
+    status: 'archived',
+    active: false,
+  })
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-archived-table-add', {
+      order: {
+        tableId: 'tbl-archived-test',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'failed-precondition',
+    'Mesa archivada/inactiva debe fallar con failed-precondition'
+  )
+
+  // Mesa libre: available <-> reserved PASS
+  const res1 = await call('waiter_user', 'updateTableStatus', 'op-reserve-tbl2', {
+    tableId: 'tbl-2',
+    status: 'reserved',
+  })
+  assert.equal(res1.status, 'reserved')
+
+  const res2 = await call('waiter_user', 'updateTableStatus', 'op-unreserve-tbl2', {
+    tableId: 'tbl-2',
+    status: 'available',
+  })
+  assert.equal(res2.status, 'available')
+
+  // Intento de forzar occupied o bill_requested manualmente sin orden
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-manual-occupy', {
+      tableId: 'tbl-2',
+      status: 'occupied',
+    }),
+    err => err.code === 'failed-precondition',
+    'updateTableStatus occupied manual sin orden debe fallar'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-manual-bill', {
+      tableId: 'tbl-2',
+      status: 'bill_requested',
+    }),
+    err => err.code === 'failed-precondition',
+    'updateTableStatus bill_requested manual sin orden debe fallar'
+  )
+
+  // Abrir orden en tbl-2
+  const orderTbl2 = await call('waiter_user', 'openTableOrder', 'op-open-tbl2', {
+    tableId: 'tbl-2',
+    diners: 3,
+  })
+  assert.ok(orderTbl2.orderId)
+  const tbl2Data = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2Data.status, 'occupied')
+  assert.equal(tbl2Data.activeOrderId, orderTbl2.orderId)
+
+  // Intento de bypass manual de estado con activeOrderId presente
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-bypass-available', {
+      tableId: 'tbl-2',
+      status: 'available',
+    }),
+    err => err.code === 'failed-precondition',
+    'Mesa con activeOrderId no puede ser marcada available manualmente'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-bypass-reserved', {
+      tableId: 'tbl-2',
+      status: 'reserved',
+    }),
+    err => err.code === 'failed-precondition',
+    'Mesa con activeOrderId no puede ser marcada reserved'
+  )
+  console.log('PASS Invariantes de mesa y restricciones en updateTableStatus verificadas.')
+
+  // 57. RequestBill y ReopenBill validación relacional estricta
+  console.log('57. Relación estricta mesa-orden en requestBill y reopenBill...')
+  // Añadir ítem a la orden de tbl-2
+  await call('waiter_user', 'addProduct', 'op-add-prod-tbl2', {
+    orderId: orderTbl2.orderId,
+    items: [{ productId: 'prod_1', quantity: 1 }],
+  })
+
+  // Table A + Order B (mismatch)
+  await assert.rejects(
+    () => call('waiter_user', 'requestBill', 'op-req-bill-mismatch', {
+      tableId: 'tbl-2',
+      orderId: 'fake_order_id_999',
+    }),
+    err => err.code === 'failed-precondition',
+    'requestBill con orden no coincidente debe fallar'
+  )
+
+  // requestBill válido
+  const reqBillRes = await call('waiter_user', 'requestBill', 'op-req-bill-valid', {
+    tableId: 'tbl-2',
+    orderId: orderTbl2.orderId,
+  })
+  assert.equal(reqBillRes.status, 'bill_requested')
+  const tbl2BillSnap = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2BillSnap.status, 'bill_requested')
+  const ord2BillSnap = (await root.collection('restaurantOrders').doc(orderTbl2.orderId).get()).data()
+  assert.equal(ord2BillSnap.accountStatus, 'bill_requested')
+
+  // Reintento requestBill sobre cuenta ya pedida
+  await assert.rejects(
+    () => call('waiter_user', 'requestBill', 'op-req-bill-dup', {
+      tableId: 'tbl-2',
+    }),
+    err => err.code === 'failed-precondition',
+    'requestBill duplicado debe fallar con failed-precondition'
+  )
+
+  // reopenBill válido
+  const reopenRes = await call('waiter_user', 'reopenBill', 'op-reopen-valid', {
+    tableId: 'tbl-2',
+  })
+  assert.equal(reopenRes.status, 'occupied')
+  const tbl2ReopenSnap = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2ReopenSnap.status, 'occupied')
+  const ord2ReopenSnap = (await root.collection('restaurantOrders').doc(orderTbl2.orderId).get()).data()
+  assert.equal(ord2ReopenSnap.accountStatus, 'open')
+
+  // Reintento reopenBill sobre cuenta ya open
+  await assert.rejects(
+    () => call('waiter_user', 'reopenBill', 'op-reopen-dup', {
+      tableId: 'tbl-2',
+    }),
+    err => err.code === 'failed-precondition',
+    'reopenBill sobre cuenta open debe fallar'
+  )
+
+  // Cobro de la orden
+  await call('cashier_user', 'recordPayment', 'op-pay-tbl2', {
+    orderId: orderTbl2.orderId,
+    method: 'cash',
+    received: 58,
+  })
+  const tbl2PostPay = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2PostPay.status, 'available')
+  assert.equal(tbl2PostPay.activeOrderId, null)
+
+  // requestBill sobre orden pagada/cerrada debe fallar
+  await assert.rejects(
+    () => call('waiter_user', 'requestBill', 'op-req-bill-paid-fail', {
+      orderId: orderTbl2.orderId,
+    }),
+    err => err.code === 'failed-precondition',
+    'requestBill sobre orden pagada debe fallar con failed-precondition'
+  )
+
+  // Cerrar turno shiftSM: 100 inicial + 58 (pickupOrder) + 116 (multiItemOrder) + 58 (orderTbl2) = 332
+  await call('cashier_user', 'closeShift', 'op-close-sm-suite', { countedCash: 332 })
+  console.log('PASS Invariantes relacionales de requestBill y reopenBill comprobadas exitosamente.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (32/32)')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (57/57)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {

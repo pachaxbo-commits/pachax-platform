@@ -53,6 +53,14 @@ async function callPlatform(uid, data) {
   })
   return { response, body: await response.json() }
 }
+async function callTenantGateway(uid, data) {
+  const token = await signIn(uid)
+  const response = await fetch(`http://127.0.0.1:5101/${projectId}/southamerica-west1/tenantGateway`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ data }),
+  })
+  return { response, body: await response.json() }
+}
 
 try {
   for (const uid of Object.values(ids)) await auth.createUser({ uid, email: `${uid}@example.test`, password: 'Emulator123!' })
@@ -188,7 +196,91 @@ try {
   await assertFails(setDoc(doc(contentClient, 'platformPlans', 'p_content_write'), { status: 'published', name: 'Hack Content' }))
   pass('platform_content no tiene permiso de escritura en platformPlans')
 
-  assert.equal(checks, 30)
+  // 6. Operador de plataforma (incluyendo owner) NO puede escribir directamente en colecciones platform por cliente (servidor autoritativo):
+  await assertFails(setDoc(doc(operatorClient, 'platformPlans', 'p_owner_direct'), { status: 'published', name: 'Direct Owner Write' }))
+  pass('operador Platform NO escribe directamente a platformPlans (servidor autoritativo estricto)')
+  await assertFails(setDoc(doc(operatorClient, 'platformAuditLogs', 'audit_client_write'), { action: 'audit.hack' }))
+  pass('operador Platform NO escribe directamente a platformAuditLogs')
+  await assertFails(setDoc(doc(operatorClient, 'platformTemplates', 't_owner_direct'), { status: 'published', name: 'Direct Template Write' }))
+  pass('operador Platform NO escribe directamente a platformTemplates')
+  await assertFails(setDoc(doc(operatorClient, 'platformConfig', 'publicLanding'), { status: 'published', title: 'Direct Config Write' }))
+  pass('operador Platform NO escribe directamente a platformConfig')
+
+  // === PROVISIONING GATE EN TENANTGATEWAY (SERVER-AUTHORITATIVE) ===
+  const ordinaryUid = `user_prov_${suffix}`
+  await auth.createUser({ uid: ordinaryUid, email: `${ordinaryUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Ordinario' })
+
+  // 1. completeOnboarding con hamburger_shop -> DENIED / failed-precondition
+  const onbHamb = await callTenantGateway(ordinaryUid, {
+    action: 'completeOnboarding',
+    requestId: `onb_hamb_${suffix}`,
+    companyName: 'Hamburguesas Bypass',
+    businessType: 'hamburger_shop',
+  })
+  assert.equal(onbHamb.body.error?.status, 'FAILED_PRECONDITION')
+  assert(onbHamb.body.error?.message?.includes('todavía no está disponible para crear empresas'))
+  pass('tenantGateway completeOnboarding con hamburger_shop es DENEGADO (failed-precondition)')
+
+  // 2. completeOnboarding con nightclub_lounge -> DENIED / failed-precondition
+  const onbNight = await callTenantGateway(ordinaryUid, {
+    action: 'completeOnboarding',
+    requestId: `onb_night_${suffix}`,
+    companyName: 'Nightclub Bypass',
+    businessType: 'nightclub_lounge',
+  })
+  assert.equal(onbNight.body.error?.status, 'FAILED_PRECONDITION')
+  assert(onbNight.body.error?.message?.includes('todavía no está disponible para crear empresas'))
+  pass('tenantGateway completeOnboarding con nightclub_lounge es DENEGADO (failed-precondition)')
+
+  // 3. completeOnboarding con gelateria_weight_cafe -> DENIED / failed-precondition
+  const onbGel = await callTenantGateway(ordinaryUid, {
+    action: 'completeOnboarding',
+    requestId: `onb_gel_${suffix}`,
+    companyName: 'Retail Bypass',
+    businessType: 'gelateria_weight_cafe',
+  })
+  assert.equal(onbGel.body.error?.status, 'FAILED_PRECONDITION')
+  assert(onbGel.body.error?.message?.includes('todavía no está disponible para crear empresas'))
+  pass('tenantGateway completeOnboarding con gelateria_weight_cafe es DENEGADO (failed-precondition)')
+
+  // 4. createTenant con coming-soon BusinessType -> DENIED / failed-precondition
+  const createComingSoon = await callTenantGateway(ordinaryUid, {
+    action: 'createTenant',
+    operationId: `create_hamb_${suffix}`,
+    name: 'Hamburguesas Create Bypass',
+    businessType: 'hamburger_shop',
+  })
+  assert.equal(createComingSoon.body.error?.status, 'FAILED_PRECONDITION')
+  assert(createComingSoon.body.error?.message?.includes('todavía no está disponible para crear empresas'))
+  pass('createTenant vía tenantGateway con coming-soon BusinessType es DENEGADO')
+
+  // 5. completeOnboarding con route_distribution -> PASS
+  const onbDist = await callTenantGateway(ordinaryUid, {
+    action: 'completeOnboarding',
+    requestId: `onb_dist_${suffix}`,
+    companyName: 'Distribuidora Autorizada',
+    businessType: 'route_distribution',
+  })
+  assert.equal(onbDist.response.status, 200)
+  assert.equal(onbDist.body.result?.template?.businessType, 'route_distribution')
+  assert(onbDist.body.result?.tenantId)
+  pass('tenantGateway completeOnboarding con route_distribution es PERMITIDO y converge')
+
+  // 6. completeOnboarding con restaurant_pos -> PASS
+  const restUserUid = `user_rest_${suffix}`
+  await auth.createUser({ uid: restUserUid, email: `${restUserUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Restaurante' })
+  const onbRest = await callTenantGateway(restUserUid, {
+    action: 'completeOnboarding',
+    requestId: `onb_rest_${suffix}`,
+    companyName: 'Restaurante Autorizado',
+    businessType: 'restaurant_pos',
+  })
+  assert.equal(onbRest.response.status, 200)
+  assert.equal(onbRest.body.result?.template?.businessType, 'restaurant_pos')
+  assert(onbRest.body.result?.tenantId)
+  pass('tenantGateway completeOnboarding con restaurant_pos es PERMITIDO y converge')
+
+  assert.equal(checks, 40)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()

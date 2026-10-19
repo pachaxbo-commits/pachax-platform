@@ -785,28 +785,27 @@ service cloud.firestore {
     match /supportSessions/{uid} { allow read, write: if false; }
     match /platformAuditLogs/{eventId} {
       allow read: if isPlatformAdminOrOwner();
-      allow create: if isPlatformOperator() && request.resource.data.operatorUid == request.auth.uid;
-      allow update, delete: if false;
+      allow write: if false;
     }
     match /platformConfig/{configId} {
       allow get: if resource.data.status == 'published' || isPlatformOperator();
-      allow write: if isPlatformContentOrHigher();
+      allow list, write: if false;
     }
     match /platformTemplates/{templateId} {
       allow read: if resource.data.status == 'published' || isPlatformOperator();
-      allow write: if isPlatformContentOrHigher();
+      allow write: if false;
     }
     match /platformPlans/{planId} {
       allow read: if resource.data.status == 'published' || isPlatformOperator();
-      allow write: if isPlatformAdminOrOwner();
+      allow write: if false;
     }
     match /platformExtras/{extraId} {
       allow read: if resource.data.status == 'published' || isPlatformOperator();
-      allow write: if isPlatformContentOrHigher();
+      allow write: if false;
     }
     match /platformMedia/{assetId} {
       allow read: if resource.data.status == 'published' || isPlatformOperator();
-      allow write: if isPlatformContentOrHigher();
+      allow write: if false;
     }
     match /tenants/{tenantId}/products/{productId} {
       allow read: if tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'products.manage','inventory');
@@ -988,7 +987,7 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantCustomers/{customerId} {
-      allow read: if tPermission(tenantId,'customers.read','customers') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.read','sales');
+      allow read: if tPermission(tenantId,'customers.read','customers') || tPermission(tenantId,'customers.manage','customers') || tPermission(tenantId,'settings.manage','settings');
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantInventoryMovements/{movementId} {

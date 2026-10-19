@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment -- Node test executes outside browser TypeScript project. */
 // @ts-nocheck
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -8,13 +9,12 @@ import {
 } from '../../../../adapters/printing/browserDialogPrinterAdapter.ts'
 import {
   loadPrinterProfiles,
-  persistPrinterProfiles,
   savePrinterProfileLocal as savePrinterProfile,
   deletePrinterProfileLocal as deletePrinterProfile,
   getActiveKitchenPrinter,
   getActiveReceiptPrinter,
 } from '../../../../services/printing/printerProfiles.ts'
-import type { PrintJobPayload, PrinterProfile } from '../../../../types/printing.ts'
+import type { PrintJobPayload, PrinterProfile, PrinterCapability } from '../../../../types/printing.ts'
 
 // Mock de localStorage en memoria para pruebas de aislamiento y perfiles
 function setupMockLocalStorage() {
@@ -72,7 +72,7 @@ test('buildKitchenTicketHtml genera comanda térmica limpia sin precios ni datos
   const html = buildKitchenTicketHtml(payload, '80mm')
 
   // Datos esenciales de comanda presentes
-  assert.match(html, /COMANDA #1042/)
+  assert.match(html, /COMANDA.*#1042/)
   assert.match(html, /Pizzería Napolitana/)
   assert.match(html, /Mesa 4/)
   assert.match(html, /2x/)
@@ -88,10 +88,10 @@ test('buildKitchenTicketHtml genera comanda térmica limpia sin precios ni datos
   assert.doesNotMatch(html, /148/)
   assert.doesNotMatch(html, /Bs/)
   assert.doesNotMatch(html, /TOTAL/i)
-  assert.doesNotMatch(html, /REIMPRESION/)
+  assert.doesNotMatch(html, /REIMPRESI[OÓ]N/)
 })
 
-test('buildKitchenTicketHtml añade encabezado visible de *** REIMPRESION *** cuando isCopy es true', () => {
+test('buildKitchenTicketHtml añade encabezado visible de *** REIMPRESIÓN / COPIA *** cuando isCopy es true', () => {
   const payload: PrintJobPayload = {
     payloadSchemaVersion: 1,
     templateVersion: 'v1.0',
@@ -112,7 +112,7 @@ test('buildKitchenTicketHtml añade encabezado visible de *** REIMPRESION *** cu
   }
 
   const html = buildKitchenTicketHtml(payload, '58mm')
-  assert.match(html, /\*\*\* REIMPRESION \*\*\*/)
+  assert.match(html, /\*\*\* REIMPRESIÓN \/ COPIA \*\*\*/)
   assert.match(html, /size: 58mm auto/)
 })
 
@@ -218,6 +218,24 @@ test('aislamiento tenant A/B en almacenamiento de impresoras', () => {
   assert.equal(loadPrinterProfiles('tenant-beta', 'main').length, 1)
 })
 
+const mockCapabilities: PrinterCapability = {
+  supportsCashDrawerKick: false,
+  supportsPaperCut: false,
+  supportsBeep: false,
+  supportsBarcode: false,
+  supportsQrCode: false,
+  supportsImages: false,
+  supportsRealtimeStatus: false,
+  columnsPerLine: 48,
+  codePage: 'CP850',
+  encoding: 'utf-8',
+  chunkSize: 1024,
+  chunkDelayMs: 20,
+  connectionTimeoutMs: 5000,
+  writeTimeoutMs: 5000,
+  feedLinesEnd: 3,
+}
+
 test('resolución de impresora activa por rol con fallback a general', () => {
   setupMockLocalStorage()
 
@@ -233,7 +251,7 @@ test('resolución de impresora activa por rol con fallback a general', () => {
     autoPrintOnOrderCreated: false,
     autoPrintOnOrderPaid: false,
     kickDrawerOnPrint: false,
-    capabilities: {} as any,
+    capabilities: mockCapabilities,
     isActive: true,
     createdAt: new Date().toISOString(),
   }
@@ -291,7 +309,7 @@ test('BrowserDialogPrinterAdapter ejecuta impresión con éxito en entorno de pr
       autoPrintOnOrderCreated: false,
       autoPrintOnOrderPaid: false,
       kickDrawerOnPrint: false,
-      capabilities: {} as any,
+      capabilities: mockCapabilities,
       isActive: true,
       createdAt: new Date().toISOString(),
     },

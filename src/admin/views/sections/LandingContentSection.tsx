@@ -182,20 +182,78 @@ export function LandingContentSection() {
         </div>
       </div>
 
-      {/* Bloque 3: Encabezados de Secciones Inferiores */}
+      {/* Bloque 3: Métricas del Value Strip del Hero */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs space-y-4">
+        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+          <Type className="w-4 h-4 text-[#0066FF]" />
+          <span>Declaraciones de Valor / Value Strip (4 Métricas)</span>
+        </h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {(formData.valueStripMetrics || []).map((metric, idx) => (
+            <div key={idx} className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Métrica #{idx + 1}
+              </span>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-0.5">Etiqueta</label>
+                <input
+                  type="text"
+                  value={metric.label}
+                  onChange={(e) => {
+                    const list = [...(formData.valueStripMetrics || [])]
+                    list[idx] = { ...list[idx], label: e.target.value }
+                    setFormData({ ...formData, valueStripMetrics: list })
+                  }}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-0.5">Valor principal</label>
+                <input
+                  type="text"
+                  value={metric.value}
+                  onChange={(e) => {
+                    const list = [...(formData.valueStripMetrics || [])]
+                    list[idx] = { ...list[idx], value: e.target.value }
+                    setFormData({ ...formData, valueStripMetrics: list })
+                  }}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-[#0066FF]"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-0.5">Detalle</label>
+                <input
+                  type="text"
+                  value={metric.detail}
+                  onChange={(e) => {
+                    const list = [...(formData.valueStripMetrics || [])]
+                    list[idx] = { ...list[idx], detail: e.target.value }
+                    setFormData({ ...formData, valueStripMetrics: list })
+                  }}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-700"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Bloque 4: Encabezados y Subtítulos de Secciones Inferiores */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs space-y-5">
         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
           <Type className="w-4 h-4 text-slate-500" />
-          <span>Encabezados de Secciones Inferiores</span>
+          <span>Encabezados y Subtítulos de Secciones</span>
         </h3>
 
         <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Sección 2 · Título de Catálogo
+          <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Sección 2 · Catálogo de Plantillas
             </label>
             <input
               type="text"
+              placeholder="Título de catálogo"
               value={formData.sectionTitles.catalog}
               onChange={(e) =>
                 setFormData({
@@ -203,16 +261,29 @@ export function LandingContentSection() {
                   sectionTitles: { ...formData.sectionTitles, catalog: e.target.value },
                 })
               }
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold"
+            />
+            <input
+              type="text"
+              placeholder="Subtítulo de catálogo"
+              value={formData.sectionTitles.catalogSubtitle || ''}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  sectionTitles: { ...formData.sectionTitles, catalogSubtitle: e.target.value },
+                })
+              }
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Sección 3 · Título de Planes
+          <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Sección 3 · Planes y Precios
             </label>
             <input
               type="text"
+              placeholder="Título de planes"
               value={formData.sectionTitles.pricing}
               onChange={(e) =>
                 setFormData({
@@ -220,16 +291,29 @@ export function LandingContentSection() {
                   sectionTitles: { ...formData.sectionTitles, pricing: e.target.value },
                 })
               }
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold"
+            />
+            <input
+              type="text"
+              placeholder="Subtítulo de planes"
+              value={formData.sectionTitles.pricingSubtitle || ''}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  sectionTitles: { ...formData.sectionTitles, pricingSubtitle: e.target.value },
+                })
+              }
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Sección 4 · Título de Onboarding
+          <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Sección 4 · Onboarding
             </label>
             <input
               type="text"
+              placeholder="Título de onboarding"
               value={formData.sectionTitles.onboarding}
               onChange={(e) =>
                 setFormData({
@@ -237,16 +321,29 @@ export function LandingContentSection() {
                   sectionTitles: { ...formData.sectionTitles, onboarding: e.target.value },
                 })
               }
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold"
+            />
+            <input
+              type="text"
+              placeholder="Subtítulo de onboarding"
+              value={formData.sectionTitles.onboardingSubtitle || ''}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  sectionTitles: { ...formData.sectionTitles, onboardingSubtitle: e.target.value },
+                })
+              }
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Sección 5 · Título de Tutoriales
+          <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Sección 5 · Tutoriales Guiados
             </label>
             <input
               type="text"
+              placeholder="Título de tutoriales"
               value={formData.sectionTitles.tutorials}
               onChange={(e) =>
                 setFormData({
@@ -254,16 +351,29 @@ export function LandingContentSection() {
                   sectionTitles: { ...formData.sectionTitles, tutorials: e.target.value },
                 })
               }
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold"
+            />
+            <input
+              type="text"
+              placeholder="Subtítulo de tutoriales"
+              value={formData.sectionTitles.tutorialsSubtitle || ''}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  sectionTitles: { ...formData.sectionTitles, tutorialsSubtitle: e.target.value },
+                })
+              }
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Sección 6 · Título de Extras y Soluciones
+          <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Sección 6 · Extras y Soluciones Estratégicas
             </label>
             <input
               type="text"
+              placeholder="Título de extras"
               value={formData.sectionTitles.extras}
               onChange={(e) =>
                 setFormData({
@@ -271,7 +381,19 @@ export function LandingContentSection() {
                   sectionTitles: { ...formData.sectionTitles, extras: e.target.value },
                 })
               }
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold"
+            />
+            <input
+              type="text"
+              placeholder="Subtítulo de extras"
+              value={formData.sectionTitles.extrasSubtitle || ''}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  sectionTitles: { ...formData.sectionTitles, extrasSubtitle: e.target.value },
+                })
+              }
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600"
             />
           </div>
         </div>

@@ -27,6 +27,7 @@ const ids = {
   ownerD: `qa-owner-d-${suffix}`,
   sellerB: `qa-seller-b-${suffix}`,
   cashierA: `qa-cashier-a-${suffix}`,
+  waiterA: `qa-waiter-a-${suffix}`,
   disabledA: `qa-disabled-a-${suffix}`,
 }
 const env = await initializeTestEnvironment({
@@ -78,6 +79,7 @@ try {
   assert.equal((await admin.doc(`tenants/${ids.restaurant}/members/${ids.cashierA}`).get()).data().roleId, 'cashier'); pass('owner crea usuario interno y membership solo mediante Function')
   const dist = admin.doc(`tenants/${ids.distribution}`)
   await dist.collection('members').doc(ids.sellerB).set(member(ids.sellerB, ids.distribution, 'distributor', 'active', ['north']))
+  await admin.doc(`tenants/${ids.restaurant}/members/${ids.waiterA}`).set(member(ids.waiterA, ids.restaurant, 'waiter'))
   await admin.doc(`tenants/${ids.restaurant}/members/${ids.disabledA}`).set(member(ids.disabledA, ids.restaurant, 'owner', 'disabled'))
   await admin.doc(`tenants/${ids.nightclub}/members/${ids.disabledA}`).set(member(ids.disabledA, ids.nightclub, 'owner', 'disabled'))
   await admin.doc(`tenants/${ids.nightclub}/nightclubAccounts/account`).set({ id: 'account', tenantId: ids.nightclub, branchId: 'main', status: 'open', subtotal: 100 })
@@ -201,7 +203,19 @@ try {
   await assertFails(getDocs(collection(cashier, 'tenants', ids.restaurant, 'members'))); pass('caja no lista ni administra usuarios')
   await assertFails(setDoc(doc(cashier, 'tenants', ids.restaurant, 'members', 'forged'), member('forged', ids.restaurant, 'owner'))); pass('cliente no crea memberships')
 
-  assert.equal(checks, 65)
+  const waiter = env.authenticatedContext(ids.waiterA).firestore()
+  await admin.doc(`tenants/${ids.restaurant}/restaurantCustomers/cust_test`).set({ id: 'cust_test', name: 'Cliente Privado' })
+  await admin.doc(`tenants/${ids.restaurant}/restaurantShifts/shift_test`).set({ id: 'shift_test', branchId: 'main', status: 'open', openingFloat: 100 })
+  await admin.doc(`tenants/${ids.restaurant}/restaurantCashMovements/mov_test`).set({ id: 'mov_test', branchId: 'main', amount: 50 })
+
+  await assertFails(getDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantCustomers', 'cust_test'))); pass('mesero sin customers.read no lee clientes CRM de restaurante')
+  await assertFails(getDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantShifts', 'shift_test'))); pass('mesero sin cash.close no lee arqueos ni turnos financieros')
+  await assertFails(getDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantCashMovements', 'mov_test'))); pass('mesero sin cash.close no lee movimientos de caja')
+  await assertSucceeds(getDoc(doc(restaurantOwner, 'tenants', ids.restaurant, 'restaurantCustomers', 'cust_test'))); pass('owner lee clientes CRM de restaurante con settings/customers')
+  await assertSucceeds(getDoc(doc(restaurantOwner, 'tenants', ids.restaurant, 'restaurantShifts', 'shift_test'))); pass('owner lee turnos financieros con settings/cash')
+  await assertFails(setDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantCustomers', 'forged'), { name: 'Falso' })); pass('cliente no escribe clientes directamente')
+
+  assert.equal(checks, 71)
   fs.mkdirSync('docs/qa-pachax', { recursive: true })
   fs.writeFileSync('docs/qa-pachax/multi-tenant-isolation-result.json', JSON.stringify({ passed: true, checks, projectId, at: new Date().toISOString() }, null, 2))
   console.log(`${checks} comprobaciones multiempresa aprobadas`)

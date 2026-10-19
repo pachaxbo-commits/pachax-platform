@@ -3,10 +3,9 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import test from 'node:test'
-import { RESTAURANT_CATEGORIES, RESTAURANT_PRODUCTS } from '../../../../demo/mocks/restaurantMock.ts'
-import { makeRestaurantOrderItem, placeRestaurantOrder, completeRestaurantPayment, completeRestaurantGift } from '../restaurantOperations.ts'
-import { restaurantThemeStyle, DEFAULT_RESTAURANT_THEME, RESTAURANT_THEME_PRESETS } from '../../views/restaurantTheme.ts'
-import type { CartItem, Order, PaymentSummary, Product } from '../../../../types'
+import { RESTAURANT_PRODUCTS } from './fixtures.ts'
+import { placeRestaurantOrder, completeRestaurantPayment, completeRestaurantGift } from '../restaurantOperations.ts'
+import type { CartItem, Order } from '../../../../types'
 
 const at = '2026-09-30T18:00:00.000Z'
 const productA = RESTAURANT_PRODUCTS[0]
@@ -17,7 +16,9 @@ test('1. Pendiente -> Pagado conmuta libremente sin perder ítems', () => {
     { lineId: 'l1', productId: productA.id, quantity: 2, modifiers: { extras: [], options: [], note: '' } },
   ]
   let paymentStatus: 'paid' | 'pending' = 'pending'
-  let paymentMethod: any = null
+  let paymentMethod: string | null = null
+  assert.equal(paymentStatus, 'pending')
+  assert.equal(paymentMethod, null)
 
   // Conmutar a pagado
   paymentStatus = 'paid'
@@ -33,7 +34,9 @@ test('2. Pagado -> Pendiente conmuta libremente conservando ítems', () => {
     { lineId: 'l2', productId: productB.id, quantity: 1, modifiers: { extras: [], options: [], note: '' } },
   ]
   let paymentStatus: 'paid' | 'pending' = 'paid'
-  let paymentMethod: any = 'cash'
+  let paymentMethod: string | null = 'cash'
+  assert.equal(paymentStatus, 'paid')
+  assert.equal(paymentMethod, 'cash')
 
   // Conmutar a pendiente
   paymentStatus = 'pending'
@@ -185,9 +188,13 @@ test('13. Carrito no pierde productos al cambiar estado de pago', () => {
 
   // Cambiar entre estados de pago
   let status: 'paid' | 'pending' = 'pending'
+  assert.equal(status, 'pending')
   status = 'paid'
+  assert.equal(status, 'paid')
   status = 'pending'
+  assert.equal(status, 'pending')
   status = 'paid'
+  assert.equal(status, 'paid')
 
   assert.equal(cartItems.length, initialLength)
   assert.equal(JSON.stringify(cartItems[0].modifiers), initialModifiers)

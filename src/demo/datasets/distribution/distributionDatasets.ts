@@ -1,5 +1,5 @@
-import type { DemoDatasetMode, DistributionDataset } from '../types'
-import type { DistributionData } from '../../../modules/distribution/state/useDistributionStore'
+import type { DemoDatasetMode, DistributionDataset } from '../types.ts'
+import type { DistributionData } from '../../../modules/distribution/state/useDistributionStore.ts'
 
 const now = new Date().toISOString()
 const dayKey = now.slice(0, 10)
