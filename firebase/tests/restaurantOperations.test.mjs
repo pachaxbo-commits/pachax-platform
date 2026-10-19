@@ -1675,8 +1675,505 @@ try {
   await call('cashier_user', 'closeShift', 'op-close-table-shift', { countedCash: 158 })
   console.log('PASS Integridad de salón respetada; bypass de mesa bloqueado y liberación atómica comprobada.')
 
+  // 52. Server-authoritative item status & fulfillment / orderSource validation
+  console.log('52. Item status inicial pending y validación de fulfillment y orderSource...')
+  await call('cashier_user', 'openShift', 'shift-sm-suite', { openingFloat: 100 })
+
+  // Rechazo de fulfillment inválido
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-fake-fulfillment', {
+      order: {
+        fulfillmentType: 'takeout_flying',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'fulfillmentType no reconocido debe fallar con invalid-argument'
+  )
+
+  // Rechazo de orderSource inválido
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-fake-source', {
+      order: {
+        orderSource: 'telegram_bot',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'orderSource no reconocido debe fallar con invalid-argument'
+  )
+
+  // Rechazo de delivery con tableId
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-delivery-table-conflict', {
+      order: {
+        fulfillmentType: 'delivery',
+        tableId: 'tbl-1',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'delivery con tableId debe fallar con invalid-argument'
+  )
+
+  // Rechazo de table sin tableId
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-table-no-table-id', {
+      order: {
+        fulfillmentType: 'table',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'invalid-argument',
+    'table sin tableId debe fallar con invalid-argument'
+  )
+
+  // Creación válida pickup con item status manipulado a "delivered"
+  const pickupOrder = await call('waiter_user', 'addOrder', 'op-pickup-authoritative', {
+    order: {
+      fulfillmentType: 'pickup',
+      orderSource: 'whatsapp',
+      items: [
+        { productId: 'prod_1', quantity: 1, status: 'delivered' },
+      ],
+    },
+  })
+  assert.ok(pickupOrder.orderId)
+  const pickupDoc = (await root.collection('restaurantOrders').doc(pickupOrder.orderId).get()).data()
+  assert.equal(pickupDoc.fulfillmentType, 'pickup')
+  assert.equal(pickupDoc.orderSource, 'whatsapp')
+  assert.equal(pickupDoc.status, 'pending')
+  assert.equal(pickupDoc.items[0].status, 'pending', 'item.status en request debe ser ignorado y persistir como pending')
+  console.log('PASS Item status inicial pending y validación de enums de entrega y origen exitosas.')
+
+  // 53. Máquina de estados de Order (advanceStatus)
+  console.log('53. Máquina de estados de pedidos y rechazo de transiciones inválidas...')
+  // Intento de salto pending -> ready
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-jump-ready', {
+      orderId: pickupOrder.orderId,
+      status: 'ready',
+    }),
+    err => err.code === 'failed-precondition',
+    'pending -> ready debe ser rechazado'
+  )
+
+  // Intento de salto pending -> delivered
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-jump-deliv', {
+      orderId: pickupOrder.orderId,
+      status: 'delivered',
+    }),
+    err => err.code === 'failed-precondition',
+    'pending -> delivered debe ser rechazado'
+  )
+
+  // Intento de cancelación vía advanceStatus
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-cancel-via-advance', {
+      orderId: pickupOrder.orderId,
+      status: 'cancelled',
+    }),
+    err => err.code === 'failed-precondition',
+    'advanceStatus con cancelled debe ser rechazado'
+  )
+
+  // Intento con estado inválido
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-hacked-status', {
+      orderId: pickupOrder.orderId,
+      status: 'hacked',
+    }),
+    err => err.code === 'failed-precondition',
+    'advanceStatus con estado inválido debe ser rechazado'
+  )
+
+  // Transición válida: pending -> preparing
+  const adv1 = await call('kitchen_user', 'advanceStatus', 'op-adv-prep', {
+    orderId: pickupOrder.orderId,
+    status: 'preparing',
+  })
+  assert.equal(adv1.status, 'preparing')
+
+  // Intento de salto preparing -> delivered
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-jump-prep-deliv', {
+      orderId: pickupOrder.orderId,
+      status: 'delivered',
+    }),
+    err => err.code === 'failed-precondition',
+    'preparing -> delivered debe ser rechazado'
+  )
+
+  // Transición válida: preparing -> ready
+  const adv2 = await call('kitchen_user', 'advanceStatus', 'op-adv-ready', {
+    orderId: pickupOrder.orderId,
+  })
+  assert.equal(adv2.status, 'ready')
+
+  // Intento de retroceso ready -> preparing
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceStatus', 'op-retro-ready-prep', {
+      orderId: pickupOrder.orderId,
+      status: 'preparing',
+    }),
+    err => err.code === 'failed-precondition',
+    'ready -> preparing debe ser rechazado'
+  )
+
+  // Transición válida: ready -> delivered
+  const adv3 = await call('waiter_user', 'advanceStatus', 'op-adv-deliv', {
+    orderId: pickupOrder.orderId,
+    status: 'delivered',
+  })
+  assert.equal(adv3.status, 'delivered')
+
+  // Intento de avance desde delivered
+  await assert.rejects(
+    () => call('waiter_user', 'advanceStatus', 'op-post-deliv-fail', {
+      orderId: pickupOrder.orderId,
+      status: 'pending',
+    }),
+    err => err.code === 'failed-precondition',
+    'delivered -> pending debe ser rechazado'
+  )
+  console.log('PASS Máquina de estados de orden respetada estrictamente sin saltos ni retrocesos.')
+
+  // 54. Máquina de estados de Ítems y derivación coherente de Order status
+  console.log('54. Máquina de estados de ítems y derivación coherente de orden...')
+  const multiItemOrder = await call('waiter_user', 'addOrder', 'op-multi-item-order', {
+    order: {
+      fulfillmentType: 'pickup',
+      items: [
+        { id: 'it_line_a', productId: 'prod_1', quantity: 1 },
+        { id: 'it_line_b', productId: 'prod_1', quantity: 1 },
+      ],
+    },
+  })
+  assert.equal(multiItemOrder.order.status, 'pending')
+
+  // Intento salto ítem pending -> ready
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceItemStatus', 'op-it-jump-ready', {
+      orderId: multiItemOrder.orderId,
+      itemId: 'it_line_a',
+      status: 'ready',
+    }),
+    err => err.code === 'failed-precondition',
+    'ítem pending -> ready debe fallar'
+  )
+
+  // Intento cancelación ítem vía advanceItemStatus
+  await assert.rejects(
+    () => call('kitchen_user', 'advanceItemStatus', 'op-it-cancel-via-adv', {
+      orderId: multiItemOrder.orderId,
+      itemId: 'it_line_a',
+      status: 'cancelled',
+    }),
+    err => err.code === 'failed-precondition',
+    'ítem advance a cancelled debe fallar'
+  )
+
+  // Avanzar línea A: pending -> preparing
+  const itAdv1 = await call('kitchen_user', 'advanceItemStatus', 'op-it-a-prep', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_a',
+    status: 'preparing',
+  })
+  assert.equal(itAdv1.itemStatus, 'preparing')
+  assert.equal(itAdv1.orderStatus, 'preparing', 'Orden debe pasar a preparing al iniciar preparación de una línea')
+
+  // Avanzar línea B: pending -> preparing
+  const itAdv2 = await call('kitchen_user', 'advanceItemStatus', 'op-it-b-prep', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_b',
+    status: 'preparing',
+  })
+  assert.equal(itAdv2.itemStatus, 'preparing')
+  assert.equal(itAdv2.orderStatus, 'preparing')
+
+  // Avanzar línea A: preparing -> ready (Línea B sigue preparing)
+  const itAdv3 = await call('kitchen_user', 'advanceItemStatus', 'op-it-a-ready', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_a',
+    status: 'ready',
+  })
+  assert.equal(itAdv3.itemStatus, 'ready')
+  assert.equal(itAdv3.orderStatus, 'preparing', 'Orden permanece preparing mientras alguna línea siga preparing')
+
+  // Avanzar línea B: preparing -> ready (Ambas listas)
+  const itAdv4 = await call('kitchen_user', 'advanceItemStatus', 'op-it-b-ready', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_b',
+    status: 'ready',
+  })
+  assert.equal(itAdv4.itemStatus, 'ready')
+  assert.equal(itAdv4.orderStatus, 'ready', 'Orden pasa a ready cuando todas las líneas están ready')
+
+  // Avanzar línea A: ready -> delivered (Línea B ready)
+  const itAdv5 = await call('waiter_user', 'advanceItemStatus', 'op-it-a-deliv', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_a',
+    status: 'delivered',
+  })
+  assert.equal(itAdv5.itemStatus, 'delivered')
+  assert.equal(itAdv5.orderStatus, 'ready', 'Orden permanece ready mientras existan líneas ready no entregadas')
+
+  // Avanzar línea B: ready -> delivered (Ambas entregadas)
+  const itAdv6 = await call('waiter_user', 'advanceItemStatus', 'op-it-b-deliv', {
+    orderId: multiItemOrder.orderId,
+    itemId: 'it_line_b',
+    status: 'delivered',
+  })
+  assert.equal(itAdv6.itemStatus, 'delivered')
+  assert.equal(itAdv6.orderStatus, 'delivered', 'Orden pasa a delivered cuando todas las líneas están delivered')
+
+  // Cobrar órdenes de prueba para balancear turno
+  await call('cashier_user', 'recordPayment', 'pay-pickup-ord', {
+    orderId: pickupOrder.orderId,
+    method: 'cash',
+    received: 58,
+  })
+  await call('cashier_user', 'recordPayment', 'pay-multi-ord', {
+    orderId: multiItemOrder.orderId,
+    method: 'cash',
+    received: 116,
+  })
+  console.log('PASS Máquina de estados de ítems y orden derivada verificadas.')
+
+  // 55. CancelOrder real vs intento advanceStatus cancelled
+  console.log('55. Devolución de inventario estricta solo en cancelOrder...')
+  await call('admin_user', 'saveProduct', 'prod-stock-test-create', {
+    product: {
+      id: 'prod_stock_item',
+      name: 'Bife con Stock',
+      price: 60,
+      stockBase: 20,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+  const prodBeforeCancel = (await root.collection('products').doc('prod_stock_item').get()).data()
+  const stockBefore = prodBeforeCancel.stockBase
+  assert.equal(stockBefore, 20)
+
+  const orderToCancel = await call('waiter_user', 'addOrder', 'op-to-cancel-test', {
+    order: {
+      fulfillmentType: 'pickup',
+      items: [{ productId: 'prod_stock_item', quantity: 2 }],
+    },
+  })
+  const prodAfterSale = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodAfterSale.stockBase, stockBefore - 2)
+
+  // Intento de usar advanceStatus('cancelled')
+  await assert.rejects(
+    () => call('waiter_user', 'advanceStatus', 'op-adv-cancel-attempt', {
+      orderId: orderToCancel.orderId,
+      status: 'cancelled',
+    }),
+    err => err.code === 'failed-precondition',
+    'advanceStatus no puede cancelar pedidos'
+  )
+  const prodStillUnchanged = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodStillUnchanged.stockBase, stockBefore - 2, 'Stock no debe ser devuelto por advanceStatus fallido')
+
+  // CancelOrder real
+  const cancelRes = await call('waiter_user', 'cancelOrder', 'op-real-cancel', {
+    orderId: orderToCancel.orderId,
+    reason: 'Cancelación autorizada',
+  })
+  assert.equal(cancelRes.status, 'cancelled')
+  const prodRestored = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodRestored.stockBase, stockBefore, 'Stock debe retornar exactamente una vez tras cancelOrder')
+
+  // Reintento de cancelOrder (idempotencia sin doble retorno de stock)
+  await call('waiter_user', 'cancelOrder', 'op-real-cancel-repeat', {
+    orderId: orderToCancel.orderId,
+  })
+  const prodRepeat = (await root.collection('products').doc('prod_stock_item').get()).data()
+  assert.equal(prodRepeat.stockBase, stockBefore, 'Stock no debe duplicar devolución en reintentos')
+  console.log('PASS Stock devuelto únicamente por cancelOrder real y con idempotencia garantizada.')
+
+  // 56. Integridad de mesas y restricciones en updateTableStatus
+  console.log('56. Integridad de mesas y restricciones en updateTableStatus...')
+  // Rechazo de tableId inexistente
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-fake-table-add', {
+      order: {
+        tableId: 'tbl_inexistente_999',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'not-found',
+    'Mesa inexistente debe fallar con not-found'
+  )
+
+  // Crear mesa 2 en el plano
+  await call('admin_user', 'floorAction', 'floor-tbl-2-create', {
+    action: { type: 'table.create', id: 'tbl-2', name: 'Mesa 2', sectorId: 'sec-main', capacity: 4, shape: 'round', active: true },
+  })
+
+  // Crear mesa archivada para prueba
+  await root.collection('restaurantTables').doc('tbl-archived-test').set({
+    id: 'tbl-archived-test',
+    name: 'Mesa Archivada',
+    status: 'archived',
+    active: false,
+  })
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'op-archived-table-add', {
+      order: {
+        tableId: 'tbl-archived-test',
+        items: [{ productId: 'prod_1', quantity: 1 }],
+      },
+    }),
+    err => err.code === 'failed-precondition',
+    'Mesa archivada/inactiva debe fallar con failed-precondition'
+  )
+
+  // Mesa libre: available <-> reserved PASS
+  const res1 = await call('waiter_user', 'updateTableStatus', 'op-reserve-tbl2', {
+    tableId: 'tbl-2',
+    status: 'reserved',
+  })
+  assert.equal(res1.status, 'reserved')
+
+  const res2 = await call('waiter_user', 'updateTableStatus', 'op-unreserve-tbl2', {
+    tableId: 'tbl-2',
+    status: 'available',
+  })
+  assert.equal(res2.status, 'available')
+
+  // Intento de forzar occupied o bill_requested manualmente sin orden
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-manual-occupy', {
+      tableId: 'tbl-2',
+      status: 'occupied',
+    }),
+    err => err.code === 'failed-precondition',
+    'updateTableStatus occupied manual sin orden debe fallar'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-manual-bill', {
+      tableId: 'tbl-2',
+      status: 'bill_requested',
+    }),
+    err => err.code === 'failed-precondition',
+    'updateTableStatus bill_requested manual sin orden debe fallar'
+  )
+
+  // Abrir orden en tbl-2
+  const orderTbl2 = await call('waiter_user', 'openTableOrder', 'op-open-tbl2', {
+    tableId: 'tbl-2',
+    diners: 3,
+  })
+  assert.ok(orderTbl2.orderId)
+  const tbl2Data = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2Data.status, 'occupied')
+  assert.equal(tbl2Data.activeOrderId, orderTbl2.orderId)
+
+  // Intento de bypass manual de estado con activeOrderId presente
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-bypass-available', {
+      tableId: 'tbl-2',
+      status: 'available',
+    }),
+    err => err.code === 'failed-precondition',
+    'Mesa con activeOrderId no puede ser marcada available manualmente'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'updateTableStatus', 'op-bypass-reserved', {
+      tableId: 'tbl-2',
+      status: 'reserved',
+    }),
+    err => err.code === 'failed-precondition',
+    'Mesa con activeOrderId no puede ser marcada reserved'
+  )
+  console.log('PASS Invariantes de mesa y restricciones en updateTableStatus verificadas.')
+
+  // 57. RequestBill y ReopenBill validación relacional estricta
+  console.log('57. Relación estricta mesa-orden en requestBill y reopenBill...')
+  // Añadir ítem a la orden de tbl-2
+  await call('waiter_user', 'addProduct', 'op-add-prod-tbl2', {
+    orderId: orderTbl2.orderId,
+    items: [{ productId: 'prod_1', quantity: 1 }],
+  })
+
+  // Table A + Order B (mismatch)
+  await assert.rejects(
+    () => call('waiter_user', 'requestBill', 'op-req-bill-mismatch', {
+      tableId: 'tbl-2',
+      orderId: 'fake_order_id_999',
+    }),
+    err => err.code === 'failed-precondition',
+    'requestBill con orden no coincidente debe fallar'
+  )
+
+  // requestBill válido
+  const reqBillRes = await call('waiter_user', 'requestBill', 'op-req-bill-valid', {
+    tableId: 'tbl-2',
+    orderId: orderTbl2.orderId,
+  })
+  assert.equal(reqBillRes.status, 'bill_requested')
+  const tbl2BillSnap = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2BillSnap.status, 'bill_requested')
+  const ord2BillSnap = (await root.collection('restaurantOrders').doc(orderTbl2.orderId).get()).data()
+  assert.equal(ord2BillSnap.accountStatus, 'bill_requested')
+
+  // Reintento requestBill sobre cuenta ya pedida
+  await assert.rejects(
+    () => call('waiter_user', 'requestBill', 'op-req-bill-dup', {
+      tableId: 'tbl-2',
+    }),
+    err => err.code === 'failed-precondition',
+    'requestBill duplicado debe fallar con failed-precondition'
+  )
+
+  // reopenBill válido
+  const reopenRes = await call('waiter_user', 'reopenBill', 'op-reopen-valid', {
+    tableId: 'tbl-2',
+  })
+  assert.equal(reopenRes.status, 'occupied')
+  const tbl2ReopenSnap = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2ReopenSnap.status, 'occupied')
+  const ord2ReopenSnap = (await root.collection('restaurantOrders').doc(orderTbl2.orderId).get()).data()
+  assert.equal(ord2ReopenSnap.accountStatus, 'open')
+
+  // Reintento reopenBill sobre cuenta ya open
+  await assert.rejects(
+    () => call('waiter_user', 'reopenBill', 'op-reopen-dup', {
+      tableId: 'tbl-2',
+    }),
+    err => err.code === 'failed-precondition',
+    'reopenBill sobre cuenta open debe fallar'
+  )
+
+  // Cobro de la orden
+  await call('cashier_user', 'recordPayment', 'op-pay-tbl2', {
+    orderId: orderTbl2.orderId,
+    method: 'cash',
+    received: 58,
+  })
+  const tbl2PostPay = (await root.collection('restaurantTables').doc('tbl-2').get()).data()
+  assert.equal(tbl2PostPay.status, 'available')
+  assert.equal(tbl2PostPay.activeOrderId, null)
+
+  // requestBill sobre orden pagada/cerrada debe fallar
+  await assert.rejects(
+    () => call('waiter_user', 'requestBill', 'op-req-bill-paid-fail', {
+      orderId: orderTbl2.orderId,
+    }),
+    err => err.code === 'failed-precondition',
+    'requestBill sobre orden pagada debe fallar con failed-precondition'
+  )
+
+  // Cerrar turno shiftSM: 100 inicial + 58 (pickupOrder) + 116 (multiItemOrder) + 58 (orderTbl2) = 332
+  await call('cashier_user', 'closeShift', 'op-close-sm-suite', { countedCash: 332 })
+  console.log('PASS Invariantes relacionales de requestBill y reopenBill comprobadas exitosamente.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (51/51)')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (57/57)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {

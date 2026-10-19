@@ -895,9 +895,22 @@ async function applyRestaurantCommand(context) {
         options: validatedOptions,
       },
       productArea,
-      status: rawItem.status || 'pending',
+      status: 'pending', // SIEMPRE pending al crear; ignorar rawItem.status
       createdAt: now,
     }
+  }
+
+  function deriveOrderStatusFromItems(items) {
+    if (!Array.isArray(items) || items.length === 0) return 'pending'
+    const activeItems = items.filter(it => it.status !== 'cancelled')
+    if (activeItems.length === 0) return 'pending'
+    const allDelivered = activeItems.every(it => it.status === 'delivered')
+    if (allDelivered) return 'delivered'
+    const allReadyOrDelivered = activeItems.every(it => it.status === 'ready' || it.status === 'delivered')
+    if (allReadyOrDelivered) return 'ready'
+    const anyStarted = activeItems.some(it => ['preparing', 'ready', 'delivered'].includes(it.status))
+    if (anyStarted) return 'preparing'
+    return 'pending'
   }
 
   // Helper compartido para validación y procesamiento de pagos
@@ -1093,25 +1106,67 @@ async function applyRestaurantCommand(context) {
     }
     const isPaid = rawPaymentStatus === 'paid'
 
-    // 2. Manejo y validación de mesa
-    let tableRef = null
-    let tableData = null
-    if (rawOrder.tableId) {
-      tableRef = root.collection('restaurantTables').doc(id(rawOrder.tableId))
-      const tableSnap = await tx.get(tableRef)
-      if (tableSnap.exists) tableData = tableSnap.data()
+    // 2. Validar fulfillmentType canónico ('table', 'pickup', 'delivery')
+    let fulfillmentType = 'pickup'
+    if (rawOrder.fulfillmentType !== undefined && rawOrder.fulfillmentType !== null) {
+      const rawFulfillment = String(rawOrder.fulfillmentType).trim().toLowerCase()
+      if (!['table', 'pickup', 'delivery'].includes(rawFulfillment)) {
+        throw new HttpsError('invalid-argument', `Tipo de entrega no válido: "${rawOrder.fulfillmentType}". Permitidos: table, pickup, delivery.`)
+      }
+      fulfillmentType = rawFulfillment
+    } else if (rawOrder.tableId) {
+      fulfillmentType = 'table'
     }
 
+    if ((fulfillmentType === 'pickup' || fulfillmentType === 'delivery') && rawOrder.tableId) {
+      throw new HttpsError('invalid-argument', `No se puede asignar una mesa a un pedido con entrega tipo "${fulfillmentType}".`)
+    }
+
+    if (fulfillmentType === 'table' && !rawOrder.tableId) {
+      throw new HttpsError('invalid-argument', 'Los pedidos de tipo mesa requieren especificar una mesa.')
+    }
+
+    // 3. Validar orderSource canónico ('local', 'whatsapp')
+    let orderSource = 'local'
+    if (rawOrder.orderSource !== undefined && rawOrder.orderSource !== null) {
+      const rawSource = String(rawOrder.orderSource).trim().toLowerCase()
+      if (!['local', 'whatsapp'].includes(rawSource)) {
+        throw new HttpsError('invalid-argument', `Origen del pedido no reconocido: "${rawOrder.orderSource}". Permitidos: local, whatsapp.`)
+      }
+      orderSource = rawSource
+    }
+
+    // 4. Manejo y validación de mesa
+    let tableRef = null
+    let tableData = null
     const isCounterService = actor.tenant.businessType === 'hamburger_shop' || actor.tenant.configuration?.serviceModel === 'counter_service'
     const isReferenceTable = isCounterService && (rawOrder.referenceOnly === true || rawOrder.isReferenceTable === true)
 
-    if (tableRef && tableData && !isReferenceTable) {
-      if (tableData.status === 'occupied' && tableData.activeOrderId && tableData.activeOrderId !== orderId) {
-        throw new HttpsError('aborted', 'La mesa ya se encuentra ocupada.')
+    if (rawOrder.tableId) {
+      const tableIdInput = id(rawOrder.tableId)
+      tableRef = root.collection('restaurantTables').doc(tableIdInput)
+      const tableSnap = await tx.get(tableRef)
+      if (!tableSnap.exists) {
+        throw new HttpsError('not-found', `Mesa "${tableIdInput}" no encontrada.`)
+      }
+      tableData = tableSnap.data()
+      if (tableData.active === false || tableData.archivedAt || tableData.status === 'archived') {
+        throw new HttpsError('failed-precondition', 'La mesa está desactivada o archivada.')
+      }
+
+      if (!isReferenceTable) {
+        if (tableData.activeOrderId && tableData.activeOrderId !== orderId) {
+          throw new HttpsError('aborted', 'La mesa ya se encuentra ocupada por otra orden.')
+        }
+        if (tableData.status === 'occupied' || tableData.status === 'bill_requested') {
+          if (!tableData.activeOrderId || tableData.activeOrderId !== orderId) {
+            throw new HttpsError('aborted', 'La mesa ya se encuentra ocupada.')
+          }
+        }
       }
     }
 
-    // 3. Validación y precios autoritativos de ítems
+    // 5. Validación y precios autoritativos de ítems
     const rawItems = Array.isArray(rawOrder.items) ? rawOrder.items : []
     if (!rawItems.length) {
       throw new HttpsError('invalid-argument', 'La orden debe contener al menos un producto.')
@@ -1127,7 +1182,7 @@ async function applyRestaurantCommand(context) {
     const productSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0))
     const total = productSubtotal
 
-    // 4. Procesamiento de pago si se crea como pagado (Paid-at-creation atómico)
+    // 6. Procesamiento de pago si se crea como pagado (Paid-at-creation atómico)
     let paymentFields = {}
     if (isPaid) {
       const paymentResult = processPaymentRecord({
@@ -1172,12 +1227,10 @@ async function applyRestaurantCommand(context) {
       }
     }
 
-    // 5. Allowlist estricto de campos del documento de orden
+    // 7. Allowlist estricto de campos del documento de orden
     const displayNumber = optText(rawOrder.displayNumber, 20) || `#${orderId.slice(-4).toUpperCase()}`
-    const orderSource = optText(rawOrder.orderSource, 30) || 'local'
-    const fulfillmentType = optText(rawOrder.fulfillmentType, 30) || (tableData ? 'table' : 'pickup')
-    const tableId = tableData ? tableData.id : (rawOrder.tableId ? id(rawOrder.tableId) : null)
-    const tableInfo = tableData ? tableData.name : optText(rawOrder.tableInfo, 50)
+    const tableId = tableData ? tableData.id : null
+    const tableInfo = tableData ? tableData.name : null
     const customerId = rawOrder.customerId ? id(rawOrder.customerId) : null
     const customerName = optText(rawOrder.customerName, 100) || (tableData ? tableData.name : 'Cliente')
     const customerPhone = optText(rawOrder.customerPhone, 30)
@@ -1295,20 +1348,37 @@ async function applyRestaurantCommand(context) {
     const orderRef = root.collection('restaurantOrders').doc(orderId)
     const orderSnap = await tx.get(orderRef)
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Pedido no encontrado.')
-    const current = orderSnap.data().status
-    const transition = { pending: 'preparing', preparing: 'ready', ready: 'delivered' }
-    const next = payload.status || transition[current]
-    if (!next) throw new HttpsError('aborted', 'El pedido no puede avanzar de estado.')
+    const order = orderSnap.data()
+    if (order.status === 'cancelled') {
+      throw new HttpsError('failed-precondition', 'No se puede avanzar un pedido cancelado.')
+    }
 
+    const current = order.status || 'pending'
+    const validTransitions = { pending: 'preparing', preparing: 'ready', ready: 'delivered' }
+    const expectedNext = validTransitions[current]
+    if (!expectedNext) {
+      throw new HttpsError('failed-precondition', `El pedido en estado "${current}" no puede avanzar de estado.`)
+    }
+
+    if (payload.status) {
+      if (typeof payload.status !== 'string' || payload.status.trim() !== expectedNext) {
+        throw new HttpsError('failed-precondition', `Transición inválida de "${current}" a "${payload.status}". Se esperaba "${expectedNext}".`)
+      }
+    }
+
+    const next = expectedNext
     const timePatch = {}
-    if (next === 'preparing') timePatch.startedAt = now
-    if (next === 'ready') timePatch.readyAt = now
-    if (next === 'delivered') timePatch.deliveredAt = now
+    if (next === 'preparing' && !order.startedAt) timePatch.startedAt = now
+    if (next === 'ready' && !order.readyAt) timePatch.readyAt = now
+    if (next === 'delivered' && !order.deliveredAt) timePatch.deliveredAt = now
 
-    const updatedItems = (orderSnap.data().items || []).map(item => ({
-      ...item,
-      status: next === 'delivered' ? 'delivered' : next === 'ready' && item.status !== 'delivered' ? 'ready' : item.status === 'pending' ? 'preparing' : item.status,
-    }))
+    const updatedItems = (order.items || []).map(item => {
+      if (item.status === 'cancelled') return item
+      if (next === 'delivered') return { ...item, status: 'delivered' }
+      if (next === 'ready') return item.status === 'delivered' ? item : { ...item, status: 'ready' }
+      if (next === 'preparing') return item.status === 'pending' ? { ...item, status: 'preparing' } : item
+      return item
+    })
 
     tx.update(orderRef, {
       status: next,
@@ -1328,23 +1398,45 @@ async function applyRestaurantCommand(context) {
     const orderRef = root.collection('restaurantOrders').doc(orderId)
     const orderSnap = await tx.get(orderRef)
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Pedido no encontrado.')
-    const items = orderSnap.data().items || []
+    const order = orderSnap.data()
+    if (order.status === 'cancelled') {
+      throw new HttpsError('failed-precondition', 'No se puede avanzar ítems de un pedido cancelado.')
+    }
+
+    const items = order.items || []
     const targetItem = items.find(it => it.id === itemId)
     if (!targetItem) throw new HttpsError('not-found', 'Línea no encontrada.')
 
-    const transition = { pending: 'preparing', preparing: 'ready', ready: 'delivered' }
-    const next = payload.status || transition[targetItem.status || 'pending']
-    if (!next) throw new HttpsError('aborted', 'La línea no puede avanzar de estado.')
+    if (targetItem.status === 'cancelled') {
+      throw new HttpsError('failed-precondition', 'No se puede avanzar un ítem cancelado.')
+    }
 
+    const currentItemStatus = targetItem.status || 'pending'
+    const validTransitions = { pending: 'preparing', preparing: 'ready', ready: 'delivered' }
+    const expectedNext = validTransitions[currentItemStatus]
+    if (!expectedNext) {
+      throw new HttpsError('failed-precondition', `El ítem en estado "${currentItemStatus}" no puede avanzar de estado.`)
+    }
+
+    if (payload.status) {
+      if (typeof payload.status !== 'string' || payload.status.trim() !== expectedNext) {
+        throw new HttpsError('failed-precondition', `Transición inválida de ítem de "${currentItemStatus}" a "${payload.status}". Se esperaba "${expectedNext}".`)
+      }
+    }
+
+    const next = expectedNext
     const nextItems = items.map(it => it.id === itemId ? { ...it, status: next } : it)
-    const allDelivered = nextItems.length > 0 && nextItems.every(it => it.status === 'delivered')
-    const allReadyOrDelivered = nextItems.length > 0 && nextItems.every(it => ['ready', 'delivered'].includes(it.status || 'pending'))
+    const nextOrderStatus = deriveOrderStatusFromItems(nextItems)
 
-    const nextOrderStatus = allDelivered ? 'delivered' : allReadyOrDelivered ? 'ready' : orderSnap.data().status === 'pending' ? 'preparing' : orderSnap.data().status
+    const timePatch = {}
+    if (nextOrderStatus === 'preparing' && !order.startedAt) timePatch.startedAt = now
+    if (nextOrderStatus === 'ready' && !order.readyAt) timePatch.readyAt = now
+    if (nextOrderStatus === 'delivered' && !order.deliveredAt) timePatch.deliveredAt = now
 
     tx.update(orderRef, {
       items: nextItems,
       status: nextOrderStatus,
+      ...timePatch,
       updatedAt: now,
       updatedBy: actor.uid,
     })
@@ -1515,6 +1607,15 @@ async function applyRestaurantCommand(context) {
     const tableRef = root.collection('restaurantTables').doc(tableId)
     const tableSnap = await tx.get(tableRef)
     if (!tableSnap.exists) throw new HttpsError('not-found', 'Mesa no encontrada.')
+    const table = tableSnap.data()
+
+    if (table.activeOrderId) {
+      throw new HttpsError('failed-precondition', 'No se puede cambiar manualmente el estado de una mesa con una orden activa.')
+    }
+
+    if (!['available', 'reserved'].includes(nextStatus)) {
+      throw new HttpsError('failed-precondition', 'Los estados "occupied" y "bill_requested" requieren operaciones de órdenes correspondientes.')
+    }
 
     tx.update(tableRef, { status: nextStatus, updatedAt: now })
     return { tableId, status: nextStatus }
@@ -1526,32 +1627,66 @@ async function applyRestaurantCommand(context) {
     const tableId = payload.tableId ? id(payload.tableId) : null
     let orderId = payload.orderId ? id(payload.orderId) : null
 
+    if (!tableId && !orderId) {
+      throw new HttpsError('invalid-argument', 'Se requiere especificar mesa u orden.')
+    }
+
     let tableRef = null
     let tableSnap = null
+    let tableData = null
     if (tableId) {
       tableRef = root.collection('restaurantTables').doc(tableId)
       tableSnap = await tx.get(tableRef)
-      if (tableSnap.exists && !orderId && tableSnap.data().activeOrderId) {
-        orderId = tableSnap.data().activeOrderId
+      if (!tableSnap.exists) throw new HttpsError('not-found', 'Mesa no encontrada.')
+      tableData = tableSnap.data()
+      if (!tableData.activeOrderId) {
+        throw new HttpsError('failed-precondition', 'La mesa no tiene una orden activa.')
+      }
+      if (orderId && tableData.activeOrderId !== orderId) {
+        throw new HttpsError('failed-precondition', 'La orden especificada no coincide con la orden activa de la mesa.')
+      }
+      orderId = tableData.activeOrderId
+    }
+
+    const orderRef = root.collection('restaurantOrders').doc(orderId)
+    const orderSnap = await tx.get(orderRef)
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'Pedido no encontrado.')
+    const orderData = orderSnap.data()
+
+    if (orderData.paymentStatus === 'paid' || orderData.status === 'cancelled' || orderData.accountStatus === 'closed') {
+      throw new HttpsError('failed-precondition', 'No se puede modificar la cuenta de un pedido pagado, cancelado o cerrado.')
+    }
+
+    if (!tableRef && orderData.tableId) {
+      tableRef = root.collection('restaurantTables').doc(orderData.tableId)
+      tableSnap = await tx.get(tableRef)
+      if (tableSnap.exists) {
+        tableData = tableSnap.data()
+        if (tableData.activeOrderId && tableData.activeOrderId !== orderId) {
+          throw new HttpsError('failed-precondition', 'La mesa no coincide con la orden activa.')
+        }
       }
     }
 
-    let orderRef = null
-    let orderSnap = null
-    if (orderId) {
-      orderRef = root.collection('restaurantOrders').doc(orderId)
-      orderSnap = await tx.get(orderRef)
+    if (isRequest) {
+      if (orderData.accountStatus === 'bill_requested') {
+        throw new HttpsError('failed-precondition', 'La cuenta ya fue solicitada.')
+      }
+      tx.update(orderRef, { accountStatus: 'bill_requested', updatedAt: now })
+      if (tableRef) {
+        tx.update(tableRef, { status: 'bill_requested', updatedAt: now })
+      }
+    } else {
+      if (orderData.accountStatus !== 'bill_requested') {
+        throw new HttpsError('failed-precondition', 'Solo se puede reabrir una cuenta en estado bill_requested.')
+      }
+      tx.update(orderRef, { accountStatus: 'open', updatedAt: now })
+      if (tableRef) {
+        tx.update(tableRef, { status: 'occupied', updatedAt: now })
+      }
     }
 
-    if (tableRef && tableSnap?.exists) {
-      tx.update(tableRef, { status: isRequest ? 'bill_requested' : 'occupied', updatedAt: now })
-    }
-
-    if (orderRef && orderSnap?.exists) {
-      tx.update(orderRef, { accountStatus: isRequest ? 'bill_requested' : 'open', updatedAt: now })
-    }
-
-    return { tableId, orderId, status: isRequest ? 'bill_requested' : 'occupied' }
+    return { tableId: tableId || orderData.tableId, orderId, status: isRequest ? 'bill_requested' : 'occupied' }
   }
 
   // 14. Cobro / Pago de Pedido
