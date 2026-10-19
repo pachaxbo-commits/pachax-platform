@@ -14,7 +14,9 @@ import type {
   NightclubInventoryItem,
   NightclubInventoryLot,
   NightclubInventoryMovement,
+  NightclubLocation,
   NightclubMember,
+  NightclubOpenBottle,
   NightclubOperatorContext,
   NightclubPaymentDraft,
   NightclubProduct,
@@ -71,9 +73,16 @@ export interface NightclubRepository {
   subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void): Unsubscribe
   subscribeInventory(listener: (value: NightclubInventorySnapshot) => void): Unsubscribe
   subscribeOperatorContext?(listener: (value: NightclubOperatorContext | null) => void): Unsubscribe
-  subscribeCashboxes?(listener: (value: NightclubCashbox[]) => void): Unsubscribe
-  subscribeLocationInventory?(locationId: string, listener: (value: NightclubLocationInventorySnapshot) => void): Unsubscribe
-  getCustomers(query: string, limit: number): Promise<NightclubCustomer[]>
+  subscribeOperatorContext?(uid: string, listener: (value: NightclubOperatorContext | null) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCashboxes?(listener: (value: NightclubCashbox[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeLocations?(listener: (value: NightclubLocation[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeLocationInventory?(locationId: string, listener: (value: NightclubLocationInventorySnapshot) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeInventoryBalances?(listener: (value: NightclubInventoryBalance[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeInventoryLots?(listener: (value: NightclubInventoryLot[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeOpenBottles?(listener: (value: NightclubOpenBottle[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeTransfers?(listener: (value: NightclubTransfer[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCashboxShifts?(listener: (value: NightclubShift[]) => void, onError?: (err: Error) => void): Unsubscribe
+  getCustomers(query?: string, limit?: number): Promise<NightclubCustomer[]>
   getStaff(): Promise<NightclubStaff[]>
   getCashMovements(shiftId: string): Promise<NightclubCashMovement[]>
   openAccount(input: { operationId: string; target: NightclubServiceTarget }): Promise<{ accountId: string }>
@@ -97,12 +106,14 @@ export interface NightclubRepository {
   saveProduct(input: { operationId: string; product: NightclubProduct }): Promise<void>
   saveInventory(input: { operationId: string; item: NightclubInventoryItem }): Promise<void>
   saveCustomer(input: { operationId: string; customer: NightclubCustomer }): Promise<void>
-  selectCashbox?(input: { operationId: string; cashboxId: string; confirmPending?: boolean }): Promise<{ locationId: string; activeShiftId?: string }>
-  openCashboxShift?(input: { operationId: string; cashboxId: string; openingFloat: number }): Promise<{ shiftId: string }>
-  closeCashboxShift?(input: { operationId: string; cashboxId: string; countedCash: number }): Promise<void>
-  requestTransfer?(input: { operationId: string; transfer: Omit<NightclubTransfer, 'id' | 'status' | 'createdAt'> }): Promise<{ transferId: string }>
-  dispatchTransfer?(input: { operationId: string; transferId: string }): Promise<void>
-  receiveTransfer?(input: { operationId: string; transferId: string }): Promise<void>
+  selectCashbox?(input: { operationId: string; cashboxId: string; confirmPending?: boolean }): Promise<{ cashboxId?: string; locationId: string; activeShiftId?: string | null }>
+  openCashboxShift?(input: { operationId: string; cashboxId: string; openingFloat: number }): Promise<{ shiftId: string; cashboxId?: string }>
+  closeCashboxShift?(input: { operationId: string; cashboxId: string; shiftId?: string; countedCash: number }): Promise<void>
+  receiveWarehouseIntake?(input: { operationId: string; receipt: any }): Promise<any>
+  confirmPhysicalCount?(input: { operationId: string; count: any }): Promise<any>
+  requestTransfer?(input: { operationId: string; transfer: { lines: Array<{ inventoryId: string; quantity: number; unit: 'unit' | 'ml' | 'g' }> } }): Promise<{ transferId: string; destinationLocationId?: string }>
+  dispatchTransfer?(input: { operationId: string; transferId: string }): Promise<{ transferId: string; status?: string } | void>
+  receiveTransfer?(input: { operationId: string; transferId: string }): Promise<{ transferId: string; status?: string } | void>
   getRoundById?(roundId: string): Promise<NightclubRound | null>
   subscribeReservations?(listener: (value: NightclubReservation[]) => void, onError?: (err: Error) => void): Unsubscribe
   subscribePromoters?(listener: (value: NightclubPromoter[]) => void, onError?: (err: Error) => void): Unsubscribe

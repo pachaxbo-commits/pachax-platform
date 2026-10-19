@@ -26,7 +26,7 @@ export function NightclubBarHistory({
   actor: string
   canRefund?: boolean
   canRefundOverride?: boolean
-  onRefundRound: (accountId: string, roundId: string, reason: string, returnToStock?: boolean) => boolean | void | Promise<boolean | void>
+  onRefundRound: (accountId: string, roundId: string, reason: string, returnToStock?: boolean, items?: Array<{ itemId: string; quantity: number; returnToStock: boolean }>) => boolean | void | Promise<boolean | void>
   onOpenReceipt?: (account: NightclubAccount) => void
   canAccessReceipt?: boolean
 }) {
@@ -102,7 +102,7 @@ export function NightclubBarHistory({
             items={batch?.items.map(item => ({ ...item, refundInventory: { eligible: item.physicalReturnEligible === true } })) || []}
             onCancel={() => setRefundTarget(null)}
             onConfirm={async value => {
-              await onRefundRound(refundTarget.accountId, refundTarget.roundId, value.reason, value.returnToStock)
+              await onRefundRound(refundTarget.accountId, refundTarget.roundId, value.reason, value.returnToStock, value.items)
               setRefundTarget(null)
             }}
           />

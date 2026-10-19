@@ -18,6 +18,7 @@ import { NightclubCommissions } from './NightclubCommissions'
 import { NightclubPromoters } from './NightclubPromoters'
 import { NightclubUsers } from './NightclubUsers'
 import { NightclubInventory } from './NightclubInventory'
+import { NightclubProductiveInventory } from './NightclubProductiveInventory'
 import { NightclubBottleInventory } from './NightclubBottleInventory'
 import { NightclubInventoryCosts, NightclubCourtesyInventoryMovements } from './NightclubInventoryCosts'
 import { NightclubCourtesyDialog, NightclubCourtesyReport, NightclubMembers } from './NightclubMembers'
@@ -90,6 +91,19 @@ type ControllerContract = {
   onSavePromoterLoungeSale?: (sale: NightclubLoungeSaleDraft) => boolean | void | Promise<boolean | void>
   onMarkPromoterLoungePaid?: (id: string) => boolean | void | Promise<boolean | void>
   onSavePromoterConsumption?: (consumption: NightclubConsumptionDraft) => boolean | void | Promise<boolean | void>
+  onSelectCashbox?: (id: string, confirmPending?: boolean) => void | Promise<unknown>
+  onStartCashboxShift?: (id: string, amount: number) => void | Promise<unknown>
+  onCloseCashboxShift?: (id: string, counted: number, expected: number) => void | Promise<unknown>
+  onReceiveWarehouseIntake?: (receipt: any, operationId: string) => Promise<unknown>
+  onConfirmPhysicalCount?: (count: any, operationId: string) => Promise<unknown>
+  onRequestInventoryTransfer?: (draftOrLines: any, operationId?: string) => unknown
+  onDispatchInventoryTransfer?: (transferId: string, operationId?: string) => unknown
+  onReceiveInventoryTransfer?: (transferId: string, operationId?: string) => unknown
+  onRequestTransfer?: (draftOrLines: any, operationId?: string) => unknown
+  onDispatchTransfer?: (transferId: string, operationId?: string) => unknown
+  onReceiveTransfer?: (transferId: string, operationId?: string) => unknown
+  activeCashboxId?: string | null
+  activeLocationId?: string | null
 }
 type Props = ControllerContract & {
   companyName: string
@@ -306,6 +320,9 @@ export function NightclubExperience(props: Props) {
   const canRefund = effectivePermissions !== undefined ? (effectivePermissions === null || (hasNightclubPermission(effectivePermissions, 'accounts', 'delete') && effectivePermissions.has('special.approveOperations'))) : ['owner', 'admin'].includes(normalizedRole)
   const canManageUsers = effectivePermissions === undefined || effectivePermissions === null || effectivePermissions.has('special.manageUsers')
   const canViewUsers = effectivePermissions === undefined ? nightclubCan(normalizedRole, 'users') : hasNightclubPermission(effectivePermissions, 'users')
+  const canManageInventory = effectivePermissions !== undefined
+    ? hasNightclubPermission(effectivePermissions, 'inventory', 'edit') || hasNightclubPermission(effectivePermissions, 'inventory', 'create')
+    : ['owner', 'admin', 'inventory'].includes(normalizedRole)
   const mobilePriority: NightclubModule[] = normalizedRole === 'bar' ? ['bar', 'history'] : normalizedRole === 'inventory' ? ['inventory', 'products', 'history'] : normalizedRole === 'cashier' ? ['accounts', 'cash', 'pos'] : normalizedRole === 'waiter' || normalizedRole === 'service' ? ['floor', 'pos', 'accounts'] : ['dashboard', 'floor', 'reports']
   const mobileModules = mobilePriority.map(id => visibleModules.find(item => item.id === id)).filter((item): item is (typeof allModules)[number] => !!item)
   const moreModules = visibleModules.filter(item => !mobileModules.some(primary => primary.id === item.id))
@@ -561,19 +578,42 @@ export function NightclubExperience(props: Props) {
           />}
           {currentModule === 'bar' && <NightclubBar
             data={data}
+            cashboxId={props.activeCashboxId || undefined}
             canPrint={canPrintComanda}
             onAdvance={(accountId, roundId) => run(() => props.onAdvanceRound(accountId, roundId), 'Estado de Barra actualizado.')}
             onPrintComanda={canPrintComanda ? (accountId: string, roundId: string, isReprint?: boolean) => handlePrintBarComanda(accountId, roundId, isReprint) : undefined}
           />}
-          {currentModule === 'inventory' && <div className="space-y-5">
-            <NightclubBottleInventory data={data} onSave={value => run(() => props.onSaveBottleInventory?.(value), bottleSavedMessage(value))} onSaveSimple={value => run(() => props.onSaveSimpleInventoryProduct?.(value), 'Producto de inventario guardado.')} onOpenBottle={id => run(() => props.onOpenBottle?.(id), 'Botella abierta.')} onExit={(id, ml, type, reason) => run(() => props.onOpenBottleExit?.(id, ml, type, reason), 'Salida registrada.')} />
-            <NightclubInventory data={data} onMovement={(id, quantity, type, reason) => run(() => props.onAdjustInventory(id, quantity, type, reason), 'Movimiento registrado.')} />
-            <NightclubInventoryCosts data={data} onSave={item => run(() => props.onSaveInventory(item), 'Costo actualizado.')} />
-            <NightclubCourtesyInventoryMovements data={data} />
-          </div>}
+          {currentModule === 'inventory' && (props.mode === 'tenant' ? (
+            <NightclubProductiveInventory
+              data={data}
+              canManage={canManageInventory}
+              onReceiveWarehouseIntake={canManageInventory && props.onReceiveWarehouseIntake ? async (receipt, opId) => await props.onReceiveWarehouseIntake!(receipt, opId) : undefined}
+              onConfirmPhysicalCount={canManageInventory && props.onConfirmPhysicalCount ? async (count, opId) => await props.onConfirmPhysicalCount!(count, opId) : undefined}
+              onRequestTransfer={canManageInventory && (props.onRequestInventoryTransfer || props.onRequestTransfer) ? async (lines, opId) => await (props.onRequestInventoryTransfer || props.onRequestTransfer)!(lines, opId) : undefined}
+              onDispatchTransfer={canManageInventory && (props.onDispatchInventoryTransfer || props.onDispatchTransfer) ? async (tId, opId) => await (props.onDispatchInventoryTransfer || props.onDispatchTransfer)!(tId, opId) : undefined}
+              onReceiveTransfer={canManageInventory && (props.onReceiveInventoryTransfer || props.onReceiveTransfer) ? async (tId, opId) => await (props.onReceiveInventoryTransfer || props.onReceiveTransfer)!(tId, opId) : undefined}
+            />
+          ) : (
+            <div className="space-y-5">
+              <NightclubBottleInventory data={data} onSave={value => run(() => props.onSaveBottleInventory?.(value), bottleSavedMessage(value))} onSaveSimple={value => run(() => props.onSaveSimpleInventoryProduct?.(value), 'Producto de inventario guardado.')} onOpenBottle={id => run(() => props.onOpenBottle?.(id), 'Botella abierta.')} onExit={(id, ml, type, reason) => run(() => props.onOpenBottleExit?.(id, ml, type, reason), 'Salida registrada.')} />
+              <NightclubInventory data={data} onMovement={(id, quantity, type, reason) => run(() => props.onAdjustInventory(id, quantity, type, reason), 'Movimiento registrado.')} />
+              <NightclubInventoryCosts data={data} onSave={item => run(() => props.onSaveInventory(item), 'Costo actualizado.')} />
+              <NightclubCourtesyInventoryMovements data={data} />
+            </div>
+          ))}
           {currentModule === 'products' && <NightclubProducts data={data} onSave={product => run(() => props.onSaveProduct(product), 'Producto guardado.')} />}
-          {currentModule === 'cash' && <NightclubCash data={data} onStartShift={amount => run(() => props.onStartShift(amount), 'Turno abierto.')} onCloseShift={counted => run(() => props.onCloseShift(counted), 'Turno cerrado y arqueo guardado.')} onCashMovement={value => run(() => props.onCashMovement?.(value), 'Movimiento registrado.')} onRecordPayment={(id, payment) => run(() => props.onRecordPayment(id, payment), 'Pago registrado en Caja.')} />}
-          {currentModule === 'history' && <div className="space-y-5"><Title title="Historial" subtitle="Pedidos pagados, cortesías y operaciones de cada jornada." /><NightclubBarHistory data={operationData} role={effectivePermissions?.has('special.viewOtherEmployees') ? 'admin' : normalizedRole} canRefundOverride={canRefund} canAccessReceipt={canAccessReceipt} actor={userName} onRefundRound={(id, roundId, reason, returnToStock) => run(() => props.onRefundRound(id, roundId, reason, returnToStock), 'Pedido reembolsado.')} onOpenReceipt={canAccessReceipt ? (account: NightclubAccount) => setReceiptModalAccount(account) : undefined} /></div>}
+          {currentModule === 'cash' && <NightclubCash
+            data={data}
+            activeCashboxId={props.activeCashboxId || undefined}
+            onStartShift={amount => run(() => props.onStartShift(amount), 'Turno abierto.')}
+            onCloseShift={counted => run(() => props.onCloseShift(counted), 'Turno cerrado y arqueo guardado.')}
+            onCashMovement={value => run(() => props.onCashMovement?.(value), 'Movimiento registrado.')}
+            onRecordPayment={(id, payment) => run(() => props.onRecordPayment(id, payment), 'Pago registrado en Caja.')}
+            onSelectCashbox={props.onSelectCashbox ? (id, confirm) => run(() => props.onSelectCashbox!(id, confirm), 'Caja de trabajo seleccionada.') : undefined}
+            onStartCashboxShift={props.onStartCashboxShift ? (id, amount) => run(() => props.onStartCashboxShift!(id, amount), 'Turno de caja abierto.') : undefined}
+            onCloseCashboxShift={props.onCloseCashboxShift ? (id, counted, expected) => run(() => props.onCloseCashboxShift!(id, counted, expected), 'Turno de caja cerrado.') : undefined}
+          />}
+          {currentModule === 'history' && <div className="space-y-5"><Title title="Historial" subtitle="Pedidos pagados, cortesías y operaciones de cada jornada." /><NightclubBarHistory data={operationData} role={effectivePermissions?.has('special.viewOtherEmployees') ? 'admin' : normalizedRole} canRefundOverride={canRefund} canAccessReceipt={canAccessReceipt} actor={userName} onRefundRound={(id, roundId, reason, returnToStock, items) => run(() => props.onRefundRound(id, roundId, reason, returnToStock, items), 'Pedido reembolsado.')} onOpenReceipt={canAccessReceipt ? (account: NightclubAccount) => setReceiptModalAccount(account) : undefined} /></div>}
           {currentModule === 'members' && <NightclubMembers data={data} role={normalizedRole} canManageOverride={effectivePermissions === undefined ? undefined : hasNightclubPermission(effectivePermissions, 'members', 'edit')} canRegisterOverride={effectivePermissions === undefined ? undefined : hasNightclubPermission(effectivePermissions, 'members', 'create')} onSave={member => run(() => props.onSaveMember?.(member), 'Socio guardado.')} onRegister={value => run(() => props.onRegisterCourtesy?.(value), 'Cortesía registrada.')} onCancel={id => run(() => props.onCancelCourtesy?.(id), 'Cortesía anulada.')} />}
           {currentModule === 'customers' && <NightclubCustomers data={data} mode={props.mode || 'demo'} canCreate={effectivePermissions === undefined || hasNightclubPermission(effectivePermissions, 'customers', 'create')} canEdit={effectivePermissions === undefined || hasNightclubPermission(effectivePermissions, 'customers', 'edit')} companyName={branding.businessName} role={normalizedRole} responsibleLabel={props.incidentResponsibleLabel} onSave={customer => run(() => props.onSaveCustomer(customer), 'Cliente guardado.')} onSetStatus={(id, status) => run(() => props.onSetCustomerStatus?.(id, status), 'Estado actualizado.')} onSaveIncident={incident => run(() => props.onSaveCustomerIncident?.(incident), 'Incidente guardado.')} onDeleteIncident={(customerId, incidentId) => run(() => props.onDeleteCustomerIncident?.(customerId, incidentId), 'Incidente eliminado.')} />}
           {currentModule === 'promoters' && <NightclubPromoters data={data} role={normalizedRole} canManageOverride={effectivePermissions === undefined ? undefined : hasNightclubPermission(effectivePermissions, 'promoters', 'edit')} canSellOverride={effectivePermissions === undefined ? undefined : hasNightclubPermission(effectivePermissions, 'promoters', 'create')} onSaveEvent={value => run(() => props.onSavePromoterEvent?.(value), 'Jornada guardada.')} onSavePromoter={value => run(() => props.onSavePromoter?.(value), 'Relacionador guardado.')} onDeletePromoter={id => run(() => props.onDeletePromoter?.(id), 'Relacionador eliminado.')} onSaveSale={value => run(() => props.onSavePromoterSale?.(value), 'Venta de entradas guardada.')} onSaveLoungeSale={value => run(() => props.onSavePromoterLoungeSale?.(value), 'Lounge guardado.')} onMarkLoungePaid={id => run(() => props.onMarkPromoterLoungePaid?.(id), 'Lounge marcado como pagado.')} onSaveConsumption={value => run(() => props.onSavePromoterConsumption?.(value), 'Consumo administrativo guardado.')} />}

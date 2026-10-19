@@ -14,6 +14,7 @@ import { gateway } from '../../../services/gateway'
 import type {
   NightclubAccount,
   NightclubCashMovement,
+  NightclubCashbox,
   NightclubCommission,
   NightclubCommissionPayment,
   NightclubCommissionPaymentDraft,
@@ -22,9 +23,14 @@ import type {
   NightclubCustomer,
   NightclubCustomerIncident,
   NightclubCustomerStatus,
+  NightclubInventoryBalance,
   NightclubInventoryItem,
+  NightclubInventoryLot,
   NightclubInventoryMovement,
+  NightclubLocation,
   NightclubMember,
+  NightclubOpenBottle,
+  NightclubOperatorContext,
   NightclubPayment,
   NightclubPaymentDraft,
   NightclubProduct,
@@ -35,6 +41,7 @@ import type {
   NightclubShift,
   NightclubStaff,
   NightclubTable,
+  NightclubTransfer,
   NightclubZone,
 } from '../domain/nightclubAccounts.ts'
 import {
@@ -57,6 +64,7 @@ import type {
   NightclubCatalogSnapshot,
   NightclubFloorSnapshot,
   NightclubInventorySnapshot,
+  NightclubLocationInventorySnapshot,
   NightclubRepository,
   Unsubscribe,
 } from './nightclubRepository'
@@ -68,10 +76,12 @@ export { assembleOperationalAccounts, resolveShiftIdToTrack }
 export class TenantNightclubRepository implements NightclubRepository {
   private readonly tenantId: string
   private readonly branchId: string
+  private readonly uid?: string
 
-  constructor(tenantId: string, branchId = 'main') {
+  constructor(tenantId: string, branchId = 'main', uid?: string) {
     this.tenantId = tenantId
     this.branchId = branchId
+    this.uid = uid
   }
 
   private async dispatch<T = unknown>(
@@ -957,5 +967,285 @@ export class TenantNightclubRepository implements NightclubRepository {
 
   async assignCustomer(input: { operationId: string; accountId: string; customerId: string | null }): Promise<any> {
     return this.dispatch('assignCustomer', input.operationId, input)
+  }
+
+  subscribeOperatorContext(
+    uidOrListener: string | ((value: NightclubOperatorContext | null) => void),
+    maybeListener?: (value: NightclubOperatorContext | null) => void,
+    onError?: (err: Error) => void
+  ): Unsubscribe {
+    const targetUid = typeof uidOrListener === 'string' ? uidOrListener : this.uid || ''
+    const listener = typeof uidOrListener === 'function' ? uidOrListener : maybeListener!
+    let active = true
+    let unsub: Unsubscribe | null = null
+    if (!targetUid) {
+      listener(null)
+      return () => { active = false }
+    }
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const docRef = doc(ctx.db, 'tenants', this.tenantId, 'nightclubOperatorContexts', targetUid)
+      unsub = onSnapshot(
+        docRef,
+        snap => {
+          if (!active) return
+          if (snap.exists() && snap.data()?.branchId === this.branchId) {
+            listener({ id: snap.id, ...(snap.data() as Omit<NightclubOperatorContext, 'id'>) })
+          } else {
+            listener(null)
+          }
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCashboxes(listener: (value: NightclubCashbox[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCashboxes')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCashbox, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeLocations(listener: (value: NightclubLocation[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubLocations')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubLocation, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeLocationInventory(locationId: string, listener: (value: NightclubLocationInventorySnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
+    let balances: NightclubInventoryBalance[] = []
+    let lots: NightclubInventoryLot[] = []
+    let active = true
+    let unsubBalances: Unsubscribe | null = null
+    let unsubLots: Unsubscribe | null = null
+
+    const emit = () => {
+      if (!active) return
+      listener({ balances: [...balances], lots: [...lots] })
+    }
+
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const balRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryBalances')
+      unsubBalances = onSnapshot(
+        query(balRef, where('branchId', '==', this.branchId), where('locationId', '==', locationId)),
+        snap => {
+          if (!active) return
+          balances = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryBalance, 'id'>) }))
+          emit()
+        },
+        err => onError?.(err)
+      )
+
+      const lotRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryLots')
+      unsubLots = onSnapshot(
+        query(lotRef, where('branchId', '==', this.branchId), where('locationId', '==', locationId)),
+        snap => {
+          if (!active) return
+          lots = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryLot, 'id'>) }))
+          emit()
+        },
+        err => onError?.(err)
+      )
+    })
+
+    return () => {
+      active = false
+      if (unsubBalances) unsubBalances()
+      if (unsubLots) unsubLots()
+    }
+  }
+
+  subscribeInventoryBalances(listener: (value: NightclubInventoryBalance[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryBalances')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryBalance, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeInventoryLots(listener: (value: NightclubInventoryLot[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryLots')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryLot, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeOpenBottles(listener: (value: NightclubOpenBottle[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubOpenBottles')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubOpenBottle, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeTransfers(listener: (value: NightclubTransfer[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubTransfers')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubTransfer, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCashboxShifts(listener: (value: NightclubShift[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubShifts')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubShift, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  async selectCashbox(input: { operationId: string; cashboxId: string; confirmPending?: boolean }): Promise<{ cashboxId?: string; locationId: string; activeShiftId?: string | null }> {
+    return this.dispatch<{ cashboxId?: string; locationId: string; activeShiftId?: string | null }>('selectCashbox', input.operationId, {
+      cashboxId: input.cashboxId,
+      confirmPending: input.confirmPending === true,
+    })
+  }
+
+  async openCashboxShift(input: { operationId: string; cashboxId: string; openingFloat: number }): Promise<{ shiftId: string; cashboxId?: string }> {
+    return this.dispatch<{ shiftId: string; cashboxId?: string }>('openCashboxShift', input.operationId, {
+      cashboxId: input.cashboxId,
+      openingFloat: input.openingFloat,
+    })
+  }
+
+  async closeCashboxShift(input: { operationId: string; cashboxId: string; shiftId?: string; countedCash: number }): Promise<void> {
+    await this.dispatch('closeShift', input.operationId, {
+      shiftId: input.shiftId,
+      countedCash: input.countedCash,
+    })
+  }
+
+  async receiveWarehouseIntake(input: { operationId: string; receipt: any }): Promise<any> {
+    return this.dispatch('receiveWarehouseIntake', input.operationId, { receipt: input.receipt })
+  }
+
+  async confirmPhysicalCount(input: { operationId: string; count: any }): Promise<any> {
+    return this.dispatch('confirmPhysicalCount', input.operationId, { count: input.count })
+  }
+
+  async requestTransfer(input: { operationId: string; transfer: { lines: Array<{ inventoryId: string; quantity: number; unit: 'unit' | 'ml' | 'g' }> } }): Promise<{ transferId: string; destinationLocationId?: string }> {
+    return this.dispatch<{ transferId: string; destinationLocationId?: string }>('requestTransfer', input.operationId, {
+      transfer: { mode: 'pending_receipt', lines: input.transfer.lines },
+    })
+  }
+
+  async dispatchTransfer(input: { operationId: string; transferId: string }): Promise<{ transferId: string; status?: string } | void> {
+    return this.dispatch<{ transferId: string; status?: string }>('dispatchTransfer', input.operationId, {
+      transferId: input.transferId,
+    })
+  }
+
+  async receiveTransfer(input: { operationId: string; transferId: string }): Promise<{ transferId: string; status?: string } | void> {
+    return this.dispatch<{ transferId: string; status?: string }>('receiveTransfer', input.operationId, {
+      transferId: input.transferId,
+    })
   }
 }

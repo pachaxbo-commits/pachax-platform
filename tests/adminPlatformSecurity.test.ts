@@ -498,17 +498,17 @@ test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun p
 })
 
 test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica estricta', () => {
-  // Distribución y Restaurante están aprobados para aprovisionamiento real de tenants
+  // Distribución, Restaurante y Nightclub están aprobados para aprovisionamiento real de tenants
   assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
+  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
+  assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
 
   // Plantillas no consolidadas para creación de empresas
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
-  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), false)
-  assert.equal(isTemplateProvisioningAvailable('nightclub'), false)
   assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
   assert.equal(isTemplateProvisioningAvailable('retail'), false)
   assert.equal(isTemplateProvisioningAvailable('custom'), false)
@@ -548,23 +548,25 @@ test('22. Seed de configuración oficial: preserva estado oficial y no auto-publ
 })
 
 test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y Restaurant habilitados, coming-soon bloqueados, Custom sin aprovisionamiento y sin fallback silencioso', () => {
-  // Aprovisionamiento habilitado para Distribution y Restaurant
+  // Aprovisionamiento habilitado para Distribution, Restaurant y Nightclub
   assert.equal(isTemplateProvisioningAvailable('distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
+  assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
+  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
 
-  // Demo técnica desacoplada de aprovisionamiento: Distribution disponible, Restaurant bloqueado/coming_soon
+  // Demo técnica desacoplada de aprovisionamiento: Distribution disponible, Restaurant y Nightclub bloqueados/coming_soon
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
   assert.equal(isTechnicalDemoAvailable('route_distribution'), true)
   assert.equal(isTechnicalDemoAvailable('restaurant'), false)
   assert.equal(isTechnicalDemoAvailable('restaurant_pos'), false)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), false)
+  assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), false)
 
   // Coming-soon bloqueados para creación de empresas
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
-  assert.equal(isTemplateProvisioningAvailable('nightclub'), false)
-  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), false)
   assert.equal(isTemplateProvisioningAvailable('retail'), false)
   assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
 
@@ -584,10 +586,11 @@ test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y R
   // Parámetro válido disponible: se selecciona directamente
   assert.equal(resolveInitialRegisterTemplate('route_distribution'), 'route_distribution')
   assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), 'restaurant_pos')
+  assert.equal(resolveInitialRegisterTemplate('nightclub_lounge'), 'nightclub_lounge')
+  assert.equal(resolveInitialRegisterTemplate('nightclub'), 'nightclub')
 
   // Parámetro no disponible / coming-soon: NO debe haber fallback silencioso a Distribution
   assert.equal(resolveInitialRegisterTemplate('hamburger'), '')
-  assert.equal(resolveInitialRegisterTemplate('nightclub'), '')
   assert.equal(resolveInitialRegisterTemplate('retail'), '')
   assert.equal(resolveInitialRegisterTemplate('custom'), '')
   assert.equal(resolveInitialRegisterTemplate('invalid_template'), '')

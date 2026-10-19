@@ -68,7 +68,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/nightclub',
     studioTemplateId: 'nightclub',
     status: 'coming_soon',
-    provisioningStatus: 'coming_soon',
+    provisioningStatus: 'available',
     demoStatus: 'coming_soon',
   },
 ])

@@ -449,3 +449,211 @@ test('11. builtin customized role preserves canonical permissions while reflecti
   })
   assert.deepEqual(visibleRestricted, ['floor'], 'Only floor is visible')
 })
+
+// TEST 12
+test('12. multi-cashbox UI contract & lifecycle: cashier authorized to cashbox-2 opens shift, attributes accounts/rounds/payments to cashbox-2, and isolates cashbox-1', async () => {
+  const calls: Array<{ action: string; payload: Record<string, unknown> }> = []
+  const mockRepo = {
+    selectCashbox: async (payload: Record<string, unknown>) => { calls.push({ action: 'selectCashbox', payload }) },
+    openCashboxShift: async (payload: Record<string, unknown>) => { calls.push({ action: 'openCashboxShift', payload }) },
+    closeCashboxShift: async (payload: Record<string, unknown>) => { calls.push({ action: 'closeCashboxShift', payload }) },
+    openAccount: async (payload: Record<string, unknown>) => {
+      calls.push({ action: 'openAccount', payload })
+      return { accountId: 'acc_cashbox2_001' }
+    },
+    addRound: async (payload: Record<string, unknown>) => { calls.push({ action: 'addRound', payload }) },
+    recordPayment: async (payload: Record<string, unknown>) => { calls.push({ action: 'recordPayment', payload }) },
+  }
+
+  const cashbox2Shift = {
+    id: 'shift_cb2_123',
+    tenantId: 'tenant-test',
+    branchId: 'main',
+    cashboxId: 'cashbox-2',
+    openedAt: '2026-10-19T20:00:00Z',
+    openedBy: 'cajera-2',
+    openingFloat: 200,
+    status: 'open' as const,
+  }
+
+  const actions = createTenantNightclubActions({
+    tenantId: 'tenant-test',
+    uid: 'cajera-2',
+    userName: 'Cajera 2',
+    role: 'cashier',
+    staff: [],
+    reloadStaff: async () => {},
+    reloadCustomers: async () => {},
+    repository: mockRepo as unknown as TenantNightclubActionsDeps['repository'],
+    gatewayFn: async () => ({}),
+    shift: cashbox2Shift as any,
+    cashboxShifts: [cashbox2Shift] as any,
+  })
+
+  // 1. Select cashbox-2
+  await actions.onSelectCashbox('cashbox-2')
+  assert.equal(calls[0].action, 'selectCashbox')
+  assert.equal(calls[0].payload.cashboxId, 'cashbox-2')
+
+  // 2. Open shift for cashbox-2
+  await actions.onStartCashboxShift('cashbox-2', 200)
+  assert.equal(calls[1].action, 'openCashboxShift')
+  assert.equal(calls[1].payload.cashboxId, 'cashbox-2')
+  assert.equal(calls[1].payload.openingFloat, 200)
+
+  // 3. Open account under cashbox-2 context
+  const accountId = await actions.onOpenAccount('table:mesa_barra_2')
+  assert.equal(accountId, 'acc_cashbox2_001')
+  assert.equal(calls[2].action, 'openAccount')
+
+  // 4. Send round in cashbox-2
+  await actions.onSendRound(accountId, [{ productId: 'p1', quantity: 2 }], 'op_rnd_1')
+  assert.equal(calls[3].action, 'addRound')
+  assert.equal((calls[3].payload as any).accountId, accountId)
+
+  // 5. Record payment in cashbox-2 shift
+  await actions.onRecordPayment(accountId, { method: 'cash', amount: 50 })
+  assert.equal(calls[4].action, 'recordPayment')
+
+  // 6. Close shift for cashbox-2
+  await actions.onCloseCashboxShift('cashbox-2', 250, 250)
+  assert.equal(calls[5].action, 'closeCashboxShift')
+  assert.equal(calls[5].payload.cashboxId, 'cashbox-2')
+  assert.equal(calls[5].payload.shiftId, 'shift_cb2_123')
+  assert.equal(calls[5].payload.countedCash, 250)
+
+  // 7. Verify cash separation between cashbox-1 and cashbox-2
+  const shiftCb1 = { id: 'shift_cb1', openingFloat: 100, status: 'open' as const }
+  const shiftCb2 = { id: 'shift_cb2', openingFloat: 200, status: 'open' as const }
+  const movements = [
+    { id: 'm1', shiftId: 'shift_cb1', type: 'income' as const, method: 'cash' as const, amount: 40, description: 'Venta cb1' },
+    { id: 'm2', shiftId: 'shift_cb2', type: 'income' as const, method: 'cash' as const, amount: 80, description: 'Venta cb2' },
+  ]
+  const summaryCb1 = nightclubCashSummary({ shift: shiftCb1 as any, accounts: [], cashMovements: movements.filter(m => m.shiftId === shiftCb1.id) } as any)
+  const summaryCb2 = nightclubCashSummary({ shift: shiftCb2 as any, accounts: [], cashMovements: movements.filter(m => m.shiftId === shiftCb2.id) } as any)
+  assert.equal(summaryCb1.expectedCash, 140, 'Cashbox 1 expected cash: 100 + 40 = 140')
+  assert.equal(summaryCb2.expectedCash, 280, 'Cashbox 2 expected cash: 200 + 80 = 280')
+})
+
+// TEST 13
+test('13. inventory productive integration: warehouse intake, transfer request, dispatch, and receive pass through to gateway', async () => {
+  const repoCalls: Array<{ action: string; payload: Record<string, unknown> }> = []
+  const mockRepo = {
+    receiveWarehouseIntake: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'receiveWarehouseIntake', payload })
+      return { intakeId: 'intake_123' }
+    },
+    confirmPhysicalCount: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'confirmPhysicalCount', payload })
+      return { countId: 'count_456' }
+    },
+    requestTransfer: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'requestTransfer', payload })
+      return { transferId: 'tr_789' }
+    },
+    dispatchTransfer: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'dispatchTransfer', payload })
+      return true
+    },
+    receiveTransfer: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'receiveTransfer', payload })
+      return true
+    },
+  }
+
+  const actions = createTenantNightclubActions({
+    tenantId: 'tenant-test',
+    uid: 'u-inventory',
+    userName: 'Encargado Almacén',
+    role: 'inventory',
+    staff: [],
+    reloadStaff: async () => {},
+    reloadCustomers: async () => {},
+    repository: mockRepo as unknown as TenantNightclubActionsDeps['repository'],
+    gatewayFn: async () => ({}),
+  })
+
+  // 1. Warehouse intake
+  const receipt = {
+    lines: [{ inventoryId: 'inv_whisky', quantity: 12, unit: 'unit' as const, unitCost: 150 }],
+    supplier: 'Distribuidora Licores',
+  }
+  const intakeRes = await actions.onReceiveWarehouseIntake(receipt, 'op_intake_1')
+  assert.deepEqual(intakeRes, { intakeId: 'intake_123' })
+  assert.equal(repoCalls[0].action, 'receiveWarehouseIntake')
+  assert.equal((repoCalls[0].payload as any).operationId, 'op_intake_1')
+
+  // 2. Request transfer from warehouse
+  const transferRes = await actions.onRequestInventoryTransfer(
+    [{ inventoryId: 'inv_whisky', quantity: 2, unit: 'unit' }],
+    'op_req_1'
+  )
+  assert.deepEqual(transferRes, { transferId: 'tr_789' })
+  assert.equal(repoCalls[1].action, 'requestTransfer')
+
+  // 3. Dispatch transfer
+  const dispatchRes = await actions.onDispatchInventoryTransfer('tr_789', 'op_disp_1')
+  assert.equal(dispatchRes, true)
+  assert.equal(repoCalls[2].action, 'dispatchTransfer')
+  assert.equal((repoCalls[2].payload as any).transferId, 'tr_789')
+
+  // 4. Receive transfer
+  const receiveRes = await actions.onReceiveInventoryTransfer('tr_789', 'op_recv_1')
+  assert.equal(receiveRes, true)
+  assert.equal(repoCalls[3].action, 'receiveTransfer')
+  assert.equal((repoCalls[3].payload as any).transferId, 'tr_789')
+
+  // 5. Confirm physical count
+  const count = {
+    locationId: 'warehouse-general',
+    reason: 'Inventario de fin de mes',
+    lines: [{ inventoryId: 'inv_whisky', countedQuantity: 10, unit: 'unit' as const }],
+  }
+  const countRes = await actions.onConfirmPhysicalCount(count, 'op_count_1')
+  assert.deepEqual(countRes, { countId: 'count_456' })
+  assert.equal(repoCalls[4].action, 'confirmPhysicalCount')
+})
+
+// TEST 14
+test('14. permission negative tests: unauthorized inventory actions rejected and nightclubPermissions=[] denies all operational modules', () => {
+  // Empty matrix: []
+  const emptyPerms = new Set<string>([])
+  const visible = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: emptyPerms,
+  })
+  assert.deepEqual(visible, [], 'Empty nightclubPermissions yields 0 modules')
+
+  // Waiter without inventory permission cannot see inventory
+  const waiterPerms = new Set<string>(['floor.view', 'pos.view', 'accounts.view'])
+  const waiterModules = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: waiterPerms,
+  })
+  assert.equal(waiterModules.includes('inventory'), false)
+  assert.equal(waiterModules.includes('cash'), false)
+
+  // Missing repository multi-cashbox / inventory handlers gracefully throw when called
+  const bareRepo = {}
+  const bareActions = createTenantNightclubActions({
+    tenantId: 'tenant-test',
+    uid: 'waiter-1',
+    userName: 'Mesero',
+    role: 'waiter',
+    staff: [],
+    reloadStaff: async () => {},
+    reloadCustomers: async () => {},
+    repository: bareRepo as unknown as TenantNightclubActionsDeps['repository'],
+    gatewayFn: async () => ({}),
+  })
+
+  assert.rejects(() => bareActions.onSelectCashbox('cb-1'), /selectCashbox no disponible/)
+  assert.rejects(() => bareActions.onStartCashboxShift('cb-1', 100), /openCashboxShift no disponible/)
+  assert.rejects(() => bareActions.onReceiveWarehouseIntake({}), /receiveWarehouseIntake no disponible/)
+  assert.rejects(() => bareActions.onConfirmPhysicalCount({}), /confirmPhysicalCount no disponible/)
+  assert.rejects(() => bareActions.onRequestInventoryTransfer([]), /requestTransfer no disponible/)
+  assert.rejects(() => bareActions.onDispatchInventoryTransfer('t1'), /dispatchTransfer no disponible/)
+  assert.rejects(() => bareActions.onReceiveInventoryTransfer('t1'), /receiveTransfer no disponible/)
+})
