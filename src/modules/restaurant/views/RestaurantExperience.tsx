@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -16,6 +16,8 @@ import {
   Printer,
   LogOut,
   Menu,
+  ChevronDown,
+  MoreHorizontal,
 } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
 import { useBackButtonBridge } from '../../../hooks/useBackHandler'
@@ -36,11 +38,17 @@ import { RestaurantProducts } from '../../../demo/restaurant/RestaurantProducts'
 import { RestaurantCustomers } from '../../../demo/restaurant/RestaurantCustomers'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
 import type { CustomerDraft } from '../../../demo/restaurant/RestaurantCustomerForm'
-import { RestaurantUsers } from '../../../demo/restaurant/RestaurantUsers'
+import { RestaurantUsers, type RestaurantMember, type Role } from '../../../demo/restaurant/RestaurantUsers'
 import { RestaurantReports } from '../../../demo/restaurant/RestaurantReports'
 import { RestaurantSettings } from '../../../demo/restaurant/RestaurantSettings'
 import { RestaurantPrinters } from '../../../demo/restaurant/RestaurantPrinters'
 import type { KitchenPrinterConfig } from '../../../demo/restaurant/kitchenPrinterConfig'
+import type { BusinessIdentity } from '../../../core/businessIdentity'
+import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
+import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
+import { orderToReceiptData } from '../../../core/receiptService'
+import { getActiveReceiptPrinter } from '../../../services/printing/printerBootstrap'
+import { PrintEngineService } from '../../../services/printing/printEngineService'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import {
   RESTAURANT_CATEGORIES,
@@ -109,33 +117,33 @@ export interface RestaurantExperienceProps {
   shiftHistory?: RestaurantShift[]
   categories?: typeof RESTAURANT_CATEGORIES
   quickExtras?: typeof RESTAURANT_EXTRAS
-  onStartShift: (amount: number, openedAt: string, openedBy: string) => void
-  onCloseShift: (countedCash?: number) => boolean
-  onAddOrder: (order: Order) => boolean
+  onStartShift: (amount: number, openedAt: string, openedBy: string) => void | Promise<void>
+  onCloseShift: (countedCash?: number) => boolean | Promise<boolean>
+  onAddOrder: (order: Order) => boolean | Promise<boolean>
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
   onAdvanceItemStatus?: (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered') => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
-  onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
-  onOpenTableOrder: (table: RestaurantTable & { customerId?: string; customerName?: string; customerPhone?: string }) => void
-  onSaveCustomer?: (draft: CustomerDraft, id?: string) => RestaurantCustomer | null
-  onArchiveCustomer?: (id: string) => void
-  onAssignCustomer?: (orderId: string, customerId: string | undefined) => void
-  onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void
-  onRequestBill: (tableId: string) => void
-  onReopenBill: (tableId: string) => void
-  onAddProduct: (orderId: string, input: { productId: string; quantity: number; note: string }) => void
-  onPrintBatch: (orderId: string) => boolean
+  onPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void | Promise<void>
+  onOpenTableOrder: (table: RestaurantTable & { customerId?: string; customerName?: string; customerPhone?: string }) => void | Promise<void>
+  onSaveCustomer?: (draft: CustomerDraft, id?: string) => (RestaurantCustomer | null) | Promise<RestaurantCustomer | null>
+  onArchiveCustomer?: (id: string) => void | Promise<void>
+  onAssignCustomer?: (orderId: string, customerId: string | undefined) => void | Promise<void>
+  onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void | Promise<void>
+  onRequestBill: (tableId: string) => void | Promise<void>
+  onReopenBill: (tableId: string) => void | Promise<void>
+  onAddProduct: (orderId: string, input: { productId: string; quantity: number; note: string }) => void | Promise<void>
+  onPrintBatch: (orderId: string) => boolean | Promise<boolean>
   onCreateProduct: (
     tableId: string,
     input: { name: string; categoryName: string; price: number; preparationArea: string },
     orderId?: string
-  ) => void
-  onFloorAction: (action: FloorAction) => { ok: boolean; error?: string }
-  onSaveProducts?: (products: Product[]) => void
+  ) => void | Promise<void>
+  onFloorAction: (action: FloorAction) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
+  onSaveProducts?: (products: Product[]) => void | Promise<void>
   stockMovements?: InventoryMovement[]
-  onInventoryMovement?: (productId: string, nextStock: number, type: Exclude<InventoryMovementType, 'sale' | 'cancellation_return' | 'command_consumption' | 'migration_reconciliation'>, reason: string) => { ok: boolean; error?: string }
-  onCountInventoryItem?: (productId: string, physical: number, note?: string) => void
-  onCancelOrderItem?: (orderId: string, itemId: string, quantity: number) => boolean
+  onInventoryMovement?: (productId: string, nextStock: number, type: Exclude<InventoryMovementType, 'sale' | 'cancellation_return' | 'command_consumption' | 'migration_reconciliation'>, reason: string) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
+  onCountInventoryItem?: (productId: string, physical: number, note?: string) => void | Promise<void>
+  onCancelOrderItem?: (orderId: string, itemId: string, quantity: number) => boolean | Promise<boolean>
   onResetDemo?: () => void
   onSelectRole?: (roleId: string) => void
   onSignOut?: () => void | Promise<void>
@@ -151,6 +159,13 @@ export interface RestaurantExperienceProps {
   themeColors?: RestaurantThemeColors
   onSaveTheme?: (colors: RestaurantThemeColors) => Promise<void> | void
   profile?: RestaurantExperienceProfile
+  members?: RestaurantMember[]
+  onCreateMember?: (data: { name: string; email: string; role: Role; active: boolean; password?: string }) => Promise<void> | void
+  onUpdateMember?: (id: string, data: { name: string; role: Role; active: boolean }) => Promise<void> | void
+  onDeleteMember?: (id: string) => Promise<void> | void
+  businessIdentity?: BusinessIdentity
+  onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
+  onUploadLogo?: (file: File) => Promise<string>
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -160,19 +175,39 @@ const MODULE_DEFINITIONS: Array<{
   roles: string[]
 }> = [
   { id: 'dashboard', label: 'Inicio', icon: LayoutDashboard, roles: ['owner', 'admin', 'cashier'] },
-  { id: 'pos', label: 'POS / Caja', icon: ShoppingCart, roles: ['owner', 'admin', 'cashier', 'waiter'] },
+  { id: 'pos', label: 'POS', icon: ShoppingCart, roles: ['owner', 'admin', 'cashier', 'waiter'] },
   { id: 'orders', label: 'Pedidos', icon: ClipboardList, roles: ['owner', 'admin', 'cashier', 'waiter', 'kitchen'] },
   { id: 'tables', label: 'Mesas', icon: Grid2X2, roles: ['owner', 'admin', 'cashier', 'waiter'] },
   { id: 'kitchen', label: 'Cocina', icon: ChefHat, roles: ['owner', 'admin', 'kitchen'] },
-  { id: 'history', label: 'Historial', icon: History, roles: ['owner', 'admin', 'cashier'] },
-  { id: 'cash', label: 'Caja / Turnos', icon: Wallet, roles: ['owner', 'admin', 'cashier'] },
+  { id: 'cash', label: 'Caja', icon: Wallet, roles: ['owner', 'admin', 'cashier'] },
   { id: 'inventory', label: 'Inventario', icon: Boxes, roles: ['owner', 'admin', 'inventory', 'kitchen'] },
   { id: 'products', label: 'Productos', icon: Package, roles: ['owner', 'admin', 'inventory'] },
   { id: 'customers', label: 'Clientes', icon: Users, roles: ['owner', 'admin', 'cashier', 'waiter'] },
-  { id: 'users', label: 'Usuarios', icon: UserCheck, roles: ['owner', 'admin'] },
   { id: 'reports', label: 'Reportes', icon: BarChart3, roles: ['owner', 'admin'] },
+  { id: 'history', label: 'Historial', icon: History, roles: ['owner', 'admin', 'cashier'] },
+  { id: 'users', label: 'Usuarios', icon: UserCheck, roles: ['owner', 'admin'] },
   { id: 'settings', label: 'Configuración', icon: Settings, roles: ['owner', 'admin'] },
   { id: 'printers', label: 'Impresoras', icon: Printer, roles: ['owner', 'admin', 'cashier'] },
+]
+
+const PRIMARY_MODULE_IDS: RestaurantModuleId[] = [
+  'dashboard',
+  'pos',
+  'orders',
+  'tables',
+  'kitchen',
+  'cash',
+  'inventory',
+  'products',
+  'customers',
+  'reports',
+]
+
+const SECONDARY_MODULE_IDS: RestaurantModuleId[] = [
+  'history',
+  'users',
+  'settings',
+  'printers',
 ]
 
 export function RestaurantExperience({
@@ -226,22 +261,78 @@ export function RestaurantExperience({
   themeColors = DEFAULT_RESTAURANT_THEME,
   onSaveTheme,
   profile = 'restaurant',
+  members,
+  onCreateMember,
+  onUpdateMember,
+  onDeleteMember,
+  businessIdentity,
+  onSaveBusinessIdentity,
+  onUploadLogo,
 }: RestaurantExperienceProps) {
   const isCounterService = profile === 'counter_service'
   const [currentModule, setCurrentModule] = useState<RestaurantModuleId>(
     initialModule ?? (isCounterService ? 'pos' : 'dashboard')
   )
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
+  const [viewingReceiptOrder, setViewingReceiptOrder] = useState<Order | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
-  const [isDesktopNavOpen, setIsDesktopNavOpen] = useState(false)
+  const [isMoreDesktopOpen, setIsMoreDesktopOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
+  const moreDropdownRef = useRef<HTMLDivElement>(null)
   const saleProducts = useMemo(() => stockAwareProducts(products), [products])
+
+  const displayName = businessIdentity?.tradeName || companyName || session.restaurantName || 'Bistró Demo'
+  const effectiveLogoUrl = businessIdentity?.showLogo !== false ? (businessIdentity?.logoUrl || logoUrl) : undefined
+
+  const documentContext = useMemo(
+    () =>
+      buildBusinessDocumentContext(businessIdentity, {
+        companyName: displayName,
+        logoUrl: effectiveLogoUrl,
+        branchName: 'Principal',
+      }),
+    [businessIdentity, displayName, effectiveLogoUrl]
+  )
+
+  useEffect(() => {
+    if (!isMoreDesktopOpen) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreDropdownRef.current && !moreDropdownRef.current.contains(event.target as Node)) {
+        setIsMoreDesktopOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMoreDesktopOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isMoreDesktopOpen])
 
   // Módulos visibles según el rol del usuario (o todos en admin/owner/team)
   const visibleModules = useMemo(() => {
     const role = session.role || 'admin'
+    const counterModules: RestaurantModuleId[] = [
+      'pos',
+      'orders',
+      'kitchen',
+      'cash',
+      'inventory',
+      'products',
+      'customers',
+      'users',
+      'reports',
+      'settings',
+      'printers',
+      'history',
+    ]
     const modules = isCounterService
-      ? MODULE_DEFINITIONS.filter((module) => ['pos', 'cash', 'kitchen', 'customers', 'inventory', 'products', 'history', 'printers'].includes(module.id))
+      ? MODULE_DEFINITIONS.filter((module) => counterModules.includes(module.id))
       : MODULE_DEFINITIONS
     if (role === 'admin' || role === 'owner' || role === 'team') {
       return modules
@@ -249,9 +340,37 @@ export function RestaurantExperience({
     return modules.filter((m) => m.roles.includes(role))
   }, [session.role, isCounterService])
 
+  const primaryModules = useMemo(() => {
+    if (isCounterService) {
+      const counterPrimary: RestaurantModuleId[] = ['pos', 'orders', 'kitchen', 'cash', 'inventory', 'products', 'customers']
+      return visibleModules.filter((m) => counterPrimary.includes(m.id))
+    }
+    return visibleModules.filter((m) => PRIMARY_MODULE_IDS.includes(m.id))
+  }, [visibleModules, isCounterService])
+
+  const secondaryModules = useMemo(() => {
+    if (isCounterService) {
+      const counterSecondary: RestaurantModuleId[] = ['users', 'reports', 'settings', 'printers', 'history']
+      return visibleModules.filter((m) => counterSecondary.includes(m.id))
+    }
+    return visibleModules.filter((m) => SECONDARY_MODULE_IDS.includes(m.id))
+  }, [visibleModules, isCounterService])
+
   const activeModule = visibleModules.some((m) => m.id === currentModule)
     ? currentModule
     : visibleModules[0]?.id ?? 'dashboard'
+
+  useEffect(() => {
+    if (visibleModules.length > 0 && !visibleModules.some((m) => m.id === currentModule)) {
+      const fallback = visibleModules[0].id
+      setCurrentModule(fallback)
+      onModuleChange?.(fallback)
+    }
+  }, [visibleModules, currentModule, onModuleChange])
+
+  const isSecondaryActive = useMemo(() => {
+    return secondaryModules.some((m) => m.id === activeModule)
+  }, [secondaryModules, activeModule])
 
   useBackButtonBridge(() => {
     if (activeModule !== visibleModules[0]?.id) {
@@ -265,7 +384,7 @@ export function RestaurantExperience({
 
   const selectModule = (id: RestaurantModuleId) => {
     setIsMoreOpen(false)
-    setIsDesktopNavOpen(false)
+    setIsMoreDesktopOpen(false)
     if (id === 'printers' && onOpenPrinterSettings) {
       onOpenPrinterSettings()
       return
@@ -290,19 +409,16 @@ export function RestaurantExperience({
       ? 'Inventario'
       : isCounterService ? 'Mostrador' : 'Restaurante'
 
-  const displayName = companyName || session.restaurantName || 'Bistró Demo'
-
   return (
     <div
       className="restaurant-shell flex min-h-[100dvh] w-full min-w-0 flex-col"
       style={restaurantThemeStyle(themeColors)}
     >
       <header className={`restaurant-header ${isCounterService ? 'is-counter-service' : ''}`}>
-        <div className="restaurant-nav-hotspot" onMouseEnter={() => setIsDesktopNavOpen(true)} aria-hidden="true" />
         <div className="restaurant-header-inner">
           <div className="flex min-w-0 items-center gap-2.5">
             <img
-              src={logoUrl || '/brand/pachax-logo.png'}
+              src={effectiveLogoUrl || '/brand/pachax-logo.png'}
               alt={displayName}
               className="h-9 w-11 shrink-0 object-contain rounded-md"
             />
@@ -321,24 +437,95 @@ export function RestaurantExperience({
             <span className={`restaurant-shift-status ${shift ? 'is-open' : 'is-closed'}`}>
               {shift ? 'Turno abierto' : 'Turno cerrado'}
             </span>
-            <button type="button" className="restaurant-menu-toggle" aria-label="Abrir menú" aria-expanded={isDesktopNavOpen || isMoreOpen} onClick={() => { if (window.matchMedia('(min-width: 1024px)').matches) setIsDesktopNavOpen(value => !value); else setIsMoreOpen(true) }}>
-              <Menu size={19} /><span>Menú</span>
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={() => setIsSignOutOpen(true)}
+                className="restaurant-signout-btn inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 transition"
+                title="Cerrar sesión"
+              >
+                <LogOut size={14} />
+                <span className="hidden sm:inline">Salir</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="restaurant-menu-toggle"
+              aria-label="Abrir menú"
+              aria-expanded={isMoreOpen}
+              onClick={() => setIsMoreOpen(true)}
+            >
+              <Menu size={19} />
+              <span>Menú</span>
             </button>
           </div>
         </div>
+
+        {/* Navegación de escritorio: SIEMPRE VISIBLE y fija bajo el header en PC */}
         <nav
-          aria-label={isCounterService ? 'Secciones de Hamburgueser\u00eda' : 'Secciones de Restaurante'}
-          className={`restaurant-top-navigation ${isCounterService || isDesktopNavOpen ? 'is-open' : ''} ${isCounterService ? 'is-counter-service' : ''}`}
-          onMouseEnter={() => setIsDesktopNavOpen(true)}
-          onMouseLeave={(event) => { if (!event.currentTarget.contains(document.activeElement)) setIsDesktopNavOpen(false) }}
-          onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDesktopNavOpen(false) }}
-          onKeyDown={(event) => { if (event.key === 'Escape') { setIsDesktopNavOpen(false); document.querySelector<HTMLButtonElement>('.restaurant-menu-toggle')?.focus() } }}
+          aria-label={isCounterService ? 'Secciones de Mostrador' : 'Navegación principal de restaurante'}
+          className="restaurant-desktop-nav-bar"
         >
-          {visibleModules.map((module) => {
-            const Icon = module.icon
-            return <button key={module.id} type="button" tabIndex={isCounterService || isDesktopNavOpen ? 0 : -1} aria-current={module.id === activeModule ? 'page' : undefined} onClick={() => selectModule(module.id)} className={module.id === activeModule ? 'is-active' : ''}><Icon size={18} /><span>{module.label}</span></button>
-          })}
-          {onSignOut && <button type="button" tabIndex={isDesktopNavOpen ? 0 : -1} onClick={() => { setIsDesktopNavOpen(false); setIsSignOutOpen(true) }}><LogOut size={18} /><span>Salir</span></button>}
+          <div className="restaurant-nav-items-container">
+            {primaryModules.map((module) => {
+              const Icon = module.icon
+              const isActive = module.id === activeModule
+              return (
+                <button
+                  key={module.id}
+                  type="button"
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => selectModule(module.id)}
+                  className={`restaurant-nav-btn ${isActive ? 'is-active' : ''}`}
+                >
+                  <Icon size={15} />
+                  <span>{module.label}</span>
+                </button>
+              )
+            })}
+
+            {secondaryModules.length > 0 && (
+              <div className="restaurant-more-container relative" ref={moreDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsMoreDesktopOpen((prev) => !prev)}
+                  className={`restaurant-nav-btn restaurant-nav-more ${isSecondaryActive ? 'is-active' : ''}`}
+                  aria-expanded={isMoreDesktopOpen}
+                  aria-haspopup="true"
+                >
+                  <MoreHorizontal size={15} />
+                  <span>Más</span>
+                  <ChevronDown
+                    size={12}
+                    className={`transition-transform duration-150 ${isMoreDesktopOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {isMoreDesktopOpen && (
+                  <div className="restaurant-more-dropdown shadow-xl">
+                    {secondaryModules.map((module) => {
+                      const Icon = module.icon
+                      const isActive = module.id === activeModule
+                      return (
+                        <button
+                          key={module.id}
+                          type="button"
+                          onClick={() => {
+                            setIsMoreDesktopOpen(false)
+                            selectModule(module.id)
+                          }}
+                          className={`restaurant-dropdown-item ${isActive ? 'is-active' : ''}`}
+                          aria-current={isActive ? 'page' : undefined}
+                        >
+                          <Icon size={15} />
+                          <span>{module.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </nav>
       </header>
       <div className="restaurant-workspace">
@@ -371,7 +558,7 @@ export function RestaurantExperience({
               userRole={session.role}
               userName={session.userName}
               enabled={!!shift}
-              tables={isCounterService ? [] : visibleTables(tables)}
+              tables={visibleTables(tables)}
 
               customers={customers}
 
@@ -403,7 +590,11 @@ export function RestaurantExperience({
             />
           )}
           {activeModule === 'orders' && (
-            <RestaurantOrders orders={orders} onAdvanceStatus={onAdvanceStatus} />
+            <RestaurantOrders
+              orders={orders}
+              onAdvanceStatus={onAdvanceStatus}
+              onViewReceipt={(order) => setViewingReceiptOrder(order)}
+            />
           )}
           {activeModule === 'kitchen' && (
             <RestaurantKitchen orders={orders} onAdvanceStatus={onAdvanceStatus} onAdvanceItemStatus={onAdvanceItemStatus} />
@@ -437,11 +628,33 @@ export function RestaurantExperience({
           )}
           {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={['owner', 'admin', 'team'].includes(session.role)} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} />}
           {activeModule === 'users' && (
-            <RestaurantUsers currentRole={session.role} onSelectRole={onSelectRole} />
+            <RestaurantUsers
+              currentRole={session.role}
+              onSelectRole={onSelectRole}
+              members={members}
+              onCreateMember={onCreateMember}
+              onUpdateMember={onUpdateMember}
+              onDeleteMember={onDeleteMember}
+            />
           )}
           {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
-          {activeModule === 'settings' && <RestaurantSettings key={`${themeColors.primary}:${themeColors.accent}`} onResetDemo={onResetDemo} themeColors={themeColors} onSaveTheme={onSaveTheme} />}
-          {activeModule === 'printers' && <RestaurantPrinters config={kitchenPrinterConfig} jobs={kitchenPrintJobs} onSave={onSaveKitchenPrinterConfig} onPrintTest={onPrintKitchenTest} onRetry={onRetryKitchenPrint} onReprintLatest={onReprintLatestKitchenTicket} />}
+          {activeModule === 'settings' && (
+            <RestaurantSettings
+              key={`${themeColors.primary}:${themeColors.accent}`}
+              onResetDemo={onResetDemo}
+              themeColors={themeColors}
+              onSaveTheme={onSaveTheme}
+              tables={tables}
+              sectors={sectors}
+              onFloorAction={onFloorAction}
+              isCounterService={isCounterService}
+              businessIdentity={businessIdentity}
+              onSaveBusinessIdentity={onSaveBusinessIdentity}
+              onUploadLogo={onUploadLogo}
+              canManage={['owner', 'admin'].includes(session.role)}
+            />
+          )}
+          {activeModule === 'printers' && <RestaurantPrinters tenantId={session.tenantId} branchId="main" config={kitchenPrinterConfig} jobs={kitchenPrintJobs} onSave={onSaveKitchenPrinterConfig} onPrintTest={onPrintKitchenTest} onRetry={onRetryKitchenPrint} onReprintLatest={onReprintLatestKitchenTicket} />}
         </main>
       </div>
 
@@ -524,6 +737,67 @@ export function RestaurantExperience({
           )}
         </div>
       </Modal>
+
+      {viewingReceiptOrder && (
+        <CanonicalReceiptModal
+          isOpen={!!viewingReceiptOrder}
+          onClose={() => setViewingReceiptOrder(null)}
+          receiptData={orderToReceiptData(
+            viewingReceiptOrder,
+            customers.find((c) => c.id === viewingReceiptOrder.customerId)
+          )}
+          documentContext={documentContext}
+          onPrint={async () => {
+            const printer = getActiveReceiptPrinter(session.tenantId, 'main')
+            if (printer) {
+              await PrintEngineService.getInstance().submitPrintRequest({
+                targetType: 'receipt',
+                orderId: viewingReceiptOrder.id,
+                printerProfileId: printer.id,
+                payload: {
+                  payloadSchemaVersion: 1,
+                  templateVersion: '1.0',
+                  restaurantName: documentContext.companyName,
+                  branchName: documentContext.branchName || 'Principal',
+                  branchAddress: documentContext.address,
+                  branchPhone: documentContext.phone,
+                  logoUrl: documentContext.logoUrl,
+                  headerDetails: documentContext.formattedHeaderLines,
+                  orderId: viewingReceiptOrder.id,
+                  displayNumber: viewingReceiptOrder.displayNumber || viewingReceiptOrder.id.slice(-6).toUpperCase(),
+                  customerName: viewingReceiptOrder.customerName,
+                  customerPhone: viewingReceiptOrder.customerPhone,
+                  deliveryAddress: viewingReceiptOrder.deliveryAddress,
+                  items: viewingReceiptOrder.items.map((item) => ({
+                    productId: item.productId,
+                    name: item.name,
+                    basePrice: item.basePrice ?? (item.lineTotal / (item.quantity || 1)),
+                    quantity: item.quantity,
+                    lineTotal: item.lineTotal,
+                    modifiersText: Array.isArray(item.modifiers)
+                      ? item.modifiers
+                      : item.modifiers?.note
+                      ? [item.modifiers.note]
+                      : undefined,
+                    note: typeof item.modifiers?.note === 'string' ? item.modifiers.note : undefined,
+                  })),
+                  subtotal: viewingReceiptOrder.productSubtotal ?? viewingReceiptOrder.total,
+                  discountTotal: 0,
+                  taxTotal: 0,
+                  deliveryFee: viewingReceiptOrder.deliveryFee || 0,
+                  grandTotal: viewingReceiptOrder.total,
+                  paymentMethod: viewingReceiptOrder.paymentMethod || 'PAGADO',
+                  footerMessage: documentContext.receiptFooter,
+                  showManagedBy: documentContext.showManagedBy,
+                  isCopy: false,
+                  copies: 1,
+                  createdIso: new Date().toISOString(),
+                },
+              })
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

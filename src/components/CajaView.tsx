@@ -739,10 +739,10 @@ export function CajaView({
       }
     })
     setCartItems(loadedCartItems)
-    setOrderSource(counterServiceMode ? 'local' : order.orderSource || 'local')
-    setFulfillmentType(counterServiceMode ? 'pickup' : order.fulfillmentType || (order.orderType === 'delivery' ? 'delivery' : 'table'))
-    setTableInfo(counterServiceMode ? '' : order.tableInfo || '')
-    setTableId(counterServiceMode ? '' : order.tableId || restaurantTables.find(table => table.name === order.tableInfo)?.id || '')
+    setOrderSource(order.orderSource || 'local')
+    setFulfillmentType(order.fulfillmentType || (order.orderType === 'delivery' ? 'delivery' : 'table'))
+    setTableInfo(order.tableInfo || '')
+    setTableId(order.tableId || restaurantTables.find(table => table.name === order.tableInfo)?.id || '')
     setCustomerName(order.customerName || '')
     setCustomerPhone(order.customerPhone || '')
     setCustomerId(order.customerId || '')
@@ -1721,16 +1721,14 @@ export function CajaView({
                                 </div>
 
                                 <div className="flex items-center gap-1.5">
-                                  {product.categoryId === 'hamburguesas' ? (
-                                    <button
-                                      type="button"
-                                      className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold transition ${isExpanded ? 'bg-[var(--primary-soft)] text-[var(--primary)]' : 'text-slate-500 hover:text-slate-900'}`}
-                                      onClick={() => setExpandedLineId(isExpanded ? null : item.lineId)}
-                                    >
-                                      <span>Opciones</span>
-                                      <ChevronDown size={11} className={`transform transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                    </button>
-                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold transition ${isExpanded ? 'bg-[var(--primary-soft)] text-[var(--primary)]' : 'text-slate-500 hover:text-slate-900'}`}
+                                    onClick={() => setExpandedLineId(isExpanded ? null : item.lineId)}
+                                  >
+                                    <span>Opciones</span>
+                                    <ChevronDown size={11} className={`transform transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                  </button>
                                   {hasModifiers && !isExpanded ? (
                                     <span className="text-[9px] text-[var(--primary)] font-bold bg-[var(--primary-soft)] px-1.5 py-0.5 rounded">Personalizado</span>
                                   ) : null}
@@ -1747,8 +1745,8 @@ export function CajaView({
                             </div>
                           </div>
 
-                          {/* Panel expandido — solo para hamburguesas */}
-                          {isExpanded && product.categoryId === 'hamburguesas' ? (
+                          {/* Panel expandido de opciones, extras y notas para cocina */}
+                          {isExpanded ? (
                             <div className="mt-2.5 ml-13 space-y-2 border-t border-border/50 pt-2">
                               {product.options?.length ? (
                                 <div>
@@ -1913,58 +1911,117 @@ export function CajaView({
                 ) : null}
 
                 {/* Entrega */}
-                {counterServiceMode ? (
-                  <div className="rounded-xl border border-border/80 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-                    Entrega: retiro en mostrador
+                <div className="space-y-1 pt-1.5 border-t border-border/50">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Entrega</div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(() => {
+                      const options: Array<{ id: FulfillmentType; label: string; icon: typeof Utensils; disabled?: boolean }> = [
+                        { id: 'table', label: counterServiceMode ? 'Punto entrega' : 'Mesa', icon: Utensils, disabled: !counterServiceMode && (userRole === 'pedidos' || orderSource === 'whatsapp') },
+                        { id: 'pickup', label: 'Para llevar', icon: ShoppingBag },
+                        { id: 'delivery', label: 'Delivery', icon: Truck },
+                      ]
+                      return options.map((option) => {
+                        if (option.disabled) return null
+                        const isActive = fulfillmentType === option.id
+                        const Icon = option.icon
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`rounded-xl border py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                              isActive
+                                ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                                : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                            }`}
+                            onClick={() => {
+                              setFulfillmentType(option.id)
+                              if (!counterServiceMode && option.id === 'table' && restaurantTables.length) {
+                                setPaymentStatus('pending')
+                                setPaymentMethod(null)
+                              }
+                            }}
+                          >
+                            <Icon size={13} />
+                            <span>{option.label}</span>
+                          </button>
+                        )
+                      })
+                    })()}
                   </div>
-                ) : (
-                  <div className="space-y-1 pt-1.5 border-t border-border/50">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Entrega</div>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(() => {
-                        const options: Array<{ id: FulfillmentType; label: string; icon: typeof Utensils; disabled?: boolean }> = [
-                          { id: 'table', label: 'Mesa', icon: Utensils, disabled: userRole === 'pedidos' || orderSource === 'whatsapp' },
-                          { id: 'pickup', label: 'Retiro', icon: ShoppingBag },
-                          { id: 'delivery', label: 'Delivery', icon: Truck },
-                        ]
-                        return options.map((option) => {
-                          if (option.disabled) return null
-                          const isActive = fulfillmentType === option.id
-                          const Icon = option.icon
-                          return (
-                            <button key={option.id} type="button"
-                              className={`rounded-xl border py-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${isActive ? 'border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm' : 'border-border/80 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
-                              onClick={() => {
-                                setFulfillmentType(option.id)
-                                if (option.id === 'table' && restaurantTables.length) { setPaymentStatus('pending'); setPaymentMethod(null) }
-                              }}>
-                              <Icon size={13} /><span>{option.label}</span>
-                            </button>
-                          )
-                        })
-                      })()}
-                    </div>
-                    {fulfillmentType === 'table' ? (
-                      <div className="mt-1.5">
-                        {restaurantTables.length ? (
-                          <select className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]" value={tableId} onChange={(e) => {
-                            const selected = restaurantTables.find((table) => table.id === e.target.value)
-                            setTableId(selected?.id || ''); setTableInfo(selected?.name || '')
-                          }}>
-                            <option value="">Seleccionar mesa</option>
-                            {restaurantTables.filter((table) => !table.archivedAt && table.active !== false).map((table) => (
-                              <option key={table.id} value={table.id} disabled={table.status === 'bill_requested' || table.status === 'reserved'}>
-                                {table.name} ? {table.status === 'available' ? 'Libre' : table.status === 'bill_requested' ? 'Por cerrarse ? reabrir cuenta' : table.status === 'reserved' ? 'Reservada' : 'Ocupada'}
-                              </option>
-                            ))}
+                  {fulfillmentType === 'table' ? (
+                    <div className="mt-1.5">
+                      {counterServiceMode ? (
+                        restaurantTables.length ? (
+                          <select
+                            className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                            value={tableId}
+                            onChange={(e) => {
+                              const selected = restaurantTables.find((table) => table.id === e.target.value)
+                              setTableId(selected?.id || '')
+                              setTableInfo(selected?.name || '')
+                            }}
+                          >
+                            <option value="">Seleccionar punto de entrega / mesa</option>
+                            {restaurantTables
+                              .filter((table) => !table.archivedAt && table.active !== false)
+                              .map((table) => (
+                                <option key={table.id} value={table.id}>
+                                  {table.name}
+                                </option>
+                              ))}
                           </select>
                         ) : (
-                          <input className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900" placeholder="N?mero o referencia de mesa" value={tableInfo} onChange={(e) => setTableInfo(e.target.value)} />
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
+                          <input
+                            className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                            placeholder="Punto de entrega o mesa (ej. Mostrador 1, Mesa 4)"
+                            value={tableInfo}
+                            onChange={(e) => {
+                              setTableInfo(e.target.value)
+                              setTableId('')
+                            }}
+                          />
+                        )
+                      ) : restaurantTables.length ? (
+                        <select
+                          className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900 outline-none transition focus:border-[var(--primary)]"
+                          value={tableId}
+                          onChange={(e) => {
+                            const selected = restaurantTables.find((table) => table.id === e.target.value)
+                            setTableId(selected?.id || '')
+                            setTableInfo(selected?.name || '')
+                          }}
+                        >
+                          <option value="">Seleccionar mesa</option>
+                          {restaurantTables
+                            .filter((table) => !table.archivedAt && table.active !== false)
+                            .map((table) => (
+                              <option
+                                key={table.id}
+                                value={table.id}
+                                disabled={table.status === 'bill_requested' || table.status === 'reserved'}
+                              >
+                                {table.name} ·{' '}
+                                {table.status === 'available'
+                                  ? 'Libre'
+                                  : table.status === 'bill_requested'
+                                  ? 'Por cerrarse — reabrir cuenta'
+                                  : table.status === 'reserved'
+                                  ? 'Reservada'
+                                  : 'Ocupada'}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="w-full rounded-xl border border-border/80 bg-slate-50/70 px-3 py-2 text-xs text-slate-900"
+                          placeholder="Número o referencia de mesa"
+                          value={tableInfo}
+                          onChange={(e) => setTableInfo(e.target.value)}
+                        />
+                      )}
+                    </div>
+                  ) : null}
+                </div>
                 {/* Contacto */}
                 <div className="space-y-1.5 pt-1.5 border-t border-border/50">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Datos de Contacto</div>
@@ -2220,7 +2277,7 @@ export function CajaView({
               <button
                 type="button"
                 className="w-full h-12 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] font-extrabold text-sm flex items-center justify-center gap-2 shadow-md shadow-[var(--primary)]/20 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
-                disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && restaurantTables.length > 0 && !tableId) || submitOrderRef.current}
+                disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && !counterServiceMode && restaurantTables.length > 0 && !tableId) || (fulfillmentType === 'table' && counterServiceMode && restaurantTables.length > 0 && !tableId && !tableInfo.trim()) || submitOrderRef.current}
                 onClick={async () => {
                   if (operationsDisabled || submitOrderRef.current) {
                     setOperationMessage('Debes iniciar un turno antes de realizar operaciones.')
@@ -2367,7 +2424,13 @@ export function CajaView({
                     </>
                   ) : (
                     <>
-                      <span>{editingOrderId ? 'Guardar Cambios' : 'Procesar Pedido'}</span>
+                      <span>
+                        {editingOrderId
+                          ? 'Guardar Cambios'
+                          : counterServiceMode
+                          ? (paymentStatus === 'paid' ? `Cobrar ${formatCurrency(cartTotal)}` : `Confirmar Pedido · ${formatCurrency(cartTotal)}`)
+                          : 'Procesar Pedido'}
+                      </span>
                       <ArrowRight size={17} strokeWidth={2.5} />
                     </>
                   )}

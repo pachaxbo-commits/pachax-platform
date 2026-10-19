@@ -8,11 +8,11 @@ import type {
   PrintJobStorage,
   RequestReprintInput,
   SubmitPrintRequestInput,
-} from '../../types/printing'
-import { IndexedDbPrintJobStorage } from './printJobStorage'
-import { buildReceiptBytes } from './templates/receiptTemplate'
-import { buildKitchenTicketBytes } from './templates/kitchenTicketTemplate'
-import { EscPosBuilder } from './escPosFormatter'
+} from '../../types/printing.ts'
+import { IndexedDbPrintJobStorage } from './printJobStorage.ts'
+import { buildReceiptBytes } from './templates/receiptTemplate.ts'
+import { buildKitchenTicketBytes } from './templates/kitchenTicketTemplate.ts'
+import { EscPosBuilder } from './escPosFormatter.ts'
 
 const LEASE_DURATION_MS = 15000 // 15s lease duration
 
@@ -125,7 +125,9 @@ export class PrintQueueManager {
     // Build raw ESC/POS bytes according to targetType
     let bytes: Uint8Array
     if (job.targetType === 'kitchen_ticket') {
-      bytes = buildKitchenTicketBytes(job.payload, printer.paperWidth)
+      bytes = buildKitchenTicketBytes(job.payload, printer.paperWidth, 'COCINA')
+    } else if (job.targetType === 'bar_ticket') {
+      bytes = buildKitchenTicketBytes(job.payload, printer.paperWidth, 'BARRA')
     } else if (job.targetType === 'drawer_kick') {
       bytes = new EscPosBuilder().init().kickCashDrawer(printer.capabilities.drawerPin || 'pin2').build()
     } else {
@@ -144,7 +146,13 @@ export class PrintQueueManager {
       await adapter.connect(printer)
       await this.storage.update(jobId, { status: 'transmitting' })
 
-      const result = await adapter.sendBytes({ jobId: job.id, bytes, printer })
+      const result = await adapter.sendBytes({
+        jobId: job.id,
+        bytes,
+        printer,
+        jobPayload: job.payload,
+        targetType: job.targetType,
+      })
       await adapter.disconnect()
 
       if (result.success) {

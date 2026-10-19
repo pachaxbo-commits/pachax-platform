@@ -4,7 +4,7 @@ fs.mkdirSync('docs/qa-pachax', { recursive: true })
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing'
-import {collection,getDocs,getDoc,doc,setDoc,writeBatch} from 'firebase/firestore'
+import {collection,getDocs,getDoc,doc,setDoc,deleteDoc,writeBatch} from 'firebase/firestore'
 const req=createRequire(new URL('../../functions/package.json',import.meta.url))
 process.env.FIRESTORE_EMULATOR_HOST='127.0.0.1:8185'
 process.env.FIREBASE_AUTH_EMULATOR_HOST='127.0.0.1:9195'
@@ -60,7 +60,7 @@ try {
  const dispatch=await command(warehouse,'dispatch',{warehouseId:wh,routeId:route,routeName:'QA ruta',distributorUid:seller,distributorName:'QA vendedor',lines:[{productId:pid,quantity:3}]})
  const base={sourceLocation:'route',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,customerId:cust,lines:[{productId:pid,quantity:2,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:20,paymentKind:'credit'}
  await command(seller,'sale',{...base,lines:[{productId:pid,quantity:2,actualUnitPrice:9}],creditAmount:18},'rejected');checks++
- await command(seller,'sale',{...base,customerId:old,creditAmount:0,cashAmount:20,paymentKind:'cash'},'rejected');checks++
+ await command(seller,'sale',{...base,customerId:old,creditAmount:20,cashAmount:0,paymentKind:'credit'},'rejected');checks++
  const sold=await command(seller,'sale',base)
  ok(sold.result.lines[0].costTotal===10,'venta conserva el costo histórico')
  await processCommand(db,root.collection('distOperations').doc(sold.id))
@@ -72,6 +72,8 @@ try {
  await command(admin,'claim',{kind:'return',saleId:sold.id,productId:pid,quantity:1,warehouseId:'central',reason:'Deteriorado',method:'cash'})
  ok((await read('distReceivables',sold.id)).balance===3,'devolución reduce el saldo restante')
  await command(admin,'claim',{kind:'return',saleId:sold.id,productId:pid,quantity:1,warehouseId:'central',reason:'Repetido',method:'cash'},'rejected');checks++
+ await command(warehouse,'closure',{closure:{dispatchId:dispatch.id,products:[{productId:pid,actualReturn:1}]},mode:'warehouse'},'rejected');checks++
+ await command(seller,'closure',{dispatchId:dispatch.id,mode:'declaration',declaredReturns:{[pid]:1},declaredReturnMermas:{[pid]:0},declaredReturnNonSellables:{[pid]:0}})
  const closeInput={closure:{dispatchId:dispatch.id,products:[{productId:pid,actualReturn:1}],physicalCashDeclared:5},mode:'warehouse'}
  await command(warehouse,'closure',closeInput)
  ok((await read('distBalances',`warehouse__${wh}__${pid}`)).quantity===2,'retorno vuelve al almacén de origen y conserva lote')
@@ -86,9 +88,32 @@ try {
  const concurrent=await Promise.allSettled(drafts.map(p=>command(admin,'sale',p)))
  ok(concurrent.filter(r=>r.status==='fulfilled').length===1,'ventas concurrentes no dejan stock negativo')
 
- await assertFails(setDoc(doc(client,'restaurants','pachax','distClosures',`closure_${dispatch.id}`),{physicalCashDeclared:999,expectedCash:999},{merge:true}));checks++
+ const closureDocPath = ['restaurants', 'pachax', 'distClosures', `closure_${dispatch.id}`]
+ const unauthClient = env.unauthenticatedContext().firestore()
+ await assertFails(getDoc(doc(unauthClient, ...closureDocPath))); checks++
+ const foreignTenantClient = env.authenticatedContext(`${prefix}-foreign-tenant-user`).firestore()
+ await assertFails(getDoc(doc(foreignTenantClient, ...closureDocPath))); checks++
+ const otherDistUid = `${prefix}-other-dist`
+ await root.collection('members').doc(otherDistUid).set({ role: 'distributor', active: true, routeId: 'otra-ruta-distinta', displayName: 'QA otro distribuidor' })
+ const otherDistClient = env.authenticatedContext(otherDistUid).firestore()
+ await assertFails(getDoc(doc(otherDistClient, ...closureDocPath))); checks++
+ const whClient = env.authenticatedContext(warehouse).firestore()
+ const otherWhUid = `${prefix}-other-wh`
+ await root.collection('members').doc(otherWhUid).set({ role: 'warehouse', active: true, warehouseId: 'otro-almacen', displayName: 'QA otro almacén' })
+ const otherWhClient = env.authenticatedContext(otherWhUid).firestore()
+ await assertFails(getDoc(doc(otherWhClient, ...closureDocPath))); checks++
+ ok((await getDoc(doc(client, ...closureDocPath))).exists(), 'distribuidor dueño de la ruta puede leer su cierre')
+ ok((await getDoc(doc(whClient, ...closureDocPath))).exists(), 'almacén correspondiente puede leer el cierre')
+ ok((await getDoc(doc(adminClient, ...closureDocPath))).exists(), 'administración puede leer el cierre')
+ await assertFails(setDoc(doc(client, 'restaurants', 'pachax', 'distClosures', `${prefix}-forged-closure`), { restaurantId: 'pachax', routeId: route })); checks++
+ await assertFails(setDoc(doc(adminClient, 'restaurants', 'pachax', 'distClosures', `${prefix}-forged-closure`), { restaurantId: 'pachax', routeId: route })); checks++
+ await assertFails(setDoc(doc(client, ...closureDocPath), { physicalCashDeclared: 999, expectedCash: 999 }, { merge: true })); checks++
+ await assertFails(setDoc(doc(adminClient, ...closureDocPath), { physicalCashDeclared: 999, expectedCash: 999 }, { merge: true })); checks++
+ await assertFails(deleteDoc(doc(client, ...closureDocPath))); checks++
+ await assertFails(deleteDoc(doc(adminClient, ...closureDocPath))); checks++
  await assertFails(setDoc(doc(client,'restaurants','pachax','distProducts',pid),{referencePrice:1},{merge:true}));checks++
- await command(admin,'reopen',{closureId:`closure_${dispatch.id}`});ok((await read('distDispatches',dispatch.id)).status==='open','reapertura administrativa conserva el retorno recibido')
+ await command(admin,'reopen',{closureId:`closure_${dispatch.id}`},'rejected');checks++
+ await command(admin,'reopen',{closureId:`closure_${dispatch.id}`,reason:'Reapertura administrativa QA'});ok((await read('distDispatches',dispatch.id)).status==='open','reapertura administrativa conserva el retorno recibido')
  const status=await command(seller,'creditStatus',{customerId:old});ok(!!status.result.oldestPendingAt,'consulta de crédito funciona con clientes anteriores')
  const foreignDebtId=`${prefix}-foreign-debt`
  await root.collection('distReceivables').doc(foreignDebtId).set({id:foreignDebtId,restaurantId:'pachax',customerId:cust,customerName:'Cliente de otra ruta',routeId:'otra-ruta',distributorUid:'otro-vendedor',originalAmount:12,paidAmount:0,balance:12,status:'OPEN',createdAt:new Date().toISOString(),dayKey:dayKey(new Date())})
@@ -97,6 +122,51 @@ try {
  const foreignCollection=await command(seller,'collection',{receivable:{id:foreignDebtId},amount:2,method:'cash'})
  ok((await read('distReceivables',foreignDebtId)).balance===10,'distribuidor puede cobrar una deuda originada por otra ruta')
  ok(foreignCollection.result.routeId===route&&foreignCollection.result.originRouteId==='otra-ruta','cobro cruzado entra a la caja del cobrador y conserva la ruta original')
+ const cashSaleOld=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:'route-directa',routeName:'Directa',customerId:old,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:10,qrAmount:0,creditAmount:0,paymentKind:'cash'})
+ ok(cashSaleOld.status==='confirmed','venta de contado permitida a cliente con créditos vencidos')
+ const courtesySale=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:'route-directa',routeName:'Directa',lines:[{productId:pid,quantity:1,actualUnitPrice:0}],saleKind:'courtesy',courtesyReason:'Muestra comercial QA',cashAmount:0,qrAmount:0,creditAmount:0,paymentKind:'cash'})
+ ok(courtesySale.result.saleKind==='courtesy'&&courtesySale.result.total===0,'venta de cortesía descuenta stock con total cero')
+ const override=await command(admin,'creditOverride',{customerId:old,reason:'Autorizado QA para cliente especial',days:7})
+ ok(override.result.active===true,'excepción de crédito creada por administración')
+ const creditSaleOverride=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:'route-directa',routeName:'Directa',customerId:old,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:10,paymentKind:'credit'})
+ ok(creditSaleOverride.status==='confirmed'&&creditSaleOverride.result.creditOverrideId===override.result.id,'venta a crédito permitida con excepción activa')
+ const mixedCollection=await command(seller,'collection',{customerId:old,amount:10,method:'mixed',cashAmount:6,qrAmount:4,routeId:route})
+ ok(mixedCollection.result.allocations?.length===2,'cobro mixto aplica FIFO sobre deudas abiertas del cliente')
+ ok(mixedCollection.result.cashAmount===6&&mixedCollection.result.qrAmount===4,'cobro mixto registra desglose exacto')
+ const mixedQrVerificationDoc=['restaurants','pachax','distQrVerifications',`collection_${mixedCollection.id}`]
+ await assertFails(setDoc(doc(adminClient,...mixedQrVerificationDoc),{id:`collection_${mixedCollection.id}`,restaurantId:'pachax',routeId:route,sourceType:'collection',sourceId:mixedCollection.id,amount:10,reference:'REF-BAD-TOTAL',verifiedBy:admin,verifiedAt:new Date().toISOString()}));checks++
+ await setDoc(doc(adminClient,...mixedQrVerificationDoc),{id:`collection_${mixedCollection.id}`,restaurantId:'pachax',routeId:route,sourceType:'collection',sourceId:mixedCollection.id,amount:4,reference:'REF-VALID-QR',verifiedBy:admin,verifiedAt:new Date().toISOString()});checks++
+ ok((await getDoc(doc(adminClient,...mixedQrVerificationDoc))).exists(),'verificación QR de cobro mixto exitosa con monto exacto qrAmount')
+ const debtAId=`${prefix}-debt-A`,debtBId=`${prefix}-debt-B`
+ await root.collection('distReceivables').doc(debtAId).set({id:debtAId,restaurantId:'pachax',customerId:cust,routeId:route,originalAmount:100,paidAmount:0,balance:100,createdAt:'2026-10-01T08:00:00.000Z'})
+ await root.collection('distReceivables').doc(debtBId).set({id:debtBId,restaurantId:'pachax',customerId:cust,routeId:route,originalAmount:50,paidAmount:0,balance:50,createdAt:'2026-10-15T08:00:00.000Z'})
+ const colIndiv=await command(seller,'collection',{receivableId:debtBId,amount:30,method:'cash',routeId:route})
+ ok(colIndiv.result.allocations?.length===1&&colIndiv.result.allocations[0].receivableId===debtBId,'cobro individual genera exactamente 1 allocation')
+ ok((await read('distReceivables',debtAId)).balance===100,'deuda A antigua permanece intacta tras cobro individual en B')
+ ok((await read('distReceivables',debtBId)).balance===20,'deuda B se reduce a 20 tras cobro individual de 30')
+ const colFifo=await command(seller,'collection',{customerId:cust,amount:30,method:'cash',routeId:route})
+ ok(colFifo.result.allocations?.length===1&&colFifo.result.allocations[0].receivableId===debtAId,'cobro FIFO sin receivableId aplica a la deuda más antigua')
+ ok((await read('distReceivables',debtAId)).balance===70,'deuda A antigua se reduce a 70')
+ ok((await read('distReceivables',debtBId)).balance===20,'deuda B permanece en 20')
+ await command(admin,'creditOverride',{customerId:old,reason:'Fecha pasada',validUntil:'2020-01-01T00:00:00Z'},'rejected');checks++
+ await command(admin,'creditOverride',{customerId:old,reason:'Fecha basura',validUntil:'basura'},'rejected');checks++
+ await command(admin,'creditOverride',{customerId:old,reason:'Dias exceso',days:31},'rejected');checks++
+ await command(admin,'creditOverride',{customerId:old,reason:'Dias cero',days:0},'rejected');checks++
+ const statusAfterGrant=await read('distCreditStatus',old)
+ ok(statusAfterGrant?.blocked===false&&statusAfterGrant?.activeOverrideId===override.result.id,'distCreditStatus actualizado con blocked=false tras otorgar excepción')
+ const overdueDebtId = prefix + '-old-overdue'
+ await root.collection('distReceivables').doc(overdueDebtId).set({id:overdueDebtId,restaurantId:'pachax',customerId:old,routeId:route,originalAmount:20,paidAmount:0,balance:20,createdAt:new Date(Date.now()-8*86400000).toISOString()})
+ const revokedOverride=await command(admin,'creditOverride',{overrideId:override.result.id,revoke:true})
+ ok(revokedOverride.result.active===false,'excepción revocada por administración')
+ const statusAfterRevoke=await read('distCreditStatus',old)
+ ok(statusAfterRevoke?.blocked===true&&!statusAfterRevoke?.activeOverrideId,'distCreditStatus actualizado con blocked=true tras revocar excepción')
+ const overrideDocPath=['restaurants','pachax','distCreditOverrides',override.result.id]
+ await assertFails(getDoc(doc(unauthClient,...overrideDocPath)));checks++
+ await assertFails(getDoc(doc(client,...overrideDocPath)));checks++
+ await assertFails(getDoc(doc(whClient,...overrideDocPath)));checks++
+ ok((await getDoc(doc(adminClient,...overrideDocPath))).exists(),'administración puede leer excepción de crédito')
+ await assertFails(setDoc(doc(adminClient,...overrideDocPath),{active:false},{merge:true}));checks++
+ await assertFails(setDoc(doc(client,...overrideDocPath),{active:false},{merge:true}));checks++
  const validPhoto='data:image/jpeg;base64,/9j/2Q=='
  await setDoc(doc(adminClient,'restaurants','pachax','distProducts',pid2),{photoDataUrl:validPhoto},{merge:true});checks++
  await assertFails(setDoc(doc(adminClient,'restaurants','pachax','distProducts',pid2),{photoDataUrl:'data:image/png;base64,AAAA'},{merge:true}));checks++
@@ -139,9 +209,13 @@ try {
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distSales')));checks++
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distCustomers')));checks++
  await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distProducts')));checks++
- const supportSettings={restaurantId:'pachax',companyName:'PACHAX',taxId:'123',address:'QA',phone:'70000000',receiptHeader:'PACHAX',receiptFooter:'Gracias',expiryAlertDays:14,creditBlockDays:7,requireQrVerification:true,defaultPaperWidth:'80mm',updatedAt:new Date().toISOString(),updatedBy:support}
- await setDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'),supportSettings);checks++
- ok((await getDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'))).data().creditBlockDays===7,'Soporte solo puede leer y guardar configuración técnica')
+ await assertFails(getDocs(collection(supportClient,'restaurants','pachax','distClosures')));checks++
+ await assertFails(getDoc(doc(supportClient,'restaurants','pachax','distClosures',`closure_${dispatch.id}`)));checks++
+ const supportSettings={restaurantId:'pachax',expiryAlertDays:14,creditBlockDays:7,requireQrVerification:true,updatedAt:new Date().toISOString(),updatedBy:support}
+ await assertFails(setDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'),supportSettings));checks++
+ const adminSettings={restaurantId:'pachax',expiryAlertDays:14,creditBlockDays:7,requireQrVerification:true,updatedAt:new Date().toISOString(),updatedBy:admin}
+ await setDoc(doc(adminClient,'restaurants','pachax','supportConfig','main'),adminSettings);checks++
+ ok((await getDoc(doc(supportClient,'restaurants','pachax','supportConfig','main'))).data().creditBlockDays===7,'Soporte puede leer configuración técnica pero no modificarla')
  const warehouseClient=env.authenticatedContext(warehouse).firestore()
  for (const [role, roleClient] of [['Administración', adminClient], ['Almacén', warehouseClient], ['Distribuidor', client]]) {
   const settingsQuery=await getDocs(collection(roleClient,'restaurants','pachax','supportConfig'))

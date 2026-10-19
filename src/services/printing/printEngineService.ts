@@ -6,14 +6,79 @@ import type {
   PrintJob,
   PrintJobPayload,
   PrintJobResolution,
+  PrintJobStatus,
   PrintJobStorage,
   PrintJobTarget,
   RequestReprintInput,
   SubmitPrintRequestInput,
-} from '../../types/printing'
-import { getFirebaseRestaurantId } from '../../lib/firebase'
-import { DiagnosticPrinterAdapter } from './diagnosticPrinterAdapter'
-import { PrintQueueManager } from './printQueueManager'
+} from '../../types/printing.ts'
+import { getActiveTenant } from '../../store/activeTenant.ts'
+import { DiagnosticPrinterAdapter } from './diagnosticPrinterAdapter.ts'
+import { PrintQueueManager } from './printQueueManager.ts'
+
+export type PrintJobOutcomeCategory = 'success' | 'pending' | 'uncertain' | 'failed'
+
+export interface PrintJobOutcome {
+  category: PrintJobOutcomeCategory
+  status: PrintJobStatus
+  isSuccess: boolean
+  message: string
+  job?: PrintJob
+}
+
+export function classifyPrintJobOutcome(job: PrintJob, contextLabel: string = 'Impresión'): PrintJobOutcome {
+  switch (job.status) {
+    case 'confirmed':
+      return {
+        category: 'success',
+        status: job.status,
+        isSuccess: true,
+        message: `${contextLabel} confirmada por hardware.`,
+        job,
+      }
+    case 'transmitted':
+    case 'resolved':
+      return {
+        category: 'success',
+        status: job.status,
+        isSuccess: true,
+        message: `${contextLabel} enviada a la impresora.`,
+        job,
+      }
+    case 'queued':
+    case 'routing':
+    case 'formatting':
+    case 'processing':
+    case 'connecting':
+    case 'transmitting':
+    case 'retrying':
+      return {
+        category: 'pending',
+        status: job.status,
+        isSuccess: false,
+        message: 'Impresión pendiente de reintento.',
+        job,
+      }
+    case 'unknown':
+      return {
+        category: 'uncertain',
+        status: job.status,
+        isSuccess: false,
+        message: 'No se pudo confirmar si la impresión salió.',
+        job,
+      }
+    case 'failed':
+    case 'cancelled':
+    default:
+      return {
+        category: 'failed',
+        status: job.status,
+        isSuccess: false,
+        message: `Falló la impresión${job.lastError ? `: ${job.lastError}` : '.'}`,
+        job,
+      }
+  }
+}
 
 export class PrintEngineService {
   private static instance: PrintEngineService | null = null
@@ -38,6 +103,10 @@ export class PrintEngineService {
     this.printers.set(printer.id, printer)
   }
 
+  unregisterPrinterProfile(id: string): void {
+    this.printers.delete(id)
+  }
+
   registerKitchenStation(station: KitchenStation): void {
     this.stations.set(station.id, station)
   }
@@ -50,23 +119,44 @@ export class PrintEngineService {
     return this.printers.get(id)
   }
 
-  listPrinterProfiles(): PrinterProfile[] {
-    return Array.from(this.printers.values()).filter(p => p.restaurantId === getFirebaseRestaurantId())
+  listPrinterProfiles(tenantId?: string, branchId?: string): PrinterProfile[] {
+    const tid = tenantId || getActiveTenant()?.tenantId || ''
+    return Array.from(this.printers.values()).filter(p => {
+      const matchTenant = !tid || p.restaurantId === tid || p.tenantId === tid
+      const matchBranch = !branchId || p.branchId === branchId
+      return matchTenant && matchBranch
+    })
   }
 
   /** Resolves destination printer for target or station */
-  resolveDestinationPrinters(targetType: PrintJobTarget, stationId?: string): { primary: PrinterProfile; backup?: PrinterProfile } {
+  resolveDestinationPrinters(
+    targetType: PrintJobTarget,
+    stationId?: string,
+    tenantId?: string,
+    branchId?: string
+  ): { primary: PrinterProfile; backup?: PrinterProfile } {
     if (stationId && this.stations.has(stationId)) {
       const station = this.stations.get(stationId)!
       const primary = this.printers.get(station.primaryPrinterId)
       const backup = station.backupPrinterId ? this.printers.get(station.backupPrinterId) : undefined
-      if (primary) return { primary, backup }
+      if (primary) {
+        const matchTenant = !tenantId || primary.restaurantId === tenantId || primary.tenantId === tenantId
+        const matchBranch = !branchId || primary.branchId === branchId
+        if (matchTenant && matchBranch) {
+          return { primary, backup }
+        }
+      }
     }
 
-    // Default lookup by role
-    const activePrinters = this.listPrinterProfiles().filter((p) => p.isActive)
-    const roleMatch = activePrinters.find((p) => p.role === (targetType === 'kitchen_ticket' ? 'kitchen' : 'receipt'))
-    const fallback = roleMatch || activePrinters[0] || this.createDefaultFallbackProfile()
+    // Default lookup by role scoped strictly by tenantId and branchId
+    const activePrinters = this.listPrinterProfiles(tenantId, branchId).filter((p) => p.isActive)
+    const roleMatch = activePrinters.find((p) => {
+      if (targetType === 'kitchen_ticket') return p.role === 'kitchen'
+      if (targetType === 'bar_ticket') return p.role === 'bar'
+      if (targetType === 'receipt' || targetType === 'cash_report') return p.role === 'receipt'
+      return false
+    })
+    const fallback = roleMatch || activePrinters.find(p => p.role === 'general') || activePrinters[0] || this.createDefaultFallbackProfile()
 
     return { primary: fallback }
   }
@@ -109,7 +199,13 @@ export class PrintEngineService {
   /** Main entry point for submitting any print request */
   async submitPrintRequest(input: SubmitPrintRequestInput): Promise<PrintJob> {
     const selected = input.printerProfileId ? this.printers.get(input.printerProfileId) : undefined
-    const { primary, backup } = selected ? { primary: selected, backup: undefined } : this.resolveDestinationPrinters(input.targetType, input.stationId)
+    if (selected && input.tenantId && selected.restaurantId !== input.tenantId && selected.tenantId !== input.tenantId) {
+      throw new Error(`La impresora seleccionada no pertenece a la empresa ${input.tenantId}`)
+    }
+    if (selected && input.branchId && selected.branchId !== input.branchId) {
+      throw new Error(`La impresora seleccionada no pertenece a la sucursal ${input.branchId}`)
+    }
+    const { primary, backup } = selected ? { primary: selected, backup: undefined } : this.resolveDestinationPrinters(input.targetType, input.stationId, input.tenantId, input.branchId)
     if (primary.id === 'default-diagnostic') throw new Error('Configura una impresora real antes de imprimir.')
     const adapter = this.queueManager.getAdapter(primary.connectionType)
     if (!adapter) throw new Error('No hay un adaptador disponible para esta impresora.')

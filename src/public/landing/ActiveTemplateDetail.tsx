@@ -5,9 +5,10 @@ import { usePublicRouter } from '../routing/usePublicRouter'
 
 interface ActiveTemplateDetailProps {
   template: CommercialTemplateItem
+  onSelectDemo?: (template: CommercialTemplateItem) => void
 }
 
-export function ActiveTemplateDetail({ template }: ActiveTemplateDetailProps) {
+export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateDetailProps) {
   const { navigate } = usePublicRouter()
 
   const handleUseTemplate = () => {
@@ -19,6 +20,10 @@ export function ActiveTemplateDetail({ template }: ActiveTemplateDetailProps) {
   }
 
   const handleViewDetails = () => {
+    if (onSelectDemo) {
+      onSelectDemo(template)
+      return
+    }
     if (template.demoRoute.startsWith('/demo/')) {
       window.location.assign(template.demoRoute)
     } else if (template.demoRoute.startsWith('http')) {

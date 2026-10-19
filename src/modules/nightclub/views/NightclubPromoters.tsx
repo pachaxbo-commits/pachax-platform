@@ -9,13 +9,13 @@ type Props = {
   role: string
   canManageOverride?: boolean
   canSellOverride?: boolean
-  onSaveEvent: (value: Pick<NightclubPromoterEvent, 'id' | 'name' | 'date' | 'status'>) => boolean
-  onSavePromoter: (value: NightclubPromoter) => boolean
-  onDeletePromoter: (id: string) => boolean
-  onSaveSale: (value: NightclubSaleDraft) => boolean
-  onSaveLoungeSale: (value: NightclubLoungeSaleDraft) => boolean
-  onMarkLoungePaid: (id: string) => boolean
-  onSaveConsumption: (value: NightclubConsumptionDraft) => boolean
+  onSaveEvent: (value: Pick<NightclubPromoterEvent, 'id' | 'name' | 'date' | 'status'>) => boolean | Promise<boolean>
+  onSavePromoter: (value: NightclubPromoter) => boolean | Promise<boolean>
+  onDeletePromoter: (id: string) => boolean | Promise<boolean>
+  onSaveSale: (value: NightclubSaleDraft) => boolean | Promise<boolean>
+  onSaveLoungeSale: (value: NightclubLoungeSaleDraft) => boolean | Promise<boolean>
+  onMarkLoungePaid: (id: string) => boolean | Promise<boolean>
+  onSaveConsumption: (value: NightclubConsumptionDraft) => boolean | Promise<boolean>
 }
 const field = 'w-full min-h-11 rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm text-white'
 const action = 'min-h-10 rounded-xl bg-amber-300 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-40'
@@ -60,7 +60,7 @@ export function NightclubPromoters({ data, role, canManageOverride, canSellOverr
   const hasLegacySales = (data.promoterTicketSales || []).some(sale => !sale.eventId)
   const clearFilters = () => { setSearch(''); setScope('month'); setPeriodDate(localDay()); setEventId(''); setSort('tickets'); setShowInactive(true); setPage(0) }
   const changeTab = (value: 'directory' | 'ranking') => { setTab(value); setSelectedId(''); setPromoterDraft(null); setSaleDraft(null); setLoungeDraft(null); setConsumptionDraft(null) }
-  const saveEvent = () => { if (eventDraft && onSaveEvent(eventDraft)) setEventDraft(null) }
+  const saveEvent = async () => { if (eventDraft && await onSaveEvent(eventDraft)) setEventDraft(null) }
   const sales = (data.promoterTicketSales || []).filter(sale => sale.promoterId === selectedId).slice().sort((a, b) => b.eventDate.localeCompare(a.eventDate) || b.createdAt.localeCompare(a.createdAt))
   const loungeSales = (data.promoterLoungeSales || []).filter(sale => sale.promoterId === selectedId).slice().sort((a, b) => nightclubLoungeReservationDate(b).localeCompare(nightclubLoungeReservationDate(a)) || b.createdAt.localeCompare(a.createdAt))
   const consumptions = (data.promoterConsumptions || []).filter(item => item.promoterId === selectedId).slice().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
@@ -89,10 +89,10 @@ export function NightclubPromoters({ data, role, canManageOverride, canSellOverr
     setLoungeDraft(null)
   }
   const beginConsumption = () => { if (selected) setConsumptionDraft({ id: crypto.randomUUID(), promoterId: selected.id, date: localDay(), concept: '', amount: 0, kind: 'courtesy', notes: '' }) }
-  const savePromoter = () => { if (promoterDraft && onSavePromoter(promoterDraft)) { setSelectedId(promoterDraft.id); setPromoterDraft(null) } }
-  const saveSale = () => { if (saleDraft && onSaveSale(saleDraft)) setSaleDraft(null) }
-  const saveLoungeSale = () => { if (loungeDraft && onSaveLoungeSale(loungeDraft)) setLoungeDraft(null) }
-  const saveConsumption = () => { if (consumptionDraft && onSaveConsumption(consumptionDraft)) setConsumptionDraft(null) }
+  const savePromoter = async () => { if (promoterDraft && await onSavePromoter(promoterDraft)) { setSelectedId(promoterDraft.id); setPromoterDraft(null) } }
+  const saveSale = async () => { if (saleDraft && await onSaveSale(saleDraft)) setSaleDraft(null) }
+  const saveLoungeSale = async () => { if (loungeDraft && await onSaveLoungeSale(loungeDraft)) setLoungeDraft(null) }
+  const saveConsumption = async () => { if (consumptionDraft && await onSaveConsumption(consumptionDraft)) setConsumptionDraft(null) }
 
   return <div className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-black">Relacionadores</h1><p className="text-sm text-slate-400">Equipo comercial, entradas y consumos administrativos.</p></div>{canManage && <button className={action} onClick={() => beginPromoter()}>+ Nuevo relacionador</button>}</header>

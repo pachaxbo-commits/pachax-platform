@@ -109,7 +109,7 @@ export function FulfillmentBadge({ type, tableInfo }: { type: FulfillmentType; t
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-1 text-xs font-black uppercase tracking-wider ${fulfillmentStyles[type] ?? fulfillmentStyles.table}`}>
       <Icon size={13} className="shrink-0" />
-      {type === 'table' ? `MESA ${tableInfo || 'N/D'}` : fulfillmentLabels[type]}
+      {type === 'table' ? (tableInfo ? (tableInfo.toUpperCase().startsWith('MESA') ? tableInfo.toUpperCase() : `MESA ${tableInfo}`) : 'MESA N/D') : fulfillmentLabels[type]}
     </span>
   )
 }

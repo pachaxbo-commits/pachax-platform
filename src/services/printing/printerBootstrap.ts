@@ -1,67 +1,70 @@
-import { AndroidBluetoothSppAdapter } from '../../adapters/printing/androidBluetoothSppAdapter'
-import { AndroidNetworkTcpPrinterAdapter } from '../../adapters/printing/androidNetworkTcpPrinterAdapter'
-import { PrintEngineService } from './printEngineService'
-import type { PrinterProfile } from '../../types/printing'
+import { AndroidBluetoothSppAdapter } from '../../adapters/printing/androidBluetoothSppAdapter.ts'
+import { AndroidNetworkTcpPrinterAdapter } from '../../adapters/printing/androidNetworkTcpPrinterAdapter.ts'
+import { BrowserDialogPrinterAdapter } from '../../adapters/printing/browserDialogPrinterAdapter.ts'
+import { PrintEngineService } from './printEngineService.ts'
+import { getFirebaseRestaurantId } from '../../lib/firebase.ts'
+import type { PrinterProfile } from '../../types/printing.ts'
+import {
+  getPrinterStorageKey,
+  loadPrinterProfiles,
+  persistPrinterProfiles,
+  savePrinterProfileLocal,
+  deletePrinterProfileLocal,
+  getActivePrinterForRole,
+  getActiveReceiptPrinter,
+  getActiveKitchenPrinter,
+  getActiveBarPrinter,
+} from './printerProfiles.ts'
 
-/**
- * Arranque del subsistema de impresion.
- *
- * Hasta ahora el motor solo tenia registrado el adaptador de diagnostico: como
- * `submitPrintRequest` cae en ese adaptador cuando no encuentra uno para el
- * tipo de conexion, cualquier impresion "funcionaba" sin llegar nunca a la
- * impresora. Aqui se registran los adaptadores reales y se recuperan los
- * perfiles guardados, que antes vivian solo en memoria y se perdian al
- * recargar la aplicacion.
- */
-
-const PRINTER_PROFILES_KEY = 'pachax:printer-profiles'
+export {
+  getPrinterStorageKey,
+  loadPrinterProfiles,
+  persistPrinterProfiles,
+  savePrinterProfileLocal,
+  deletePrinterProfileLocal,
+  getActivePrinterForRole,
+  getActiveReceiptPrinter,
+  getActiveKitchenPrinter,
+  getActiveBarPrinter,
+}
 
 let initialized = false
 
-export function loadPrinterProfiles(): PrinterProfile[] {
-  try {
-    const raw = localStorage.getItem(PRINTER_PROFILES_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as PrinterProfile[]) : []
-  } catch {
-    return []
-  }
-}
-
-export function persistPrinterProfiles(profiles: PrinterProfile[]): void {
-  try {
-    localStorage.setItem(PRINTER_PROFILES_KEY, JSON.stringify(profiles))
-  } catch {
-    // Sin almacenamiento local la sesion sigue funcionando en memoria.
-  }
-}
-
-/** Registra un perfil en el motor y lo deja persistido. */
-export function savePrinterProfile(profile: PrinterProfile): void {
-  const engine = PrintEngineService.getInstance()
-  engine.registerPrinterProfile(profile)
-  persistPrinterProfiles([...loadPrinterProfiles().filter(p => p.id !== profile.id), profile])
-}
-
-export function initializePrinting(): void {
-  if (initialized) return
-  initialized = true
+/** Registra un perfil en el motor y lo deja persistido con scope por empresa y sucursal. */
+export function savePrinterProfile(profile: PrinterProfile, tenantId?: string, branchId?: string): void {
+  const tid = tenantId || profile.restaurantId || getFirebaseRestaurantId() || 'principal'
+  const bid = branchId || profile.branchId || 'main'
+  const scopedProfile = savePrinterProfileLocal(profile, tid, bid)
 
   const engine = PrintEngineService.getInstance()
+  engine.registerPrinterProfile(scopedProfile)
+}
 
-  // Adaptadores reales. El de diagnostico sigue registrado como respaldo.
-  engine.registerAdapter(new AndroidBluetoothSppAdapter())
-  engine.registerAdapter(new AndroidNetworkTcpPrinterAdapter())
+/** Elimina un perfil del almacenamiento local y del motor en memoria. */
+export function deletePrinterProfile(profileId: string, tenantId?: string, branchId?: string): void {
+  const tid = tenantId || getFirebaseRestaurantId() || 'principal'
+  const bid = branchId || 'main'
 
-  for (const profile of loadPrinterProfiles()) {
+  const engine = PrintEngineService.getInstance()
+  engine.unregisterPrinterProfile(profileId)
+
+  deletePrinterProfileLocal(profileId, tid, bid)
+}
+
+export function initializePrinting(tenantId?: string, branchId?: string): void {
+  const engine = PrintEngineService.getInstance()
+
+  if (!initialized) {
+    initialized = true
+    // Adaptadores reales de V1
+    engine.registerAdapter(new AndroidBluetoothSppAdapter())
+    engine.registerAdapter(new AndroidNetworkTcpPrinterAdapter())
+    engine.registerAdapter(new BrowserDialogPrinterAdapter())
+  }
+
+  const tid = tenantId || getFirebaseRestaurantId() || 'principal'
+  const bid = branchId || 'main'
+  for (const profile of loadPrinterProfiles(tid, bid)) {
     engine.registerPrinterProfile(profile)
   }
-}
-
-/** Impresora de recibos activa, si hay alguna configurada. */
-export function getActiveReceiptPrinter(): PrinterProfile | null {
-  const profiles = PrintEngineService.getInstance().listPrinterProfiles()
-  const active = profiles.filter((profile) => profile.isActive)
-  return active.find((profile) => profile.role === 'receipt') ?? active[0] ?? null
 }

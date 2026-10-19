@@ -3,18 +3,27 @@ import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { getFirebaseContext } from '../../../lib/firebase'
 import { LEGACY_FUNCTIONS_REGION } from '../../../config/functions'
 
-export interface SupportSettings {
-  companyName: string
-  taxId: string
-  address: string
-  phone: string
-  receiptHeader: string
-  receiptFooter: string
+export interface DistributionOperationalSettings {
   expiryAlertDays: number
   creditBlockDays: number
   requireQrVerification: boolean
-  defaultPaperWidth: '58mm' | '80mm'
+  /** @deprecated Conservado temporalmente sólo para lectura y migración de tenants anteriores */
+  companyName?: string
+  /** @deprecated Conservado temporalmente sólo para lectura y migración */
+  taxId?: string
+  /** @deprecated Conservado temporalmente sólo para lectura y migración */
+  address?: string
+  /** @deprecated Conservado temporalmente sólo para lectura y migración */
+  phone?: string
+  /** @deprecated Conservado temporalmente sólo para lectura y migración */
+  receiptHeader?: string
+  /** @deprecated Conservado temporalmente sólo para lectura y migración */
+  receiptFooter?: string
+  /** @deprecated El ancho de papel ahora pertenece a cada PrinterProfile local */
+  defaultPaperWidth?: '58mm' | '80mm'
 }
+
+export type SupportSettings = DistributionOperationalSettings
 
 export interface ResetPreview {
   requestId: string
@@ -31,17 +40,10 @@ export interface ResetResult {
   completedAt: string
 }
 
-export const DEFAULT_SUPPORT_SETTINGS: SupportSettings = {
-  companyName: 'PACHAX',
-  taxId: '',
-  address: '',
-  phone: '',
-  receiptHeader: 'PACHAX',
-  receiptFooter: 'Gracias por su preferencia',
+export const DEFAULT_SUPPORT_SETTINGS: DistributionOperationalSettings = {
   expiryAlertDays: 14,
   creditBlockDays: 7,
   requireQrVerification: true,
-  defaultPaperWidth: '80mm',
 }
 
 let maintenanceEmulatorConnected = false
@@ -58,22 +60,29 @@ async function callable<TInput, TOutput>(name: string) {
   return httpsCallable<TInput, TOutput>(functions, name)
 }
 
-export async function loadSupportSettings(): Promise<SupportSettings> {
+export async function loadSupportSettings(): Promise<DistributionOperationalSettings> {
   const context = await getFirebaseContext()
   if (!context) throw new Error('Firebase no está configurado.')
   const snapshot = await getDoc(doc(context.db, 'tenants', context.tenantId, 'supportConfig', 'main'))
-  return { ...DEFAULT_SUPPORT_SETTINGS, ...(snapshot.exists() ? snapshot.data() : {}) } as SupportSettings
+  return { ...DEFAULT_SUPPORT_SETTINGS, ...(snapshot.exists() ? snapshot.data() : {}) } as DistributionOperationalSettings
 }
 
-export async function saveSupportSettings(settings: SupportSettings): Promise<void> {
+export async function saveSupportSettings(settings: Partial<DistributionOperationalSettings>): Promise<void> {
   const context = await getFirebaseContext()
   if (!context?.auth.currentUser) throw new Error('Inicia sesión para guardar la configuración.')
-  await setDoc(doc(context.db, 'tenants', context.tenantId, 'supportConfig', 'main'), {
-    ...settings,
-    tenantId: context.tenantId,
-    updatedAt: serverTimestamp(),
-    updatedBy: context.auth.currentUser.uid,
-  })
+  // Solo se persisten las políticas operativas canónicas en supportConfig
+  await setDoc(
+    doc(context.db, 'tenants', context.tenantId, 'supportConfig', 'main'),
+    {
+      tenantId: context.tenantId,
+      expiryAlertDays: Number.isInteger(settings.expiryAlertDays) ? settings.expiryAlertDays : 14,
+      creditBlockDays: Number.isInteger(settings.creditBlockDays) ? settings.creditBlockDays : 7,
+      requireQrVerification: Boolean(settings.requireQrVerification),
+      updatedAt: serverTimestamp(),
+      updatedBy: context.auth.currentUser.uid,
+    },
+    { merge: true }
+  )
 }
 
 export async function prepareCleanDelivery(): Promise<ResetPreview> {

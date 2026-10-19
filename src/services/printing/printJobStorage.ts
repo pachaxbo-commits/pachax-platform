@@ -1,4 +1,4 @@
-import type { PrintJob, PrintJobStorage } from '../../types/printing'
+import type { PrintJob, PrintJobStorage } from '../../types/printing.ts'
 
 const DB_NAME = 'PachaxFlow_Printing'
 const DB_VERSION = 1

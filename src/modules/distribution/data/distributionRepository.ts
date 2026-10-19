@@ -17,12 +17,13 @@ import {
   type WriteBatch,
 } from 'firebase/firestore'
 import { getFirebaseContext } from '../../../lib/firebase'
-import { centralBalanceId, round2, toDayKey } from '../domain/engine'
+import { centralBalanceId, round2, toDayKey, collectionQrAmount } from '../domain/engine'
 import type {
   DistBalance,
   DistWarehouse,
   DistQrVerification,
   DistClosure,
+  DistPhysicalReturnBreakdown,
   DistCollection,
   DistCustomer,
   DistDispatch,
@@ -34,7 +35,7 @@ import type {
   DistSale,
   DistSaleLine,
   DistStockMovement,
-  DistLot, DistTransfer, DistClaim, DistCreditStatus,
+  DistLot, DistTransfer, DistClaim, DistCreditStatus, DistCreditOverride,
   PaymentKind,
   SourceLocation,
 } from '../types'
@@ -68,6 +69,7 @@ export const DIST_COLLECTIONS = {
   collections: 'distCollections',
   expenses: 'distExpenses',
   closures: 'distClosures',
+  creditOverrides: 'distCreditOverrides',
 } as const
 
 const SCHEMA_VERSION = 1
@@ -109,26 +111,58 @@ export async function verifyQr(sourceType: 'sale' | 'collection' | 'claim', sour
     if ((await tx.get(verificationRef)).exists()) return
     const source = await tx.get(docRef(ctx, sourceType === 'sale' ? DIST_COLLECTIONS.sales : sourceType === 'claim' ? 'distClaims' : DIST_COLLECTIONS.collections, sourceId))
     const data = source.data()
-    const amount = sourceType === 'sale' ? data?.qrAmount : sourceType === 'claim' ? data?.qrIn : data?.method === 'qr' ? data.amount : 0
+    const amount = sourceType === 'sale' ? data?.qrAmount : sourceType === 'claim' ? data?.qrIn : collectionQrAmount(data as DistCollection)
     if (!data || !(amount > 0)) throw new Error('No existe un pago QR pendiente para este movimiento.')
     tx.set(verificationRef, { id: `${sourceType}_${sourceId}`, tenantId: ctx.tenantId, routeId: data.routeId,
       sourceType, sourceId, amount, reference: reference.trim(), verifiedBy: ctx.uid, verifiedAt: new Date().toISOString() })
   })
 }
 
+export interface DeclareRouteReturnPayload {
+  dispatchId: string
+  breakdown?: DistPhysicalReturnBreakdown[]
+  declaredBreakdown?: Record<string, DistPhysicalReturnBreakdown>
+  declaredReturns?: Record<string, number>
+  declaredReturnMermas?: Record<string, number>
+  declaredReturnNonSellables?: Record<string, number>
+  declaredReturnNonSellableReasons?: Record<string, string>
+  physicalCashDeclared?: number
+}
+
 /** Declarar retorno no modifica stock; almacen confirma la recepcion posteriormente. */
-export async function declareRouteReturn(dispatch: DistDispatch, quantities: Record<string, number>) {
-  if (Object.values(quantities).some(q => !Number.isFinite(q) || q < 0)) throw new Error('Las cantidades deben ser positivas o cero.')
-  const ctx = await getContext()
-  const id = `closure_${dispatch.id}`
-  const batch = writeBatch(ctx.db)
-  batch.set(docRef(ctx, DIST_COLLECTIONS.closures, id), {
-    id, tenantId: ctx.tenantId, dispatchId: dispatch.id, routeId: dispatch.routeId,
-    distributorUid: dispatch.distributorUid, distributorName: dispatch.distributorName,
-    declaredReturns: quantities, returnDeclaredBy: ctx.uid, returnDeclaredAt: new Date().toISOString(),
-    dayKey: dispatch.dayKey,
-  }, { merge: true })
-  commitInBackground(batch, newOperationId('return_declaration'), 'declaracion de retorno')
+export async function declareRouteReturn(
+  dispatch: DistDispatch,
+  payloadOrQuantities: DeclareRouteReturnPayload | Record<string, number | DistPhysicalReturnBreakdown>,
+  declaredReturnMermas?: Record<string, number>,
+  declaredReturnNonSellables?: Record<string, number>,
+  declaredReturnNonSellableReasons?: Record<string, string>,
+) {
+  let payload: Record<string, unknown>
+  if ('dispatchId' in payloadOrQuantities) {
+    payload = {
+      mode: 'declaration',
+      ...payloadOrQuantities,
+    }
+  } else {
+    const entries = Object.entries(payloadOrQuantities)
+    if (entries.length > 0 && typeof entries[0][1] === 'object') {
+      payload = {
+        mode: 'declaration',
+        dispatchId: dispatch.id,
+        declaredBreakdown: payloadOrQuantities,
+      }
+    } else {
+      payload = {
+        mode: 'declaration',
+        dispatchId: dispatch.id,
+        declaredReturns: payloadOrQuantities as Record<string, number>,
+        declaredReturnMermas: declaredReturnMermas || {},
+        declaredReturnNonSellables: declaredReturnNonSellables || {},
+        declaredReturnNonSellableReasons: declaredReturnNonSellableReasons || {},
+      }
+    }
+  }
+  await submitOperation('closure', payload, newOperationId('return_declaration'))
 }
 const APPLIED_OPERATIONS_KEY = 'pachax_dist_applied_operations'
 
@@ -649,6 +683,8 @@ export interface RegisterSaleInput {
   qrAmount: number
   creditAmount: number
   note?: string
+  saleKind?: 'normal' | 'courtesy'
+  courtesyReason?: string
 }
 
 /**
@@ -667,9 +703,15 @@ export async function registerSale(input: RegisterSaleInput): Promise<DistSale> 
 
 export interface RegisterCollectionInput {
   operationId: string
-  receivable: DistReceivable
+  customerId?: string
+  customerName?: string
+  customerCode?: string
+  receivable?: DistReceivable
+  receivableId?: string
   amount: number
-  method: 'cash' | 'qr'
+  method: 'cash' | 'qr' | 'mixed'
+  cashAmount?: number
+  qrAmount?: number
   collectedByUid: string
   collectedByName: string
   routeId: string
@@ -682,7 +724,30 @@ export interface RegisterCollectionInput {
  */
 export async function registerCollection(input: RegisterCollectionInput): Promise<DistCollection> {
   const context = await getContext()
-  const provisional = { ...baseDocFields(context, new Date().toISOString()), id: input.operationId, operationId: input.operationId, receivableId: input.receivable.id, customerId: input.receivable.customerId, customerName: input.receivable.customerName, routeId: input.routeId, collectedByUid: context.uid, collectedByName: input.collectedByName, amount: input.amount, method: input.method } as DistCollection
+  const customerId = input.customerId || input.receivable?.customerId || ''
+  const customerName = input.customerName || input.receivable?.customerName || ''
+  const customerCode = input.customerCode || input.receivable?.customerCode || ''
+  const receivableId = input.receivableId || input.receivable?.id || ''
+  const provisional = {
+    ...baseDocFields(context, new Date().toISOString()),
+    id: input.operationId,
+    operationId: input.operationId,
+    receivableId,
+    customerId,
+    customerName,
+    customerCode,
+    routeId: input.routeId,
+    collectedByUid: context.uid,
+    collectedByName: input.collectedByName,
+    amount: input.amount,
+    method: input.method,
+    cashAmount: input.cashAmount,
+    qrAmount: input.qrAmount,
+    allocations: [],
+    portfolioBalanceBefore: 0,
+    portfolioBalanceAfter: 0,
+    note: input.note,
+  } as DistCollection
   return submitOperation<DistCollection>('collection', input, input.operationId, provisional)
 }
 
@@ -736,13 +801,13 @@ export interface SaveClosureInput {
  *   de modo que la ruta queda en cero y nunca se descuenta dos veces central.
  */
 export async function saveClosure(input: SaveClosureInput): Promise<string> {
-  await submitOperation('closure', { ...input, mode: input.applyStockReturn ? 'warehouse' : 'money' }, newOperationId('closure'))
+  await submitOperation('closure', { ...input, mode: input.applyStockReturn ? 'warehouse' : 'money', dispatchId: input.closure.dispatchId }, newOperationId('closure'))
   return input.closure.id
 }
 
 /** Reapertura administrativa de una ruta cerrada */
-export async function reopenClosure(closure: DistClosure, _reopenedBy: string): Promise<void> {
-  await submitOperation('reopen', { closureId: closure.id }, newOperationId('reopen'))
+export async function reopenClosure(closure: DistClosure, reason?: string): Promise<void> {
+  await submitOperation('reopen', { closureId: closure.id, reason: reason?.trim() || 'Reapertura administrativa' }, newOperationId('reopen'))
 }
 
 export function subscribeLots(onData: (rows: DistLot[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistLot>(ctx => collectionRef(ctx, 'distLots'), onData, onError) }
@@ -751,6 +816,8 @@ export function subscribeMovements(onData: (rows: DistStockMovement[]) => void, 
 export function subscribeTransfers(onData: (rows: DistTransfer[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistTransfer>(ctx => collectionRef(ctx, 'distTransfers'), onData, onError) }
 export function subscribeClaims(routeId: string | null, onData: (rows: DistClaim[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistClaim>(ctx => routeId ? query(collectionRef(ctx, 'distClaims'), where('routeId', '==', routeId)) : collectionRef(ctx, 'distClaims'), onData, onError) }
 export function subscribeCreditStatus(onData: (rows: DistCreditStatus[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistCreditStatus>(ctx => collectionRef(ctx, 'distCreditStatus'), onData, onError) }
+export function subscribeCreditOverrides(onData: (rows: DistCreditOverride[]) => void, onError?: (error: Error) => void) { return subscribeQuery<DistCreditOverride>(ctx => collectionRef(ctx, 'distCreditOverrides'), onData, onError) }
+export async function submitCreditOverride(input: { customerId?: string; reason?: string; days?: number; validUntil?: string; revoke?: boolean; overrideId?: string }) { return submitOperation<DistCreditOverride>('creditOverride', input, newOperationId('override')) }
 export async function registerClaim(payload: Record<string, unknown>, operationId: string) { return submitOperation<DistClaim>('claim', payload, operationId) }
 
 export function dismissSyncError() {

@@ -5,7 +5,7 @@ import type {
   PrinterProfile,
   PrintResult,
   PrintTransportPayload,
-} from '../../types/printing'
+} from '../../types/printing.ts'
 
 export type DiagnosticMockBehavior =
   | 'success_transmitted'

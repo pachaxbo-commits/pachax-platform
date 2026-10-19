@@ -1,4 +1,4 @@
-import { toDayKey } from '../domain/engine'
+import { toDayKey, collectionQrAmount } from '../domain/engine'
 import { useState } from 'react'
 import { Check, CheckCircle2 } from 'lucide-react'
 import { Screen } from '../../../components/ui/Screen'
@@ -16,7 +16,7 @@ export function QrView({ session, data }: DistributionViewProps) {
   const [busy, setBusy] = useState(false)
   const rows = [
     ...data.sales.filter(s => s.qrAmount > 0 && !s.pendingConfirmation).map(s => ({ id: s.id, type: 'sale' as const, amount: s.qrAmount, name: s.customerName || 'Cliente ocasional', at: s.createdAt })),
-    ...data.collections.filter(c => c.method === 'qr' && !c.pendingConfirmation).map(c => ({ id: c.id, type: 'collection' as const, amount: c.amount, name: c.customerName, at: c.createdAt })),
+    ...data.collections.filter(c => collectionQrAmount(c) > 0 && !c.pendingConfirmation).map(c => ({ id: c.id, type: 'collection' as const, amount: collectionQrAmount(c), name: c.customerName, at: c.createdAt })),
     ...data.claims.filter(c => c.qrIn > 0 && session.dayKeys.includes(toDayKey(c.createdAt))).map(c => ({ id:c.id, type:'claim' as const, amount:c.qrIn, name:c.customerName, at:c.createdAt })),
   ].sort((a, b) => b.at.localeCompare(a.at))
   const requiresVerification = data.supportSettings.requireQrVerification

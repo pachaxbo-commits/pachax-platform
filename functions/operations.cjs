@@ -1,7 +1,39 @@
 const { hasPermission, legacyMember, audit } = require('./authorization.cjs');
 const scopeMetadata = root => ({ [root.parent.id === 'tenants' ? 'tenantId' : 'restaurantId']: root.id });
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
-const round = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const round = (n) => {
+  const r = Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+  return r === 0 ? 0 : r;
+};
+const roundAt = (n, precision = 2) => {
+  const factor = 10 ** precision;
+  return Math.round((Number(n) + Number.EPSILON) * factor) / factor;
+};
+
+function splitAllocationsByAmounts(allocations, amounts) {
+  const groups = amounts.map(() => []);
+  let groupIndex = 0;
+  let remaining = roundAt(amounts[0] || 0, 3);
+  for (const allocation of allocations || []) {
+    let quantity = roundAt(allocation.quantity, 3);
+    while (quantity > 0.0001) {
+      while (groupIndex < amounts.length && remaining <= 0.0001) {
+        groupIndex += 1;
+        remaining = roundAt(amounts[groupIndex] || 0, 3);
+      }
+      check(groupIndex < amounts.length, "No se pudieron distribuir los lotes del retorno.");
+      const part = roundAt(Math.min(quantity, remaining), 3);
+      if (part > 0) groups[groupIndex].push({ ...allocation, quantity: part });
+      quantity = roundAt(quantity - part, 3);
+      remaining = roundAt(remaining - part, 3);
+    }
+  }
+  check(
+    Math.abs(roundAt((allocations || []).reduce((sum, part) => sum + part.quantity, 0), 3) - roundAt(amounts.reduce((sum, value) => sum + value, 0), 3)) < 0.001,
+    "Las asignaciones de lotes no coinciden con las cantidades recibidas."
+  );
+  return groups;
+}
 class BusinessError extends Error {}
 const check = (condition, message) => {
   if (!condition) throw new BusinessError(message);
@@ -53,7 +85,9 @@ class Operation {
     const key = `${col}/${id}`;
     if (!this.cache.has(key)) {
       const snap = await this.tx.get(this.ref(col, id));
-      this.cache.set(key, snap.exists ? { ...snap.data(), id: snap.id } : null);
+      const raw = snap.exists ? { ...snap.data(), id: snap.id } : null;
+      const data = raw && col === "members" && this.root.parent.id === "tenants" ? legacyMember(raw) : raw;
+      this.cache.set(key, data);
     }
     return this.cache.get(key);
   }
@@ -98,7 +132,7 @@ class Operation {
     check(p && p.active !== false, "El producto no está activo.");
     return p;
   }
-  amount(q, p, negative = false) {
+  amount(q, p, negative = false, precision = 2) {
     check(
       Number.isFinite(q) && (negative ? q !== 0 : q > 0),
       "Cantidad inválida.",
@@ -107,7 +141,7 @@ class Operation {
       p.unitType === "kg" || Number.isInteger(q),
       "Paquetes y unidades requieren cantidades enteras.",
     );
-    return round(q);
+    return roundAt(q, precision);
   }
   async loadStock(pid, loc) {
     const p = await this.read("distProducts", pid);
@@ -173,15 +207,55 @@ class Operation {
     }
     return entry;
   }
-  move(entry, loc, delta) {
+  move(entry, loc, delta, precision = 2) {
     const b = entry.balances.get(loc);
-    b.quantity = round(b.quantity + delta);
+    b.quantity = roundAt(b.quantity + delta, precision);
     check(b.quantity >= 0, "Stock insuficiente.");
     b.updatedAt = this.now;
   }
-  async take(pid, loc, quantity, { allowExpired = false, lotId } = {}) {
+  async take(pid, loc, quantity, { allowExpired = false, lotId, allocationsRequested, precision: requestedPrecision } = {}) {
     const e = await this.loadStock(pid, loc);
-    quantity = this.amount(quantity, e.p);
+    const precision = requestedPrecision ?? (e.p.unitType === "kg" ? 3 : 2);
+    quantity = roundAt(this.amount(quantity, e.p, false, precision), precision);
+
+    if (Array.isArray(allocationsRequested)) {
+      check(allocationsRequested.length > 0, "Distribuye la cantidad entre uno o más lotes.");
+      const seen = new Set();
+      const requested = allocationsRequested.map((part) => {
+        check(part?.lotId && !seen.has(part.lotId), "No repitas el mismo lote en un producto.");
+        seen.add(part.lotId);
+        const requestedQuantity = roundAt(this.amount(part.quantity, e.p, false, precision), precision);
+        check(requestedQuantity > 0, "La cantidad asignada a cada lote debe ser mayor a cero.");
+        const lot = e.lots.find((row) => row.id === part.lotId);
+        check(lot && lot.productId === pid, "El lote no pertenece al producto seleccionado.");
+        check(
+          allowExpired || (!lot.quarantined && (!lot.expiresOn || lot.expiresOn >= this.today)),
+          "El lote está vencido o en cuarentena."
+        );
+        check(
+          roundAt(lot.quantities?.[loc] || 0, precision) >= requestedQuantity,
+          `El lote ${lot.lotCode || lot.id} no tiene cantidad suficiente.`
+        );
+        return { lot, quantity: requestedQuantity };
+      });
+      check(
+        Math.abs(roundAt(requested.reduce((sum, part) => sum + part.quantity, 0), precision) - quantity) < 1 / 10 ** precision,
+        "La distribución por lotes debe coincidir con la cantidad total."
+      );
+      const allocations = requested.map(({ lot, quantity: requestedQuantity }) => {
+        lot.quantities[loc] = roundAt(lot.quantities[loc] - requestedQuantity, precision);
+        return {
+          lotId: lot.id,
+          lotCode: lot.lotCode,
+          expiresOn: lot.expiresOn,
+          quantity: requestedQuantity,
+          productionCost: lot.productionCost ?? null,
+        };
+      });
+      this.move(e, loc, -quantity, precision);
+      return allocations;
+    }
+
     const lots = e.lots
       .filter(
         (l) =>
@@ -196,16 +270,16 @@ class Operation {
           a.id.localeCompare(b.id),
       );
     check(
-      round(lots.reduce((s, l) => s + (l.quantities[loc] || 0), 0)) >= quantity,
+      roundAt(lots.reduce((s, l) => s + (l.quantities[loc] || 0), 0), precision) >= quantity,
       `Stock apto insuficiente de ${e.p.name}. Revisa lotes vencidos o cantidades.`,
     );
     let remaining = quantity;
     const allocations = [];
     for (const l of lots) {
       if (remaining <= 0) break;
-      const q = round(Math.min(remaining, l.quantities[loc]));
-      l.quantities[loc] = round(l.quantities[loc] - q);
-      remaining = round(remaining - q);
+      const q = roundAt(Math.min(remaining, l.quantities[loc]), precision);
+      l.quantities[loc] = roundAt(l.quantities[loc] - q, precision);
+      remaining = roundAt(remaining - q, precision);
       allocations.push({
         lotId: l.id,
         lotCode: l.lotCode,
@@ -214,40 +288,44 @@ class Operation {
         productionCost: l.productionCost ?? null,
       });
     }
-    this.move(e, loc, -quantity);
+    this.move(e, loc, -quantity, precision);
     return allocations;
   }
-  async moveStock(pid, from, to, q) {
+  async moveStock(pid, from, to, q, options = {}) {
     const e = await this.loadStock(pid, from);
     await this.loadStock(pid, to);
-    const parts = await this.take(pid, from, q);
+    const precision = options.precision ?? (e.p.unitType === "kg" ? 3 : 2);
+    const parts = await this.take(pid, from, q, options);
     for (const a of parts) {
       const l = e.lots.find((x) => x.id === a.lotId);
-      l.quantities[to] = round((l.quantities[to] || 0) + a.quantity);
+      l.quantities[to] = roundAt((l.quantities[to] || 0) + a.quantity, precision);
     }
-    this.move(e, to, q);
+    this.move(e, to, q, precision);
     return parts;
   }
-  ledger(pid, q, from, to, type, extra = {}) {
+  ledger(pid, q, from, to, type, extra = {}, requestedPrecision) {
     const e = this.stock.get(pid);
+    const precision = requestedPrecision ?? (e.p.unitType === "kg" ? 3 : 2);
     const id = `${this.id}__${this.sequence++}`;
-    this.put("distStockMovements", id, {
+    const m = {
       id,
       ...this.base(),
       type,
       productId: pid,
       productName: e.p.name,
       unitType: e.p.unitType,
-      quantity: Math.abs(q),
+      quantity: roundAt(Math.abs(q), precision),
       fromLocation: from || "",
       toLocation: to || "",
-      centralDelta: round(
+      centralDelta: roundAt(
         (to && !to.startsWith("route__") ? q : 0) -
           (from && !from.startsWith("route__") ? q : 0),
+        precision,
       ),
-      routeDelta: round(
+      routeDelta: roundAt(
         (to?.startsWith("route__") ? q : 0) -
           (from?.startsWith("route__") ? q : 0),
+        precision,
       ),
       routeId: (from?.startsWith("route__")
         ? from
@@ -260,7 +338,9 @@ class Operation {
       responsibleName: this.member.displayName || this.actor,
       responsibleRole: this.member.role,
       ...extra,
-    });
+    };
+    this.put("distStockMovements", id, m);
+    return m;
   }
   flush() {
     for (const e of this.stock.values()) {
@@ -375,22 +455,67 @@ async function dispatch(o, p, addition = false) {
   check(Array.isArray(p.lines) && p.lines.length, "Agrega productos.");
   const lines = [];
   for (const l of p.lines) {
-    const allocations = await o.moveStock(l.productId, from, to, l.quantity);
-    const product = o.stock.get(l.productId).p;
+    const stockEntry = await o.loadStock(l.productId, from);
+    const product = stockEntry.p;
+    const hasDispatchMerma = Object.prototype.hasOwnProperty.call(l, "dispatchMerma");
+    const normalQuantity = hasDispatchMerma ? Number(l.normalQuantity) : Number(l.quantity);
+    const dispatchMerma = hasDispatchMerma ? Number(l.dispatchMerma) : 0;
+    check(
+      Number.isFinite(normalQuantity) && normalQuantity > 0,
+      "La cantidad debe ser mayor a cero.",
+    );
+    check(
+      Number.isFinite(dispatchMerma) && dispatchMerma >= 0,
+      "La merma de despacho no puede ser negativa.",
+    );
+    if (product.unitType !== "kg") {
+      check(dispatchMerma === 0, "La merma adicional solo aplica a productos por kg.");
+      check(Number.isInteger(normalQuantity), "Paquetes y unidades requieren cantidades enteras.");
+    }
+    const physicalQuantity = round(normalQuantity + dispatchMerma);
+    if (l.physicalQuantity !== undefined) {
+      check(
+        round(Number(l.physicalQuantity)) === physicalQuantity,
+        "El total físico no coincide con normal más merma.",
+      );
+    }
+    const options = Array.isArray(l.allocationsRequested)
+      ? { allocationsRequested: l.allocationsRequested }
+      : l.lotId
+        ? { lotId: l.lotId }
+        : {};
+
+    const allocations = await o.moveStock(l.productId, from, to, physicalQuantity, options);
+    let mermaParts = [];
+    if (dispatchMerma > 0) {
+      const [, mParts] = splitAllocationsByAmounts(allocations, [normalQuantity, dispatchMerma]);
+      mermaParts = mParts;
+    }
     lines.push({
       productId: l.productId,
       productName: product.name,
       unitType: product.unitType,
-      quantity: l.quantity,
+      quantity: physicalQuantity,
+      normalQuantity,
+      dispatchMerma,
+      physicalQuantity,
       allocations,
+      dispatchMermaAllocations: mermaParts,
     });
     o.ledger(
       l.productId,
-      l.quantity,
+      physicalQuantity,
       from,
       to,
       addition ? "dispatch_addition" : "dispatch",
-      { refId: current?.id || o.id, allocations },
+      {
+        refId: current?.id || o.id,
+        allocations,
+        normalQuantity,
+        dispatchMerma,
+        physicalQuantity,
+        note: hasDispatchMerma ? `Traslado físico a ruta; ${normalQuantity} normal + ${dispatchMerma} merma adicional.` : "",
+      },
     );
   }
   if (addition) {
@@ -434,6 +559,13 @@ async function sale(o, p) {
       (o.member.role === "distributor" ? "route" : "centralWarehouse"),
     "Origen de venta no autorizado.",
   );
+  const isCourtesy = p.saleKind === "courtesy";
+  if (isCourtesy) {
+    check(
+      typeof p.courtesyReason === "string" && p.courtesyReason.trim().length >= 4,
+      "La venta de cortesía requiere un motivo de al menos 4 caracteres.",
+    );
+  }
   const loc =
     o.member.role === "distributor"
       ? location("route", o.member.routeId)
@@ -450,23 +582,33 @@ async function sale(o, p) {
     const c = await o.read("distClosures", `closure_${d.id}`);
     check(!c?.warehouseClosedBy, "Ya se recibió el retorno de la ruta.");
   }
+  let activeOverride = null;
   if (p.customerId) {
     const c = await o.read("distCustomers", p.customerId);
     check(c?.active, "El cliente está inactivo.");
     check(c.identityNumber, "Completa el CI del cliente antes de vender.");
-    const debts = await o.query("distReceivables", "customerId", p.customerId);
-    const supportConfig = await o.read("supportConfig", "main");
-    const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
-      ? supportConfig.creditBlockDays
-      : 7;
-    check(
-      !debts.some(
+    if (!isCourtesy && Number(p.creditAmount) > 0) {
+      const debts = await o.query("distReceivables", "customerId", p.customerId);
+      const supportConfig = await o.read("supportConfig", "main");
+      const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
+        ? supportConfig.creditBlockDays
+        : 7;
+      const isOverdue = debts.some(
         (d) =>
           d.balance > 0 &&
           new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now(),
-      ),
-      `Venta bloqueada: el cliente tiene créditos pendientes de ${creditBlockDays} días o más.`,
-    );
+      );
+      if (isOverdue) {
+        const overrides = await o.query("distCreditOverrides", "customerId", p.customerId);
+        activeOverride = overrides
+          .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= o.now))
+          .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
+        check(
+          Boolean(activeOverride),
+          `Venta a crédito bloqueada: el cliente tiene créditos pendientes de ${creditBlockDays} días o más. Requiere autorización de administración.`,
+        );
+      }
+    }
     p.customerName = c.name;
     p.customerCode = c.identityNumber;
   }
@@ -474,41 +616,68 @@ async function sale(o, p) {
   const lines = [];
   for (const l of p.lines) {
     const product = await o.product(l.productId);
-    check(
-      o.member.role === "admin" ||
-        round(l.actualUnitPrice) === round(product.referencePrice),
-      "El vendedor no puede modificar el precio. Revisa el precio vigente.",
-    );
-    check(
-      Number.isFinite(l.actualUnitPrice) && l.actualUnitPrice >= 0,
-      "Precio inválido.",
-    );
+    if (!isCourtesy) {
+      check(
+        o.member.role === "admin" ||
+          round(l.actualUnitPrice) === round(product.referencePrice),
+        "El vendedor no puede modificar el precio. Revisa el precio vigente.",
+      );
+      check(
+        Number.isFinite(l.actualUnitPrice) && l.actualUnitPrice >= 0,
+        "Precio inválido.",
+      );
+    }
     const allocations = await o.take(l.productId, loc, l.quantity);
     const known = allocations.every((a) => a.productionCost !== null);
+    const actualUnitPrice = isCourtesy ? 0 : round(l.actualUnitPrice);
+    const subtotal = isCourtesy ? 0 : round(l.quantity * actualUnitPrice);
+    const referenceUnitPriceSnapshot = round(product.referencePrice || 0);
+    const referenceSubtotal = round(l.quantity * referenceUnitPriceSnapshot);
+    const costTotal = known
+      ? round(
+          allocations.reduce((s, a) => s + a.quantity * a.productionCost, 0),
+        )
+      : null;
     lines.push({
       productId: l.productId,
       productNameSnapshot: product.name,
       unitType: product.unitType,
       quantity: l.quantity,
-      actualUnitPrice: round(l.actualUnitPrice),
-      subtotal: round(l.quantity * l.actualUnitPrice),
+      actualUnitPrice,
+      subtotal,
+      referenceUnitPriceSnapshot,
+      referenceSubtotal,
       allocations,
-      costTotal: known
-        ? round(
-            allocations.reduce((s, a) => s + a.quantity * a.productionCost, 0),
-          )
-        : null,
+      costTotal,
     });
-    o.ledger(l.productId, l.quantity, loc, null, "sale", { allocations });
+    o.ledger(l.productId, l.quantity, loc, null, isCourtesy ? "courtesy" : "sale", {
+      allocations,
+      note: isCourtesy ? p.courtesyReason.trim() : undefined,
+    });
   }
-  const total = round(lines.reduce((n, l) => n + l.subtotal, 0));
-  check(
-    [p.cashAmount, p.qrAmount, p.creditAmount].every(
-      (x) => Number.isFinite(x) && x >= 0,
-    ) && Math.abs(total - p.cashAmount - p.qrAmount - p.creditAmount) < 0.01,
-    "Los pagos no coinciden con el total.",
-  );
-  check(!p.creditAmount || p.customerId, "El crédito necesita un cliente.");
+  const total = isCourtesy ? 0 : round(lines.reduce((n, l) => n + l.subtotal, 0));
+  if (isCourtesy) {
+    p.cashAmount = 0;
+    p.qrAmount = 0;
+    p.creditAmount = 0;
+  } else {
+    check(
+      [p.cashAmount, p.qrAmount, p.creditAmount].every(
+        (x) => Number.isFinite(x) && x >= 0,
+      ) && Math.abs(total - p.cashAmount - p.qrAmount - p.creditAmount) < 0.01,
+      "Los pagos no coinciden con el total.",
+    );
+    check(!p.creditAmount || p.customerId, "El crédito necesita un cliente.");
+  }
+  const courtesyReferenceValue = isCourtesy
+    ? round(lines.reduce((s, l) => s + (l.referenceSubtotal || 0), 0))
+    : undefined;
+  const courtesyCostTotal = isCourtesy
+    ? (lines.every((l) => l.costTotal !== null)
+        ? round(lines.reduce((s, l) => s + (l.costTotal || 0), 0))
+        : null)
+    : undefined;
+
   const s = {
     id: o.id,
     ...o.base(),
@@ -524,14 +693,29 @@ async function sale(o, p) {
     customerCode: p.customerCode || "",
     lines,
     total,
-    paymentKind: p.paymentKind,
-    cashAmount: p.cashAmount,
-    qrAmount: p.qrAmount,
-    creditAmount: p.creditAmount,
+    paymentKind: isCourtesy ? "cash" : p.paymentKind,
+    cashAmount: isCourtesy ? 0 : p.cashAmount,
+    qrAmount: isCourtesy ? 0 : p.qrAmount,
+    creditAmount: isCourtesy ? 0 : p.creditAmount,
     note: p.note || "",
+    saleKind: isCourtesy ? "courtesy" : "normal",
+    ...(isCourtesy
+      ? {
+          courtesyReason: p.courtesyReason.trim(),
+          courtesyReferenceValue,
+          courtesyCostTotal,
+        }
+      : {}),
+    ...(activeOverride
+      ? {
+          creditOverrideId: activeOverride.id || "",
+          creditOverrideReason: activeOverride.reason || "",
+          creditOverrideValidUntil: activeOverride.validUntil || "",
+        }
+      : {}),
   };
   o.put("distSales", o.id, s);
-  if (p.creditAmount > 0)
+  if (!isCourtesy && p.creditAmount > 0)
     o.put("distReceivables", o.id, {
       id: o.id,
       ...o.base(),
@@ -551,47 +735,236 @@ async function sale(o, p) {
   return s;
 }
 async function collection(o, p) {
-  const r = await o.read("distReceivables", p.receivable.id);
-  check(r, "La deuda no existe.");
   check(
-    o.member.role === "admin" ||
-      o.member.role === "distributor",
+    ["admin", "distributor"].includes(o.member.role),
     "No puedes cobrar esta deuda.",
   );
-  check(
-    Number.isFinite(p.amount) && p.amount > 0 && p.amount <= r.balance,
-    "El cobro supera el saldo pendiente.",
-  );
-  check(["cash", "qr"].includes(p.method), "Método de pago inválido.");
-  r.paidAmount = round(r.paidAmount + p.amount);
-  r.balance = round(r.balance - p.amount);
-  r.status = r.balance === 0 ? "PAID" : "PARTIAL";
-  o.put("distReceivables", r.id, r);
+  check(["cash", "qr", "mixed"].includes(p.method), "Método de pago inválido.");
+  check(Number.isFinite(p.amount) && p.amount > 0, "Monto inválido.");
+  const amount = round(p.amount);
+  let cashAmount = 0;
+  let qrAmount = 0;
+  if (p.method === "cash") {
+    cashAmount = amount;
+  } else if (p.method === "qr") {
+    qrAmount = amount;
+  } else if (p.method === "mixed") {
+    check(Number.isFinite(p.cashAmount) && p.cashAmount > 0, "Monto en efectivo inválido.");
+    check(Number.isFinite(p.qrAmount) && p.qrAmount > 0, "Monto en QR inválido.");
+    cashAmount = round(p.cashAmount);
+    qrAmount = round(p.qrAmount);
+    check(
+      Math.abs(round(cashAmount + qrAmount) - amount) < 0.01,
+      "La suma de efectivo y QR debe coincidir con el monto total cobrado.",
+    );
+  }
+
+  let sortedDebts = [];
+  let customerId = p.customerId || "";
+  let customerName = p.customerName || "";
+  let customerCode = p.customerCode || "";
+
+  const specificReceivableId = p.receivable?.id || p.receivableId;
+  if (specificReceivableId) {
+    const r = await o.read("distReceivables", specificReceivableId);
+    check(r && r.balance > 0, "La deuda no existe o ya está pagada.");
+    check(amount <= r.balance, "El cobro supera el saldo de la deuda.");
+    sortedDebts = [r];
+    customerId = r.customerId || p.customerId || "";
+    customerName = r.customerName || p.customerName || "";
+    customerCode = r.customerCode || p.customerCode || "";
+  } else if (p.customerId) {
+    const cust = await o.read("distCustomers", p.customerId);
+    check(cust, "Cliente no encontrado.");
+    customerId = cust.id;
+    customerName = cust.name;
+    customerCode = cust.customerCode || cust.identityNumber || "";
+    const rows = await o.query("distReceivables", "customerId", p.customerId);
+    sortedDebts = rows
+      .filter((r) => r.balance > 0)
+      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "") || a.id.localeCompare(b.id));
+    check(sortedDebts.length > 0, "El cliente no tiene deudas pendientes.");
+  } else {
+    check(false, "Debes indicar la deuda o el cliente a cobrar.");
+  }
+
+  const portfolioBalanceBefore = round(sortedDebts.reduce((sum, d) => sum + d.balance, 0));
+  check(amount <= portfolioBalanceBefore, "El cobro supera el saldo pendiente.");
+
+  let remainingToApply = amount;
+  const allocations = [];
+
+  for (const d of sortedDebts) {
+    if (remainingToApply <= 0.0001) break;
+    const applied = round(Math.min(remainingToApply, d.balance));
+    const balanceBefore = d.balance;
+    const balanceAfter = round(balanceBefore - applied);
+    d.paidAmount = round((d.paidAmount || 0) + applied);
+    d.balance = balanceAfter;
+    d.status = balanceAfter === 0 ? "PAID" : "PARTIAL";
+    o.put("distReceivables", d.id, d);
+    allocations.push({
+      receivableId: d.id,
+      saleId: d.saleId || "",
+      originRouteId: d.routeId || "",
+      balanceBefore,
+      appliedAmount: applied,
+      balanceAfter,
+    });
+    remainingToApply = round(remainingToApply - applied);
+  }
+
+  const portfolioBalanceAfter = round(portfolioBalanceBefore - amount);
   const collectionRouteId =
-    o.member.role === "distributor" ? o.member.routeId : p.routeId || r.routeId;
+    o.member.role === "distributor" ? o.member.routeId : p.routeId || sortedDebts[0]?.routeId || "central";
   check(collectionRouteId, "El cobrador no tiene una ruta asignada.");
+
   const c = {
     id: o.id,
     ...o.base(),
     operationId: o.id,
-    receivableId: r.id,
-    saleLines: r.saleLines || [],
-    customerId: r.customerId,
-    customerName: r.customerName,
-    customerCode: r.customerCode || "",
-    // El efectivo pertenece a la ruta del usuario que lo recibe. Se conserva
-    // aparte la ruta donde nació la deuda para auditoría de la venta original.
-    routeId: collectionRouteId,
-    originRouteId: r.routeId,
-    collectedByUid: o.actor,
-    collectedByName: o.member.displayName || o.actor,
-    amount: p.amount,
+    receivableId: sortedDebts.length === 1 ? sortedDebts[0].id : (allocations[0]?.receivableId || ""),
+    allocations,
+    portfolioBalanceBefore,
+    portfolioBalanceAfter,
+    customerId: customerId || "",
+    customerName: customerName || "",
+    customerCode: customerCode || "",
+    saleLines: sortedDebts[0]?.saleLines || [],
+    routeId: collectionRouteId || "",
+    originRouteId: sortedDebts[0]?.routeId || collectionRouteId || "",
+    collectedByUid: o.actor || "",
+    collectedByName: o.member.displayName || o.actor || "",
+    amount,
     method: p.method,
+    cashAmount,
+    qrAmount,
     note: p.note || "",
   };
   o.put("distCollections", o.id, c);
   return c;
 }
+
+async function calculateAndSaveCreditStatus(o, customerId) {
+  const c = await o.read("distCustomers", customerId);
+  if (!c) return null;
+  const rows = await o.query("distReceivables", "customerId", c.id);
+  if (o.writes) {
+    for (const [key, write] of o.writes.entries()) {
+      if (key.startsWith("distReceivables/")) {
+        const docId = key.slice("distReceivables/".length);
+        const idx = rows.findIndex((r) => r.id === docId);
+        if (write.data.customerId === c.id) {
+          if (idx >= 0) rows[idx] = { ...rows[idx], ...write.data, id: docId };
+          else rows.push({ ...write.data, id: docId });
+        }
+      }
+    }
+  }
+  const openDebts = rows.filter((r) => r.balance > 0);
+  const dates = openDebts.map((r) => r.createdAt).sort();
+  const oldestPendingAt = dates[0] || null;
+
+  const supportConfig = await o.read("supportConfig", "main");
+  const creditBlockDays = Number.isInteger(supportConfig?.creditBlockDays)
+    ? supportConfig.creditBlockDays
+    : 7;
+  const overdueDebts = openDebts.filter(
+    (d) => new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now()
+  );
+  const overdueDates = overdueDebts.map((d) => d.createdAt).sort();
+  const overduePendingAt = overdueDates[0] || null;
+
+  const overrides = await o.query("distCreditOverrides", "customerId", c.id);
+  if (o.writes) {
+    for (const [key, write] of o.writes.entries()) {
+      if (key.startsWith("distCreditOverrides/")) {
+        const docId = key.slice("distCreditOverrides/".length);
+        const idx = overrides.findIndex((ov) => ov.id === docId);
+        if (write.data.customerId === c.id) {
+          if (idx >= 0) overrides[idx] = { ...overrides[idx], ...write.data, id: docId };
+          else overrides.push({ ...write.data, id: docId });
+        }
+      }
+    }
+  }
+  const activeOverride = overrides
+    .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= o.now))
+    .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
+
+  const blocked = overdueDebts.length > 0 && !activeOverride;
+
+  const status = {
+    id: c.id,
+    ...scopeMetadata(o.root),
+    oldestPendingAt,
+    overduePendingAt,
+    creditBlockDays,
+    blocked,
+    activeOverrideId: activeOverride?.id || null,
+    overrideValidUntil: activeOverride?.validUntil || null,
+    overrideReason: activeOverride?.reason || null,
+    checkedAt: o.now,
+  };
+  o.put("distCreditStatus", c.id, status);
+  return status;
+}
+
+async function creditOverride(o, p) {
+  o.admin();
+  if (p.revoke || p.action === "revoke") {
+    check(p.overrideId, "overrideId requerido.");
+    const ov = await o.read("distCreditOverrides", p.overrideId);
+    check(ov && ov.active !== false, "La excepción no está activa o ya fue revocada.");
+    const revoked = {
+      ...ov,
+      active: false,
+      revokedAt: o.now,
+      revokedBy: o.actor,
+      revokedByName: o.member.displayName || o.actor,
+      revokeReason: p.reason?.trim() || "Revocado por administración.",
+    };
+    o.put("distCreditOverrides", ov.id, revoked);
+    await calculateAndSaveCreditStatus(o, ov.customerId);
+    return revoked;
+  }
+
+  check(p.customerId, "customerId requerido.");
+  const cust = await o.read("distCustomers", p.customerId);
+  check(cust && cust.active !== false, "Cliente inexistente o inactivo.");
+  check(typeof p.reason === "string" && p.reason.trim().length >= 4, "El motivo de la excepción debe tener al menos 4 caracteres.");
+
+  let validUntil = "";
+  if (p.validUntil !== undefined && p.validUntil !== null && p.validUntil !== "") {
+    check(typeof p.validUntil === "string", "Fecha de vigencia inválida.");
+    const parsedTime = Date.parse(p.validUntil);
+    check(Number.isFinite(parsedTime), "Fecha de vigencia inválida.");
+    check(parsedTime > Date.now(), "La fecha de vigencia debe ser futura.");
+    validUntil = new Date(parsedTime).toISOString();
+  } else if (p.days !== undefined && p.days !== null) {
+    check(Number.isInteger(p.days) && p.days >= 1 && p.days <= 30, "Los días de vigencia deben ser un entero entre 1 y 30.");
+    validUntil = new Date(Date.now() + p.days * 86400000).toISOString();
+  } else {
+    validUntil = new Date(Date.now() + 7 * 86400000).toISOString();
+  }
+  check(validUntil && typeof validUntil === "string" && validUntil.length > 0, "Fecha de vigencia requerida.");
+
+  const ov = {
+    id: o.id,
+    ...o.base(),
+    customerId: cust.id,
+    customerName: cust.name,
+    reason: p.reason.trim(),
+    validFrom: o.now,
+    validUntil,
+    createdByName: o.member.displayName || o.actor,
+    active: true,
+  };
+  o.put("distCreditOverrides", o.id, ov);
+  await calculateAndSaveCreditStatus(o, cust.id);
+  return ov;
+}
+
 const handlers = {
   intake,
   transfer,
@@ -599,6 +972,7 @@ const handlers = {
   addition: (o, p) => dispatch(o, p, true),
   sale,
   collection,
+  creditOverride,
 };
 async function processCommand(db, ref) {
   return db.runTransaction(async (tx) => {
@@ -618,7 +992,7 @@ async function processCommand(db, ref) {
       let member = membership.data();
       if (tenantScoped) {
         const [tenant, platform, maintenance] = await Promise.all([tx.get(root), tx.get(db.doc('platformOperators/' + command.createdBy)), tx.get(root.collection('maintenanceState').doc('reset'))]);
-        const permission = ({ sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage' })[command.type];
+        const permission = ({ sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage', creditOverride: 'settings.manage' })[command.type];
         check(tenant.data()?.businessType === 'route_distribution' && permission && hasPermission(tenant.data(), member, permission), 'Sin permiso para esta operación.');
         check(command.tenantId === root.id, 'Empresa de la operación inválida.');
         check(platform.data()?.active !== true && maintenance.data()?.active !== true, 'Operación no permitida durante soporte o mantenimiento.');
@@ -752,7 +1126,162 @@ async function deleteProduct(o, p) {
   return { id: product.id, deleted: true };
 }
 async function closure(o, p) {
-  const requested = p.closure;
+  if (p.mode === "declaration") {
+    const d = await o.read("distDispatches", p.dispatchId);
+    check(d?.status === "open", "La ruta ya no está abierta para declarar el retorno.");
+    check(
+      o.member.role === "distributor" && d.distributorUid === o.actor,
+      "Solo el distribuidor asignado puede declarar el retorno de esta ruta.",
+    );
+    const id = `closure_${d.id}`;
+    const previous = (await o.read("distClosures", id)) || {};
+    check(
+      !previous.returnDeclaredAt && !previous.warehouseClosedBy,
+      "La devolución ya fue declarada o confirmada por almacén.",
+    );
+
+    const loadedMap = new Map();
+    for (const line of d.lines || []) {
+      const q = line.physicalQuantity ?? line.quantity;
+      loadedMap.set(line.productId, round((loadedMap.get(line.productId) || 0) + q));
+    }
+    for (const add of d.additions || []) {
+      for (const line of add.quantityByProduct || []) {
+        const q = line.physicalQuantity ?? line.quantity;
+        loadedMap.set(line.productId, round((loadedMap.get(line.productId) || 0) + q));
+      }
+    }
+
+    const declaredReturns = {};
+    const declaredReturnMermas = {};
+    const declaredReturnNonSellables = {};
+    const declaredReturnNonSellableReasons = {};
+    const declaredBreakdown = {};
+
+    let breakdownList = null;
+    if (Array.isArray(p.breakdown)) {
+      breakdownList = p.breakdown;
+    } else if (Array.isArray(p.declaredBreakdown)) {
+      breakdownList = p.declaredBreakdown;
+    } else if (p.declaredBreakdown && typeof p.declaredBreakdown === "object") {
+      breakdownList = Object.entries(p.declaredBreakdown).map(([productId, val]) => {
+        if (typeof val === "number") {
+          return { productId, normalReturn: val, recoverableMerma: 0, nonSellableReturn: 0, nonSellableReason: "" };
+        }
+        return { productId, ...val };
+      });
+    }
+
+    if (breakdownList) {
+      check(breakdownList.length === loadedMap.size, "Declara el retorno de todos los productos de la ruta.");
+      for (const item of breakdownList) {
+        check(item?.productId && loadedMap.has(item.productId), "Producto inválido en la declaración.");
+        const product = await o.product(item.productId);
+        const normal = Number(item.normalReturn ?? item.actualReturn ?? 0);
+        const merma = Number(item.recoverableMerma ?? item.returnMerma ?? 0);
+        const nonSellable = Number(item.nonSellableReturn ?? item.returnWaste ?? 0);
+        const reason = String(item.nonSellableReason ?? item.returnWasteReason ?? "").trim();
+
+        check(Number.isFinite(normal) && normal >= 0, "El retorno normal debe ser válido y no negativo.");
+        check(Number.isFinite(merma) && merma >= 0, "La merma debe ser válida y no negativa.");
+        check(Number.isFinite(nonSellable) && nonSellable >= 0, "El no apto debe ser válido y no negativo.");
+        if (product.unitType !== "kg") {
+          check(Number.isInteger(normal) && Number.isInteger(nonSellable) && merma === 0, "Paquetes y unidades requieren cantidades enteras sin merma.");
+        }
+        check(nonSellable === 0 || reason.length > 0, "Indica el motivo del producto no apto devuelto.");
+
+        const totalPhysical = round(normal + merma + nonSellable);
+        declaredReturns[item.productId] = normal;
+        declaredReturnMermas[item.productId] = merma;
+        declaredReturnNonSellables[item.productId] = nonSellable;
+        if (reason) declaredReturnNonSellableReasons[item.productId] = reason;
+        declaredBreakdown[item.productId] = {
+          productId: item.productId,
+          normalReturn: normal,
+          recoverableMerma: merma,
+          nonSellableReturn: nonSellable,
+          nonSellableReason: reason,
+          totalPhysicalReturn: totalPhysical,
+        };
+      }
+    } else {
+      const rawDeclared = p.declaredReturns;
+      check(
+        rawDeclared && typeof rawDeclared === "object" && !Array.isArray(rawDeclared),
+        "Falta la declaración del retorno.",
+      );
+      check(
+        Object.keys(rawDeclared).length === loadedMap.size &&
+          [...loadedMap.keys()].every((pid) => Object.prototype.hasOwnProperty.call(rawDeclared, pid)),
+        "Declara el retorno de todos los productos de la ruta.",
+      );
+      const rawMermas = p.declaredReturnMermas || {};
+      const rawNonSellables = p.declaredReturnNonSellables || {};
+      const rawReasons = p.declaredReturnNonSellableReasons || {};
+
+      for (const pid of loadedMap.keys()) {
+        const product = await o.product(pid);
+        const normal = Number(rawDeclared[pid]);
+        const merma = Number(rawMermas[pid] || 0);
+        const nonSellable = Number(rawNonSellables[pid] || 0);
+        const reason = String(rawReasons[pid] || "").trim();
+
+        check(Number.isFinite(normal) && normal >= 0, "El retorno normal debe ser válido y no negativo.");
+        check(Number.isFinite(merma) && merma >= 0, "La merma debe ser válida y no negativa.");
+        check(Number.isFinite(nonSellable) && nonSellable >= 0, "El no apto debe ser válido y no negativo.");
+        if (product.unitType !== "kg") {
+          check(Number.isInteger(normal) && Number.isInteger(nonSellable) && merma === 0, "Paquetes y unidades requieren cantidades enteras sin merma.");
+        }
+        check(nonSellable === 0 || reason.length > 0, "Indica el motivo del producto no apto devuelto.");
+
+        const totalPhysical = round(normal + merma + nonSellable);
+        declaredReturns[pid] = normal;
+        declaredReturnMermas[pid] = merma;
+        declaredReturnNonSellables[pid] = nonSellable;
+        if (reason) declaredReturnNonSellableReasons[pid] = reason;
+        declaredBreakdown[pid] = {
+          productId: pid,
+          normalReturn: normal,
+          recoverableMerma: merma,
+          nonSellableReturn: nonSellable,
+          nonSellableReason: reason,
+          totalPhysicalReturn: totalPhysical,
+        };
+      }
+    }
+
+    const c = {
+      ...previous,
+      id,
+      ...o.base(),
+      dispatchId: d.id,
+      warehouseId: d.warehouseId || "central",
+      routeId: d.routeId,
+      routeName: d.routeName,
+      distributorUid: d.distributorUid,
+      distributorName: d.distributorName,
+      status: previous.status || "draft",
+      declaredReturns,
+      declaredReturnMermas,
+      declaredReturnNonSellables,
+      declaredReturnNonSellableReasons,
+      declaredBreakdown,
+      returnDeclaredBy: o.actor,
+      returnDeclaredAt: o.now,
+      dayKey: d.dayKey,
+      ...(p.physicalCashDeclared !== undefined
+        ? {
+            physicalCashDeclared: round(Number(p.physicalCashDeclared)),
+            cashDeclaredBy: o.actor,
+            cashDeclaredAt: o.now,
+          }
+        : {}),
+    };
+    o.put("distClosures", id, c);
+    return c;
+  }
+
+  const requested = p.closure || p;
   const d = await o.read("distDispatches", requested.dispatchId);
   check(d?.status === "open", "La ruta ya está cerrada.");
   const id = `closure_${d.id}`,
@@ -763,6 +1292,7 @@ async function closure(o, p) {
   if (p.mode === "warehouse") {
     o.owns(warehouse);
     check(!previous.warehouseClosedBy, "El retorno ya se confirmó.");
+    check(previous.returnDeclaredAt, "El distribuidor debe declarar el retorno antes de la recepción de almacén.");
     const ids = [
       ...new Set(
         [
@@ -772,46 +1302,180 @@ async function closure(o, p) {
       ),
     ];
     const rows = [];
+    const warehouseBreakdown = {};
+    const physicalEvidence = [];
+
     for (const pid of ids) {
       const e = await o.loadStock(pid, route);
       await o.loadStock(pid, warehouse);
       const expected = e.balances.get(route).quantity;
-      const actual = requested.products?.find(
-        (r) => r.productId === pid,
-      )?.actualReturn;
-      check(
-        Number.isFinite(actual) && actual >= 0,
-        "Completa las cantidades de retorno.",
-      );
-      const received = Math.min(expected, actual);
-      const parts =
-        received > 0
-          ? await o.take(pid, route, received, { allowExpired: true })
+      const wb = requested.warehouseBreakdown;
+      const returnList = Array.isArray(requested.products)
+        ? requested.products
+        : Array.isArray(wb)
+          ? wb
+          : (wb && typeof wb === "object" ? Object.values(wb) : []);
+      const returnRow = returnList.find((r) => r.productId === pid) || (wb && typeof wb === "object" ? wb[pid] : null) || {};
+
+      const normalReturn = round(Number(returnRow.normalReturn ?? returnRow.actualReturn ?? 0));
+      const recoverableMerma = round(Number(returnRow.recoverableMerma ?? returnRow.returnMerma ?? 0));
+      const nonSellableReturn = round(Number(returnRow.nonSellableReturn ?? returnRow.returnWaste ?? 0));
+      const nonSellableReason = String(returnRow.nonSellableReason ?? returnRow.returnWasteReason ?? "").trim();
+
+      check(Number.isFinite(normalReturn) && normalReturn >= 0, "Completa el retorno normal.");
+      check(Number.isFinite(recoverableMerma) && recoverableMerma >= 0, "Merma inválida.");
+      check(Number.isFinite(nonSellableReturn) && nonSellableReturn >= 0, "No apto inválido.");
+      if (e.p.unitType !== "kg") {
+        check(
+          Number.isInteger(normalReturn) && Number.isInteger(nonSellableReturn) && recoverableMerma === 0,
+          "Paquetes y unidades requieren cantidades enteras sin merma.",
+        );
+      }
+      check(nonSellableReturn === 0 || nonSellableReason.length > 0, "Indica el motivo del producto no apto devuelto.");
+
+      const warehousePhysical = round(normalReturn + recoverableMerma + nonSellableReturn);
+      if (returnRow.physicalReturn !== undefined || returnRow.totalPhysicalReturn !== undefined) {
+        const expectedTotal = round(Number(returnRow.physicalReturn ?? returnRow.totalPhysicalReturn));
+        check(expectedTotal === warehousePhysical, "El total físico recibido no coincide con la suma de componentes.");
+      }
+
+      warehouseBreakdown[pid] = {
+        productId: pid,
+        normalReturn,
+        recoverableMerma,
+        nonSellableReturn,
+        nonSellableReason,
+        totalPhysicalReturn: warehousePhysical,
+      };
+
+      const normalApt = round(Math.min(normalReturn, expected));
+      const recoverableFromRoute = round(Math.min(recoverableMerma, Math.max(0, expected - normalApt)));
+      const wasteFromRoute = round(Math.min(nonSellableReturn, Math.max(0, expected - normalApt - recoverableFromRoute)));
+      const shortage = round(Math.max(0, expected - warehousePhysical));
+      const overage = round(Math.max(0, warehousePhysical - expected));
+
+      const accountedRouteQuantity = round(normalApt + recoverableFromRoute + wasteFromRoute);
+      const receivedParts =
+        accountedRouteQuantity > 0
+          ? await o.take(pid, route, accountedRouteQuantity, { allowExpired: true })
           : [];
-      for (const a of parts) {
+
+      const [returnParts, recoverableMermaParts, wasteParts] = splitAllocationsByAmounts(
+        receivedParts,
+        [normalApt, recoverableFromRoute, wasteFromRoute],
+      );
+
+      for (const a of [...returnParts, ...recoverableMermaParts]) {
         const l = e.lots.find((x) => x.id === a.lotId);
+        check(l, "No se encontró el lote del producto retornado.");
         l.quantities[warehouse] = round(
           (l.quantities[warehouse] || 0) + a.quantity,
         );
       }
-      o.move(e, warehouse, received);
-      if (received)
-        o.ledger(pid, received, route, warehouse, "return", {
-          allocations: parts,
+
+      if (normalApt > 0) {
+        o.move(e, warehouse, normalApt);
+        const m = o.ledger(pid, normalApt, route, warehouse, "return", {
+          allocations: returnParts,
+          dispatchId: d.id,
         });
-      if (expected > actual) {
-        const loss = await o.take(pid, route, round(expected - actual), {
+        for (const a of returnParts) {
+          const l = e.lots.find((x) => x.id === a.lotId);
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "return",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || l?.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            warehouseLocation: warehouse,
+            warehouseQuantityAfter: round(l?.quantities?.[warehouse] || 0),
+            routeQuantityAfter: round(l?.quantities?.[route] || 0),
+          });
+        }
+      }
+      if (recoverableFromRoute > 0) {
+        o.move(e, warehouse, recoverableFromRoute);
+        const m = o.ledger(pid, recoverableFromRoute, route, warehouse, "return_merma", {
+          allocations: recoverableMermaParts,
+          dispatchId: d.id,
+          note: "Merma operativa recuperable; vuelve al stock vendible en sus lotes originales.",
+        });
+        for (const a of recoverableMermaParts) {
+          const l = e.lots.find((x) => x.id === a.lotId);
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "return_merma",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || l?.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            warehouseLocation: warehouse,
+            warehouseQuantityAfter: round(l?.quantities?.[warehouse] || 0),
+            routeQuantityAfter: round(l?.quantities?.[route] || 0),
+          });
+        }
+      }
+
+      let wasteLossCost = null;
+      if (wasteFromRoute > 0) {
+        const knownCost = wasteParts.every((a) => a.productionCost !== null);
+        wasteLossCost = knownCost
+          ? round(wasteParts.reduce((s, a) => s + a.quantity * a.productionCost, 0))
+          : null;
+        const m = o.ledger(pid, wasteFromRoute, route, null, "return_waste", {
+          allocations: wasteParts,
+          lossCost: wasteLossCost,
+          reason: nonSellableReason,
+          dispatchId: d.id,
+        });
+        for (const a of wasteParts) {
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "return_waste",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            routeLocation: route,
+            routeQuantityAfter: 0,
+          });
+        }
+      }
+
+      let shortageLossCost = null;
+      if (shortage > 0) {
+        const loss = await o.take(pid, route, shortage, {
           allowExpired: true,
         });
-        o.ledger(pid, expected - actual, route, null, "shortage", {
+        const knownCost = loss.every((a) => a.productionCost !== null);
+        shortageLossCost = knownCost
+          ? round(loss.reduce((s, a) => s + a.quantity * a.productionCost, 0))
+          : null;
+        const m = o.ledger(pid, shortage, route, null, "shortage", {
           allocations: loss,
-          lossCost: loss.every((a) => a.productionCost !== null)
-            ? round(loss.reduce((s, a) => s + a.quantity * a.productionCost, 0))
-            : null,
+          lossCost: shortageLossCost,
+          dispatchId: d.id,
         });
+        for (const a of loss) {
+          physicalEvidence.push({
+            movementId: m.id,
+            type: "shortage",
+            productId: pid,
+            lotId: a.lotId,
+            lotCode: a.lotCode || "",
+            quantity: a.quantity,
+            movementCreatedAt: m.createdAt,
+            routeLocation: route,
+            routeQuantityAfter: 0,
+          });
+        }
       }
-      if (actual > expected) {
-        const excess = round(actual - expected);
+
+      if (overage > 0) {
         const lotId = `${o.id}__surplus_${pid}`;
         e.lots.push({
           id: lotId,
@@ -824,38 +1488,124 @@ async function closure(o, p) {
           expiresOn: "",
           productionCost: null,
           quarantined: true,
-          quantities: { [warehouse]: excess },
+          quantities: { [warehouse]: overage },
           createdAt: o.now,
           createdBy: o.actor,
         });
-        o.move(e, warehouse, excess);
-        o.ledger(pid, excess, null, warehouse, "overage", {
-          note: "Sobrante separado hasta verificar lote y origen.",
+        o.move(e, warehouse, overage);
+        const m = o.ledger(pid, overage, null, warehouse, "overage", {
+          lotId,
+          allocations: [],
+          dispatchId: d.id,
+          note: "Sobrante físico sin asignación de lote verificable; separado en cuarentena hasta revisar su origen.",
+        });
+        physicalEvidence.push({
+          movementId: m.id,
+          type: "overage",
+          productId: pid,
+          lotId,
+          lotCode: "SOBRANTE POR REVISAR",
+          quantity: overage,
+          movementCreatedAt: m.createdAt,
+          warehouseLocation: warehouse,
+          warehouseQuantityAfter: overage,
+          quarantined: true,
         });
       }
-      const initial = d.lines
+
+      check(e.balances.get(route).quantity === 0, `El balance de ruta de ${e.p.name} debe quedar exactamente en 0.`);
+
+      const initialNormal = d.lines
+        .filter((l) => l.productId === pid)
+        .reduce((s, l) => s + (l.normalQuantity ?? l.quantity), 0);
+      const initialMerma = d.lines
+        .filter((l) => l.productId === pid)
+        .reduce((s, l) => s + (l.dispatchMerma ?? 0), 0);
+      const initialPhysical = round(initialNormal + initialMerma);
+
+      const additionsNormal = (d.additions || [])
+        .flatMap((a) => a.quantityByProduct)
+        .filter((l) => l.productId === pid)
+        .reduce((s, l) => s + (l.normalQuantity ?? l.quantity), 0);
+      const additionsMerma = (d.additions || [])
+        .flatMap((a) => a.quantityByProduct)
+        .filter((l) => l.productId === pid)
+        .reduce((s, l) => s + (l.dispatchMerma ?? 0), 0);
+      const additionsPhysical = round(additionsNormal + additionsMerma);
+
+      const totalLoadedPhysical = round(initialPhysical + additionsPhysical);
+      const commercialSold = round(
+        sales
+          .filter((s) => s.saleKind !== "courtesy")
+          .flatMap((s) => s.lines)
           .filter((l) => l.productId === pid)
           .reduce((s, l) => s + l.quantity, 0),
-        additions = (d.additions || [])
-          .flatMap((a) => a.quantityByProduct)
+      );
+      const courtesySold = round(
+        sales
+          .filter((s) => s.saleKind === "courtesy")
+          .flatMap((s) => s.lines)
           .filter((l) => l.productId === pid)
-          .reduce((s, l) => s + l.quantity, 0);
+          .reduce((s, l) => s + l.quantity, 0),
+      );
+      const sold = round(commercialSold + courtesySold);
+
+      const declaredItem = previous.declaredBreakdown?.[pid] || {
+        normalReturn: previous.declaredReturns?.[pid] ?? 0,
+        recoverableMerma: previous.declaredReturnMermas?.[pid] ?? 0,
+        nonSellableReturn: previous.declaredReturnNonSellables?.[pid] ?? 0,
+        nonSellableReason: previous.declaredReturnNonSellableReasons?.[pid] ?? "",
+        totalPhysicalReturn: round(
+          (previous.declaredReturns?.[pid] ?? 0) +
+            (previous.declaredReturnMermas?.[pid] ?? 0) +
+            (previous.declaredReturnNonSellables?.[pid] ?? 0),
+        ),
+      };
+
+      const declaredPhysical = declaredItem.totalPhysicalReturn;
+      const declarationVariance = round(warehousePhysical - declaredPhysical);
+
       rows.push({
         productId: pid,
         productName: e.p.name,
         unitType: e.p.unitType,
-        initialDispatch: initial,
-        additions,
-        totalLoaded: round(initial + additions),
-        sold: round(
-          sales
-            .flatMap((s) => s.lines)
-            .filter((l) => l.productId === pid)
-            .reduce((s, l) => s + l.quantity, 0),
-        ),
+        initialNormalDispatch: initialNormal,
+        initialDispatchMerma: initialMerma,
+        initialPhysicalDispatch: initialPhysical,
+        additionsNormal,
+        additionsMerma,
+        additionsPhysical,
+        totalLoadedPhysical,
+        initialDispatch: initialPhysical,
+        additions: additionsPhysical,
+        totalLoaded: totalLoadedPhysical,
+        sold,
+        commercialSold,
+        courtesySold,
         expectedReturn: expected,
-        actualReturn: actual,
-        variance: round(actual - expected),
+        actualReturn: normalApt,
+        returnMerma: recoverableFromRoute,
+        returnWaste: nonSellableReturn,
+        returnWasteReason: nonSellableReason,
+        shortage,
+        overage,
+        variance: round(overage - shortage),
+        declarationVariance,
+        lossCost: wasteLossCost,
+        declared: {
+          normal: declaredItem.normalReturn,
+          recoverableMerma: declaredItem.recoverableMerma,
+          nonSellable: declaredItem.nonSellableReturn,
+          nonSellableReason: declaredItem.nonSellableReason,
+          totalPhysical: declaredPhysical,
+        },
+        warehouse: {
+          normal: normalReturn,
+          recoverableMerma,
+          nonSellable: nonSellableReturn,
+          nonSellableReason,
+          totalPhysical: warehousePhysical,
+        },
       });
     }
     const c = {
@@ -870,6 +1620,8 @@ async function closure(o, p) {
       distributorName: d.distributorName,
       status: "warehouse_done",
       products: rows,
+      warehouseBreakdown,
+      physicalEvidence,
       warehouseClosedBy: o.actor,
       warehouseClosedAt: o.now,
     };
@@ -897,9 +1649,11 @@ async function closure(o, p) {
   );
   const sum = (list, key) => round(list.reduce((n, r) => n + (r[key] || 0), 0));
   const cashSales = sum(sales, "cashAmount"),
-    cashCollections = sum(
-      collections.filter((x) => x.method === "cash"),
-      "amount",
+    cashCollections = round(
+      collections.reduce(
+        (n, c) => n + (c.method === "cash" ? (c.amount || 0) : (c.cashAmount || 0)),
+        0,
+      ),
     ),
     cashExpenses = sum(expenses, "amount"),
     claimCash = round(sum(claims, "cashIn") - sum(claims, "cashOut")),
@@ -918,9 +1672,11 @@ async function closure(o, p) {
     qrSales: sum(sales, "qrAmount"),
     creditGenerated: sum(sales, "creditAmount"),
     cashCollections,
-    qrCollections: sum(
-      collections.filter((x) => x.method === "qr"),
-      "amount",
+    qrCollections: round(
+      collections.reduce(
+        (n, c) => n + (c.method === "qr" ? (c.amount || 0) : (c.qrAmount || 0)),
+        0,
+      ),
     ),
     cashExpenses,
     claimCash,
@@ -1117,65 +1873,211 @@ async function updateLot(o, p) {
 handlers.updateLot = updateLot;
 async function refreshCreditStatus(db, root, customerId) {
   await db.runTransaction(async (tx) => {
-    const rows = await tx.get(
-      root.collection("distReceivables").where("customerId", "==", customerId),
+    const [receivablesSnap, supportSnap, overridesSnap] = await Promise.all([
+      tx.get(root.collection("distReceivables").where("customerId", "==", customerId)),
+      tx.get(root.collection("supportConfig").doc("main")),
+      tx.get(root.collection("distCreditOverrides").where("customerId", "==", customerId)),
+    ]);
+    const openDebts = receivablesSnap.docs.map((d) => d.data()).filter((r) => r.balance > 0);
+    const dates = openDebts.map((r) => r.createdAt).sort();
+    const oldestPendingAt = dates[0] || null;
+
+    const creditBlockDays = Number.isInteger(supportSnap.data()?.creditBlockDays)
+      ? supportSnap.data().creditBlockDays
+      : 7;
+    const overdueDebts = openDebts.filter(
+      (d) => new Date(d.createdAt).getTime() + creditBlockDays * 86400000 <= Date.now()
     );
-    const dates = rows.docs
-      .map((d) => d.data())
-      .filter((r) => r.balance > 0)
-      .map((r) => r.createdAt)
-      .sort();
-    tx.set(root.collection("distCreditStatus").doc(customerId), {
-      id: customerId,
-      ...scopeMetadata(root),
-      oldestPendingAt: dates[0] || null,
-      checkedAt: new Date().toISOString(),
-    });
+    const overdueDates = overdueDebts.map((d) => d.createdAt).sort();
+    const overduePendingAt = overdueDates[0] || null;
+
+    const now = new Date().toISOString();
+    const overrides = overridesSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    const activeOverride = overrides
+      .filter((ov) => ov.active !== false && !ov.revokedAt && (!ov.validUntil || ov.validUntil >= now))
+      .sort((a, b) => (b.validUntil || "").localeCompare(a.validUntil || ""))[0] || null;
+
+    const blocked = overdueDebts.length > 0 && !activeOverride;
+
+    tx.set(
+      root.collection("distCreditStatus").doc(customerId),
+      {
+        id: customerId,
+        ...scopeMetadata(root),
+        oldestPendingAt,
+        overduePendingAt,
+        creditBlockDays,
+        blocked,
+        activeOverrideId: activeOverride?.id || null,
+        overrideValidUntil: activeOverride?.validUntil || null,
+        overrideReason: activeOverride?.reason || null,
+        checkedAt: now,
+      },
+      { merge: true },
+    );
   });
 }
 module.exports.refreshCreditStatus = refreshCreditStatus;
 
 handlers.reopen = async (o, p) => {
   o.admin();
+  check(p.reason?.trim(), "La razón de la reapertura es obligatoria.");
+  const reason = p.reason.trim();
   const c = await o.read("distClosures", p.closureId);
-  check(c?.status === "closed", "Solo se puede reabrir un cierre finalizado.");
+  check(c, "No se encontró el cierre a reabrir.");
+  check(c.status !== "reopened", "El cierre ya fue reabierto.");
+  check(c.status === "closed" || c.status === "warehouse_done", "Solo se puede reabrir un cierre finalizado.");
   const d = await o.read("distDispatches", c.dispatchId);
-  check(d?.status === "closed", "El despacho no está cerrado.");
+  check(d, "No se encontró el despacho asociado.");
+  check(d.status === "closed" || d.status === "open", "El despacho no está cerrado.");
   const others = await o.query("distDispatches", "routeId", c.routeId);
   check(
-    !others.some((x) => x.status === "open"),
+    !others.some((x) => x.id !== d.id && x.status === "open"),
     "La ruta tiene otro despacho abierto.",
   );
+
+  const route = location("route", d.routeId);
+  const warehouse = location("warehouse", d.warehouseId || "central");
+  const reversed = new Set(c.reversedStockMovementIds || []);
+
+  const allMovements = await o.query("distStockMovements", "dispatchId", d.id);
+  const closureMovements = allMovements.filter((m) =>
+    ["return", "return_merma", "return_waste", "shortage", "overage"].includes(m.type) &&
+    !reversed.has(m.id),
+  );
+  check(closureMovements.length > 0, "No hay movimientos físicos pendientes de revertir en este cierre.");
+
+  const closureMovementIds = new Set(allMovements.map((m) => m.id));
+  const evidenceList = c.physicalEvidence || [];
+
+  for (const m of closureMovements) {
+    const e = await o.loadStock(m.productId, warehouse);
+    const productMovements = await o.query("distStockMovements", "productId", m.productId);
+
+    if (m.type === "return" || m.type === "return_merma") {
+      const allocations = m.allocations || [];
+      for (const part of allocations) {
+        const lotId = part.lotId;
+        const lot = e.lots.find((item) => item.id === lotId);
+        check(
+          lot && round(lot.quantities?.[warehouse] || 0) >= part.quantity,
+          "El inventario tuvo movimientos posteriores; requiere revisión manual.",
+        );
+
+        const ev = evidenceList.find((x) => x.movementId === m.id && x.lotId === lotId);
+        if (ev && ev.warehouseQuantityAfter !== undefined) {
+          check(
+            round(lot.quantities?.[warehouse] || 0) === ev.warehouseQuantityAfter,
+            "El inventario tuvo movimientos posteriores; requiere revisión manual.",
+          );
+        }
+
+        // Buscar movimientos posteriores que afecten a este lote en este almacén
+        const subsequentMov = productMovements.find((other) => {
+          if (other.id === m.id || closureMovementIds.has(other.id)) return false;
+          if (other.createdAt < m.createdAt) return false;
+          const touchesLot = other.lotId === lotId || (other.allocations || []).some((a) => a.lotId === lotId);
+          if (!touchesLot) return false;
+          const touchesWh = other.fromLocation === warehouse || other.toLocation === warehouse ||
+            (warehouse === "central" && (other.fromLocation === "central" || other.toLocation === "central"));
+          return touchesWh;
+        });
+
+        check(!subsequentMov, "El inventario tuvo movimientos posteriores; requiere revisión manual.");
+      }
+    } else if (m.type === "overage") {
+      const lotId = m.lotId;
+      const lot = e.lots.find((item) => item.id === lotId && item.quarantined);
+      check(
+        lot && round(lot.quantities?.[warehouse] || 0) === m.quantity,
+        "El inventario tuvo movimientos posteriores; requiere revisión manual.",
+      );
+
+      const subsequentMov = productMovements.find((other) => {
+        if (other.id === m.id || closureMovementIds.has(other.id)) return false;
+        if (other.createdAt < m.createdAt) return false;
+        const touchesLot = other.lotId === lotId || (other.allocations || []).some((a) => a.lotId === lotId);
+        return touchesLot;
+      });
+
+      check(!subsequentMov, "El inventario tuvo movimientos posteriores; requiere revisión manual.");
+    }
+  }
+
+  const newlyReversedIds = [];
+  for (const m of [...closureMovements].reverse()) {
+    const e = await o.loadStock(m.productId, route);
+    await o.loadStock(m.productId, warehouse);
+
+    if (m.type === "return" || m.type === "return_merma") {
+      for (const part of m.allocations || []) {
+        const lot = e.lots.find((item) => item.id === part.lotId);
+        lot.quantities[warehouse] = round(lot.quantities[warehouse] - part.quantity);
+        lot.quantities[route] = round((lot.quantities[route] || 0) + part.quantity);
+      }
+      o.move(e, warehouse, -m.quantity);
+      o.move(e, route, m.quantity);
+    } else if (m.type === "return_waste" || m.type === "shortage") {
+      for (const part of m.allocations || []) {
+        const lot = e.lots.find((item) => item.id === part.lotId);
+        check(lot, "No se puede reabrir: falta un lote original de la ruta.");
+        lot.quantities[route] = round((lot.quantities[route] || 0) + part.quantity);
+      }
+      o.move(e, route, m.quantity);
+    } else if (m.type === "overage") {
+      const lot = e.lots.find((item) => item.id === m.lotId && item.quarantined);
+      lot.quantities[warehouse] = round(lot.quantities[warehouse] - m.quantity);
+      o.move(e, warehouse, -m.quantity);
+    }
+
+    o.put("distStockMovements", m.id, {
+      ...m,
+      reversedAt: o.now,
+      reversedBy: o.actor,
+      reversalOperationId: o.id,
+      reversalReason: reason,
+    });
+    newlyReversedIds.push(m.id);
+  }
+
+  const reopenHistory = [
+    ...(c.reopenHistory || []),
+    {
+      reopenedAt: o.now,
+      reopenedBy: o.actor,
+      reason,
+      warehouseClosedBy: c.warehouseClosedBy || "",
+      warehouseClosedAt: c.warehouseClosedAt || "",
+      products: c.products || [],
+    },
+  ];
+
   o.put("distClosures", c.id, {
     ...c,
     status: "reopened",
+    warehouseClosedBy: "",
+    warehouseClosedAt: "",
+    warehouseReopenedAt: o.now,
     reopenedBy: o.actor,
     reopenedAt: o.now,
+    reopenHistory,
+    reversedStockMovementIds: [...reversed, ...newlyReversedIds],
   });
+
   o.put("distDispatches", d.id, {
     ...d,
     status: "open",
     closedAt: "",
     closureId: "",
   });
+
   return { id: c.id };
 };
 
 handlers.creditStatus = async (o, p) => {
   check(["admin", "distributor"].includes(o.member.role), "Sin permiso.");
-  const c = await o.read("distCustomers", p.customerId);
-  check(c, "Cliente inexistente.");
-  const rows = await o.query("distReceivables", "customerId", c.id);
-  const dates = rows
-    .filter((r) => r.balance > 0)
-    .map((r) => r.createdAt)
-    .sort();
-  const status = {
-    id: c.id,
-    ...scopeMetadata(o.root),
-    oldestPendingAt: dates[0] || null,
-    checkedAt: o.now,
-  };
-  o.put("distCreditStatus", c.id, status);
+  check(p.customerId, "customerId requerido.");
+  const status = await calculateAndSaveCreditStatus(o, p.customerId);
+  check(status, "Cliente inexistente.");
   return status;
 };

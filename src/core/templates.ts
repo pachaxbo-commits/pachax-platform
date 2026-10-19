@@ -4,6 +4,7 @@ const allPermissions: readonly Permission[] = [
   'sales.read', 'sales.create', 'orders.read', 'orders.manage', 'inventory.read', 'inventory.manage',
   'products.manage', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect',
   'reports.read', 'users.manage', 'settings.manage', 'dispatch.create', 'route.close', 'cash.close',
+  'support.reset.prepare',
 ]
 const owner: RolePreset = { id: 'owner', name: 'Dueño', permissions: allPermissions }
 const admin: RolePreset = { id: 'admin', name: 'Administración', permissions: allPermissions }
@@ -36,14 +37,14 @@ const nightclubCapabilities: Capability[] = [...commonCapabilities, 'orders', 'c
 
 export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTemplate>> = {
   restaurant_pos: {
-    businessType: 'restaurant_pos', name: 'Restaurante', description: 'Ventas, pedidos, caja e inventario.', icon: 'restaurant', version: 1,
+    businessType: 'restaurant_pos', name: 'Restaurante con salón', description: 'Mesas, meseros, cuentas abiertas y servicio completo.', icon: 'restaurant', version: 1,
     capabilities: restaurantCapabilities, defaults: defaults(restaurantCapabilities),
     modules: [...common, cash, { id: 'orders', name: 'Pedidos', capability: 'orders', permission: 'orders.read' }, { id: 'kitchen', name: 'Cocina', capability: 'kitchen', permission: 'orders.manage' }],
     roles: [owner, admin, cashier, { id: 'waiter', name: 'Mesero', permissions: ['orders.read', 'orders.manage', 'sales.create'] }, { id: 'kitchen', name: 'Cocina', permissions: ['orders.read', 'orders.manage'] }, inventory],
     units: ['unit'], pos: 'orders', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'cash'],
   },
   hamburger_shop: {
-    businessType: 'hamburger_shop', name: 'Hamburguesería', description: 'Ventas en mostrador, cocina, caja e inventario.', icon: 'burger', version: 1,
+    businessType: 'hamburger_shop', name: 'Restaurante de servicio rápido', description: 'Pedidos ágiles de mostrador, mesa de entrega, para llevar o delivery, con cocina, caja e inventario.', icon: 'burger', version: 1,
     capabilities: hamburgerCapabilities, defaults: defaults(hamburgerCapabilities),
     modules: [...common, cash, { id: 'orders', name: 'Historial', capability: 'orders', permission: 'orders.read' }, { id: 'kitchen', name: 'Cocina', capability: 'kitchen', permission: 'orders.manage' }],
     roles: [owner, admin, cashier, { id: 'kitchen', name: 'Cocina', permissions: ['orders.read', 'orders.manage'] }, inventory],
@@ -53,7 +54,13 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     businessType: 'route_distribution', name: 'Distribuidora', description: 'Despachos, rutas, ventas, créditos y retornos.', icon: 'truck', version: 1,
     capabilities: distributionCapabilities, defaults: defaults(distributionCapabilities),
     modules: [...common, { id: 'credits', name: 'Créditos', capability: 'credits', permission: 'credits.read' }, { id: 'dispatch', name: 'Despachos', capability: 'dispatch', permission: 'dispatch.create' }, { id: 'routes', name: 'Cierre de ruta', capability: 'routes', permission: 'route.close' }],
-    roles: [owner, admin, { id: 'warehouse', name: 'Almacén', permissions: ['inventory.read', 'inventory.manage', 'dispatch.create', 'route.close'] }, { id: 'distributor', name: 'Distribuidor', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect', 'route.close'] }],
+    roles: [
+      owner,
+      admin,
+      { id: 'warehouse', name: 'Almacén', permissions: ['inventory.read', 'inventory.manage', 'dispatch.create', 'route.close'] },
+      { id: 'distributor', name: 'Distribuidor', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read', 'customers.manage', 'credits.read', 'credits.collect', 'route.close'] },
+      { id: 'support', name: 'Soporte técnico', permissions: ['support.reset.prepare'] },
+    ],
     units: ['kg', 'g', 'unit', 'package', 'box', 'liter'], pos: 'route', inventory: 'lots-and-routes',
     // Validation of the migrated adapter is required before advertising these in the new tenant shell.
     offlineOperations: [], reports: ['sales', 'receivables', 'routeClosures'],
@@ -72,7 +79,7 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     icon: 'music', version: 1,
     capabilities: nightclubCapabilities, defaults: defaults(nightclubCapabilities),
     modules: [...common, cash, { id: 'orders', name: 'Cuentas abiertas', capability: 'orders', permission: 'orders.read' }, { id: 'bar', name: 'Barra / preparación', capability: 'kitchen', permission: 'orders.manage' }],
-    roles: [owner, admin, { id: 'partner', name: 'Socio / Dueño', permissions: ['sales.read', 'orders.read', 'customers.read', 'reports.read'] }, cashier, { id: 'waiter', name: 'Mesero', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'service', name: 'Servicio', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'bar', name: 'Barra', permissions: ['orders.read', 'orders.manage'] }, { id: 'promoter', name: 'Relacionador', permissions: ['reports.read'] }, { id: 'supervisor', name: 'Supervisor', permissions: ['orders.read', 'customers.read', 'reports.read'] }, inventory],
+    roles: [owner, admin, { id: 'partner', name: 'Socio / Dueño', permissions: ['sales.read', 'orders.read', 'customers.read', 'reports.read'] }, cashier, { id: 'waiter', name: 'Mesero', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'service', name: 'Servicio', permissions: ['orders.read', 'orders.manage', 'sales.create', 'customers.read'] }, { id: 'bar', name: 'Barra', permissions: ['orders.read', 'orders.manage'] }, { id: 'supervisor', name: 'Supervisor', permissions: ['orders.read', 'customers.read', 'reports.read'] }, inventory],
     units: ['unit', 'ml'], pos: 'orders', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'cash', 'openTabs'],
   },
 }

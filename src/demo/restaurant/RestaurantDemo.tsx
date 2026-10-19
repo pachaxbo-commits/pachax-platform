@@ -29,6 +29,7 @@ import type { DemoDatasetMode } from '../datasets/types'
 import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeColors } from '../../modules/restaurant/views/restaurantTheme'
 import { buildKitchenTicketPrintDocument, buildKitchenTicketText, type KitchenTicketJob } from '../../modules/restaurant/domain/kitchenPrint'
 import { DEFAULT_KITCHEN_PRINTER_CONFIG, type KitchenPrinterConfig } from './kitchenPrinterConfig'
+import { normalizeBusinessIdentity, type BusinessIdentity } from '../../core/businessIdentity'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -276,6 +277,7 @@ export function RestaurantDemo({
   resetKey = 0,
   initialModule,
   profile = 'restaurant',
+  isStudioEmbed = false,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
@@ -287,6 +289,7 @@ export function RestaurantDemo({
   resetKey?: number
   initialModule?: import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId
   profile?: 'restaurant' | 'counter_service'
+  isStudioEmbed?: boolean
 }) {
   const storageKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:v1' : STORAGE_KEY
   const legacyKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:legacy' : LEGACY_KEY
@@ -335,7 +338,7 @@ export function RestaurantDemo({
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>(() => readSaved<KitchenTicketJob[]>(`${storageKey}:kitchen-print-jobs:v1`, []))
   void resetKey
   const [cashierName, setCashierName] = useState(
-    `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'}`
+    `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'}`
   )
   const submissionLock = useRef(false)
   void audit
@@ -486,7 +489,8 @@ export function RestaurantDemo({
   }
 
   const handleFloorAction = (action: FloorAction): { ok: boolean; error?: string } => {
-    if (!['admin', 'owner', 'team'].includes(mode === 'team' ? 'team' : simulatedRole)) return { ok: false, error: 'No tienes permiso para administrar el salón.' }
+    const roleForAction = isStudio && mode === 'team' ? 'team' : (simulatedRole || 'admin')
+    if (!['admin', 'owner', 'team'].includes(roleForAction)) return { ok: false, error: 'No tienes permiso para administrar el salón.' }
     try {
       const next = applyRestaurantFloorAction(tables, sectors, action, new Date().toISOString())
       updateTables(() => next.tables)
@@ -685,6 +689,9 @@ export function RestaurantDemo({
         })),
       },
     })
+    const kitchenJob = createKitchenPrintJob(current, lines, 'addition', batch.sequence)
+    saveKitchenPrintJobs([kitchenJob, ...kitchenPrintJobs])
+    sendKitchenTicket(kitchenJob)
     window.setTimeout(() => orderLocks.current.delete(orderId), 800)
     return true
   }
@@ -943,7 +950,7 @@ export function RestaurantDemo({
         createdAt: timestamp,
         submittedBatches: [],
       }
-      const placed = placeRestaurantOrder(orders, tables, candidate)
+      const placed = placeRestaurantOrder(orders, tables, candidate, { referenceOnly: profile === 'counter_service' || Boolean(candidate.referenceOnly) })
       const consumption = confirmInventoryLines(placed.order, ticketItems, inventoryRef.current.products, inventoryRef.current.movements, timestamp, cashierName, requestedPaymentStatus === 'gift' ? 'courtesy' : 'sale')
       const settled = requestedPaymentStatus === 'paid'
         ? completeRestaurantPayment(placed.orders, placed.tables, placed.order.id, {
@@ -1143,12 +1150,53 @@ export function RestaurantDemo({
     record({ type: 'table_status_changed', tableId, details: { status } })
   }
 
+  const isStudio = isStudioEmbed || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === 'studio')
+  const sessionTenantId = isStudio
+    ? (profile === 'counter_service' ? 'studio-hamburger' : 'studio-restaurant')
+    : (profile === 'counter_service' ? 'demo-hamburger' : 'demo-restaurant')
+
+  const [demoIdentity, setDemoIdentity] = useState<BusinessIdentity>(() => {
+    const saved = readSaved<BusinessIdentity | null>(`${storageKey}:businessIdentity`, null)
+    if (saved) return saved
+    return normalizeBusinessIdentity({
+      tradeName: companyName || (profile === 'counter_service' ? 'Servicio Rápido Demo' : 'Bistró PACHAX'),
+      logoUrl: logoUrl || '/brand/pachax-logo.png',
+      primaryColor: activeThemeColors.primary,
+      accentColor: activeThemeColors.accent,
+      address: 'Av. Las Palmas 123',
+      city: 'Santa Cruz',
+      phone: '70012345',
+      taxId: '1029384756',
+      receiptHeader: '¡Bienvenidos!',
+      receiptFooter: '¡Gracias por su visita!',
+    })
+  })
+
+  const sessionRole = isStudio
+    ? (mode === 'team' ? 'team' : (simulatedRole || 'admin'))
+    : (simulatedRole || 'admin')
+
+  const effectiveUserName =
+    simulatedRole === 'owner'
+      ? 'Dueño'
+      : simulatedRole === 'admin'
+      ? 'Administrador'
+      : simulatedRole === 'cashier'
+      ? 'Caja'
+      : simulatedRole === 'waiter'
+      ? 'Mesero'
+      : simulatedRole === 'kitchen'
+      ? 'Cocina'
+      : simulatedRole === 'inventory'
+      ? 'Inventario'
+      : cashierName
+
   const session: RestaurantSession = {
-    tenantId: 'demo-restaurant',
-    restaurantName: companyName || (profile === 'counter_service' ? 'Hamburgueser\u00eda Demo' : 'Bistr\u00f3 Demo'),
-    uid: 'demo-cashier-uid',
-    userName: cashierName,
-    role: mode === 'team' ? 'team' : simulatedRole || 'admin',
+    tenantId: sessionTenantId,
+    restaurantName: companyName || (profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'),
+    uid: isStudio ? 'studio-cashier-uid' : 'demo-cashier-uid',
+    userName: effectiveUserName,
+    role: sessionRole,
   }
 
   return (
@@ -1159,6 +1207,17 @@ export function RestaurantDemo({
       companyName={companyName}
       profile={profile}
       themeColors={activeThemeColors}
+      businessIdentity={demoIdentity}
+      onSaveBusinessIdentity={async (identity) => {
+        restaurantStorage.setItem(`${storageKey}:businessIdentity`, JSON.stringify(identity))
+        setDemoIdentity(identity)
+        if (identity.primaryColor && identity.accentColor) {
+          setThemeColors({ primary: identity.primaryColor, accent: identity.accentColor })
+        }
+      }}
+      onUploadLogo={async (file) => {
+        return URL.createObjectURL(file)
+      }}
       onSaveTheme={async (colors) => {
         restaurantStorage.setItem(themeKey, JSON.stringify(colors))
         setThemeColors(colors)
@@ -1208,6 +1267,9 @@ export function RestaurantDemo({
         if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return
         for (const key of restaurantStorage.keys()) if (key.startsWith(storageKey.slice(0, storageKey.lastIndexOf(':operations:') + 1))) restaurantStorage.removeItem(key)
         restaurantStorage.removeItem('cocina-tickets-impresos')
+        try {
+          localStorage.removeItem(`pachax:printers:${sessionTenantId}:main`)
+        } catch {}
         window.location.reload()
       }}
       onSelectRole={onSelectRole}

@@ -34,10 +34,18 @@ export function CocinaView({
   const lastPendingSequence = useRef<number>(0)
   const hideNoticeTimeout = useRef<number | null>(null)
 
-  // Cocina active orders: pending, preparing, or ready (legacy compatibility)
+  // Cocina active orders: pending, preparing, ready, ready_for_pickup, ready_for_dispatch
   const activeOrders = useMemo(() => {
     return orders
-      .filter((order) => (order.status === 'pending' || order.status === 'preparing' || order.status === 'ready') && (!onAdvanceItemStatus || area === 'all' || order.items.some(item => (item.productArea || 'Cocina') === area && item.status !== 'delivered')))
+      .filter((order) => {
+        const isKitchenActive =
+          order.status === 'pending' ||
+          order.status === 'preparing' ||
+          order.status === 'ready' ||
+          order.status === 'ready_for_pickup' ||
+          order.status === 'ready_for_dispatch'
+        return isKitchenActive && (!onAdvanceItemStatus || area === 'all' || order.items.some(item => (item.productArea || 'Cocina') === area && item.status !== 'delivered'))
+      })
       .sort((left, right) => {
         const leftTime = new Date(left.createdAt).getTime()
         const rightTime = new Date(right.createdAt).getTime()
@@ -145,9 +153,9 @@ export function CocinaView({
 
   return (
     <section className="space-y-4">
-      <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
+          <div className="h-10 w-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
             <ChefHat size={22} />
           </div>
           <div>
@@ -184,53 +192,53 @@ export function CocinaView({
       </div>
 
       {onAdvanceItemStatus && <div className="flex flex-wrap gap-2">{(['all', 'Cocina', 'Barra', 'Otro'] as const).map(name => <button key={name} onClick={() => setArea(name)} className={`rounded-xl px-4 py-2 text-xs font-bold ${area === name ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'border border-slate-200 bg-white text-slate-700'}`}>{name === 'all' ? 'Todos' : name}</button>)}</div>}
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {activeOrders.map((order) => {
           const isLegacy = order.status === 'preparing' || order.status === 'ready'
           const isNew = new Date().getTime() - new Date(order.createdAt).getTime() < 60000
 
           const bgBorderColor = isNew
-            ? 'border-emerald-300 bg-[#f4fbf7]/80 ring-2 ring-emerald-500/10 shadow-lg shadow-emerald-500/5'
+            ? 'border-emerald-300 bg-emerald-50/30 ring-1 ring-emerald-400/40 shadow-xs'
             : isLegacy
-              ? 'border-warning/30 bg-amber-50/20'
-              : 'border-white/80 bg-white/70'
+              ? 'border-amber-300/80 bg-amber-50/20'
+              : 'border-slate-200 bg-white'
 
           return (
             <article
               key={order.id}
-              className={`rounded-[2rem] border p-5 shadow-card transition-all duration-200 hover:shadow-lg ${bgBorderColor}`}
+              className={`rounded-2xl border p-4.5 shadow-xs transition-all duration-150 hover:shadow-md ${bgBorderColor}`}
             >
               {/* Header: Nro Pedido y Reloj */}
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <div className="text-5xl font-black tracking-tight text-ink">
-                      {order.displayNumber}
+                    <div className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
+                      #{order.displayNumber}
                     </div>
                     {isNew ? (
-                      <span className="bg-[#10b981] text-white text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider animate-pulse">
+                      <span className="bg-emerald-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
                         NUEVO
                       </span>
                     ) : null}
                   </div>
-                  <div className="mt-2 text-xs text-muted">
+                  <div className="mt-1.5 text-xs text-slate-500 font-medium">
                     Ingreso: {formatTime(order.createdAt)}
                   </div>
                 </div>
 
-                <div className="shrink-0 rounded-[1.2rem] border border-line bg-white/90 px-4 py-2.5 text-right shadow-insetSoft">
-                  <div className="flex items-center justify-end gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
-                    <Clock3 size={12} />
+                <div className="shrink-0 rounded-xl border border-slate-200 bg-white/95 px-3 py-1.5 text-right shadow-xs">
+                  <div className="flex items-center justify-end gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                    <Clock3 size={11} />
                     Tiempo
                   </div>
-                  <div className="mt-0.5 text-2xl font-bold text-ink">
+                  <div className="mt-0.5 text-xl font-black text-slate-900">
                     <OrderTimer createdAt={order.createdAt} stoppedAt={order.readyAt} />
                   </div>
                 </div>
               </div>
 
               {/* Modalidad y Pago */}
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-3.5 flex flex-wrap gap-1.5">
                 <SourceBadge source={order.orderSource} />
                 <FulfillmentBadge type={order.fulfillmentType} tableInfo={order.tableInfo} />
                 <PaymentBadge paymentStatus={order.paymentStatus} paymentMethod={order.paymentMethod} />
@@ -238,18 +246,18 @@ export function CocinaView({
 
               {/* Customer info for delivery/whatsapp */}
               {(order.customerName || order.customerPhone || (order.fulfillmentType === 'delivery' && order.deliveryAddress)) ? (
-                <div className="mt-3 rounded-[1.2rem] border border-line bg-canvas/30 px-3 py-2 text-xs text-ink space-y-1">
-                  {order.customerName ? <div><span className="font-bold text-muted">Cliente:</span> {order.customerName}</div> : null}
-                  {order.customerPhone ? <div><span className="font-bold text-muted">Teléfono:</span> {order.customerPhone}</div> : null}
-                  {(order.fulfillmentType === 'delivery' && order.deliveryAddress) ? <div><span className="font-bold text-muted">Dirección:</span> {order.deliveryAddress}</div> : null}
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-800 space-y-1">
+                  {order.customerName ? <div><span className="font-bold text-slate-500">Cliente:</span> {order.customerName}</div> : null}
+                  {order.customerPhone ? <div><span className="font-bold text-slate-500">Teléfono:</span> {order.customerPhone}</div> : null}
+                  {(order.fulfillmentType === 'delivery' && order.deliveryAddress) ? <div><span className="font-bold text-slate-500">Dirección:</span> {order.deliveryAddress}</div> : null}
                 </div>
               ) : null}
 
               {/* Items List */}
-              <div className="mt-5 space-y-3.5">
+              <div className="mt-4 space-y-2.5">
                 {order.items.filter(item => area === 'all' || !onAdvanceItemStatus || (item.productArea || 'Cocina') === area).map((item) => (
-                  <div key={item.id} className="rounded-[1.4rem] border border-line bg-white/90 p-3.5 shadow-sm">
-                    <div className="text-xl font-bold leading-6 text-ink">
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+                    <div className="text-base sm:text-lg font-extrabold leading-snug text-slate-900">
                       {item.quantity}x {item.name}
                     </div>
 
@@ -289,27 +297,30 @@ export function CocinaView({
               {/* Contextual Action Button */}
               {!onAdvanceItemStatus && <div className="mt-6">
                 {(() => {
-                  const buttonText =
-                    order.fulfillmentType === 'table'
-                      ? 'SERVIR PEDIDO'
-                      : order.fulfillmentType === 'pickup'
-                        ? 'LISTO PARA RETIRAR'
-                        : 'LISTO PARA DESPACHAR'
+                  const isReady = order.status === 'ready' || order.status === 'ready_for_pickup' || order.status === 'ready_for_dispatch'
+                  const isPreparing = order.status === 'preparing'
 
-                  const nextStatus: OrderStatus =
-                    order.fulfillmentType === 'table'
-                      ? 'delivered'
-                      : order.fulfillmentType === 'pickup'
-                        ? 'ready_for_pickup'
-                        : 'ready_for_dispatch'
+                  const buttonText = isReady
+                    ? (order.fulfillmentType === 'table' ? 'SERVIR / ENTREGAR' : order.fulfillmentType === 'pickup' ? 'ENTREGAR AL CLIENTE' : 'DESPACHADO / ENTREGADO')
+                    : isPreparing
+                      ? (order.fulfillmentType === 'table' ? 'MARCAR LISTO' : order.fulfillmentType === 'pickup' ? 'LISTO PARA RETIRAR' : 'LISTO PARA DESPACHAR')
+                      : 'PASAR A PREPARACIÓN'
+
+                  const nextStatus: OrderStatus = isReady
+                    ? 'delivered'
+                    : isPreparing
+                      ? (order.fulfillmentType === 'table' ? 'ready' : order.fulfillmentType === 'pickup' ? 'ready_for_pickup' : 'ready_for_dispatch')
+                      : 'preparing'
+
+                  const tone = isReady ? 'primary' : isPreparing ? 'success' : 'warning'
 
                   return (
                     <div className="flex gap-2">
                     <Button
                       fullWidth
                       size="lg"
-                      tone="success"
-                      className="py-4 text-lg font-black tracking-wide shadow-md shadow-success/10 rounded-2xl min-h-[48px]"
+                      tone={tone as any}
+                      className="py-4 text-base font-black tracking-wide shadow-md shadow-success/10 rounded-2xl min-h-[48px]"
                       disabled={busyOrderId === order.id}
                       onClick={async () => {
                         setBusyOrderId(order.id)
@@ -328,6 +339,29 @@ export function CocinaView({
                         <>{buttonText}</>
                       )}
                     </Button>
+                    {!isReady && !isPreparing && (
+                      <Button
+                        size="lg"
+                        tone="success"
+                        className="py-4 text-xs font-black tracking-wide rounded-2xl min-h-[48px] px-3 shrink-0"
+                        title="Marcar listo directamente"
+                        disabled={busyOrderId === order.id}
+                        onClick={async () => {
+                          setBusyOrderId(order.id)
+                          const directReady: OrderStatus =
+                            order.fulfillmentType === 'table' ? 'ready' : order.fulfillmentType === 'pickup' ? 'ready_for_pickup' : 'ready_for_dispatch'
+                          const ok = await onAdvanceStatus(order.id, directReady)
+                          if (ok) {
+                            setNotice(`Pedido ${order.displayNumber} marcado como listo`)
+                            const resetTimeout = window.setTimeout(() => setNotice(null), 2500)
+                            return () => window.clearTimeout(resetTimeout)
+                          }
+                          setBusyOrderId(null)
+                        }}
+                      >
+                        Listo directo
+                      </Button>
+                    )}
                     {/* Reimprimir a mano. Es el unico modo de imprimir los pedidos que carga
                         caja, y sirve para repetir un ticket de WhatsApp si salio mal. */}
                     <Button
@@ -349,8 +383,8 @@ export function CocinaView({
         })}
 
         {activeOrders.length === 0 ? (
-          <div className="col-span-full rounded-[2rem] border border-dashed border-lineStrong bg-white/70 p-12 text-center text-lg text-muted">
-            <ChefHat size={48} className="mx-auto text-accentWash mb-4 animate-pulse" />
+          <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center text-sm font-semibold text-slate-500">
+            <ChefHat size={40} className="mx-auto text-slate-300 mb-3" />
             No hay comandas activas pendientes en este momento.
           </div>
         ) : null}

@@ -1,5 +1,5 @@
-import type { PrintJobPayload } from '../../../types/printing'
-import { EscPosBuilder, padLine } from '../escPosFormatter'
+import type { PrintJobPayload } from '../../../types/printing.ts'
+import { EscPosBuilder, padLine } from '../escPosFormatter.ts'
 
 function formatTicketQuantity(value: number): string {
   return Number(value.toFixed(3)).toString()
@@ -117,6 +117,10 @@ export function buildReceiptBytes(
   if (payload.footerMessage) {
     builder.separator(cols)
     builder.alignCenter().line(payload.footerMessage)
+  }
+
+  if (payload.showManagedBy !== false) {
+    builder.alignCenter().line('Gestionado con PACHAX')
   }
 
   builder.feed(3)

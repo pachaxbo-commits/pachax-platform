@@ -5,7 +5,7 @@ import { nightclubCommissionSummary } from '../domain/nightclubCommissions'
 const money = (amount: number) => `Bs ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const inputClass = 'min-h-10 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm text-slate-100'
 
-export function NightclubCommissions({ data, canPay, viewerStaffId, onPay }: { data: NightclubDataset; canPay: boolean; viewerStaffId?: string; onPay: (draft: NightclubCommissionPaymentDraft) => boolean | void }) {
+export function NightclubCommissions({ data, canPay, viewerStaffId, onPay }: { data: NightclubDataset; canPay: boolean; viewerStaffId?: string; onPay: (draft: NightclubCommissionPaymentDraft) => boolean | void | Promise<boolean | void> }) {
   const [selectedStaffId, setSelectedStaffId] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -19,11 +19,11 @@ export function NightclubCommissions({ data, canPay, viewerStaffId, onPay }: { d
   const payableRows = summary.rows.filter(entry => entry.staffId === selectedStaffId && entry.status === 'earned' && entry.paidAmount < entry.amount)
   const payableBalance = payableRows.reduce((sum, entry) => sum + entry.amount - entry.paidAmount, 0)
   const payments = (data.commissionPayments || []).filter(payment => (!staffId || payment.staffId === staffId) && (!from || payment.at.slice(0, 10) >= from) && (!to || payment.at.slice(0, 10) <= to)).sort((a, b) => b.at.localeCompare(a.at))
-  const settle = () => {
+  const settle = async () => {
     const value = Number(amount)
     if (!canPay || !selectedStaffId || !payableRows.length || !Number.isFinite(value) || value <= 0 || value > payableBalance + 0.001) return
     const operationId = operation.current ||= crypto.randomUUID()
-    if (onPay({ staffId: selectedStaffId, amount: value, method, operationId, commissionIds: payableRows.map(entry => entry.id) }) !== false) { setAmount(''); operation.current = null }
+    if (await onPay({ staffId: selectedStaffId, amount: value, method, operationId, commissionIds: payableRows.map(entry => entry.id) }) !== false) { setAmount(''); operation.current = null }
   }
   return <section className="rounded-2xl border border-white/10 bg-[#0d1720] p-4">
     <header><h2 className="font-bold">Comisiones de Meseros</h2><p className="mt-1 text-sm text-slate-400">Ventas pagadas con comisión configurada por producto. La preparación y entrega no cambian al mesero vendedor.</p></header>

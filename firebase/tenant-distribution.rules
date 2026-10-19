@@ -3,6 +3,10 @@
       return tHasRole(tenantId, ['admin', 'owner', 'superadmin', 'accountant']);
     }
 
+    function tDistSettingsAdmin(tenantId) {
+      return tHasRole(tenantId, ['admin', 'owner', 'superadmin']);
+    }
+
     function tDistWarehouse(tenantId) {
       return tHasRole(tenantId, ['warehouse']);
     }
@@ -84,6 +88,11 @@
       allow create, update, delete: if false;
     }
 
+    function tCollectionQrAmount(tenantId, sourceId) {
+      let col = get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(sourceId)).data;
+      return col.method in ['qr', 'mixed'] ? col.get('qrAmount', col.amount) : 0;
+    }
+
     match /tenants/{tenantId}/distQrVerifications/{verificationId} {
       allow read: if tDistAdmin(tenantId) || tDistOwnsRoute(tenantId, resource.data.routeId);
       allow create: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
@@ -95,8 +104,7 @@
           && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distSales/$(request.resource.data.sourceId)).data.qrAmount)
         || (request.resource.data.sourceType == 'collection'
           && verificationId == 'collection_' + request.resource.data.sourceId
-          && get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(request.resource.data.sourceId)).data.method == 'qr'
-          && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distCollections/$(request.resource.data.sourceId)).data.amount)
+          && request.resource.data.amount == tCollectionQrAmount(tenantId, request.resource.data.sourceId))
         || (request.resource.data.sourceType == 'claim'
           && verificationId == 'claim_' + request.resource.data.sourceId
           && request.resource.data.amount == get(/databases/$(database)/documents/tenants/$(tenantId)/distClaims/$(request.resource.data.sourceId)).data.qrIn));
@@ -134,7 +142,7 @@
         && ((request.resource.data.type in ['sale','collection','expense','creditStatus'] && (tDistAdmin(tenantId) || tDistDistributor(tenantId)))
           || (request.resource.data.type in ['intake','transfer','dispatch','addition','closure'] && (tDistAdmin(tenantId)||tDistWarehouse(tenantId)))
           || (request.resource.data.type == 'closure' && tDistDistributor(tenantId))
-          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct'] && tDistAdmin(tenantId)));
+          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct','creditOverride'] && tDistAdmin(tenantId)));
       allow update: if tIsActiveMember(tenantId) && resource.data.createdBy == request.auth.uid && resource.data.status == 'rejected'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']) && request.resource.data.acknowledged == true;
       allow delete: if false;
@@ -155,6 +163,10 @@
       allow read: if tDistWorker(tenantId);
       allow write: if false;
     }
+    match /tenants/{tenantId}/distCreditOverrides/{overrideId} {
+      allow read: if tDistAdmin(tenantId);
+      allow write: if false;
+    }
 
     // Ledger inmutable: se crea, nunca se edita ni se borra.
     match /tenants/{tenantId}/distStockMovements/{movementId} {
@@ -164,14 +176,14 @@
 
     match /tenants/{tenantId}/distDispatches/{dispatchId} {
       allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
-        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid);
+        || (tDistDistributor(tenantId) && resource.data.get('distributorUid', '') == request.auth.uid);
       allow create, update, delete: if false;
     }
 
     // Las ventas no se editan ni se borran: son historia contable.
     match /tenants/{tenantId}/distSales/{saleId} {
       allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
-        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('sellerUid', '') == request.auth.uid);
+        || (tDistDistributor(tenantId) && resource.data.get('sellerUid', '') == request.auth.uid);
       allow create, update, delete: if false;
     }
 
@@ -197,21 +209,10 @@
       return tDistWarehouseOwns(tenantId, dispatch.get('warehouseId', 'central'));
     }
     match /tenants/{tenantId}/distClosures/{closureId} {
-      allow read: if tDistAdmin(tenantId) || tDistWarehouse(tenantId)
-        || (tDistDistributor(tenantId) && tDistOwnsRoute(tenantId, resource.data.get('routeId', '')) && resource.data.get('distributorUid', '') == request.auth.uid)
-        || (tDistDistributor(tenantId) && resource.data.get('returnDeclaredBy', '') == request.auth.uid);
-      allow create: if tDistTenantMatches(tenantId)
-        && tDistOwnsRoute(tenantId, request.resource.data.get('routeId', ''))
-        && request.resource.data.keys().hasOnly(['id', 'tenantId', 'dispatchId', 'routeId', 'distributorUid', 'distributorName', 'declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey'])
-        && request.resource.data.distributorUid == request.auth.uid
-        && request.resource.data.returnDeclaredBy == request.auth.uid;
-      allow update: if tDistTenantMatches(tenantId)
-        && tDistOwnsRoute(tenantId, resource.data.get('routeId', ''))
-        && resource.data.get('warehouseClosedBy', '') == ''
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['declaredReturns', 'returnDeclaredBy', 'returnDeclaredAt', 'dayKey', 'distributorUid', 'distributorName'])
-        && request.resource.data.distributorUid == request.auth.uid
-        && request.resource.data.returnDeclaredBy == request.auth.uid;
-      allow delete: if false;
+      allow read: if tDistAdmin(tenantId)
+        || tDistWarehouse(tenantId)
+        || (tDistDistributor(tenantId) && resource.data.get('distributorUid', '') == request.auth.uid);
+      allow create, update, delete: if false;
     }
 
     // Configuración técnica separada de toda la información comercial. El rol
@@ -222,19 +223,19 @@
       // no puede demostrar que devolverá únicamente el documento `main`.
       allow get: if configId == 'main' && tIsActiveMember(tenantId);
       allow list: if tIsActiveMember(tenantId);
-      allow create, update: if configId == 'main' && (tDistAdmin(tenantId) || tDistSupport(tenantId))
-        && request.resource.data.keys().hasOnly(['tenantId','companyName','taxId','address','phone','receiptHeader','receiptFooter','expiryAlertDays','creditBlockDays','requireQrVerification','defaultPaperWidth','updatedAt','updatedBy','lastResetAt','lastResetBy'])
+      allow create: if configId == 'main' && tDistSettingsAdmin(tenantId)
+        && request.resource.data.keys().hasOnly(['tenantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
         && request.resource.data.tenantId == tenantId
-        && request.resource.data.companyName is string
-        && request.resource.data.taxId is string
-        && request.resource.data.address is string
-        && request.resource.data.phone is string
-        && request.resource.data.receiptHeader is string
-        && request.resource.data.receiptFooter is string
         && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
         && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
         && request.resource.data.requireQrVerification is bool
-        && request.resource.data.defaultPaperWidth in ['58mm','80mm']
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if configId == 'main' && tDistSettingsAdmin(tenantId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tenantId','expiryAlertDays','creditBlockDays','requireQrVerification','updatedAt','updatedBy'])
+        && request.resource.data.get('tenantId', tenantId) == tenantId
+        && request.resource.data.expiryAlertDays is int && request.resource.data.expiryAlertDays >= 1 && request.resource.data.expiryAlertDays <= 90
+        && request.resource.data.creditBlockDays is int && request.resource.data.creditBlockDays >= 1 && request.resource.data.creditBlockDays <= 90
+        && request.resource.data.requireQrVerification is bool
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if false;
     }

@@ -18,19 +18,57 @@ import type { UserRole } from './types'
 function DistributionShell(props: {
   tenantId: string
   restaurantName: string
+  companyName?: string
+  logoUrl?: string
+  primaryColor?: string
+  accentColor?: string
   uid: string
   userName: string
   role: UserRole
   routeId: string | null
   warehouseId?: string
   onSignOut: () => Promise<void>
+  businessIdentity?: import('./core/businessIdentity').BusinessIdentity
 }) {
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false)
+  const [printerContext, setPrinterContext] = useState<{
+    businessIdentity?: import('./core/businessIdentity').BusinessIdentity
+    documentContext?: import('./core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  } | null>(null)
+
+  const handleOpenPrinterSettings = (context?: {
+    businessIdentity?: import('./core/businessIdentity').BusinessIdentity
+    documentContext?: import('./core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  }) => {
+    if (context) {
+      setPrinterContext(context)
+    }
+    setIsPrinterSettingsOpen(true)
+  }
+
+  const effectiveBusinessIdentity = printerContext?.businessIdentity || props.businessIdentity
+  const effectiveCompanyName =
+    printerContext?.companyName ||
+    printerContext?.documentContext?.companyName ||
+    effectiveBusinessIdentity?.tradeName ||
+    props.companyName ||
+    props.restaurantName
 
   return (
     <>
-      <DistributionApp {...props} onOpenPrinterSettings={() => setIsPrinterSettingsOpen(true)} />
-      {isPrinterSettingsOpen && <DistributionPrinterModal tenantId={props.tenantId} onClose={() => setIsPrinterSettingsOpen(false)} />}
+      <DistributionApp {...props} onOpenPrinterSettings={handleOpenPrinterSettings} />
+      {isPrinterSettingsOpen && (
+        <DistributionPrinterModal
+          tenantId={props.tenantId}
+          branchId="main"
+          companyName={effectiveCompanyName}
+          businessIdentity={effectiveBusinessIdentity}
+          documentContext={printerContext?.documentContext}
+          onClose={() => setIsPrinterSettingsOpen(false)}
+        />
+      )}
     </>
   )
 }
@@ -38,7 +76,7 @@ function DistributionShell(props: {
 function App() {
   const auth = useAuthStore()
   const { path } = usePublicRouter()
-  const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.())
+  const isNative = typeof window !== 'undefined' && Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.())
 
   // 1. Entorno Administrativo Seguro (/admin y /admin/login)
   if (!isNative && path === '/admin/login') {
@@ -123,6 +161,10 @@ function App() {
       <DistributionShell
         tenantId={auth.tenantId}
         restaurantName={auth.account.name}
+        companyName={activeTenant?.tenant.name || auth.account.name}
+        logoUrl={activeTenant?.branding?.logoUrl || auth.account.branding?.logoUrl}
+        primaryColor={activeTenant?.branding?.primary || auth.account.branding?.primaryColor}
+        accentColor={activeTenant?.branding?.accent || auth.account.branding?.accentColor}
         key={`${auth.tenantId}:${auth.member.uid}`}
         warehouseId={auth.member.warehouseId}
         uid={auth.member.uid}
@@ -130,6 +172,7 @@ function App() {
         role={auth.member.role}
         routeId={auth.member.routeId ?? null}
         onSignOut={auth.signOut}
+        businessIdentity={activeTenant?.tenant?.businessIdentity}
       />
     )
   }
@@ -149,6 +192,7 @@ function App() {
         role={activeTenant?.role || auth.member.role}
         onSignOut={auth.signOut}
         profile={canonicalBusinessType === 'hamburger_shop' ? 'counter_service' : 'restaurant'}
+        businessIdentity={activeTenant?.tenant?.businessIdentity}
       />
     )
   }
@@ -164,6 +208,7 @@ function App() {
         userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
         role={activeTenant?.role || auth.member.role}
         onSignOut={auth.signOut}
+        businessIdentity={activeTenant?.tenant?.businessIdentity}
       />
     )
   }

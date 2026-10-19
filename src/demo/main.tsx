@@ -15,7 +15,7 @@ export function DemoRoot() {
   return (
     <DemoRuntime
       templateId={route.templateId}
-      mode={route.isStudioEmbed && route.templateId === 'restaurant' && new URLSearchParams(window.location.search).get('mode') === 'simulated_role' ? 'simulated_role' : 'team'}
+      mode={route.isStudioEmbed ? (new URLSearchParams(window.location.search).get('mode') === 'simulated_role' ? 'simulated_role' : 'team') : 'simulated_role'}
       isPublicDemo={!route.isStudioEmbed}
       isStudioEmbed={route.isStudioEmbed}
       initialRole={route.initialRole}

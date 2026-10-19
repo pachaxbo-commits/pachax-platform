@@ -19,6 +19,7 @@ export type StockMovementType =
   | 'dispatch' // salida a ruta
   | 'dispatch_addition' // aumento de carga sobre despacho abierto
   | 'sale' // venta (descuenta ruta o central)
+  | 'courtesy' // salida de muestra comercial / atencion sin cobro
   | 'return' // retorno fisico de ruta a central
   | 'adjustment' // ajuste manual de almacen
   | 'shortage' // faltante detectado en conciliacion
@@ -128,14 +129,20 @@ export interface DistStockMovement extends DistBaseDoc {
 }
 
 export interface DistDispatchLine {
-  lotCode?: string
-  manufacturedOn?: string
-  expiresOn?: string
-  lotId?: string
   productId: string
   productName: string
   unitType: UnitType
   quantity: number
+  normalQuantity?: number
+  dispatchMerma?: number
+  physicalQuantity?: number
+  allocationsRequested?: { lotId: string; quantity: number }[]
+  allocations?: { lotId: string; lotCode: string; expiresOn: string; quantity: number; productionCost: number | null }[]
+  dispatchMermaAllocations?: { lotId: string; lotCode: string; expiresOn: string; quantity: number; productionCost: number | null }[]
+  lotCode?: string
+  manufacturedOn?: string
+  expiresOn?: string
+  lotId?: string
 }
 
 export interface DistDispatchAddition {
@@ -173,6 +180,8 @@ export interface DistSaleLine {
   /** Precio realmente aplicado, congelado historicamente */
   actualUnitPrice: number
   subtotal: number
+  referenceUnitPriceSnapshot?: number
+  referenceSubtotal?: number
 }
 
 export interface DistSale extends DistBaseDoc {
@@ -195,6 +204,13 @@ export interface DistSale extends DistBaseDoc {
   qrAmount: number
   creditAmount: number
   note?: string
+  saleKind?: 'normal' | 'courtesy'
+  courtesyReason?: string
+  courtesyReferenceValue?: number
+  courtesyCostTotal?: number | null
+  creditOverrideId?: string
+  creditOverrideReason?: string
+  creditOverrideValidUntil?: string
 }
 
 export type ReceivableStatus = 'OPEN' | 'PARTIAL' | 'PAID'
@@ -216,11 +232,23 @@ export interface DistReceivable extends DistBaseDoc {
   note?: string
 }
 
+export interface DistCollectionAllocation {
+  receivableId: string
+  saleId?: string
+  originRouteId?: string
+  balanceBefore?: number
+  appliedAmount: number
+  balanceAfter?: number
+}
+
 export interface DistCollection extends DistBaseDoc {
   saleLines?: DistSaleLine[]
   customerCode?: string
   operationId: string
-  receivableId: string
+  receivableId?: string
+  allocations?: DistCollectionAllocation[]
+  portfolioBalanceBefore?: number
+  portfolioBalanceAfter?: number
   customerId: string
   customerName: string
   routeId: string
@@ -228,7 +256,9 @@ export interface DistCollection extends DistBaseDoc {
   collectedByUid: string
   collectedByName: string
   amount: number
-  method: 'cash' | 'qr'
+  method: 'cash' | 'qr' | 'mixed'
+  cashAmount?: number
+  qrAmount?: number
   note?: string
 }
 
@@ -247,6 +277,15 @@ export interface DistExpense extends DistBaseDoc {
   note?: string
 }
 
+export interface DistPhysicalReturnBreakdown {
+  productId?: string
+  normalReturn: number
+  recoverableMerma: number
+  nonSellableReturn: number
+  nonSellableReason?: string
+  totalPhysicalReturn?: number
+}
+
 export interface DistClosureProductRow {
   productId: string
   productName: string
@@ -258,6 +297,35 @@ export interface DistClosureProductRow {
   expectedReturn: number
   actualReturn: number
   variance: number
+
+  initialNormalDispatch?: number
+  initialDispatchMerma?: number
+  initialPhysicalDispatch?: number
+  additionsNormal?: number
+  additionsMerma?: number
+  additionsPhysical?: number
+  totalLoadedPhysical?: number
+  declared?: {
+    normal: number
+    recoverableMerma: number
+    nonSellable: number
+    nonSellableReason?: string
+    totalPhysical: number
+  }
+  warehouse?: {
+    normal: number
+    recoverableMerma: number
+    nonSellable: number
+    nonSellableReason?: string
+    totalPhysical: number
+  }
+  returnMerma?: number
+  returnWaste?: number
+  returnWasteReason?: string
+  shortage?: number
+  overage?: number
+  declarationVariance?: number
+  lossCost?: number | null
 }
 
 export type ClosureStatus = 'draft' | 'warehouse_done' | 'closed' | 'reopened'
@@ -265,6 +333,22 @@ export type ClosureStatus = 'draft' | 'warehouse_done' | 'closed' | 'reopened'
 export interface DistClosure extends DistBaseDoc {
   warehouseId?: string
   declaredReturns?: Record<string, number>
+  declaredReturnMermas?: Record<string, number>
+  declaredReturnNonSellables?: Record<string, number>
+  declaredReturnNonSellableReasons?: Record<string, string>
+  declaredBreakdown?: Record<string, DistPhysicalReturnBreakdown>
+  warehouseBreakdown?: Record<string, DistPhysicalReturnBreakdown>
+  reversedStockMovementIds?: string[]
+  reopenHistory?: {
+    reopenedAt: string
+    reopenedBy: string
+    reason: string
+    preserveFinancialSnapshot?: boolean
+    warehouseClosedBy?: string
+    warehouseClosedAt?: string
+    products?: DistClosureProductRow[]
+  }[]
+  warehouseReopenedAt?: string
   returnDeclaredBy?: string
   returnDeclaredAt?: string
   dispatchId: string
@@ -318,4 +402,27 @@ export interface DistLot {
 }
 export interface DistTransfer { id: string; fromWarehouseId: string; toWarehouseId: string; line: DistDispatchLine; createdAt: string; createdBy: string; responsibleName?: string; note?: string }
 export interface DistClaim { id: string; kind: 'exchange'|'return'; saleId: string; customerId: string; customerName: string; productId: string; productName: string; quantity: number; unitType: UnitType; reason: string; routeId: string; createdAt: string; dayKey: string; revenueDelta: number; additionalCost: number | null; debtReduction: number; cashIn: number; cashOut: number; qrIn: number; qrOut: number; replacement: {productId: string;productName: string;quantity: number;unitType: UnitType;total: number} | null }
-export interface DistCreditStatus { id: string; oldestPendingAt: string | null; checkedAt: string }
+export interface DistCreditStatus {
+  id: string
+  oldestPendingAt: string | null
+  overduePendingAt?: string | null
+  creditBlockDays?: number
+  blocked?: boolean
+  activeOverrideId?: string | null
+  overrideValidUntil?: string | null
+  overrideReason?: string | null
+  checkedAt: string
+}
+
+export interface DistCreditOverride extends DistBaseDoc {
+  customerId: string
+  customerName?: string
+  reason: string
+  validFrom?: string
+  validUntil: string
+  createdByName?: string
+  revokedAt?: string
+  revokedBy?: string
+  revokedByName?: string
+  active: boolean
+}

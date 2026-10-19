@@ -4,7 +4,7 @@ import { acknowledgeOperation } from '../data/operationQueue'
 import { getBusinessTypeDefinition } from '../../../config/businessTypes'
 import { hasPermission } from '../../../services/permissionService'
 import { applyTenantTheme } from '../../../lib/tenantTheme'
-import { buildDayRange, useDistributionData, useSyncStatus } from '../state/useDistributionStore'
+import { useDistributionData, useSyncStatus } from '../state/useDistributionStore'
 import { toDayKey } from '../domain/engine'
 import {
   DistributionExperience,
@@ -12,6 +12,11 @@ import {
   type DistributionViewProps,
 } from './DistributionExperience'
 import type { Permission, UserRole } from '../../../types'
+import type { BusinessIdentity } from '../../../core/businessIdentity'
+import { loadSupportSettings } from '../data/supportMaintenance'
+import { resolveDistributionBusinessIdentity } from '../data/distributionReceiptService'
+import { updateTenantBusinessIdentity, uploadTenantLogoToFirebase } from '../../../lib/firebase'
+import { initializePrinting } from '../../../services/printing/printerBootstrap'
 
 export type { DistributionSession, DistributionViewProps }
 
@@ -25,6 +30,11 @@ export function DistributionApp({
   warehouseId = 'central',
   onSignOut,
   onOpenPrinterSettings,
+  businessIdentity: initialBusinessIdentity,
+  companyName,
+  logoUrl,
+  primaryColor,
+  accentColor,
 }: {
   tenantId: string
   restaurantName: string
@@ -34,13 +44,72 @@ export function DistributionApp({
   warehouseId?: string
   routeId: string | null
   onSignOut: () => Promise<void>
-  onOpenPrinterSettings: () => void
+  onOpenPrinterSettings: (context?: {
+    businessIdentity?: BusinessIdentity
+    documentContext?: import('../../../core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  }) => void
+  businessIdentity?: BusinessIdentity
+  companyName?: string
+  logoUrl?: string
+  primaryColor?: string
+  accentColor?: string
 }) {
   const definition = getBusinessTypeDefinition('mobile_distribution')
 
+  const [localIdentity, setLocalIdentity] = useState<BusinessIdentity | undefined>(undefined)
+  const activeIdentity = localIdentity || initialBusinessIdentity
+
   useEffect(() => {
-    applyTenantTheme(definition.theme)
-  }, [definition.theme])
+    initializePrinting(tenantId, 'main')
+  }, [tenantId])
+
+  useEffect(() => {
+    if (initialBusinessIdentity) {
+      return
+    }
+    let isMounted = true
+    void loadSupportSettings().then((settings) => {
+      if (isMounted) {
+        const resolved = resolveDistributionBusinessIdentity(undefined, settings, restaurantName)
+        setLocalIdentity((prev) => prev || resolved)
+      }
+    })
+    return () => {
+      isMounted = false
+    }
+  }, [tenantId, initialBusinessIdentity, restaurantName])
+
+  useEffect(() => {
+    const effectivePrimary = activeIdentity?.primaryColor || primaryColor || definition.theme.primary
+    const effectiveAccent = activeIdentity?.accentColor || accentColor || definition.theme.accent
+    applyTenantTheme({
+      ...definition.theme,
+      primary: effectivePrimary,
+      accent: effectiveAccent,
+    })
+  }, [activeIdentity?.primaryColor, activeIdentity?.accentColor, primaryColor, accentColor, definition.theme])
+
+  const handleSaveBusinessIdentity = async (newIdentity: BusinessIdentity) => {
+    await updateTenantBusinessIdentity(tenantId, newIdentity)
+    setLocalIdentity(newIdentity)
+  }
+
+  const handleUploadLogo = async (file: File) => {
+    return await uploadTenantLogoToFirebase(file, tenantId)
+  }
+
+  const handleOpenPrinterSettings = (context?: {
+    businessIdentity?: BusinessIdentity
+    documentContext?: import('../../../core/businessIdentity').BusinessDocumentContext
+    companyName?: string
+  }) => {
+    onOpenPrinterSettings({
+      businessIdentity: activeIdentity,
+      companyName: activeIdentity?.tradeName || companyName,
+      ...context,
+    })
+  }
 
   const can = useMemo(() => (permission: Permission) => hasPermission(role, permission), [role])
   const [dayKeys, setDayKeys] = useState<string[]>([toDayKey(new Date())])
@@ -79,11 +148,15 @@ export function DistributionApp({
       data={data}
       syncState={syncState}
       onSignOut={onSignOut}
-      onOpenPrinterSettings={onOpenPrinterSettings}
+      onOpenPrinterSettings={handleOpenPrinterSettings}
       onDismissSyncError={dismissSyncError}
       onAcknowledgeOperation={acknowledgeOperation}
+      logoUrl={activeIdentity?.logoUrl || logoUrl}
+      companyName={activeIdentity?.tradeName || companyName}
+      businessIdentity={activeIdentity}
+      onSaveBusinessIdentity={handleSaveBusinessIdentity}
+      onUploadLogo={handleUploadLogo}
     />
   )
 }
 
-export { buildDayRange }

@@ -68,7 +68,7 @@ export function NightclubUsers({ users, customRoles = [], view = 'all', rolePres
   const submit = async () => {
     if (!draft || busy) return
     setMessage('')
-    if (mode === 'tenant' && !existing && (!draft.email || initialPassword.length < 8)) return setMessage('Correo y contraseña inicial de al menos 8 caracteres son obligatorios.')
+    if (mode === 'tenant' && !existing && (!draft.email || initialPassword.length < 8 || initialPassword.length > 72)) return setMessage('Correo y contraseña inicial de entre 8 y 72 caracteres son obligatorios.')
     try {
       normalizeNightclubUserPermissions(draft.permissions || [])
       setBusy(true)

@@ -280,6 +280,18 @@ export async function updateRestaurantBranding(restaurantId: string, branding: P
   await gateway('tenantGateway', { action: 'updateSettings', tenantId: context.tenantId, branding: safeBranding })
 }
 
+export async function updateTenantBusinessIdentity(tenantId: string, identity: import('../core/businessIdentity').BusinessIdentity) {
+  const context = await getFirebaseContext()
+  if (!context) throw new Error('Firebase no está configurado.')
+
+  if (tenantId !== context.tenantId) throw new Error('Empresa activa inválida.')
+  await gateway('tenantGateway', {
+    action: 'updateSettings',
+    tenantId: context.tenantId,
+    businessIdentity: identity,
+  })
+}
+
 /** @deprecated The new owner registers in the onboarding flow. */
 export async function createNewRestaurantAccount(_input: { restaurantName: string; ownerName: string; email: string; password: string }): Promise<string> {
   void _input
@@ -349,6 +361,31 @@ export async function uploadProductImageToFirebase(file: File, tenantId: string)
   }
   const fileExt = file.name.split('.').pop() || 'jpg'
   const path = `tenants/${tenantId}/products/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`
+  const fileRef = storageRef(storage, path)
+
+  await uploadBytes(fileRef, file)
+  return getDownloadURL(fileRef)
+}
+
+export async function uploadTenantLogoToFirebase(file: File, tenantId: string): Promise<string> {
+  const context = await getFirebaseContext()
+  if (!context) throw new Error('Firebase no está configurado.')
+
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error('El logotipo no debe superar los 2 MB.')
+  }
+  const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']
+  if (!allowed.includes(file.type)) {
+    throw new Error('Formato no admitido. Usa JPG, PNG, WEBP o SVG.')
+  }
+
+  const storage = getStorage(context.app)
+  if (import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true' && !storageEmulatorConnected) {
+    connectStorageEmulator(storage, window.location.hostname || 'localhost', 9295)
+    storageEmulatorConnected = true
+  }
+  const fileExt = file.name.split('.').pop()?.toLowerCase() || 'png'
+  const path = `tenants/${tenantId}/branding/logo_${Date.now()}.${fileExt}`
   const fileRef = storageRef(storage, path)
 
   await uploadBytes(fileRef, file)

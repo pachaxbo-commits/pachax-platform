@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
   getSyncState,
   subscribeLots, subscribeOperations, subscribeMovements, subscribeTransfers, subscribeClaims, subscribeCreditStatus,
+  subscribeCreditOverrides,
   subscribeWarehouses,
   subscribeQrVerifications,
   subscribeBalances,
@@ -21,7 +22,7 @@ import {
 import { centralBalanceId, routeBalanceId, toDayKey } from '../domain/engine'
 import type {
   DistBalance,
-  DistLot, DistStockMovement, DistTransfer, DistClaim, DistCreditStatus,
+  DistLot, DistStockMovement, DistTransfer, DistClaim, DistCreditStatus, DistCreditOverride,
   DistWarehouse,
   DistQrVerification,
   DistClosure,
@@ -80,7 +81,7 @@ export function buildDayRange(from: Date, to: Date): string[] {
 
 export interface DistributionData {
   supportSettings: SupportSettings
-  lots: DistLot[]; operations: PendingOperation[]; movements: DistStockMovement[]; transfers: DistTransfer[]; claims: DistClaim[]; creditStatus: DistCreditStatus[];
+  lots: DistLot[]; operations: PendingOperation[]; movements: DistStockMovement[]; transfers: DistTransfer[]; claims: DistClaim[]; creditStatus: DistCreditStatus[]; creditOverrides: DistCreditOverride[];
   warehouses: DistWarehouse[]
   qrVerifications: DistQrVerification[]
   products: DistProduct[]
@@ -105,6 +106,7 @@ export function useDistributionData(scope: DistributionScope): DistributionData 
   const [transfers, setTransfers] = useState<DistTransfer[]>([])
   const [claims, setClaims] = useState<DistClaim[]>([])
   const [creditStatus, setCreditStatus] = useState<DistCreditStatus[]>([])
+  const [creditOverrides, setCreditOverrides] = useState<DistCreditOverride[]>([])
   const [warehouses, setWarehouses] = useState<DistWarehouse[]>([])
   const [qrVerifications, setQrVerifications] = useState<DistQrVerification[]>([])
   const [products, setProducts] = useState<DistProduct[]>([])
@@ -141,6 +143,7 @@ export function useDistributionData(scope: DistributionScope): DistributionData 
       subscribeLots(setLots, onError), subscribeOperations(setOperations, onError), subscribeCreditStatus(setCreditStatus, onError),
       subscribeSupportSettings(setSupportSettings, onError),
       ...(routeId === null ? [subscribeMovements(setMovements, onError), subscribeTransfers(setTransfers, onError)] : []),
+      ...(routeId === null && canReadFinance ? [subscribeCreditOverrides(setCreditOverrides, onError)] : []),
       ...(canReadFinance ? [subscribeClaims(routeId, setClaims, onError)] : []),
       subscribeWarehouses(setWarehouses, onError),
       ...(canReadFinance ? [subscribeQrVerifications(routeId, setQrVerifications, onError)] : []),
@@ -217,14 +220,63 @@ export function useDistributionData(scope: DistributionScope): DistributionData 
   }, [enabled, routeId, distributorUid, dayKeysSignature, canReadFinance, onError, onLoaded])
 
   const pendingSales = operations.filter(o => o.status === 'queued' && o.type === 'sale' && !sales.some(s => s.id === o.id)).map(o => ({ ...o.payload, id:o.id, createdAt:o.createdAt, dayKey:toDayKey(o.createdAt), pendingConfirmation:true } as unknown as DistSale))
-  const pendingCollections = operations.filter(o => o.status === 'queued' && o.type === 'collection' && !collections.some(c => c.id === o.id)).map(o => {
-    const p = o.payload as unknown as { receivable: DistReceivable; amount: number; method: 'cash'|'qr'; routeId: string; collectedByName: string }
-    return { ...p, id: o.id, operationId: o.id, receivableId: p.receivable.id, customerId: p.receivable.customerId, customerName: p.receivable.customerName, collectedByUid: o.createdBy, createdAt: o.createdAt, dayKey: toDayKey(o.createdAt), pendingConfirmation: true } as unknown as DistCollection
-  })
+  const pendingCollections = operations
+    .filter(o => o.status === 'queued' && o.type === 'collection' && !collections.some(c => c.id === o.id))
+    .map(o => {
+      const p = (o.payload || {}) as {
+        receivable?: DistReceivable
+        receivableId?: string
+        customerId?: string
+        customerName?: string
+        customerCode?: string
+        amount?: number
+        method?: 'cash' | 'qr' | 'mixed'
+        cashAmount?: number
+        qrAmount?: number
+        routeId?: string
+        collectedByName?: string
+        note?: string
+      }
+      const rec = p.receivable
+      const customerId = p.customerId || rec?.customerId || ''
+      const customerName = p.customerName || rec?.customerName || (customers.find(c => c.id === customerId)?.name || 'Cliente')
+      const customerCode = p.customerCode || rec?.customerCode || (customers.find(c => c.id === customerId)?.customerCode || '')
+      const receivableId = rec?.id || p.receivableId || ''
+      const amount = Number(p.amount) || 0
+      const method = p.method || 'cash'
+      const cashAmount = method === 'mixed' ? (Number(p.cashAmount) || 0) : (method === 'cash' ? amount : 0)
+      const qrAmount = method === 'mixed' ? (Number(p.qrAmount) || 0) : (method === 'qr' ? amount : 0)
+      const routeIdVal = p.routeId || rec?.routeId || routeId || 'central'
+
+      return {
+        id: o.id,
+        operationId: o.id,
+        receivableId,
+        allocations: [],
+        portfolioBalanceBefore: 0,
+        portfolioBalanceAfter: 0,
+        customerId,
+        customerName,
+        customerCode,
+        saleLines: rec?.saleLines || [],
+        routeId: routeIdVal,
+        originRouteId: rec?.routeId || routeIdVal,
+        collectedByUid: o.createdBy,
+        collectedByName: p.collectedByName || '',
+        amount,
+        method,
+        cashAmount,
+        qrAmount,
+        note: p.note || '',
+        createdAt: o.createdAt,
+        dayKey: toDayKey(o.createdAt),
+        pendingConfirmation: true,
+      } as unknown as DistCollection
+    })
   const pendingExpenses = operations.filter(o => o.status === 'queued' && o.type === 'expense' && !expenses.some(e => e.id === o.id)).map(o => ({ ...o.payload, id:o.id, createdAt:o.createdAt, dayKey:toDayKey(o.createdAt), pendingConfirmation:true } as unknown as DistExpense))
   const visibleReceivables = receivables.map(r => {
-    const pending = pendingCollections.filter(c => c.receivableId === r.id).reduce((n,c)=>n+c.amount,0)
-    return { ...r, balance:Math.max(0,Math.round((r.balance-pending)*100)/100), pendingConfirmation:pending>0 }
+    const hasPending = pendingCollections.some(c => c.receivableId === r.id || (c.customerId === r.customerId && !c.receivableId))
+    return { ...r, pendingConfirmation: hasPending }
   })
   const visibleBalances = balances.map(b => {
     const pendingQty = pendingSales.filter(s => s.sourceLocation === 'route' ? b.locationKind === 'route' && b.routeId === s.routeId : b.id === centralBalanceId(b.productId)).flatMap(s => s.lines).filter(l => l.productId === b.productId).reduce((n,l)=>n+l.quantity,0)
@@ -234,7 +286,7 @@ export function useDistributionData(scope: DistributionScope): DistributionData 
   })
   return {
     supportSettings,
-    lots, operations, movements, transfers, claims, creditStatus,
+    lots, operations, movements, transfers, claims, creditStatus, creditOverrides,
     warehouses,
     qrVerifications,
     products,

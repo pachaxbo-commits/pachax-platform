@@ -4,7 +4,7 @@ import { Modal } from '../../../components/ui/Modal'
 import { Field, NumberInput, TextArea, TextInput } from '../../../components/ui/Form'
 import { ChoiceButton, ChoiceModal } from '../../../components/ui/ChoiceModal'
 import { EmptyBlock, Screen } from '../../../components/ui/Screen'
-import { computeLoadedByProduct, round2, validateStockAvailability } from '../domain/engine'
+import { computeLoadedByProduct, round2, toDayKey, validateStockAvailability } from '../domain/engine'
 import { addDispatchLoad, confirmDispatch, newOperationId, warehouseBalanceId } from '../data/distributionRepository'
 import { useTenantMembers } from '../state/useTenantMembers'
 import { PrimaryButton, SecondaryButton, SectionCard, formatQty } from './shared'
@@ -13,7 +13,10 @@ import type { DistDispatch, DistDispatchLine } from '../types'
 
 interface DraftLine {
   productId: string
-  quantity: string
+  normalQuantity: string
+  dispatchMerma: string
+  allocationsRequested?: { lotId: string; quantity: number }[]
+  showLotSelector?: boolean
 }
 
 /**
@@ -79,15 +82,21 @@ export function DispatchesView({ session, data }: DistributionViewProps) {
   const buildLines = (): DistDispatchLine[] => {
     const lines: DistDispatchLine[] = []
     for (const draft of draftLines) {
-      const quantity = round2(Number(draft.quantity))
-      if (!draft.productId || !(quantity > 0)) continue
+      const normalQuantity = round2(Number(draft.normalQuantity || 0))
+      const dispatchMerma = round2(Number(draft.dispatchMerma || 0))
+      const physicalQuantity = round2(normalQuantity + dispatchMerma)
+      if (!draft.productId || !(physicalQuantity > 0)) continue
       const product = activeProducts.find((item) => item.id === draft.productId)
       if (!product) continue
       lines.push({
         productId: product.id,
         productName: product.presentation ? `${product.name} - ${product.presentation}` : product.name,
         unitType: product.unitType,
-        quantity,
+        quantity: physicalQuantity,
+        normalQuantity,
+        dispatchMerma,
+        physicalQuantity,
+        allocationsRequested: draft.allocationsRequested && draft.allocationsRequested.length > 0 ? draft.allocationsRequested : undefined,
       })
     }
     return lines
@@ -175,17 +184,124 @@ export function DispatchesView({ session, data }: DistributionViewProps) {
 
   const canDispatch = session.can('dist.dispatch.create')
 
+  const today = toDayKey()
+  const locKey = effectiveWarehouse === 'central' || !effectiveWarehouse ? 'central' : `warehouse__${effectiveWarehouse}`
+
   const lineEditor = (
     <div className="grid gap-3">
       <div className="grid gap-2">
         {draftLines.map((line) => {
           const product = activeProducts.find(item => item.id === line.productId)
           if (!product) return null
-          return <div key={line.productId} className="grid grid-cols-[minmax(0,1fr)_96px_40px] items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2.5">
-            <div className="min-w-0"><p className="text-xs font-extrabold leading-snug text-slate-900">{product.name}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500">Disponible: {formatQty(central.get(product.id) ?? 0, product.unitType)}</p></div>
-            <NumberInput aria-label={`Cantidad de ${product.name}`} value={line.quantity} min={0} step={product.unitType === 'kg' ? 0.01 : 1} placeholder={product.unitType === 'kg' ? 'kg' : 'Cant.'} onChange={event => setDraftLines(current => current.map(item => item.productId === line.productId ? { ...item, quantity: event.target.value } : item))} className="px-2 text-center" />
-            <button type="button" aria-label={`Quitar ${product.name}`} onClick={() => setDraftLines(current => current.filter(item => item.productId !== line.productId))} className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-rose-600"><Trash2 size={16} /></button>
-          </div>
+          const normal = Number(line.normalQuantity) || 0
+          const merma = Number(line.dispatchMerma) || 0
+          const physical = round2(normal + merma)
+          const availableLots = data.lots.filter(l =>
+            l.productId === line.productId &&
+            !l.quarantined &&
+            (!l.expiresOn || l.expiresOn >= today) &&
+            (l.quantities?.[locKey] || 0) > 0
+          )
+
+          return (
+            <div key={line.productId} className="grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-extrabold leading-snug text-slate-900">{product.name}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-slate-500">Disponible: {formatQty(central.get(product.id) ?? 0, product.unitType)}</p>
+                </div>
+                <button
+                  type="button"
+                  aria-label={`Quitar ${product.name}`}
+                  onClick={() => setDraftLines(current => current.filter(item => item.productId !== line.productId))}
+                  className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-rose-600"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 items-end">
+                <Field label="Cantidad">
+                  <NumberInput
+                    aria-label={`Cantidad de ${product.name}`}
+                    value={line.normalQuantity}
+                    min={0}
+                    step={product.unitType === 'kg' ? 0.01 : 1}
+                    placeholder={product.unitType === 'kg' ? 'kg' : 'Cant.'}
+                    onChange={event => setDraftLines(current => current.map(item => item.productId === line.productId ? { ...item, normalQuantity: event.target.value } : item))}
+                    className="px-2 text-center"
+                  />
+                </Field>
+
+                {product.unitType === 'kg' ? (
+                  <Field label="Merma adicional">
+                    <NumberInput
+                      aria-label={`Merma de ${product.name}`}
+                      value={line.dispatchMerma}
+                      min={0}
+                      step={0.01}
+                      placeholder="kg"
+                      onChange={event => setDraftLines(current => current.map(item => item.productId === line.productId ? { ...item, dispatchMerma: event.target.value } : item))}
+                      className="px-2 text-center"
+                    />
+                  </Field>
+                ) : <div />}
+
+                <div className="rounded-xl border border-slate-200 bg-white p-2 text-center">
+                  <p className="text-[10px] font-bold uppercase text-slate-400">Total físico</p>
+                  <p className="text-xs font-black text-slate-900">{formatQty(physical, product.unitType)}</p>
+                </div>
+              </div>
+
+              {availableLots.length > 0 && (
+                <div className="border-t border-slate-200/60 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDraftLines(current => current.map(item => item.productId === line.productId ? { ...item, showLotSelector: !item.showLotSelector } : item))}
+                    className="text-[11px] font-bold text-indigo-600 hover:underline"
+                  >
+                    {line.showLotSelector ? 'Ocultar selección manual de lotes (usa FEFO)' : 'Elegir lote manualmente (opcional)'}
+                  </button>
+
+                  {line.showLotSelector && (
+                    <div className="mt-2 grid gap-1.5 rounded-xl border border-indigo-100 bg-white p-2">
+                      <p className="text-[10px] font-semibold text-slate-500">
+                        Asigna cantidades por lote (debe sumar {formatQty(physical, product.unitType)}):
+                      </p>
+                      {availableLots.map(lot => {
+                        const currentAlloc = line.allocationsRequested?.find(a => a.lotId === lot.id)?.quantity ?? ''
+                        return (
+                          <div key={lot.id} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="min-w-0 truncate text-[11px] text-slate-700">
+                              {lot.lotCode || lot.id} · Vence: {lot.expiresOn || 'Sin fecha'} (Disp: {formatQty(lot.quantities?.[locKey] || 0, product.unitType)})
+                            </span>
+                            <div className="w-24 shrink-0">
+                              <NumberInput
+                                value={currentAlloc}
+                                min={0}
+                                step={product.unitType === 'kg' ? 0.01 : 1}
+                                placeholder="0"
+                                onChange={event => {
+                                  const val = Number(event.target.value) || 0
+                                  setDraftLines(current => current.map(item => {
+                                    if (item.productId !== line.productId) return item
+                                    const allocs = (item.allocationsRequested || []).filter(a => a.lotId !== lot.id)
+                                    if (val > 0) allocs.push({ lotId: lot.id, quantity: val })
+                                    return { ...item, allocationsRequested: allocs }
+                                  }))
+                                }}
+                                className="px-2 py-1 text-center text-xs"
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
         })}
         {draftLines.length === 0 && <p className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs font-semibold text-slate-500">Todavía no seleccionaste productos.</p>}
       </div>
@@ -337,11 +453,11 @@ export function DispatchesView({ session, data }: DistributionViewProps) {
               const draft = draftLines.find(line => line.productId === product.id)
               return <div key={product.id} className={`min-w-0 overflow-hidden rounded-2xl border ${draft ? 'border-[var(--primary)] bg-[var(--primary-soft)]' : 'border-slate-200 bg-white'}`}>
                 {product.photoDataUrl && <img src={product.photoDataUrl} alt={`Foto de ${product.name}`} onError={(event) => { event.currentTarget.style.display = 'none' }} className="aspect-[16/8] w-full object-cover" />}
-                <button type="button" onClick={() => setDraftLines(current => draft ? current.filter(line => line.productId !== product.id) : [...current, { productId: product.id, quantity: '' }])} className="flex min-h-[88px] w-full flex-col items-start justify-between gap-2 p-3 text-left">
+                <button type="button" onClick={() => setDraftLines(current => draft ? current.filter(line => line.productId !== product.id) : [...current, { productId: product.id, normalQuantity: '', dispatchMerma: '' }])} className="flex min-h-[88px] w-full flex-col items-start justify-between gap-2 p-3 text-left">
                   <span className="text-xs font-extrabold leading-snug text-slate-900">{product.name}</span>
                   <span className="flex w-full items-center justify-between gap-1 text-[10px] font-bold text-slate-500"><span>{formatQty(central.get(product.id) ?? 0, product.unitType)}</span>{draft && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary)] text-white"><Check size={13} /></span>}</span>
                 </button>
-                {draft && <div className="border-t border-[var(--primary)]/15 p-2"><NumberInput autoFocus value={draft.quantity} min={0} max={central.get(product.id) ?? undefined} step={product.unitType === 'kg' ? 0.01 : 1} placeholder={`Cantidad (${product.unitType === 'kg' ? 'kg' : product.unitType === 'package' ? 'paq' : 'u'})`} onChange={event => setDraftLines(current => current.map(line => line.productId === product.id ? { ...line, quantity: event.target.value } : line))} className="px-2 text-center text-xs" /></div>}
+                {draft && <div className="border-t border-[var(--primary)]/15 p-2"><NumberInput autoFocus value={draft.normalQuantity} min={0} max={central.get(product.id) ?? undefined} step={product.unitType === 'kg' ? 0.01 : 1} placeholder={`Cantidad (${product.unitType === 'kg' ? 'kg' : product.unitType === 'package' ? 'paq' : 'u'})`} onChange={event => setDraftLines(current => current.map(line => line.productId === product.id ? { ...line, normalQuantity: event.target.value } : line))} className="px-2 text-center text-xs" /></div>}
               </div>
             })}
           </div>

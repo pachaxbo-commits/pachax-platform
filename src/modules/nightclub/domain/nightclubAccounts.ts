@@ -12,16 +12,6 @@ export type NightclubServiceTarget =
   | { type: 'bar'; customerId?: string; displayName?: string }
 
 export interface NightclubZone { id: string; name: string; sortOrder: number }
-export type NightclubLocationType = 'warehouse' | 'cashbox'
-export interface NightclubLocation { id: string; branchId: string; type: NightclubLocationType; name: string; linkedCashboxId?: string; active: boolean; createdAt: string; updatedAt: string }
-export interface NightclubCashbox { id: string; branchId: string; locationId: string; name: string; active: boolean; createdAt: string; updatedAt: string }
-export interface NightclubOperatorContext { id: string; userId: string; branchId: string; cashboxId: string; locationId: string; activeShiftId?: string; selectedAt: string; selectedBy: string; changedFromCashboxId?: string }
-export interface NightclubInventoryBalance { id: string; locationId: string; inventoryId: string; availableQuantity: number; reservedQuantity: number; inTransitQuantity: number; minimumQuantity: number; unit: 'unit' | 'ml' | 'g'; updatedAt: string }
-export interface NightclubInventoryLot { id: string; inventoryId: string; locationId: string; receivedQuantity: number; remainingQuantity: number; unitCost: number; receivedAt: string; sourceType: 'purchase' | 'transfer' | 'migration' | 'adjustment'; sourceReferenceId?: string; status: 'available' | 'in_transit' | 'consumed' | 'closed' }
-export interface NightclubOpenBottle { id: string; locationId: string; inventoryId: string; lotId: string; capacityMl: number; remainingMl: number; openedAt: string; openedBy: string; status: 'open' | 'empty' | 'discarded' }
-export type NightclubTransferStatus = 'requested' | 'prepared' | 'in_transit' | 'received' | 'cancelled'
-export interface NightclubTransferLine { inventoryId: string; quantity: number; unit: 'unit' | 'ml' | 'g'; lotAllocations: Array<{ lotId: string; quantity: number; unitCost: number }> }
-export interface NightclubTransfer { id: string; branchId: string; sourceLocationId: string; destinationLocationId: string; mode: 'immediate' | 'pending_receipt'; status: NightclubTransferStatus; lines: NightclubTransferLine[]; requestedBy?: string; preparedBy?: string; handedOverBy?: string; receivedBy?: string; createdAt: string; dispatchedAt?: string; receivedAt?: string; cancelledAt?: string; cancellationReason?: string }
 export interface NightclubTable { id: string; name: string; zoneId: string; capacity: number; status: NightclubTableStatus; activeAccountId?: string; reservationName?: string }
 export interface NightclubRecipeLine { inventoryId: string; quantity: number; unit?: 'unit' | 'ml' | 'l' | 'g' | 'kg' }
 export interface NightclubProduct {
@@ -41,10 +31,10 @@ export interface NightclubProduct {
   commission?: { enabled: boolean; type: 'percentage' | 'fixed'; value: number }
 }
 export interface NightclubCommissionSnapshot { type: 'percentage' | 'fixed'; value: number }
-export interface NightclubRoundItem { id: string; productId: string; name: string; category?: string; quantity: number; unitPrice: number; lineTotal: number; costAtSale?: number; commercialValue?: number; kind?: 'sale' | 'courtesy'; status?: 'active' | 'cancelled' | 'returned' | 'partially_returned'; cancelledAt?: string; cancelledBy?: string; cancelReason?: string; returnedAt?: string; returnedBy?: string; returnReason?: string; stockUsage?: NightclubRecipeLine[]; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string; exchangeId?: string; exchangedForProductId?: string; exchangeSourceItemId?: string; commissionSnapshot?: NightclubCommissionSnapshot; physicalReturnEligible?: boolean; refundedQuantity?: number; physicallyRestoredQuantity?: number }
-export interface NightclubRound { id: string; sequence: number; cashboxId?: string; locationId?: string; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; customerId?: string | null; customerNameSnapshot?: string; serviceStaffId?: string; serviceStaffName?: string; sellerStaffId?: string; sellerStaffName?: string; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentAt?: string; paidAt?: string; deliveredBy?: string; sentBy?: string; authorization?: 'payment' | 'account_charge' | 'courtesy'; paymentId?: string; courtesyId?: string; operationId?: string; cancelledBy?: string; cancellationReason?: string }
+export interface NightclubRoundItem { id: string; productId: string; name: string; category?: string; quantity: number; unitPrice: number; lineTotal: number; costAtSale?: number; commercialValue?: number; kind?: 'sale' | 'courtesy'; status?: 'active' | 'cancelled' | 'returned'; cancelledAt?: string; cancelledBy?: string; cancelReason?: string; stockUsage?: NightclubRecipeLine[]; preparationArea?: 'Barra' | 'Directo'; courtesyId?: string; memberName?: string; exchangeId?: string; exchangedForProductId?: string; exchangeSourceItemId?: string; commissionSnapshot?: NightclubCommissionSnapshot }
+export interface NightclubRound { id: string; sequence: number; createdAt: string; status: NightclubRoundStatus; items: NightclubRoundItem[]; customerId?: string | null; customerNameSnapshot?: string; serviceStaffId?: string; serviceStaffName?: string; sellerStaffId?: string; sellerStaffName?: string; startedAt?: string; readyAt?: string; deliveredAt?: string; cancelledAt?: string; sentAt?: string; paidAt?: string; deliveredBy?: string; sentBy?: string; authorization?: 'payment' | 'account_charge' | 'courtesy'; paymentId?: string; courtesyId?: string; operationId?: string; cancelledBy?: string; cancellationReason?: string }
 export interface NightclubPaymentAllocation { roundId: string; customerId: string | null; amount: number }
-export interface NightclubPayment { id?: string; cashboxId?: string; locationId?: string; operationId?: string; roundId?: string; allocations?: NightclubPaymentAllocation[]; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string; status?: 'confirmed' | 'refunded' | 'partially_refunded'; kind?: 'sale' | 'exchange_refund' | 'pending_electronic_refund'; refundedAmount?: number; refundedAt?: string; refundedBy?: string; refundReason?: string; exchangeId?: string }
+export interface NightclubPayment { id?: string; operationId?: string; roundId?: string; allocations?: NightclubPaymentAllocation[]; method: NightclubPaymentMethod; amount?: number; cashAmount: number; qrAmount: number; cardAmount: number; received: number; change: number; paidAt: string; paidBy: string; status?: 'confirmed' | 'refunded'; kind?: 'sale' | 'exchange_refund' | 'pending_electronic_refund'; refundedAt?: string; refundedBy?: string; refundReason?: string; exchangeId?: string }
 export interface NightclubAccount {
   id: string
   serviceTarget?: NightclubServiceTarget
@@ -58,8 +48,6 @@ export interface NightclubAccount {
   waiterName?: string
   guestCount?: number
   shiftId?: string
-  cashboxId?: string
-  locationId?: string
   openedAt: string
   openedBy: string
   status: NightclubAccountStatus
@@ -71,7 +59,7 @@ export interface NightclubAccount {
   /** Snapshot legacy del último pago. */
   payment?: NightclubPayment
 }
-export interface NightclubShift { id: string; status: 'open' | 'closed'; openedAt: string; openingFloat: number; openedBy: string; cashboxId?: string; locationId?: string; closedAt?: string; closedBy?: string; countedCash?: number; expectedCash?: number; difference?: number; reconciliationStatus?: 'balanced' | 'surplus'; totalSales?: number; incomeTotal?: number; expenseTotal?: number; cashIncome?: number; cashOutflow?: number }
+export interface NightclubShift { id: string; status: 'open' | 'closed'; openedAt: string; openingFloat: number; openedBy: string; closedAt?: string; closedBy?: string; countedCash?: number; expectedCash?: number; difference?: number; reconciliationStatus?: 'balanced' | 'surplus'; totalSales?: number; incomeTotal?: number; expenseTotal?: number; cashIncome?: number; cashOutflow?: number }
 export type NightclubCustomerStatus = 'green' | 'yellow' | 'red'
 export interface NightclubCustomerIncident { id: string; customerId: string; date: string; severity: 'low' | 'medium' | 'high'; description: string; responsible?: string; responsibleName?: string; createdBy: string; createdAt: string; updatedBy?: string; updatedAt?: string }
 export interface NightclubCustomer { id: string; name: string; phone: string; birthday?: string; notes?: string; active?: boolean; convivenciaStatus?: NightclubCustomerStatus; visits: number; totalSpent: number }
@@ -80,7 +68,7 @@ export interface NightclubCustomRole { id: `custom:${string}`; label: string; pe
 export type NightclubCommissionStatus = 'pending' | 'earned' | 'void' | 'paid'
 export interface NightclubCommission { id: string; accountId: string; roundId: string; itemId: string; productId: string; productName: string; staffId: string; staffName: string; quantity: number; saleAmount: number; type: 'percentage' | 'fixed'; value: number; amount: number; paidAmount: number; status: NightclubCommissionStatus; shiftId?: string; createdAt: string; earnedAt?: string; voidedAt?: string; voidReason?: string; paymentIds?: string[] }
 export interface NightclubCommissionPayment { id: string; staffId: string; amount: number; method: 'cash' | 'qr' | 'card' | 'other'; at: string; actor: string; shiftId?: string; note?: string; commissionIds: string[] }
-export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled' }
+export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled' | 'no_show'; reservationDate?: string; phone?: string; customerId?: string; notes?: string; tenantId?: string; branchId?: string; createdAt?: string; updatedAt?: string }
 export interface NightclubBranding {
   businessName: string
   subtitle: string
@@ -89,17 +77,18 @@ export interface NightclubBranding {
   primaryColor: string
   accentColor: string
   surfaceColor: string
+  theme?: 'dark' | 'light'
 }
 export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g' | 'l' | 'kg'; displayUnit?: 'unit' | 'ml' | 'g' | 'l' | 'kg'; current: number; minimum: number; unitCost?: number; category?: string; bottleCapacityMl?: number; openBottleMl?: number; linkedProductIds?: string[] }
 export type NightclubInventoryMovementType = 'sale' | 'reversal' | 'restock' | 'withdrawal' | 'adjustment' | 'waste' | 'courtesy' | 'internal_consumption' | 'bottle_opened' | 'pour' | 'member_courtesy' | 'courtesy_reversal'
-export interface NightclubInventoryMovement { id: string; operationId: string; inventoryId: string; quantity: number; previous: number; current: number; type: NightclubInventoryMovementType; reason?: string; at: string; actor: string; locationId?: string | 'unknown'; relatedLocationId?: string; transferId?: string; cashboxId?: string; shiftId?: string; lotAllocations?: Array<{ lotId: string; quantity: number; unitCost: number }>; openBottleId?: string; accountId?: string; roundId?: string; courtesyId?: string; memberId?: string; productId?: string; openBottleMlBefore?: number; openBottleMlAfter?: number; costAmount?: number; exchangeId?: string }
+export interface NightclubInventoryMovement { id: string; operationId: string; inventoryId: string; quantity: number; previous: number; current: number; type: NightclubInventoryMovementType; reason?: string; at: string; actor: string; accountId?: string; roundId?: string; courtesyId?: string; memberId?: string; productId?: string; openBottleMlBefore?: number; openBottleMlAfter?: number; costAmount?: number; exchangeId?: string }
 export interface NightclubCourtesyPolicy { anchorAt: string; windowDays: number; repeatDays: number }
 export interface NightclubMember { id: string; name: string; active: boolean; quota: number; policy: NightclubCourtesyPolicy }
 export interface NightclubCourtesy { id: string; memberId: string; productId: string; productName: string; quantity: number; beneficiary?: string; note?: string; accountId?: string; tableId?: string; roundId?: string; actor: string; at: string; periodStart: string; periodEnd: string; status: 'active' | 'cancelled'; cancelledAt?: string; cancelledBy?: string; cost?: number }
-export type NightclubExpenseCategory = 'inventory_purchase' | 'payroll' | 'services' | 'rent' | 'maintenance' | 'transport' | 'advertising' | 'cleaning' | 'security' | 'administrative' | 'other'
-export interface NightclubCashMovement { id: string; shiftId: string; cashboxId?: string; locationId?: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; category?: NightclubExpenseCategory; notes?: string; at: string; actor: string; commissionPaymentId?: string }
+export type NightclubExpenseCategory = 'supplies' | 'inventory_purchase' | 'payroll' | 'commissions' | 'services' | 'rent' | 'maintenance' | 'transport' | 'advertising' | 'cleaning' | 'security' | 'administrative' | 'other'
+export interface NightclubCashMovement { id: string; shiftId: string; type: 'income' | 'expense'; method: 'cash' | 'qr' | 'card'; amount: number; description: string; category?: NightclubExpenseCategory; notes?: string; at: string; actor: string; commissionPaymentId?: string }
 export interface NightclubAuditEvent { id: string; type: string; at: string; actor: string; accountId?: string; details?: Record<string, string | number> }
-export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; cashboxShifts?: NightclubShift[]; locations?: NightclubLocation[]; cashboxes?: NightclubCashbox[]; operatorContexts?: NightclubOperatorContext[]; inventoryBalances?: NightclubInventoryBalance[]; inventoryLots?: NightclubInventoryLot[]; openBottles?: NightclubOpenBottle[]; transfers?: NightclubTransfer[]; customers: NightclubCustomer[]; customerIncidents?: NightclubCustomerIncident[]; promoters?: NightclubPromoter[]; promoterEvents?: NightclubPromoterEvent[]; promoterTicketControlPlans?: NightclubTicketControlPlan[]; promoterTicketSales?: NightclubTicketSale[]; promoterLoungeSales?: NightclubLoungeSale[]; promoterConsumptions?: NightclubPromoterConsumption[]; staff?: NightclubStaff[]; userRolePresets?: Partial<Record<NightclubStaff['role'], string[]>>; customRoles?: NightclubCustomRole[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[]; commissions?: NightclubCommission[]; commissionPayments?: NightclubCommissionPayment[]; branding?: NightclubBranding }
+export interface NightclubDataset { zones: NightclubZone[]; tables: NightclubTable[]; products: NightclubProduct[]; accounts: NightclubAccount[]; shift: NightclubShift | null; shiftHistory?: NightclubShift[]; customers: NightclubCustomer[]; customerIncidents?: NightclubCustomerIncident[]; promoters?: NightclubPromoter[]; promoterEvents?: NightclubPromoterEvent[]; promoterTicketControlPlans?: NightclubTicketControlPlan[]; promoterTicketSales?: NightclubTicketSale[]; promoterLoungeSales?: NightclubLoungeSale[]; promoterConsumptions?: NightclubPromoterConsumption[]; staff?: NightclubStaff[]; userRolePresets?: Partial<Record<NightclubStaff['role'], string[]>>; customRoles?: NightclubCustomRole[]; reservations: NightclubReservation[]; inventory: NightclubInventoryItem[]; inventoryMovements?: NightclubInventoryMovement[]; cashMovements?: NightclubCashMovement[]; audit?: NightclubAuditEvent[]; members?: NightclubMember[]; courtesies?: NightclubCourtesy[]; commissions?: NightclubCommission[]; commissionPayments?: NightclubCommissionPayment[]; branding?: NightclubBranding }
 export interface NightclubRoundDraft { productId: string; quantity: number }
 export interface NightclubCommissionPaymentDraft { staffId: string; amount: number; method: 'cash' | 'qr' | 'card' | 'other'; note?: string; commissionIds?: string[]; operationId?: string }
 export interface NightclubCourtesyDraft { memberId: string; productId: string; quantity: number; accountId?: string; beneficiary?: string; note?: string }
@@ -705,4 +694,32 @@ export function adjustNightclubInventory(dataset: NightclubDataset, inventoryId:
   if (!stock || !Number.isFinite(current) || current < 0) throw new Error('La cantidad debe ser válida.')
   if (stock.current === current) return dataset
   return recordNightclubInventoryMovement(dataset, inventoryId, roundMoney(current - stock.current), 'adjustment', 'Conteo físico', actor, now)
+}
+
+export function assembleOperationalAccounts(
+  openAccounts: Array<Record<string, unknown> & { id: string }>,
+  closedAccounts: Array<Record<string, unknown> & { id: string }>,
+  rounds: Array<NightclubRound | (Record<string, unknown> & { id: string })>,
+  payments: Array<NightclubPayment | (Record<string, unknown> & { id: string })>
+): NightclubAccount[] {
+  const rawAccountsMap = new Map<string, Record<string, unknown> & { id: string }>()
+  for (const acc of closedAccounts) rawAccountsMap.set(acc.id, acc)
+  for (const acc of openAccounts) rawAccountsMap.set(acc.id, acc)
+
+  return Array.from(rawAccountsMap.values()).map(raw => {
+    const accountId = raw.id
+    const accRounds = rounds.filter(r => (r as unknown as { accountId: string }).accountId === accountId)
+    const accPayments = payments.filter(p => (p as unknown as { accountId: string }).accountId === accountId)
+    return {
+      ...(raw as unknown as NightclubAccount),
+      id: accountId,
+      rounds: accRounds as unknown as NightclubRound[],
+      payments: accPayments as unknown as NightclubPayment[],
+      payment: (accPayments as unknown as NightclubPayment[]).at(-1),
+    }
+  })
+}
+
+export function resolveShiftIdToTrack(stateData?: { activeShiftId?: string | null; lastClosedShiftId?: string | null } | null): string | null {
+  return stateData?.activeShiftId || stateData?.lastClosedShiftId || null
 }

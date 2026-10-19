@@ -40,6 +40,11 @@ import { QrView } from './QrView'
 import { WarehousesView } from './WarehousesView'
 import type { Permission, UserRole } from '../../../types'
 import type { DistributionData } from '../state/useDistributionStore'
+import {
+  type BusinessIdentity,
+  type BusinessDocumentContext,
+  buildBusinessDocumentContext,
+} from '../../../core/businessIdentity'
 
 export interface DistributionSession {
   tenantId: string
@@ -59,6 +64,8 @@ export interface DistributionSession {
 export interface DistributionViewProps {
   session: DistributionSession
   data: DistributionData
+  documentContext?: BusinessDocumentContext
+  businessIdentity?: BusinessIdentity
 }
 
 export interface DistributionSyncState {
@@ -74,11 +81,18 @@ export interface DistributionExperienceProps {
   data: DistributionData
   syncState: DistributionSyncState
   onSignOut?: () => void | Promise<void>
-  onOpenPrinterSettings: () => void
+  onOpenPrinterSettings: (context?: {
+    businessIdentity?: BusinessIdentity
+    documentContext?: BusinessDocumentContext
+    companyName?: string
+  }) => void
   onDismissSyncError?: () => void
   onAcknowledgeOperation?: (opId: string) => Promise<void> | void
   logoUrl?: string
   companyName?: string
+  businessIdentity?: BusinessIdentity
+  onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
+  onUploadLogo?: (file: File) => Promise<string>
   activeModuleOverride?: ModuleId
   onModuleChange?: (module: ModuleId) => void
 }
@@ -113,6 +127,9 @@ export function DistributionExperience({
   onAcknowledgeOperation,
   logoUrl,
   companyName,
+  businessIdentity,
+  onSaveBusinessIdentity,
+  onUploadLogo,
   activeModuleOverride,
   onModuleChange,
 }: DistributionExperienceProps) {
@@ -124,6 +141,19 @@ export function DistributionExperience({
   const [internalModule, setInternalModule] = useState<ModuleId>('dist.dashboard')
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
+
+  const effectiveCompanyName =
+    businessIdentity?.tradeName?.trim() || companyName || session.restaurantName
+  const effectiveLogoUrl = businessIdentity?.logoUrl || logoUrl
+
+  const documentContext = useMemo(
+    () =>
+      buildBusinessDocumentContext(businessIdentity, {
+        companyName: effectiveCompanyName,
+        branchName: 'Casa Matriz',
+      }),
+    [businessIdentity, effectiveCompanyName]
+  )
 
   const activeModuleCandidate = activeModuleOverride ?? internalModule
   const activeModule = modules.some((module) => module.id === activeModuleCandidate)
@@ -161,10 +191,18 @@ export function DistributionExperience({
 
   const overflowModules = modules.filter((module) => !navItems.some((item) => item.id === module.id))
 
+  const handleOpenPrinterSettings = () => {
+    onOpenPrinterSettings({
+      businessIdentity,
+      documentContext,
+      companyName: effectiveCompanyName,
+    })
+  }
+
   const selectModule = (id: ModuleId) => {
     setIsMoreOpen(false)
     if (id === 'printer-settings') {
-      onOpenPrinterSettings()
+      handleOpenPrinterSettings()
       return
     }
     setInternalModule(id)
@@ -172,7 +210,12 @@ export function DistributionExperience({
     window.scrollTo({ top: 0 })
   }
 
-  const viewProps: DistributionViewProps = { session, data }
+  const viewProps: DistributionViewProps = {
+    session,
+    data,
+    documentContext,
+    businessIdentity,
+  }
 
   const renderModule = () => {
     switch (activeModule) {
@@ -211,7 +254,15 @@ export function DistributionExperience({
       case 'dist.users':
         return <UsersView {...viewProps} />
       case 'dist.support':
-        return <SupportView onOpenPrinterSettings={onOpenPrinterSettings} />
+        return (
+          <SupportView
+            session={session}
+            businessIdentity={businessIdentity}
+            onSaveBusinessIdentity={onSaveBusinessIdentity}
+            onUploadLogo={onUploadLogo}
+            onOpenPrinterSettings={handleOpenPrinterSettings}
+          />
+        )
       default:
         return null
     }
@@ -226,8 +277,6 @@ export function DistributionExperience({
       ? 'Almacén'
       : 'Administración'
 
-  const displayName = companyName || session.restaurantName
-
   return (
     <div
       className="distribution-shell flex min-h-[100dvh] w-full min-w-0 flex-col"
@@ -239,14 +288,24 @@ export function DistributionExperience({
       >
         <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <img
-              src={logoUrl || '/brand/pachax-logo.png'}
-              alt={displayName}
-              className="h-10 w-12 shrink-0 object-contain rounded-md"
-            />
+            {effectiveLogoUrl ? (
+              <img
+                src={effectiveLogoUrl}
+                alt={effectiveCompanyName}
+                className="h-10 w-12 shrink-0 object-contain rounded-md"
+              />
+            ) : (
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-black text-sm text-white shadow-sm"
+                style={{ backgroundColor: businessIdentity?.primaryColor || 'var(--primary, #0284c7)' }}
+                aria-label={effectiveCompanyName}
+              >
+                {effectiveCompanyName.charAt(0).toUpperCase()}
+              </div>
+            )}
             <div className="min-w-0">
               <h1 className="truncate text-sm font-extrabold leading-tight tracking-tight text-slate-900 sm:text-base">
-                {displayName}
+                {effectiveCompanyName}
               </h1>
               <p className="mt-0.5 truncate text-[10px] font-semibold leading-tight text-slate-500 sm:text-[11px]">
                 {roleLabel} · {session.userName}

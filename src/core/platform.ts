@@ -1,3 +1,5 @@
+import type { BusinessIdentity } from './businessIdentity.ts'
+
 /** Canonical contracts for the new platform. Legacy Restaurant* adapters are separate. */
 export type BusinessType = 'restaurant_pos' | 'hamburger_shop' | 'route_distribution' | 'gelateria_weight_cafe' | 'nightclub_lounge'
 export type Unit = 'kg' | 'g' | 'ml' | 'unit' | 'package' | 'box' | 'liter'
@@ -7,6 +9,7 @@ export type Permission =
   | 'customers.read' | 'customers.manage' | 'credits.read' | 'credits.collect'
   | 'reports.read' | 'users.manage' | 'settings.manage'
   | 'dispatch.create' | 'route.close' | 'cash.close'
+  | 'support.reset.prepare'
 export type Capability = 'sales' | 'orders' | 'inventory' | 'customers' | 'credits'
   | 'reports' | 'users' | 'settings' | 'dispatch' | 'routes' | 'cash'
   | 'kitchen' | 'tables' | 'weightSales' | 'unitSales' | 'aiAssistant'
@@ -33,6 +36,7 @@ export interface BusinessTemplate {
   offlineOperations: readonly string[]
   reports: readonly string[]
 }
+
 export interface Tenant {
   tenantId: string
   name: string
@@ -40,6 +44,7 @@ export interface Tenant {
   ownerUid: string
   status: 'active' | 'trial' | 'suspended' | 'cancelled' | 'archived'
   branding: { logoUrl?: string; primary: string; accent: string }
+  businessIdentity?: BusinessIdentity
   configuration: BusinessTemplate['defaults']
   entitlements: Partial<Record<Capability, boolean>>
   planKey: string | null

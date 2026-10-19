@@ -3,7 +3,7 @@ import type { NightclubBranding, NightclubDataset, NightclubReservation, Nightcl
 
 export type ZoneDraft = Pick<NightclubZone, 'id' | 'name'>
 export type TableDraft = Pick<NightclubTable, 'id' | 'name' | 'zoneId' | 'capacity' | 'status'>
-export type ReservationDraft = Pick<NightclubReservation, 'id' | 'tableId' | 'customerName' | 'time' | 'guests'>
+export type ReservationDraft = Pick<NightclubReservation, 'id' | 'tableId' | 'customerName' | 'time' | 'guests'> & { reservationDate?: string; phone?: string; customerId?: string; notes?: string }
 
 export function saveNightclubZone(dataset: NightclubDataset, draft: ZoneDraft, actor: string, now = new Date().toISOString()): NightclubDataset {
   const name = draft.name.trim()
@@ -77,7 +77,7 @@ export function saveNightclubReservation(dataset: NightclubDataset, draft: Reser
   if (dataset.reservations.some(item => item.id !== draft.id && item.tableId === draft.tableId && item.status === 'confirmed')) throw new Error('La mesa ya tiene una reserva confirmada.')
   const next = structuredClone(dataset)
   const id = draft.id || crypto.randomUUID()
-  const reservation: NightclubReservation = { id, tableId: draft.tableId, customerName, time: draft.time, guests: draft.guests, status: 'confirmed' }
+  const reservation: NightclubReservation = { id, tableId: draft.tableId, customerName, time: draft.time, guests: draft.guests, status: 'confirmed', ...(draft.reservationDate ? { reservationDate: draft.reservationDate } : {}), ...(draft.phone ? { phone: draft.phone } : {}), ...(draft.customerId ? { customerId: draft.customerId } : {}), ...(draft.notes ? { notes: draft.notes } : {}) }
   const index = next.reservations.findIndex(item => item.id === id)
   if (index >= 0) next.reservations[index] = reservation
   else next.reservations.push(reservation)

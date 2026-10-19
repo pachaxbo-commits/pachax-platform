@@ -97,7 +97,7 @@
       allow write: if isPlatformContentOrHigher();
     }
     match /tenants/{tenantId}/products/{productId} {
-      allow read: if tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'products.manage','inventory');
+      allow read: if tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'products.manage','inventory');
       allow write: if false;
     }
     match /tenants/{tenantId}/sales/{saleId} {
@@ -132,6 +132,27 @@
       allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'orders.read','orders');
       allow write: if false;
     }
+    match /tenants/{tenantId}/nightclubPromoters/{promoterId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterEvents/{eventId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterTicketSales/{saleId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterLoungeSales/{saleId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubPromoterConsumptions/{consumptionId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'settings.manage','settings') || tPermission(tenantId,'sales.read','sales'));
+      allow write: if false;
+    }
+
     match /tenants/{tenantId}/nightclubProducts/{productId} {
       allow read: if tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'products.manage','inventory');
       allow write: if false;
@@ -182,6 +203,22 @@
       allow read: if tHasRole(tenantId,['admin']) && tBranch(tenantId,resource.data.branchId);
       allow write: if false;
     }
+    match /tenants/{tenantId}/nightclubMembers/{memberId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'customers.read','customers') || tPermission(tenantId,'orders.read','orders'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubCourtesies/{courtesyId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.read','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubCommissions/{commissionId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubCommissionPayments/{paymentId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow write: if false;
+    }
     match /tenants/{tenantId}/nightclubShifts/{shiftId} {
       allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
@@ -200,5 +237,49 @@
     }
     match /tenants/{tenantId}/nightclubAudit/{eventId} {
       allow read: if tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantSectors/{sectorId} {
+      allow read: if tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantTables/{tableId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantOrders/{orderId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantPayments/{paymentId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantShifts/{shiftId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantCashMovements/{movementId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantOperationalState/{branchId} {
+      allow read: if tBranch(tenantId,branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantOperations/{operationId} {
+      allow get: if tIsActiveMember(tenantId) && resource.data.actorUid == request.auth.uid;
+      allow list, write: if false;
+    }
+    match /tenants/{tenantId}/restaurantAudit/{eventId} {
+      allow read: if tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantCustomers/{customerId} {
+      allow read: if tPermission(tenantId,'customers.read','customers') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.read','sales');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/restaurantInventoryMovements/{movementId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'inventory.read','inventory') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }

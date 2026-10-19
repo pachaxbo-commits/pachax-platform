@@ -9,10 +9,10 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
   products: Product[]
   quickExtras: ProductExtra[]
   orders: Order[]
-  onAddOrder: (order: Order) => boolean
+  onAddOrder: (order: Order) => boolean | Promise<boolean>
   onSetOrderStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
   onCancelOrder: (orderId: string) => Promise<boolean>
-  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void
+  onConfirmPayment: (orderId: string, input: { method: 'cash' | 'qr' | 'card' | 'mixed'; received: number; cashAmount?: number; qrAmount?: number; cardAmount?: number }) => void | Promise<void>
   enabled?: boolean
   tables?: RestaurantTable[]
   customers?: RestaurantCustomer[]
@@ -46,27 +46,39 @@ export function RestaurantPOS({ categories, products, quickExtras, orders, onAdd
     })
     if (items.length !== input.cartItems.length || !items.length) return false
     const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
+    const isTable = input.fulfillmentType === 'table'
+    const isDelivery = input.fulfillmentType === 'delivery'
     const order: Order = {
       id: crypto.randomUUID(), sequence: nextSeq, displayNumber: String(nextSeq).padStart(3, '0'),
       status: 'pending',
-      orderSource: counterServiceMode ? 'local' : input.orderSource,
-      fulfillmentType: counterServiceMode ? 'pickup' : input.fulfillmentType,
-      tableId: counterServiceMode ? undefined : input.tableId,
-      tableInfo: counterServiceMode ? undefined : input.tableInfo,
-      customerId: input.customerId, customerName: input.customerName || 'Cliente', customerPhone: input.customerPhone,
-      deliveryAddress: counterServiceMode ? undefined : input.deliveryAddress, total, productSubtotal: total,
-      payment: input.payment, paymentStatus: input.paymentStatus,
-      paymentMethod: input.paymentMethod, expectedPaymentMethod: input.expectedPaymentMethod,
-      items, createdAt: at, createdBy: userName,
+      orderSource: input.orderSource || 'local',
+      fulfillmentType: input.fulfillmentType || (counterServiceMode ? 'pickup' : 'table'),
+      tableId: isTable ? input.tableId : undefined,
+      tableInfo: isTable ? (input.tableInfo || 'Mesa') : undefined,
+      customerId: input.customerId,
+      customerName: input.customerName || (isDelivery ? 'Cliente delivery' : isTable ? (input.tableInfo || 'Mesa') : 'Para llevar'),
+      customerPhone: input.customerPhone,
+      deliveryAddress: isDelivery ? input.deliveryAddress : undefined,
+      total,
+      productSubtotal: total,
+      payment: input.payment,
+      paymentStatus: input.paymentStatus,
+      paymentMethod: input.paymentMethod,
+      expectedPaymentMethod: input.expectedPaymentMethod,
+      items,
+      createdAt: at,
+      createdBy: userName,
+      referenceOnly: counterServiceMode ? true : undefined,
+      isReferenceTable: counterServiceMode && isTable ? true : undefined,
     }
-    return onAddOrder(order)
+    return await onAddOrder(order)
   }
 
   const handleConfirmPayment = async (orderId: string, input: { paymentStatus: 'paid'; paymentMethod: PaymentMethod; payment: PaymentSummary; paidBy: string }) => {
     const order = orders.find(item => item.id === orderId)
     if (!enabled || !order || order.paymentStatus === 'paid') return
     const { payment } = input
-    onConfirmPayment(orderId, { method: input.paymentMethod === 'mixed' ? 'mixed' : input.paymentMethod === 'qr' ? 'qr' : input.paymentMethod === 'card' ? 'card' : 'cash', received: payment.cashReceived, cashAmount: payment.cashAmount, qrAmount: payment.qrAmount, cardAmount: payment.cardAmount })
+    await onConfirmPayment(orderId, { method: input.paymentMethod === 'mixed' ? 'mixed' : input.paymentMethod === 'qr' ? 'qr' : input.paymentMethod === 'card' ? 'card' : 'cash', received: payment.cashReceived, cashAmount: payment.cashAmount, qrAmount: payment.qrAmount, cardAmount: payment.cardAmount })
   }
 
   return <div className="restaurant-pos-frame">

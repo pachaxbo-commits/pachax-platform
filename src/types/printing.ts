@@ -80,6 +80,7 @@ export interface KitchenStation {
 export interface PrinterProfile extends Partial<TenantScopedEntity> {
   id: string
   restaurantId: string
+  tenantId?: string
   branchId: string
   name: string
   role: 'receipt' | 'kitchen' | 'bar' | 'despacho' | 'general'
@@ -123,6 +124,7 @@ export interface PrintJobPayload {
   branchName: string
   branchAddress?: string
   branchPhone?: string
+  logoUrl?: string
   headerDetails?: string[]
   orderId?: string
   sequenceNumber?: number
@@ -149,6 +151,7 @@ export interface PrintJobPayload {
   reprintCount?: number
   customMessage?: string
   footerMessage?: string
+  showManagedBy?: boolean
   copies: number
   createdIso: string
 }
@@ -208,6 +211,8 @@ export interface PrintTransportPayload {
   jobId: string
   bytes: Uint8Array
   printer: PrinterProfile
+  jobPayload?: PrintJobPayload
+  targetType?: PrintJobTarget
 }
 
 export interface PrintResult {
@@ -233,6 +238,8 @@ export interface SubmitPrintRequestInput {
   orderId?: string
   stationId?: string
   printerProfileId?: string
+  tenantId?: string
+  branchId?: string
   idempotencyKey?: string
   payload: PrintJobPayload
   copies?: number
