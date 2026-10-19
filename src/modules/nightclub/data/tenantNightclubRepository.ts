@@ -57,7 +57,6 @@ import type {
   NightclubCatalogSnapshot,
   NightclubFloorSnapshot,
   NightclubInventorySnapshot,
-  NightclubRepository,
   Unsubscribe,
 } from './nightclubRepository'
 
@@ -65,7 +64,7 @@ const generateOpId = () => `op_${Date.now().toString(36)}_${Math.random().toStri
 
 export { assembleOperationalAccounts, resolveShiftIdToTrack }
 
-export class TenantNightclubRepository implements NightclubRepository {
+export class TenantNightclubRepository {
   private readonly tenantId: string
   private readonly branchId: string
 

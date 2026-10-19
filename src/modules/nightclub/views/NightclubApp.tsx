@@ -1,11 +1,12 @@
 import { LogOut } from 'lucide-react'
+import type { BusinessIdentity } from '../../../core/businessIdentity'
 import { getActiveTenant } from '../../../store/activeTenant'
 import { NightclubExperience } from './NightclubExperience'
 import { useNightclubController } from './useNightclubController'
 import { useNightclubFirestoreDataset } from '../data/useNightclubFirestoreDataset'
 import { createPristineNightclubDataset } from '../../../demo/datasets/nightclub/nightclubDatasets'
 
-interface NightclubAppProps { tenantId: string; companyName: string; logoUrl?: string; uid: string; userName: string; role: string; onSignOut: () => Promise<void> }
+interface NightclubAppProps { tenantId: string; companyName: string; logoUrl?: string; uid: string; userName: string; role: string; onSignOut: () => Promise<void>; businessIdentity?: BusinessIdentity }
 /** Production reader: Firestore is the source of truth; only refundRound is connected for administration. */
 export function NightclubApp(props: NightclubAppProps) {
   const branchId = getActiveTenant()?.branchId || 'main'

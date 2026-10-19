@@ -80,7 +80,7 @@ export interface NightclubCustomRole { id: `custom:${string}`; label: string; pe
 export type NightclubCommissionStatus = 'pending' | 'earned' | 'void' | 'paid'
 export interface NightclubCommission { id: string; accountId: string; roundId: string; itemId: string; productId: string; productName: string; staffId: string; staffName: string; quantity: number; saleAmount: number; type: 'percentage' | 'fixed'; value: number; amount: number; paidAmount: number; status: NightclubCommissionStatus; shiftId?: string; createdAt: string; earnedAt?: string; voidedAt?: string; voidReason?: string; paymentIds?: string[] }
 export interface NightclubCommissionPayment { id: string; staffId: string; amount: number; method: 'cash' | 'qr' | 'card' | 'other'; at: string; actor: string; shiftId?: string; note?: string; commissionIds: string[] }
-export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled' }
+export interface NightclubReservation { id: string; tableId: string; customerName: string; time: string; guests: number; status: 'confirmed' | 'arrived' | 'cancelled'; reservationDate?: string; phone?: string; notes?: string }
 export interface NightclubBranding {
   businessName: string
   subtitle: string
@@ -89,6 +89,7 @@ export interface NightclubBranding {
   primaryColor: string
   accentColor: string
   surfaceColor: string
+  theme?: 'dark' | 'light'
 }
 export interface NightclubInventoryItem { id: string; name: string; unit: 'unit' | 'ml' | 'g' | 'l' | 'kg'; displayUnit?: 'unit' | 'ml' | 'g' | 'l' | 'kg'; current: number; minimum: number; unitCost?: number; category?: string; bottleCapacityMl?: number; openBottleMl?: number; linkedProductIds?: string[] }
 export type NightclubInventoryMovementType = 'sale' | 'reversal' | 'restock' | 'withdrawal' | 'adjustment' | 'waste' | 'courtesy' | 'internal_consumption' | 'bottle_opened' | 'pour' | 'member_courtesy' | 'courtesy_reversal'
@@ -706,3 +707,11 @@ export function adjustNightclubInventory(dataset: NightclubDataset, inventoryId:
   if (stock.current === current) return dataset
   return recordNightclubInventoryMovement(dataset, inventoryId, roundMoney(current - stock.current), 'adjustment', 'Conteo físico', actor, now)
 }
+
+export function assembleOperationalAccounts(openAccounts: Array<Record<string, unknown> & { id: string }>, closedAccounts: Array<Record<string, unknown> & { id: string }>, rounds: Array<NightclubRound | (Record<string, unknown> & { id: string })>, payments: Array<NightclubPayment | (Record<string, unknown> & { id: string })>): NightclubAccount[] {
+  const accounts = new Map<string, Record<string, unknown> & { id: string }>()
+  for (const account of closedAccounts) accounts.set(account.id, account)
+  for (const account of openAccounts) accounts.set(account.id, account)
+  return Array.from(accounts.values()).map(account => ({ ...account, id: account.id, rounds: rounds.filter(round => (round as { accountId?: string }).accountId === account.id) as NightclubRound[], payments: payments.filter(payment => (payment as { accountId?: string }).accountId === account.id) as NightclubPayment[], payment: payments.filter(payment => (payment as { accountId?: string }).accountId === account.id).at(-1) as NightclubPayment | undefined } as NightclubAccount))
+}
+export function resolveShiftIdToTrack(stateData?: { activeShiftId?: string | null; lastClosedShiftId?: string | null } | null): string | null { return stateData?.activeShiftId || stateData?.lastClosedShiftId || null }
