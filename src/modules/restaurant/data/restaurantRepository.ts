@@ -781,7 +781,7 @@ export async function recordCashMovement(
     description: string
     amount: number
     paymentMethod?: CashMovement['paymentMethod']
-    method?: 'cash' | 'qr' | 'card'
+    method?: 'cash' | 'qr' | 'card' | 'other'
     note?: string
     supplier?: string
     workerId?: string
@@ -818,7 +818,7 @@ export async function updateCashMovement(
   tenantId: string,
   branchId: string,
   movementId: string,
-  data: Partial<CashMovement> & { method?: 'cash' | 'qr' | 'card' }
+  data: Partial<CashMovement> & { method?: 'cash' | 'qr' | 'card' | 'other' }
 ): Promise<{ ok: boolean; movementId: string }> {
   const method = data.paymentMethod || data.method
   return dispatchCommand<{ ok: boolean; movementId: string }>(

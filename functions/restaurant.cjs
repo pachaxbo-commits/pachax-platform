@@ -336,6 +336,8 @@ async function applyRestaurantCommand(context) {
       baseUnit: p.baseUnit || 'unit',
       ...(p.stockBase !== undefined ? { stockBase: Number(p.stockBase) || 0 } : {}),
       ...(Array.isArray(p.recipe) ? { recipe: validatedRecipe } : {}),
+      ...(Array.isArray(p.extras) ? { extras: p.extras.map(e => ({ id: id(e.id || e.name), name: text(e.name, 100), price: amount(e.price) })) } : {}),
+      ...(Array.isArray(p.options) ? { options: p.options.map(o => ({ id: id(o.id || o.label || o), label: text(o.label || o.name || o, 100) })) } : {}),
       updatedAt: now,
       createdAt: p.createdAt || now,
     }
@@ -369,6 +371,8 @@ async function applyRestaurantCommand(context) {
         baseUnit: p.baseUnit || 'unit',
         ...(p.stockBase !== undefined ? { stockBase: Number(p.stockBase) || 0 } : {}),
         ...(Array.isArray(p.recipe) ? { recipe: validatedRecipe } : {}),
+        ...(Array.isArray(p.extras) ? { extras: p.extras.map(e => ({ id: id(e.id || e.name), name: text(e.name, 100), price: amount(e.price) })) } : {}),
+        ...(Array.isArray(p.options) ? { options: p.options.map(o => ({ id: id(o.id || o.label || o), label: text(o.label || o.name || o, 100) })) } : {}),
         updatedAt: now,
       }
       tx.set(productRef, productData, { merge: true })
@@ -549,7 +553,8 @@ async function applyRestaurantCommand(context) {
     for (const doc of movementsSnap.docs) {
       const m = doc.data()
       if (m.active !== false) {
-        if (!m.method || m.method === 'cash') {
+        const moveMethod = m.method || m.paymentMethod || 'cash'
+        if (moveMethod === 'cash') {
           if (m.type === 'income') cashIncome = money(cashIncome + amount(m.amount))
           else if (m.type === 'expense' || m.type === 'refund') cashOutflow = money(cashOutflow + amount(m.amount))
         }
@@ -605,7 +610,11 @@ async function applyRestaurantCommand(context) {
     const val = amount(payload.amount)
     if (val <= 0) throw new HttpsError('invalid-argument', 'El importe debe ser mayor a cero.')
     const rawMethod = payload.method || payload.paymentMethod
-    const method = ['cash', 'qr', 'card'].includes(rawMethod) ? rawMethod : 'cash'
+    const validMethods = ['cash', 'qr', 'card', 'other']
+    if (rawMethod !== undefined && rawMethod !== null && !validMethods.includes(rawMethod)) {
+      throw new HttpsError('invalid-argument', `Método de pago no válido: ${rawMethod}. Debe ser cash, qr, card o other.`)
+    }
+    const method = rawMethod || 'cash'
     const movementId = id(payload.id || `cash_${operationId}`)
     const movementDoc = {
       id: movementId,
@@ -695,7 +704,11 @@ async function applyRestaurantCommand(context) {
       patch.amount = val
     }
     const rawMethod = payload.method || payload.paymentMethod
-    if (rawMethod && ['cash', 'qr', 'card'].includes(rawMethod)) {
+    if (rawMethod !== undefined && rawMethod !== null) {
+      const validMethods = ['cash', 'qr', 'card', 'other']
+      if (!validMethods.includes(rawMethod)) {
+        throw new HttpsError('invalid-argument', `Método de pago no válido: ${rawMethod}. Debe ser cash, qr, card o other.`)
+      }
       patch.method = rawMethod
     }
     if (payload.note !== undefined) {
@@ -769,6 +782,117 @@ async function applyRestaurantCommand(context) {
     return { orderId, tableId, order: orderDoc }
   }
 
+  function validateAndPriceOrderItem(rawItem, prodMap, operationId, now) {
+    if (!rawItem || typeof rawItem !== 'object') {
+      throw new HttpsError('invalid-argument', 'Línea de pedido inválida.')
+    }
+    const rawProductId = rawItem.productId
+    if (!rawProductId || typeof rawProductId !== 'string' || !rawProductId.trim()) {
+      throw new HttpsError('invalid-argument', 'Cada línea de la orden debe tener un productId válido.')
+    }
+    const productId = id(rawProductId)
+    const prod = prodMap.get(productId)
+    if (!prod) {
+      throw new HttpsError('not-found', `Producto "${productId}" no encontrado.`)
+    }
+
+    // 1. Validar que el producto sea vendible
+    if (prod.isActive === false) {
+      throw new HttpsError('failed-precondition', `El producto "${prod.name || productId}" está inactivo y no puede agregarse a la orden.`)
+    }
+    if (prod.availability === 'archived') {
+      throw new HttpsError('failed-precondition', `El producto "${prod.name || productId}" está archivado y no puede agregarse a la orden.`)
+    }
+    if (prod.availability === 'soldout') {
+      throw new HttpsError('failed-precondition', `El producto "${prod.name || productId}" está agotado (soldout) y no puede agregarse a la orden.`)
+    }
+    if (prod.restaurantType === 'ingredient') {
+      throw new HttpsError('failed-precondition', `El producto "${prod.name || productId}" es un insumo y no puede venderse directamente.`)
+    }
+    if (prod.isVisible === false) {
+      throw new HttpsError('failed-precondition', `El producto "${prod.name || productId}" no está visible para la venta.`)
+    }
+
+    // 2. Cantidad validada del request
+    const rawQty = Number(rawItem.quantity)
+    if (rawItem.quantity !== undefined && (isNaN(rawQty) || rawQty <= 0)) {
+      throw new HttpsError('invalid-argument', 'La cantidad del producto debe ser mayor a cero.')
+    }
+    const quantity = Math.max(1, rawQty || 1)
+
+    // 3. Modificadores y Extras
+    const rawModifiers = (rawItem.modifiers && typeof rawItem.modifiers === 'object') ? rawItem.modifiers : {}
+    const note = rawModifiers.note ? text(rawModifiers.note, 200) : (rawItem.note ? text(rawItem.note, 200) : '')
+
+    const requestedExtras = Array.isArray(rawModifiers.extras) ? rawModifiers.extras : []
+    const validatedExtras = []
+    let extrasUnitTotal = 0
+
+    if (requestedExtras.length > 0) {
+      const configuredExtras = Array.isArray(prod.extras) ? prod.extras : []
+      for (const reqExtra of requestedExtras) {
+        if (!reqExtra || (typeof reqExtra !== 'object' && typeof reqExtra !== 'string')) {
+          throw new HttpsError('invalid-argument', 'Modificador extra inválido.')
+        }
+        const extraId = id(typeof reqExtra === 'string' ? reqExtra : (reqExtra.id || reqExtra.name || ''))
+        const canonicalExtra = configuredExtras.find(e => e.id === extraId || (reqExtra.name && e.name === reqExtra.name))
+        if (!canonicalExtra) {
+          throw new HttpsError('failed-precondition', `El adicional "${extraId || reqExtra.name || 'desconocido'}" no está disponible para ${prod.name}.`)
+        }
+        const extraPrice = amount(canonicalExtra.price)
+        validatedExtras.push({
+          id: canonicalExtra.id,
+          name: canonicalExtra.name,
+          price: extraPrice,
+        })
+        extrasUnitTotal = money(extrasUnitTotal + extraPrice)
+      }
+    }
+
+    const requestedOptions = Array.isArray(rawModifiers.options) ? rawModifiers.options : []
+    const validatedOptions = []
+    if (requestedOptions.length > 0) {
+      const configuredOptions = Array.isArray(prod.options) ? prod.options : []
+      for (const reqOpt of requestedOptions) {
+        const optStr = typeof reqOpt === 'string' ? reqOpt : (reqOpt.id || reqOpt.label || '')
+        if (configuredOptions.length > 0) {
+          const canonicalOpt = configuredOptions.find(o => o.id === optStr || o.label === optStr)
+          if (!canonicalOpt) {
+            throw new HttpsError('failed-precondition', `La opción "${optStr}" no está configurada para ${prod.name}.`)
+          }
+          validatedOptions.push(canonicalOpt.label || canonicalOpt.id)
+        } else {
+          validatedOptions.push(text(optStr, 50))
+        }
+      }
+    }
+
+    // 4. Precios calculados server-side (NO desde request)
+    const basePrice = amount(prod.price)
+    const unitPrice = money(basePrice + extrasUnitTotal)
+    const lineTotal = money(unitPrice * quantity)
+    const productArea = prod.preparationArea || (prod.restaurantType === 'beverage' ? 'Barra' : 'Cocina')
+
+    return {
+      id: rawItem.id || `line_${operationId}_${Math.random().toString(36).slice(2, 7)}`,
+      productId,
+      name: prod.name,
+      basePrice,
+      unitPrice,
+      quantity,
+      lineTotal,
+      extrasTotal: extrasUnitTotal,
+      modifiers: {
+        note,
+        extras: validatedExtras,
+        options: validatedOptions,
+      },
+      productArea,
+      status: rawItem.status || 'pending',
+      createdAt: now,
+    }
+  }
+
   // 6. Crear Orden Directa / POS
   if (type === 'addOrder') {
     const rawOrder = payload.order || payload
@@ -786,32 +910,20 @@ async function applyRestaurantCommand(context) {
       if (tableSnap.exists) tableData = tableSnap.data()
     }
 
-    const items = Array.isArray(rawOrder.items) ? rawOrder.items.map(item => ({
-      id: item.id || `line_${operationId}_${Math.random().toString(36).slice(2, 7)}`,
-      productId: item.productId || '',
-      name: text(item.name || 'Producto', 100),
-      basePrice: amount(item.basePrice || item.price || 0),
-      quantity: Math.max(1, Number(item.quantity) || 1),
-      lineTotal: money(amount(item.basePrice || item.price || 0) * Math.max(1, Number(item.quantity) || 1)),
-      modifiers: item.modifiers || { note: '', extras: [], options: [] },
-      status: item.status || 'pending',
-      createdAt: now,
-    })) : []
-
-    const prodMap = await resolveProductsAndIngredients(tx, root, items)
-    for (const item of items) {
-      if (!item.productId) continue
-      const prod = prodMap.get(item.productId)
-      if (prod && (prod.isActive === false || prod.availability === 'archived')) {
-        throw new HttpsError('failed-precondition', `El producto ${prod.name || item.productId} está inactivo o archivado y no puede agregarse a la orden.`)
-      }
+    const rawItems = Array.isArray(rawOrder.items) ? rawOrder.items : []
+    if (!rawItems.length) {
+      throw new HttpsError('invalid-argument', 'La orden debe contener al menos un producto.')
     }
+
+    const prodMap = await resolveProductsAndIngredients(tx, root, rawItems)
+    const items = rawItems.map(item => validateAndPriceOrderItem(item, prodMap, operationId, now))
+
     const { requirements, totalPerProduct } = computeItemInventoryRequirements(items, prodMap)
     const allowNegativeStock = actor.tenant.configuration?.allowNegativeStock === true
     checkSufficientStock(totalPerProduct, prodMap, allowNegativeStock)
 
-    const calculatedTotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0))
-    const total = money(rawOrder.total != null ? amount(rawOrder.total) : calculatedTotal)
+    const productSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0))
+    const total = productSubtotal
 
     const orderDoc = {
       ...rawOrder,
@@ -831,7 +943,7 @@ async function applyRestaurantCommand(context) {
       tableInfo: tableData ? tableData.name : rawOrder.tableInfo || null,
       items,
       total,
-      productSubtotal: total,
+      productSubtotal,
       createdAt: rawOrder.createdAt || now,
       createdBy: rawOrder.createdBy || actor.uid,
     }
@@ -849,7 +961,7 @@ async function applyRestaurantCommand(context) {
 
     applyInventoryDeduction({ tx, root, actor, branchId, activeShiftId, orderId, operationId, now, requirements, prodMap })
 
-    return { orderId, order: orderDoc }
+    return { orderId, order: orderDoc, total }
   }
 
   // 7. Añadir Productos a Pedido Existente
@@ -873,30 +985,7 @@ async function applyRestaurantCommand(context) {
     if (!inputItems.length) throw new HttpsError('invalid-argument', 'No se especificaron productos.')
 
     const prodMap = await resolveProductsAndIngredients(tx, root, inputItems)
-
-    const newLines = []
-    for (const item of inputItems) {
-      const productId = id(item.productId)
-      const pData = prodMap.get(productId)
-      if (pData && (pData.isActive === false || pData.availability === 'archived')) {
-        throw new HttpsError('failed-precondition', `El producto ${pData.name || productId} está inactivo o archivado y no puede agregarse al pedido.`)
-      }
-      const quantity = Math.max(1, Number(item.quantity) || 1)
-      const unitPrice = pData ? amount(pData.price) : amount(item.price || item.unitPrice || 0)
-      const name = pData?.name || item.name || 'Producto'
-      const lineTotal = money(unitPrice * quantity)
-      newLines.push({
-        id: `line_${operationId}_${Math.random().toString(36).slice(2, 7)}`,
-        productId,
-        name,
-        basePrice: unitPrice,
-        quantity,
-        lineTotal,
-        modifiers: { note: item.note?.trim() || '', extras: [], options: [] },
-        status: 'pending',
-        createdAt: now,
-      })
-    }
+    const newLines = inputItems.map(item => validateAndPriceOrderItem(item, prodMap, operationId, now))
 
     const { requirements, totalPerProduct } = computeItemInventoryRequirements(newLines, prodMap)
     const allowNegativeStock = actor.tenant.configuration?.allowNegativeStock === true
@@ -1082,7 +1171,8 @@ async function applyRestaurantCommand(context) {
       updatedItems = items.filter(it => it.id !== itemId)
     } else {
       const remainingQty = target.quantity - cancelQty
-      const newLineTotal = money(target.basePrice * remainingQty)
+      const unitPrice = target.unitPrice || target.basePrice || 0
+      const newLineTotal = money(unitPrice * remainingQty)
       updatedItems = items.map(it => it.id === itemId ? { ...it, quantity: remainingQty, lineTotal: newLineTotal } : it)
     }
 
@@ -1217,10 +1307,10 @@ async function applyRestaurantCommand(context) {
     }
 
     const received = amount(payload.received ?? payload.payment?.received ?? payload.payment?.cashReceived ?? (method === 'cash' ? total : cashAmount))
-    if (received < cashAmount) {
+    if (cashAmount > 0 && received < cashAmount) {
       throw new HttpsError('invalid-argument', 'Efectivo recibido insuficiente.')
     }
-    const change = money(received - cashAmount)
+    const change = cashAmount > 0 ? money(received - cashAmount) : 0
 
     const paymentId = `payment_${operationId}`
     const paymentRecord = {

@@ -906,6 +906,43 @@ try {
   })
   assert.ok(mov2.movementId)
 
+  // Cajero registra egreso con 'other' de Bs 25 (NO debe alterar expectedCash ni cashOutflow)
+  const movOtherExp = await call('cashier_user', 'recordCashMovement', 'mov-expense-other', {
+    type: 'expense',
+    category: 'services',
+    description: 'Servicio pagado por otro método',
+    amount: 25,
+    paymentMethod: 'other',
+  })
+  const movOtherExpDoc = (await root.collection('restaurantCashMovements').doc(movOtherExp.movementId).get()).data()
+  assert.equal(movOtherExpDoc.method, 'other')
+  assert.equal(movOtherExpDoc.amount, 25)
+
+  // Cajero registra ingreso con 'other' de Bs 70 (NO debe alterar expectedCash ni cashIncome)
+  const movOtherInc = await call('cashier_user', 'recordCashMovement', 'mov-income-other', {
+    type: 'income',
+    category: 'other',
+    description: 'Ingreso no efectivo',
+    amount: 70,
+    paymentMethod: 'other',
+  })
+  const movOtherIncDoc = (await root.collection('restaurantCashMovements').doc(movOtherInc.movementId).get()).data()
+  assert.equal(movOtherIncDoc.method, 'other')
+  assert.equal(movOtherIncDoc.amount, 70)
+
+  // Intentar registrar movimiento con método inválido debe fallar con invalid-argument
+  await assert.rejects(
+    () => call('cashier_user', 'recordCashMovement', 'mov-invalid-method-fail', {
+      type: 'expense',
+      category: 'supply_purchase',
+      description: 'Intento con método inválido',
+      amount: 10,
+      paymentMethod: 'crypto',
+    }),
+    err => err.code === 'invalid-argument',
+    'Método de pago no reconocido debe ser rechazado con invalid-argument'
+  )
+
   // Registrar un movimiento para anular
   const movToCancel = await call('cashier_user', 'recordCashMovement', 'mov-cancel-target', {
     type: 'expense',
@@ -938,7 +975,7 @@ try {
   // 34. Cierre de turno y conciliación con movimientos manuales
   console.log('34. Conciliación y arqueo considerando movimientos manuales...')
   // Fondo inicial 200 + Ingreso 100 - Egreso efectivo 45 = Esperado 255
-  // (el egreso QR de 50 no afecta caja física y el de 30 anulado no cuenta)
+  // (los egresos QR de 50 y other de 25 no afectan caja física, el ingreso other de 70 tampoco, y el de 30 anulado no cuenta)
   const closeRes2 = await call('cashier_user', 'closeShift', 'op-close-2', {
     shiftId: shiftMov.shiftId,
     countedCash: 255,
@@ -950,7 +987,7 @@ try {
   assert.equal(closedMovShiftDoc.difference, 0)
   assert.equal(closedMovShiftDoc.cashIncome, 100)
   assert.equal(closedMovShiftDoc.cashOutflow, 45)
-  console.log('PASS Cierre de caja calculó exactamente los movimientos activos en efectivo e ignoró QR y anulados.')
+  console.log('PASS Cierre de caja calculó exactamente los movimientos activos en efectivo e ignoró QR, other y anulados.')
 
   // Intentar editar movimiento cuando el turno ya cerró debe fallar
   await assert.rejects(
@@ -1004,6 +1041,17 @@ try {
     'addOrder debe rechazar venta de producto archivado'
   )
 
+  // Crear el producto prod_1 antes de utilizarlo
+  await call('admin_user', 'saveProduct', 'prod-1-seed', {
+    product: {
+      id: 'prod_1',
+      name: 'Lomo a la Pimienta',
+      price: 58,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+
   // Crear una orden válida para probar addProduct con producto archivado
   const validOrder = await call('waiter_user', 'addOrder', 'order-valid-pre-add', {
     items: [{ productId: 'prod_1', name: 'Lomo a la Pimienta', basePrice: 58, quantity: 1 }],
@@ -1043,8 +1091,205 @@ try {
   assert.equal(productStillExists.exists, true, 'El producto se mantiene intacto al rechazarse el borrado físico')
   console.log('PASS Eliminación física rechazada con política estricta de archivo.')
 
+  // 37. Protección estricta contra manipulación de precios y nombres desde el cliente (addOrder)
+  console.log('37. Resistencia a alteración de precios y nombres en addOrder...')
+  await call('admin_user', 'saveProduct', 'prod-tamper-setup', {
+    product: {
+      id: 'prod_bife_chorizo',
+      name: 'Bife de Chorizo Premium',
+      price: 110,
+      categoryId: 'cat-carnes',
+      preparationArea: 'Cocina',
+    },
+  })
+  // Cliente malicioso intenta enviar basePrice: 1, total: 1 y nombre adulterado
+  const tamperedOrder = await call('waiter_user', 'addOrder', 'order-tampered-attempt', {
+    items: [{
+      productId: 'prod_bife_chorizo',
+      name: 'Producto Hackeado Barato',
+      basePrice: 1,
+      price: 1,
+      lineTotal: 1,
+      quantity: 2,
+    }],
+    total: 2,
+    productSubtotal: 2,
+  })
+  assert.ok(tamperedOrder.orderId)
+  assert.equal(tamperedOrder.total, 220) // 110 * 2 calculado por servidor
+  const tamperedDoc = (await root.collection('restaurantOrders').doc(tamperedOrder.orderId).get()).data()
+  assert.equal(tamperedDoc.total, 220)
+  assert.equal(tamperedDoc.productSubtotal, 220)
+  assert.equal(tamperedDoc.items[0].name, 'Bife de Chorizo Premium') // Nombre canónico
+  assert.equal(tamperedDoc.items[0].basePrice, 110)
+  assert.equal(tamperedDoc.items[0].lineTotal, 220)
+  console.log('PASS Precios y nombres del cliente ignorados; servidor impone catálogo y totales autoritativos.')
+
+  // 38. Rechazo estricto de productos inexistentes (addOrder y addProduct)
+  console.log('38. Rechazo de productos desconocidos en addOrder y addProduct...')
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-fake-prod-fail', {
+      items: [{ productId: 'prod_fantasma_xyz', quantity: 1, basePrice: 50 }],
+    }),
+    err => err.code === 'not-found',
+    'addOrder debe fallar con not-found para productos que no existen'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'addProduct', 'add-fake-prod-fail', {
+      orderId: tamperedOrder.orderId,
+      items: [{ productId: 'prod_fantasma_xyz', quantity: 1, basePrice: 50 }],
+    }),
+    err => err.code === 'not-found',
+    'addProduct debe fallar con not-found para productos que no existen'
+  )
+  console.log('PASS Productos desconocidos rechazados con not-found.')
+
+  // 39. Rechazo de venta directa de insumos (restaurantType === ingredient)
+  console.log('39. Rechazo de venta directa de insumos en addOrder y addProduct...')
+  await call('admin_user', 'saveProduct', 'prod-raw-ingredient', {
+    product: {
+      id: 'ing_aceite_trufa',
+      name: 'Aceite de Trufa (Insumo)',
+      price: 90,
+      restaurantType: 'ingredient',
+      categoryId: 'cat-insumos',
+    },
+  })
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-ingredient-fail', {
+      items: [{ productId: 'ing_aceite_trufa', quantity: 1 }],
+    }),
+    err => err.code === 'failed-precondition',
+    'addOrder debe rechazar venta directa de insumos'
+  )
+  await assert.rejects(
+    () => call('waiter_user', 'addProduct', 'add-ingredient-fail', {
+      orderId: tamperedOrder.orderId,
+      items: [{ productId: 'ing_aceite_trufa', quantity: 1 }],
+    }),
+    err => err.code === 'failed-precondition',
+    'addProduct debe rechazar venta directa de insumos'
+  )
+  console.log('PASS Venta directa de insumos bloqueada con failed-precondition.')
+
+  // 40. Validación autoritativa de extras y opciones con resistencia a manipulación
+  console.log('40. Validación autoritativa de extras y opciones configuradas...')
+  await call('admin_user', 'saveProduct', 'prod-burguer-extras', {
+    product: {
+      id: 'prod_hamburguesa_doble',
+      name: 'Hamburguesa Doble Gourmet',
+      price: 45,
+      restaurantType: 'food',
+      categoryId: 'cat-hamb',
+      extras: [
+        { id: 'ext_bacon', name: 'Bacon Ahumado', price: 6 },
+        { id: 'ext_cheddar', name: 'Queso Cheddar Extra', price: 5 },
+      ],
+      options: [
+        { id: 'opt_termino_3_4', label: 'Término 3/4' },
+        { id: 'opt_bien_cocido', label: 'Bien Cocido' },
+      ],
+    },
+  })
+
+  // Cliente intenta manipular precio de extra (enviar precio 0.05 en vez de 6)
+  const orderWithExtras = await call('waiter_user', 'addOrder', 'order-extras-tamper-attempt', {
+    items: [{
+      productId: 'prod_hamburguesa_doble',
+      quantity: 2,
+      modifiers: {
+        extras: [
+          { id: 'ext_bacon', name: 'Bacon Ahumado', price: 0.05 },
+          { id: 'ext_cheddar', name: 'Queso Cheddar Extra', price: 0.01 },
+        ],
+        options: ['opt_termino_3_4'],
+        note: 'Papas crujientes',
+      },
+    }],
+  })
+  // Precio unitario autoritativo: 45 + 6 + 5 = 56. Por 2 unidades = 112
+  assert.equal(orderWithExtras.total, 112)
+  const extrasDoc = (await root.collection('restaurantOrders').doc(orderWithExtras.orderId).get()).data()
+  assert.equal(extrasDoc.total, 112)
+  assert.equal(extrasDoc.items[0].unitPrice, 56)
+  assert.equal(extrasDoc.items[0].lineTotal, 112)
+  assert.equal(extrasDoc.items[0].modifiers.extras[0].price, 6)
+  assert.equal(extrasDoc.items[0].modifiers.extras[1].price, 5)
+  assert.equal(extrasDoc.items[0].modifiers.options[0], 'Término 3/4')
+
+  // Intento de extra no existente debe fallar
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-fake-extra-fail', {
+      items: [{
+        productId: 'prod_hamburguesa_doble',
+        quantity: 1,
+        modifiers: {
+          extras: [{ id: 'ext_fake_gold', name: 'Oro Comestible', price: 100 }],
+        },
+      }],
+    }),
+    err => err.code === 'failed-precondition',
+    'Extra inexistente debe ser rechazado'
+  )
+
+  // Intento de opción no existente debe fallar
+  await assert.rejects(
+    () => call('waiter_user', 'addOrder', 'order-fake-option-fail', {
+      items: [{
+        productId: 'prod_hamburguesa_doble',
+        quantity: 1,
+        modifiers: {
+          options: ['opt_termino_carbonizado'],
+        },
+      }],
+    }),
+    err => err.code === 'failed-precondition',
+    'Opción no existente debe ser rechazada'
+  )
+  console.log('PASS Extras y opciones validados y cobrados autoritativamente.')
+
+  // 41. Anulación parcial de ítems con extras conserva unitPrice autoritativo
+  console.log('41. Anulación parcial de ítem con extras...')
+  const cancelExtraItemRes = await call('waiter_user', 'cancelOrderItem', 'cancel-extra-partial', {
+    orderId: orderWithExtras.orderId,
+    itemId: extrasDoc.items[0].id,
+    quantity: 1,
+  })
+  assert.ok(cancelExtraItemRes)
+  const orderAfterCancel = (await root.collection('restaurantOrders').doc(orderWithExtras.orderId).get()).data()
+  // Quedó 1 unidad a 56 Bs (45 + 11 extras)
+  assert.equal(orderAfterCancel.total, 56)
+  assert.equal(orderAfterCancel.productSubtotal, 56)
+  assert.equal(orderAfterCancel.items[0].quantity, 1)
+  assert.equal(orderAfterCancel.items[0].lineTotal, 56)
+  console.log('PASS Anulación parcial recalculó total y lineTotal respetando extras unitarios.')
+
+  // 42. Cobro autoritativo total y validación de liquidación completa
+  console.log('42. Verificación de liquidación en recordPayment con totales autoritativos...')
+  // Pago insuficiente debe ser rechazado
+  await assert.rejects(
+    () => call('cashier_user', 'recordPayment', 'pay-underpaid-fail', {
+      orderId: orderWithExtras.orderId,
+      method: 'cash',
+      received: 30, // total es 56
+    }),
+    err => err.code === 'invalid-argument',
+    'Pago menor al total debe ser rechazado'
+  )
+  // Pago exacto con tarjeta
+  const payCardRes = await call('cashier_user', 'recordPayment', 'pay-card-ok', {
+    orderId: orderWithExtras.orderId,
+    method: 'card',
+    received: 56,
+  })
+  assert.equal(payCardRes.total, 56)
+  assert.equal(payCardRes.change, 0)
+  const paidCardOrder = (await root.collection('restaurantOrders').doc(orderWithExtras.orderId).get()).data()
+  assert.equal(paidCardOrder.paymentStatus, 'paid')
+  console.log('PASS Liquidación verificada contra total autoritativo del pedido.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (36/36)')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (42/42)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {
