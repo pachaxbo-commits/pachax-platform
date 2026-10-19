@@ -2,10 +2,10 @@
 import assert from 'node:assert/strict'
 // @ts-expect-error Node test types are intentionally absent from the browser tsconfig.
 import test from 'node:test'
-import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
-import { demoCan, demoPermissionSet, guardNightclubDemoController } from '../../../../demo/nightclub/nightclubDemoAccess.ts'
-import { NIGHTCLUB_ROLE_DEFAULTS } from '../nightclubUsers.ts'
-import { openNightclubAccount, sendNightclubRound } from '../nightclubAccounts.ts'
+import { createNightclubDataset } from '../src/modules/nightclub/domain/nightclubDatasets.ts'
+import { demoCan, demoPermissionSet, guardNightclubDemoController } from '../src/demo/nightclub/nightclubDemoAccess.ts'
+import { NIGHTCLUB_ROLE_DEFAULTS } from '../src/modules/nightclub/domain/nightclubUsers.ts'
+import { openNightclubAccount, sendNightclubRound } from '../src/modules/nightclub/domain/nightclubAccounts.ts'
 
 test('administrador y perfiles activos usan sus permisos individuales; inactivo no accede', () => {
   const data = createNightclubDataset('empty')

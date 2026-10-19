@@ -37,6 +37,16 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     if (!Array.isArray(drafts) || !drafts.length || drafts.length > 50 || drafts.some(item => !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 999)) throw new HttpsError('invalid-argument', 'Pedido inválido.')
     const productIds = [...new Set(drafts.map(item => id(item.productId)))]
     const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
+    for (let i = 0; i < productSnaps.length; i++) {
+      const snap = productSnaps[i]
+      if (!snap.exists) {
+        throw new HttpsError('not-found', `Producto ${productIds[i]} no encontrado.`)
+      }
+      const pData = snap.data()
+      if (pData.active === false || pData.isActive === false) {
+        throw new HttpsError('failed-precondition', `El producto ${pData.name || productIds[i]} no está activo.`)
+      }
+    }
     const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
 
     let sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null

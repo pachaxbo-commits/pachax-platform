@@ -55,13 +55,14 @@ export type Unsubscribe = () => void
 
 /** Query-oriented production boundary. No listener downloads a whole club dataset. */
 export interface NightclubRepository {
-  subscribeFloor(listener: (value: NightclubFloorSnapshot) => void): Unsubscribe
-  subscribeOpenAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe
-  subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void): Unsubscribe
-  subscribeActiveShift(listener: (value: NightclubShift | null) => void): Unsubscribe
-  subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void): Unsubscribe
-  subscribeInventory(listener: (value: NightclubInventorySnapshot) => void): Unsubscribe
-  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void): Unsubscribe
+  subscribeFloor(listener: (value: NightclubFloorSnapshot) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeOpenAccounts(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeOperationalAccounts?(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeActiveShift(listener: (value: NightclubShift | null) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeInventory(listener: (value: NightclubInventorySnapshot) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void, onError?: (err: Error) => void): Unsubscribe
   getCustomers(query: string, limit: number): Promise<NightclubCustomer[]>
   getStaff(): Promise<NightclubStaff[]>
   getCashMovements(shiftId: string): Promise<NightclubCashMovement[]>
@@ -87,17 +88,17 @@ export interface NightclubRepository {
   saveInventory(input: { operationId: string; item: NightclubInventoryItem }): Promise<void>
   saveCustomer(input: { operationId: string; customer: NightclubCustomer }): Promise<void>
   getRoundById?(roundId: string): Promise<NightclubRound | null>
-  subscribeReservations?(listener: (value: NightclubReservation[]) => void): Unsubscribe
-  subscribePromoters?(listener: (value: NightclubPromoter[]) => void): Unsubscribe
-  subscribePromoterEvents?(listener: (value: NightclubPromoterEvent[]) => void): Unsubscribe
-  subscribePromoterTicketSales?(listener: (value: NightclubTicketSale[]) => void): Unsubscribe
-  subscribePromoterLoungeSales?(listener: (value: NightclubLoungeSale[]) => void): Unsubscribe
-  subscribePromoterConsumptions?(listener: (value: NightclubPromoterConsumption[]) => void): Unsubscribe
-  subscribeMembers?(listener: (value: NightclubMember[]) => void): Unsubscribe
-  subscribeCourtesies?(listener: (value: NightclubCourtesy[]) => void): Unsubscribe
-  subscribeCommissions?(listener: (value: NightclubCommission[]) => void): Unsubscribe
-  subscribeCommissionPayments?(listener: (value: NightclubCommissionPayment[]) => void): Unsubscribe
-  subscribeCustomerIncidents?(listener: (value: NightclubCustomerIncident[]) => void): Unsubscribe
+  subscribeReservations?(listener: (value: NightclubReservation[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribePromoters?(listener: (value: NightclubPromoter[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribePromoterEvents?(listener: (value: NightclubPromoterEvent[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribePromoterTicketSales?(listener: (value: NightclubTicketSale[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribePromoterLoungeSales?(listener: (value: NightclubLoungeSale[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribePromoterConsumptions?(listener: (value: NightclubPromoterConsumption[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeMembers?(listener: (value: NightclubMember[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCourtesies?(listener: (value: NightclubCourtesy[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCommissions?(listener: (value: NightclubCommission[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCommissionPayments?(listener: (value: NightclubCommissionPayment[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCustomerIncidents?(listener: (value: NightclubCustomerIncident[]) => void, onError?: (err: Error) => void): Unsubscribe
   saveReservation?(input: { operationId: string; reservation: ReservationDraft }): Promise<{ reservationId: string }>
   cancelReservation?(input: { operationId: string; id: string }): Promise<void>
   arriveReservation?(input: { operationId: string; id: string }): Promise<{ reservationId: string; accountId: string }>

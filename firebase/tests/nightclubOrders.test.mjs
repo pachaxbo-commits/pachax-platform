@@ -1260,6 +1260,152 @@ try {
   await call('cashier', 'closeShift', 'close-shift8-op', { shiftId: shift8Id, countedCash: 75 })
 
   console.log('PASS: Test 8 (N3B.1 Inventario físico, snapshots, reversiones y permisos) completado exitosamente.')
+
+  console.log('=== TEST 9: INTEGRIDAD ECONÓMICA, MÉTODOS DE CAJA, PERMISOS ESTRICTOS Y PRODUCTOS INACTIVOS ===')
+  // Setup additional members: partner, supervisor, custom role
+  await root.collection('members').doc('partner').set({
+    uid: 'partner',
+    tenantId,
+    roleId: 'partner',
+    status: 'active',
+    branchIds: ['main'],
+  })
+  await root.collection('members').doc('supervisor').set({
+    uid: 'supervisor',
+    tenantId,
+    roleId: 'supervisor',
+    status: 'active',
+    branchIds: ['main'],
+  })
+  await root.collection('members').doc('custom-lead').set({
+    uid: 'custom-lead',
+    tenantId,
+    roleId: 'custom:lead_service',
+    status: 'active',
+    branchIds: ['main'],
+    permissions: ['orders.read', 'orders.manage', 'sales.create'],
+    nightclubPermissions: ['floor.create', 'floor.edit', 'accounts.create', 'accounts.edit', 'pos.create'],
+  })
+
+  // 1. Iniciar Turno 9 con Bs 100
+  const shift9Op = await call('cashier', 'openShift', 'shift9-op', { openingFloat: 100 })
+  const shift9Id = shift9Op.shiftId
+  assert.ok(shift9Id)
+
+  // 2. Configurar mesa, producto activo e inactivo
+  await root.collection('nightclubTables').doc('T-TEST9').set({
+    id: 'T-TEST9',
+    branchId: 'main',
+    name: 'Mesa Test 9',
+    status: 'available',
+  })
+  await root.collection('nightclubProducts').doc('prod-active-9').set({
+    id: 'prod-active-9',
+    branchId: 'main',
+    name: 'Ron Activo',
+    price: 30,
+    active: true,
+    inventoryMode: 'none',
+  })
+  await root.collection('nightclubProducts').doc('prod-inactive-9').set({
+    id: 'prod-inactive-9',
+    branchId: 'main',
+    name: 'Ron Inactivo',
+    price: 30,
+    active: false,
+    inventoryMode: 'none',
+  })
+
+  // 3. Abrir cuenta con custom role
+  const acc9Op = await call('custom-lead', 'openAccount', 'acc9-op', { target: { type: 'table', tableId: 'T-TEST9' } })
+  const acc9Id = acc9Op.accountId
+  assert.ok(acc9Id)
+
+  // 4. addRound: rechazo de producto inactivo y producto inexistente
+  await assert.rejects(
+    () => call('waiter', 'addRound', 'neg-round-inactive', {
+      accountId: acc9Id,
+      items: [{ productId: 'prod-inactive-9', quantity: 1 }],
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('no está activo')
+  )
+  await assert.rejects(
+    () => call('waiter', 'addRound', 'neg-round-nonexistent', {
+      accountId: acc9Id,
+      items: [{ productId: 'prod-ghost-xyz', quantity: 1 }],
+    }),
+    err => err.code === 'not-found' && err.message.includes('no encontrado')
+  )
+
+  // 5. settleRound: rechazo de producto inactivo y producto inexistente
+  await assert.rejects(
+    () => call('waiter', 'settleRound', 'neg-settle-inactive', {
+      accountId: acc9Id,
+      items: [{ productId: 'prod-inactive-9', quantity: 1 }],
+      payment: { method: 'cash' },
+    }),
+    err => err.code === 'failed-precondition' && err.message.includes('no está activo')
+  )
+  await assert.rejects(
+    () => call('waiter', 'settleRound', 'neg-settle-nonexistent', {
+      accountId: acc9Id,
+      items: [{ productId: 'prod-ghost-xyz', quantity: 1 }],
+      payment: { method: 'cash' },
+    }),
+    err => err.code === 'not-found' && err.message.includes('no encontrado')
+  )
+
+  // 6. saveCustomer: Denegado a roles sin sales.create (partner, supervisor) y permitido a waiter
+  await assert.rejects(
+    () => call('partner', 'saveCustomer', 'neg-partner-cust', {
+      customer: { id: 'cust-p', name: 'Cliente Partner' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+  await assert.rejects(
+    () => call('supervisor', 'saveCustomer', 'neg-sup-cust', {
+      customer: { id: 'cust-s', name: 'Cliente Sup' }
+    }),
+    err => err.code === 'permission-denied'
+  )
+  const savedCust = await call('waiter', 'saveCustomer', 'pos-waiter-cust', {
+    customer: { id: 'cust-w9', name: 'Cliente Waiter 9', phone: '70099900' }
+  })
+  assert.equal(savedCust.customer.name, 'Cliente Waiter 9')
+
+  // 7. recordCashMovement: Validación estricta de method
+  // Sin método -> rechazado
+  await assert.rejects(
+    () => call('cashier', 'recordCashMovement', 'neg-cash-no-method', {
+      movement: { type: 'income', amount: 40, description: 'Sin método' }
+    }),
+    err => err.code === 'invalid-argument' && err.message.includes('Método de pago inválido')
+  )
+  // Método inválido -> rechazado
+  await assert.rejects(
+    () => call('cashier', 'recordCashMovement', 'neg-cash-bogus-method', {
+      movement: { type: 'income', amount: 40, method: 'bitcoin', description: 'Método desconocido' }
+    }),
+    err => err.code === 'invalid-argument' && err.message.includes('Método de pago inválido')
+  )
+
+  // Método 'other' válido -> aceptado y persistido con method: 'other'
+  const otherIncome = await call('cashier', 'recordCashMovement', 'pos-cash-other-mov', {
+    movement: { type: 'income', amount: 50, method: 'other', description: 'Depósito bancario transfer' }
+  })
+  assert.equal(otherIncome.movement.method, 'other')
+  assert.equal(otherIncome.movement.amount, 50)
+
+  // 8. Cerrar cuenta acc9Id para permitir closeShift
+  await call('waiter', 'finishOccupancy', 'finish-acc9-op', { accountId: acc9Id })
+
+  // 9. closeShift: El movimiento 'other' NO debe alterar el efectivo físico esperado (debe seguir siendo Bs 100)
+  const close9 = await call('cashier', 'closeShift', 'close-shift9-op', { shiftId: shift9Id, countedCash: 100 })
+  assert.equal(close9.expectedCash, 100, 'El efectivo esperado debe ser exactamente Bs 100 ya que other no altera caja física')
+  assert.equal(close9.countedCash, 100)
+  assert.equal(close9.difference, 0)
+
+  console.log('PASS: Test 9 (Integridad económica, métodos de caja, permisos estrictos y productos inactivos) completado exitosamente.')
 } finally {
   await deleteApp(app)
 }

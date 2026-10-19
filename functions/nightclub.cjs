@@ -54,10 +54,10 @@ const permissions = {
   deleteTable: 'orders.manage',
   saveProduct: 'products.manage',
   saveInventory: 'inventory.manage',
-  saveCustomer: 'customers.read',
-  saveReservation: 'orders.read',
-  cancelReservation: 'orders.read',
-  arriveReservation: 'orders.read',
+  saveCustomer: 'sales.create',
+  saveReservation: 'sales.create',
+  cancelReservation: 'sales.create',
+  arriveReservation: 'sales.create',
   savePromoter: 'settings.manage',
   deletePromoter: 'settings.manage',
   savePromoterEvent: 'settings.manage',
@@ -112,73 +112,77 @@ async function executeNightclubCommand(db, request) {
     if (!member.data().branchIds?.includes(branchId)) throw new HttpsError('permission-denied', 'Sucursal no autorizada.')
 
     // Validaciones estrictas por rol según especificación
-    if (type === 'advanceRound' && !['owner', 'admin', 'bar'].includes(member.data().roleId)) {
+    const roleId = member.data().roleId
+    const ncPerms = Array.isArray(member.data().nightclubPermissions) ? member.data().nightclubPermissions : []
+    const hasNc = perm => ncPerms.includes(perm)
+
+    if (type === 'advanceRound' && !['owner', 'admin', 'bar'].includes(roleId) && !hasNc('bar.edit')) {
       throw new HttpsError('permission-denied', 'Solo Barra puede preparar pedidos.')
     }
-    if (type === 'deliverRound' && !['owner', 'admin', 'waiter', 'service'].includes(member.data().roleId)) {
+    if (type === 'deliverRound' && !['owner', 'admin', 'waiter', 'service'].includes(roleId) && !hasNc('accounts.edit')) {
       throw new HttpsError('permission-denied', 'Solo Servicio puede entregar pedidos.')
     }
-    if (type === 'finishOccupancy' && !['owner', 'admin', 'waiter', 'service'].includes(member.data().roleId)) {
+    if (type === 'finishOccupancy' && !['owner', 'admin', 'waiter', 'service'].includes(roleId) && !hasNc('accounts.edit')) {
       throw new HttpsError('permission-denied', 'Solo Servicio puede cerrar mesas.')
     }
-    if (type === 'refundRound' && !['owner', 'admin'].includes(member.data().roleId)) {
+    if (type === 'refundRound' && !['owner', 'admin'].includes(roleId) && !hasNc('special.approveOperations')) {
       throw new HttpsError('permission-denied', 'Solo Administración puede reembolsar.')
     }
-    if (type === 'recordPayment' && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+    if (type === 'recordPayment' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('cash.create')) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden registrar pagos.')
     }
-    if (type === 'reopenBill' && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+    if (type === 'reopenBill' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('accounts.edit')) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden reabrir la cuenta.')
     }
-    if (['saveZone', 'deleteZone', 'saveTable', 'deleteTable'].includes(type) && !['owner', 'admin'].includes(member.data().roleId)) {
+    if (['saveZone', 'deleteZone', 'saveTable', 'deleteTable'].includes(type) && !['owner', 'admin'].includes(roleId) && !hasNc('floor.create') && !hasNc('floor.delete')) {
       throw new HttpsError('permission-denied', 'Solo Administración puede configurar zonas y mesas.')
     }
-    if (['saveProduct', 'saveInventory', 'inventoryMovement'].includes(type) && !['owner', 'admin', 'inventory'].includes(member.data().roleId)) {
+    if (['saveProduct', 'saveInventory', 'inventoryMovement'].includes(type) && !['owner', 'admin', 'inventory'].includes(roleId) && !hasNc('inventory.edit') && !hasNc('products.create')) {
       throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden gestionar productos e insumos.')
     }
-    if (['openShift', 'closeShift'].includes(type) && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+    if (['openShift', 'closeShift'].includes(type) && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('special.closeCash')) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden gestionar turnos.')
     }
-    if (type === 'saveReservation' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(member.data().roleId)) {
+    if (type === 'saveReservation' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(roleId) && !hasNc('floor.create')) {
       throw new HttpsError('permission-denied', 'No tienes permiso para gestionar reservas.')
     }
-    if (type === 'cancelReservation' && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+    if (type === 'cancelReservation' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('floor.delete') && !hasNc('special.approveOperations')) {
       throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden cancelar reservas.')
     }
-    if (type === 'arriveReservation' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(member.data().roleId)) {
+    if (type === 'arriveReservation' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(roleId) && !hasNc('floor.edit')) {
       throw new HttpsError('permission-denied', 'No tienes permiso para registrar la llegada de reservas.')
     }
-    if (['savePromoter', 'deletePromoter', 'savePromoterEvent', 'savePromoterConsumption'].includes(type) && !['owner', 'admin'].includes(member.data().roleId)) {
+    if (['savePromoter', 'deletePromoter', 'savePromoterEvent', 'savePromoterConsumption'].includes(type) && !['owner', 'admin'].includes(roleId) && !hasNc('promoters.edit')) {
       throw new HttpsError('permission-denied', 'Solo Administración puede gestionar relacionadores.')
     }
-    if (['saveTicketSale', 'saveLoungeSale', 'markLoungePaid'].includes(type) && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+    if (['saveTicketSale', 'saveLoungeSale', 'markLoungePaid'].includes(type) && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('promoters.create')) {
       throw new HttpsError('permission-denied', 'Solo Administración o Caja pueden registrar ventas de relacionadores.')
     }
-    if (type === 'recordCashMovement' && !['owner', 'admin', 'cashier'].includes(member.data().roleId)) {
+    if (type === 'recordCashMovement' && !['owner', 'admin', 'cashier'].includes(roleId) && !hasNc('cash.create')) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden registrar movimientos de caja.')
     }
-    if (type === 'saveBottleInventory' && !['owner', 'admin', 'inventory'].includes(member.data().roleId)) {
+    if (type === 'saveBottleInventory' && !['owner', 'admin', 'inventory'].includes(roleId) && !hasNc('inventory.create')) {
       throw new HttpsError('permission-denied', 'Solo Inventario o Administración pueden registrar botellas.')
     }
-    if (['openBottle', 'bottleExit'].includes(type) && !['owner', 'admin', 'inventory', 'bar'].includes(member.data().roleId)) {
+    if (['openBottle', 'bottleExit'].includes(type) && !['owner', 'admin', 'inventory', 'bar'].includes(roleId) && !hasNc('inventory.edit')) {
       throw new HttpsError('permission-denied', 'Solo Barra o Inventario pueden gestionar botellas abiertas.')
     }
-    if (type === 'saveMember' && !['owner', 'admin'].includes(member.data().roleId)) {
+    if (type === 'saveMember' && !['owner', 'admin'].includes(roleId) && !hasNc('members.create') && !hasNc('members.edit')) {
       throw new HttpsError('permission-denied', 'Solo Administración puede gestionar socios.')
     }
-    if (type === 'registerCourtesy' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(member.data().roleId)) {
+    if (type === 'registerCourtesy' && !['owner', 'admin', 'cashier', 'waiter', 'service'].includes(roleId) && !hasNc('members.create')) {
       throw new HttpsError('permission-denied', 'No tienes permiso para registrar cortesías.')
     }
-    if (type === 'cancelCourtesy' && !['owner', 'admin'].includes(member.data().roleId)) {
+    if (type === 'cancelCourtesy' && !['owner', 'admin'].includes(roleId) && !hasNc('members.delete')) {
       throw new HttpsError('permission-denied', 'Solo Administración puede anular cortesías.')
     }
-    if (type === 'payCommissions' && !['owner', 'admin'].includes(member.data().roleId)) {
+    if (type === 'payCommissions' && !['owner', 'admin'].includes(roleId) && !hasNc('special.approveOperations')) {
       throw new HttpsError('permission-denied', 'Solo Administración puede pagar comisiones.')
     }
-    if (['setCustomerStatus', 'saveCustomerIncident', 'deleteCustomerIncident'].includes(type) && !['owner', 'admin'].includes(member.data().roleId)) {
+    if (['setCustomerStatus', 'saveCustomerIncident', 'deleteCustomerIncident'].includes(type) && !['owner', 'admin'].includes(roleId) && !hasNc('customers.delete')) {
       throw new HttpsError('permission-denied', 'Solo Administración puede gestionar incidentes y estado de clientes.')
     }
-    if (type === 'assignCustomer' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(member.data().roleId)) {
+    if (type === 'assignCustomer' && !['owner', 'admin', 'waiter', 'service', 'cashier'].includes(roleId) && !hasNc('accounts.edit')) {
       throw new HttpsError('permission-denied', 'No tienes permiso para asignar clientes.')
     }
 
@@ -1152,6 +1156,16 @@ async function applyCommand(context) {
     }
     const productIds = [...new Set(drafts.map(item => id(item.productId)))]
     const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
+    for (let i = 0; i < productSnaps.length; i++) {
+      const snap = productSnaps[i]
+      if (!snap.exists) {
+        throw new HttpsError('not-found', `Producto ${productIds[i]} no encontrado.`)
+      }
+      const pData = snap.data()
+      if (pData.active === false || pData.isActive === false) {
+        throw new HttpsError('failed-precondition', `El producto ${pData.name || productIds[i]} no está activo.`)
+      }
+    }
     const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
 
     let sellerStaffId = payload.sellerStaffId || payload.serviceStaffId || null
@@ -1535,8 +1549,8 @@ async function applyCommand(context) {
     if (amt <= 0) throw new HttpsError('invalid-argument', 'El monto debe ser mayor a cero.')
     const movType = mov.type
     if (!['income', 'expense'].includes(movType)) throw new HttpsError('invalid-argument', 'Tipo de movimiento inválido.')
-    const method = mov.method || 'cash'
-    if (!['cash', 'qr', 'card'].includes(method)) throw new HttpsError('invalid-argument', 'Método de pago inválido.')
+    const method = mov.method
+    if (!method || !['cash', 'qr', 'card', 'other'].includes(method)) throw new HttpsError('invalid-argument', 'Método de pago inválido.')
     const description = text(mov.description, 200)
     const category = mov.category ? text(mov.category, 50) : null
     if (movType === 'expense' && (!category || !CANONICAL_EXPENSE_CATEGORIES.includes(category))) {

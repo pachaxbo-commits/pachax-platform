@@ -2,7 +2,7 @@
 // @ts-nocheck
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
+import { createNightclubDataset } from '../nightclubDatasets.ts'
 import { advanceNightclubRound, deliverNightclubRound, openNightclubAccount, recordNightclubPayment, refundNightclubRound, requestNightclubBill, sendNightclubRound, settleNightclubRound, nightclubCashSummary, nightclubProfitSummary } from '../nightclubAccounts.ts'
 import { nightclubCommissionSummary, payNightclubCommissions, synchronizeNightclubCommissions } from '../nightclubCommissions.ts'
 

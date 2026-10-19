@@ -28,6 +28,9 @@ import type {
 import { gateway } from '../../../services/gateway'
 import { createTenantNightclubActions } from './tenantNightclubActions'
 
+import { getActiveTenant } from '../../../store/activeTenant'
+import { BusinessTemplateRegistry } from '../../../core/templates'
+
 interface UseTenantNightclubControllerProps {
   tenantId: string
   branchId?: string
@@ -36,6 +39,7 @@ interface UseTenantNightclubControllerProps {
   role: string
   companyName: string
   logoUrl?: string
+  permissions?: ReadonlySet<string> | null
 }
 
 export function useTenantNightclubController({
@@ -46,6 +50,7 @@ export function useTenantNightclubController({
   role,
   companyName,
   logoUrl,
+  permissions,
 }: UseTenantNightclubControllerProps) {
   const repository = useMemo(() => new TenantNightclubRepository(tenantId, branchId), [tenantId, branchId])
 
@@ -67,77 +72,137 @@ export function useTenantNightclubController({
   const [commissions, setCommissions] = useState<NightclubCommission[]>([])
   const [commissionPayments, setCommissionPayments] = useState<NightclubCommissionPayment[]>([])
   const [customerIncidents, setCustomerIncidents] = useState<NightclubCustomerIncident[]>([])
+  const [syncError, setSyncError] = useState<string | null>(null)
 
-  // Subscriptions
+  const can = useCallback((perm: string) => {
+    if (permissions) return permissions.has(perm)
+    const activeTenant = getActiveTenant()
+    const perms: readonly string[] = activeTenant?.permissions ?? (
+      BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === role)?.permissions ?? []
+    )
+    return perms.includes(perm)
+  }, [permissions, role])
+
+  // Subscriptions with permission gating and error handling
   useEffect(() => {
-    const unsubFloor = repository.subscribeFloor(setFloor)
-    const unsubAccounts = repository.subscribeOperationalAccounts(setAccounts)
-    const unsubShift = repository.subscribeActiveShift(setShift)
-    const unsubCatalog = repository.subscribeCatalog(setCatalog)
-    const unsubInv = repository.subscribeInventory(setInventorySnap)
-    const unsubPromoters = repository.subscribePromoters ? repository.subscribePromoters(setPromoters) : () => {}
-    const unsubEvents = repository.subscribePromoterEvents ? repository.subscribePromoterEvents(setPromoterEvents) : () => {}
-    const unsubSales = repository.subscribePromoterTicketSales ? repository.subscribePromoterTicketSales(setPromoterTicketSales) : () => {}
-    const unsubLounges = repository.subscribePromoterLoungeSales ? repository.subscribePromoterLoungeSales(setPromoterLoungeSales) : () => {}
-    const unsubConsumptions = repository.subscribePromoterConsumptions ? repository.subscribePromoterConsumptions(setPromoterConsumptions) : () => {}
-    const unsubMembers = repository.subscribeMembers ? repository.subscribeMembers(setMembers) : () => {}
-    const unsubCourtesies = repository.subscribeCourtesies ? repository.subscribeCourtesies(setCourtesies) : () => {}
-    const unsubCommissions = repository.subscribeCommissions ? repository.subscribeCommissions(setCommissions) : () => {}
-    const unsubCommissionPayments = repository.subscribeCommissionPayments ? repository.subscribeCommissionPayments(setCommissionPayments) : () => {}
+    const handleSyncError = (colName: string) => (err: Error) => {
+      console.warn(`[NightclubApp] Error de sincronización en ${colName}:`, err.message)
+      if (err.message.includes('permission-denied') || (err as { code?: string }).code === 'permission-denied') {
+        setSyncError(`Permiso denegado para consultar ${colName}. Verifica los roles asignados a tu usuario.`)
+      } else {
+        setSyncError(`Problema de conexión al sincronizar ${colName}. Reintentando automáticamente...`)
+      }
+    }
+
+    const unsubs: Array<(() => void) | undefined> = []
+
+    // 1. Zonas, mesas y reservas: orders.read o settings.manage
+    if (can('orders.read') || can('settings.manage')) {
+      unsubs.push(repository.subscribeFloor(setFloor, handleSyncError('zonas y mesas')))
+    }
+
+    // 2. Cuentas operativas: orders.read, cash.close o sales.read
+    if (can('orders.read') || can('cash.close') || can('sales.read')) {
+      unsubs.push(repository.subscribeOperationalAccounts(setAccounts, handleSyncError('cuentas operativas')))
+    }
+
+    // 3. Turno activo: cash.close o settings.manage
+    if (can('cash.close') || can('settings.manage')) {
+      unsubs.push(repository.subscribeActiveShift(setShift, handleSyncError('turno activo')))
+    }
+
+    // 4. Catálogo: sales.create, orders.read o products.manage
+    if (can('sales.create') || can('orders.read') || can('products.manage')) {
+      unsubs.push(repository.subscribeCatalog(setCatalog, handleSyncError('catálogo')))
+    }
+
+    // 5. Inventario: inventory.read o settings.manage
+    if (can('inventory.read') || can('settings.manage')) {
+      unsubs.push(repository.subscribeInventory(setInventorySnap, handleSyncError('inventario')))
+    }
+
+    // 6. Relacionadores: settings.manage, sales.read o sales.create
+    if (can('settings.manage') || can('sales.read') || can('sales.create')) {
+      if (repository.subscribePromoters) unsubs.push(repository.subscribePromoters(setPromoters, handleSyncError('relacionadores')))
+      if (repository.subscribePromoterEvents) unsubs.push(repository.subscribePromoterEvents(setPromoterEvents, handleSyncError('eventos de relacionadores')))
+      if (repository.subscribePromoterTicketSales) unsubs.push(repository.subscribePromoterTicketSales(setPromoterTicketSales, handleSyncError('entradas de relacionadores')))
+      if (repository.subscribePromoterLoungeSales) unsubs.push(repository.subscribePromoterLoungeSales(setPromoterLoungeSales, handleSyncError('lounges de relacionadores')))
+    }
+
+    // 7. Consumos de relacionadores: settings.manage o sales.read
+    if (can('settings.manage') || can('sales.read')) {
+      if (repository.subscribePromoterConsumptions) unsubs.push(repository.subscribePromoterConsumptions(setPromoterConsumptions, handleSyncError('consumos de relacionadores')))
+    }
+
+    // 8. Socios: customers.read o orders.read
+    if (can('customers.read') || can('orders.read')) {
+      if (repository.subscribeMembers) unsubs.push(repository.subscribeMembers(setMembers, handleSyncError('socios')))
+    }
+
+    // 9. Cortesías: orders.read o sales.read
+    if (can('orders.read') || can('sales.read')) {
+      if (repository.subscribeCourtesies) unsubs.push(repository.subscribeCourtesies(setCourtesies, handleSyncError('cortesías')))
+    }
+
+    // 10. Comisiones: sales.read, orders.read o cash.close
+    if (can('sales.read') || can('orders.read') || can('cash.close')) {
+      if (repository.subscribeCommissions) unsubs.push(repository.subscribeCommissions(setCommissions, handleSyncError('comisiones')))
+    }
+
+    // 11. Pagos de comisiones: cash.close o settings.manage
+    if (can('cash.close') || can('settings.manage')) {
+      if (repository.subscribeCommissionPayments) unsubs.push(repository.subscribeCommissionPayments(setCommissionPayments, handleSyncError('pagos de comisiones')))
+    }
+
+    // 12. Incidentes de convivencia: solo admin/owner
     const isAdmin = ['owner', 'admin'].includes(role)
-    const unsubIncidents = (isAdmin && repository.subscribeCustomerIncidents)
-      ? repository.subscribeCustomerIncidents(setCustomerIncidents)
-      : () => {}
+    if (isAdmin && repository.subscribeCustomerIncidents) {
+      unsubs.push(repository.subscribeCustomerIncidents(setCustomerIncidents, handleSyncError('incidentes de clientes')))
+    }
 
     return () => {
-      unsubFloor()
-      unsubAccounts()
-      unsubShift()
-      unsubCatalog()
-      unsubInv()
-      unsubPromoters()
-      unsubEvents()
-      unsubSales()
-      unsubLounges()
-      unsubConsumptions()
-      unsubMembers()
-      unsubCourtesies()
-      unsubCommissions()
-      unsubCommissionPayments()
-      unsubIncidents()
+      unsubs.forEach(unsub => unsub?.())
     }
-  }, [repository, role])
+  }, [repository, role, can])
 
-  // Shift-dependent cash movements
+  // Shift-dependent cash movements (only if cash.close or settings.manage)
   useEffect(() => {
-    if (!shift?.id) {
+    if (!shift?.id || (!can('cash.close') && !can('settings.manage'))) {
       setCashMovements([])
       return
     }
-    const unsubCash = repository.subscribeCashMovements(shift.id, setCashMovements)
+    const unsubCash = repository.subscribeCashMovements(
+      shift.id,
+      setCashMovements,
+      (err: Error) => {
+        console.warn('[NightclubApp] Error al consultar movimientos de caja:', err.message)
+      }
+    )
     return () => {
       unsubCash()
     }
-  }, [repository, shift?.id])
+  }, [repository, shift?.id, can])
 
   // Periodic / Initial fetch for customers & staff
   const reloadStaff = useCallback(async () => {
+    if (!can('users.manage')) return
     try {
       const list = await repository.getStaff()
       setStaff(list)
     } catch {
       // Ignored in non-permission scopes
     }
-  }, [repository])
+  }, [repository, can])
 
   const reloadCustomers = useCallback(async () => {
+    if (!can('customers.read') && !can('settings.manage')) return
     try {
       const list = await repository.getCustomers()
       setCustomers(list)
     } catch {
       // Ignored
     }
-  }, [repository])
+  }, [repository, can])
 
   useEffect(() => {
     void reloadStaff()
@@ -196,6 +261,8 @@ export function useTenantNightclubController({
   return {
     data: assembledData,
     incidentResponsibleLabel: userName,
+    syncError,
+    setSyncError,
     ...actions,
   }
 }

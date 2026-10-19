@@ -89,7 +89,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     })
   }
 
-  subscribeFloor(listener: (value: NightclubFloorSnapshot) => void): Unsubscribe {
+  subscribeFloor(listener: (value: NightclubFloorSnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
     let zones: NightclubZone[] = []
     let tables: NightclubTable[] = []
     let reservations: NightclubReservation[] = []
@@ -115,7 +115,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           zones = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubZone, 'id'>) })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubTables = onSnapshot(
@@ -124,7 +124,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           tables = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubTable, 'id'>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubRes = onSnapshot(
@@ -133,7 +133,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           reservations = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubReservation, 'id'>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -145,7 +145,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe {
+  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let openAccounts: Array<Record<string, unknown> & { id: string }> = []
     let closedAccounts: Array<Record<string, unknown> & { id: string }> = []
     let rounds: NightclubRound[] = []
@@ -175,7 +175,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           openAccounts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubClosed = onSnapshot(
@@ -184,7 +184,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           closedAccounts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubRounds = onSnapshot(
@@ -193,7 +193,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           rounds = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubRound))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubPayments = onSnapshot(
@@ -202,7 +202,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           payments = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubPayment))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -241,7 +241,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeActiveShift(listener: (value: NightclubShift | null) => void): Unsubscribe {
+  subscribeActiveShift(listener: (value: NightclubShift | null) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsubState: Unsubscribe | null = null
     let unsubShift: Unsubscribe | null = null
@@ -276,8 +276,8 @@ export class TenantNightclubRepository implements NightclubRepository {
           } else {
             listener({ id: shiftSnap.id, ...(shiftSnap.data() as Omit<NightclubShift, 'id'>) })
           }
-        })
-      })
+        }, err => onError?.(err))
+      }, err => onError?.(err))
     })
 
     return () => {
@@ -287,7 +287,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void): Unsubscribe {
+  subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
 
@@ -304,7 +304,7 @@ export class TenantNightclubRepository implements NightclubRepository {
             listener({ products })
           }
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -314,7 +314,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeInventory(listener: (value: NightclubInventorySnapshot) => void): Unsubscribe {
+  subscribeInventory(listener: (value: NightclubInventorySnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
     let inventory: NightclubInventoryItem[] = []
     let recentMovements: NightclubInventoryMovement[] = []
     let active = true
@@ -337,7 +337,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           inventory = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryItem, 'id'>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubMov = onSnapshot(
@@ -360,7 +360,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           })
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -371,7 +371,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void): Unsubscribe {
+  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void, onError?: (err: Error) => void): Unsubscribe {
     if (!shiftId) {
       listener([])
       return () => {}
@@ -401,7 +401,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           })
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -649,7 +649,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribePromoters(listener: (value: NightclubPromoter[]) => void): Unsubscribe {
+  subscribePromoters(listener: (value: NightclubPromoter[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -662,7 +662,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubPromoter, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -671,7 +671,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribePromoterEvents(listener: (value: NightclubPromoterEvent[]) => void): Unsubscribe {
+  subscribePromoterEvents(listener: (value: NightclubPromoterEvent[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -684,7 +684,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubPromoterEvent, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -693,7 +693,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribePromoterTicketSales(listener: (value: NightclubTicketSale[]) => void): Unsubscribe {
+  subscribePromoterTicketSales(listener: (value: NightclubTicketSale[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -706,7 +706,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubTicketSale, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -715,7 +715,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribePromoterLoungeSales(listener: (value: NightclubLoungeSale[]) => void): Unsubscribe {
+  subscribePromoterLoungeSales(listener: (value: NightclubLoungeSale[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -728,7 +728,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubLoungeSale, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -737,7 +737,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribePromoterConsumptions(listener: (value: NightclubPromoterConsumption[]) => void): Unsubscribe {
+  subscribePromoterConsumptions(listener: (value: NightclubPromoterConsumption[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -750,7 +750,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubPromoterConsumption, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -759,7 +759,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeMembers(listener: (value: NightclubMember[]) => void): Unsubscribe {
+  subscribeMembers(listener: (value: NightclubMember[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -772,7 +772,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubMember, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -781,7 +781,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCourtesies(listener: (value: NightclubCourtesy[]) => void): Unsubscribe {
+  subscribeCourtesies(listener: (value: NightclubCourtesy[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -794,7 +794,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCourtesy, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -803,7 +803,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCommissions(listener: (value: NightclubCommission[]) => void): Unsubscribe {
+  subscribeCommissions(listener: (value: NightclubCommission[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -816,7 +816,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCommission, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -825,7 +825,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCommissionPayments(listener: (value: NightclubCommissionPayment[]) => void): Unsubscribe {
+  subscribeCommissionPayments(listener: (value: NightclubCommissionPayment[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -838,7 +838,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCommissionPayment, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -847,7 +847,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCustomerIncidents(listener: (value: NightclubCustomerIncident[]) => void): Unsubscribe {
+  subscribeCustomerIncidents(listener: (value: NightclubCustomerIncident[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -860,7 +860,7 @@ export class TenantNightclubRepository implements NightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCustomerIncident, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
