@@ -848,11 +848,41 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubInventory/{inventoryId} {
-      allow read: if tPermission(tenantId,'inventory.read','inventory');
+      allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubInventoryMovements/{movementId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'inventory.read','inventory') || tPermission(tenantId,'settings.manage','settings'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubLocations/{locationId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubCashboxes/{cashboxId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'inventory.read','inventory') || tPermission(tenantId,'cash.close','cash'));
+      allow write: if false;
+    }
+    // An operator can read only their own server-written context. This document
+    // is the source of truth for product cashbox, location and active shift.
+    match /tenants/{tenantId}/nightclubOperatorContexts/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid && tBranch(tenantId, resource.data.branchId);
+      allow list, write: if false;
+    }
+    match /tenants/{tenantId}/nightclubInventoryBalances/{balanceId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubInventoryLots/{lotId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubOpenBottles/{bottleId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/nightclubTransfers/{transferId} {
+      allow read: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubCustomers/{customerId} {

@@ -1,6 +1,7 @@
 import type { DemoDatasetMode } from '../types'
 import { nightclubProductAvailability } from '../../../modules/nightclub/domain/nightclubAccounts.ts'
 import type { NightclubAccount, NightclubDataset, NightclubProduct, NightclubTable, NightclubZone } from '../../../modules/nightclub/domain/nightclubAccounts'
+import { prepareLegacyNightclubLocations } from '../../../modules/nightclub/domain/nightclubLocations.ts'
 
 const zones: NightclubZone[] = ['General', 'VIP', 'Lounge', 'Barra', 'Terraza'].map((name, index) => ({ id: `zone-${name.toLowerCase()}`, name, sortOrder: index }))
 const tables: NightclubTable[] = zones.flatMap((zone, zoneIndex) => [1, 2].map((number, index) => ({ id: `night-table-${zone.name.toLowerCase()}-${number}`, name: zone.name === 'VIP' ? `VIP ${number}` : zone.name === 'Barra' ? `Barra ${number}` : `Mesa ${zoneIndex * 2 + number}`, zoneId: zone.id, capacity: zone.name === 'VIP' ? 8 : zone.name === 'Barra' ? 2 : 4 + index * 2, status: 'available' as const })))
@@ -32,7 +33,7 @@ const branding = {
 }
 
 export function createEmptyNightclubDataset(): NightclubDataset {
-  return { zones: structuredClone(zones), tables: structuredClone(tables), products: [], accounts: [], shift: null, customers: [], promoters: [], promoterEvents: [], promoterTicketSales: [], promoterLoungeSales: [], promoterConsumptions: [], reservations: [], inventory: [], inventoryMovements: [], cashMovements: [], audit: [], staff: [], branding: structuredClone(branding) }
+  return prepareLegacyNightclubLocations({ zones: structuredClone(zones), tables: structuredClone(tables), products: [], accounts: [], shift: null, customers: [], promoters: [], promoterEvents: [], promoterTicketSales: [], promoterLoungeSales: [], promoterConsumptions: [], reservations: [], inventory: [], inventoryMovements: [], cashMovements: [], audit: [], staff: [], branding: structuredClone(branding) }, 'main', '2026-10-09T00:00:00.000Z')
 }
 
 /** A genuinely new club for Studio onboarding, with no preset floor plan. */
@@ -70,7 +71,7 @@ export function createFullNightclubDataset(): NightclubDataset {
       return { id: paymentId, operationId: batch.operationId, roundId: batch.id, method: 'qr' as const, amount, cashAmount: 0, qrAmount: amount, cardAmount: 0, received: 0, change: 0, paidAt: batch.createdAt, paidBy: account.openedBy, status: 'confirmed' as const }
     })
   }
-  return {
+  return prepareLegacyNightclubLocations({
     zones: structuredClone(zones), tables: fullTables, products: products.map(product => ({ ...structuredClone(product), stockUnits: nightclubProductAvailability(product, fullInventory) })), accounts: [accountOne, accountTwo, previousAccount],
     shift: { id: 'night-shift-01', status: 'open', openedAt: '2026-09-25T19:30:00Z', openingFloat: 1000, openedBy: 'Caja Nocturna' },
     shiftHistory: [{ id: 'night-shift-previous', status: 'closed', openedAt: '2026-09-24T20:00:00-04:00', closedAt: '2026-09-25T05:00:00-04:00', openingFloat: 600, openedBy: 'Caja Nocturna', closedBy: 'Caja Nocturna', expectedCash: 600, countedCash: 600, difference: 0 }],
@@ -81,7 +82,7 @@ export function createFullNightclubDataset(): NightclubDataset {
     inventory: fullInventory, inventoryMovements, cashMovements: [], audit: [],
     staff: [{ id: 'night-staff-1', name: 'Valeria', role: 'waiter', active: true }, { id: 'night-staff-2', name: 'Marco', role: 'waiter', active: true }, { id: 'night-staff-3', name: 'Caja Nocturna', role: 'cashier', active: true }],
     branding: structuredClone(branding),
-  }
+  }, 'main', '2026-09-25T19:30:00.000Z')
 }
 
 export function createNightclubDataset(mode: DemoDatasetMode = 'full'): NightclubDataset {
