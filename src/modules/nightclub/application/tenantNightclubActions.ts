@@ -234,9 +234,15 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       return true
     },
 
-    onRefundRound: async (accountId: string, roundId: string, reason: string): Promise<boolean> => {
+    onRefundRound: async (
+      accountId: string,
+      roundId: string,
+      reason: string,
+      returnToStock?: boolean,
+      items?: Array<{ itemId: string; quantity: number; returnToStock: boolean }>
+    ): Promise<boolean> => {
       const operationId = crypto.randomUUID()
-      await repository.refundRound({ operationId, accountId, roundId, reason })
+      await repository.refundRound({ operationId, accountId, roundId, reason, returnToStock, items })
       return true
     },
 

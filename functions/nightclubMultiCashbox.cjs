@@ -1,4 +1,4 @@
-﻿const { HttpsError } = require('firebase-functions/v2/https')
+const { HttpsError } = require('firebase-functions/v2/https')
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9:_-]{1,160}$/.test(value)
 const canonicalUnit = unit => unit === 'l' ? 'ml' : unit === 'kg' ? 'g' : unit
 const unitFactor = unit => unit === 'l' || unit === 'kg' ? 1000 : 1
@@ -11,6 +11,7 @@ const amount = value => { const parsed = Number(value); if (!Number.isFinite(par
 const canUseCashbox = (actor, cashboxId) => {
   const roleId = actor.membership?.roleId
   if (roleId === 'owner' || roleId === 'admin') return true
+  if (actor.membership?.cashboxIds === undefined) return true
   return Array.isArray(actor.membership?.cashboxIds) && actor.membership.cashboxIds.includes(cashboxId)
 }
 const requireCashboxAccess = (actor, cashboxId) => {
@@ -189,6 +190,7 @@ async function applyNightclubMultiCashboxCommand({ tx, root, actor, branchId, op
     })
     const balanceSnaps = await Promise.all(dispatchedLines.flatMap(line => [tx.get(root.collection('nightclubInventoryBalances').doc(`${transfer.sourceLocationId}:${line.inventoryId}`)), tx.get(root.collection('nightclubInventoryBalances').doc(`${transfer.destinationLocationId}:${line.inventoryId}`))]))
     const lotSnaps = await Promise.all(dispatchedLines.map(line => Promise.all(line.lotAllocations.map(allocation => tx.get(root.collection('nightclubInventoryLots').doc(allocation.lotId))))))
+    const isImmediate = transfer.mode === 'immediate'
     dispatchedLines.forEach((line, lineIndex) => {
       const sourceRef = root.collection('nightclubInventoryBalances').doc(`${transfer.sourceLocationId}:${line.inventoryId}`), destinationRef = root.collection('nightclubInventoryBalances').doc(`${transfer.destinationLocationId}:${line.inventoryId}`)
       const sourceSnap = balanceSnaps[lineIndex * 2], destinationSnap = balanceSnaps[lineIndex * 2 + 1], lineLotSnaps = lotSnaps[lineIndex]
@@ -196,10 +198,48 @@ async function applyNightclubMultiCashboxCommand({ tx, root, actor, branchId, op
       lineLotSnaps.forEach((lotSnap, index) => { const allocation = line.lotAllocations[index]; if (!lotSnap.exists || lotSnap.data().locationId !== transfer.sourceLocationId || lotSnap.data().status !== 'available' || Number(lotSnap.data().remainingQuantity) < allocation.quantity) throw new HttpsError('aborted', 'Un lote FIFO ya no tiene saldo suficiente.') })
       tx.update(sourceRef, { availableQuantity: amount(Number(sourceSnap.data().availableQuantity) - line.quantity), updatedAt: now })
       const destination = destinationSnap.exists ? destinationSnap.data() : { availableQuantity: 0, inTransitQuantity: 0, reservedQuantity: 0, minimumQuantity: 0, unit: line.unit }
-      tx.set(destinationRef, { id: destinationRef.id, tenantId: actor.tenantId, branchId, locationId: transfer.destinationLocationId, inventoryId: line.inventoryId, ...destination, inTransitQuantity: amount(Number(destination.inTransitQuantity || 0) + line.quantity), updatedAt: now }, { merge: true })
-      line.lotAllocations.forEach((allocation, allocationIndex) => { const lot = lineLotSnaps[allocationIndex].data(); const remainingQuantity = amount(Number(lot.remainingQuantity) - allocation.quantity); tx.update(lineLotSnaps[allocationIndex].ref, { remainingQuantity, status: remainingQuantity === 0 ? 'consumed' : 'available', updatedAt: now }); const destinationLotId = `transferlot_${operationId}_${lineIndex}_${allocationIndex}_${line.inventoryId}`; tx.create(root.collection('nightclubInventoryLots').doc(destinationLotId), { id: destinationLotId, tenantId: actor.tenantId, branchId, inventoryId: line.inventoryId, locationId: transfer.destinationLocationId, receivedQuantity: allocation.quantity, remainingQuantity: allocation.quantity, unitCost: allocation.unitCost, receivedAt: now, sourceType: 'transfer', sourceReferenceId: transferId, status: 'in_transit' }) })
+      tx.set(destinationRef, {
+        id: destinationRef.id,
+        tenantId: actor.tenantId,
+        branchId,
+        locationId: transfer.destinationLocationId,
+        inventoryId: line.inventoryId,
+        ...destination,
+        availableQuantity: isImmediate ? amount(Number(destination.availableQuantity || 0) + line.quantity) : Number(destination.availableQuantity || 0),
+        inTransitQuantity: isImmediate ? Number(destination.inTransitQuantity || 0) : amount(Number(destination.inTransitQuantity || 0) + line.quantity),
+        updatedAt: now,
+      }, { merge: true })
+      line.lotAllocations.forEach((allocation, allocationIndex) => {
+        const lot = lineLotSnaps[allocationIndex].data()
+        const remainingQuantity = amount(Number(lot.remainingQuantity) - allocation.quantity)
+        tx.update(lineLotSnaps[allocationIndex].ref, { remainingQuantity, status: remainingQuantity === 0 ? 'consumed' : 'available', updatedAt: now })
+        const destinationLotId = `transferlot_${operationId}_${lineIndex}_${allocationIndex}_${line.inventoryId}`
+        tx.create(root.collection('nightclubInventoryLots').doc(destinationLotId), {
+          id: destinationLotId,
+          tenantId: actor.tenantId,
+          branchId,
+          inventoryId: line.inventoryId,
+          locationId: transfer.destinationLocationId,
+          receivedQuantity: allocation.quantity,
+          remainingQuantity: allocation.quantity,
+          unitCost: allocation.unitCost,
+          receivedAt: now,
+          sourceType: 'transfer',
+          sourceReferenceId: transferId,
+          status: isImmediate ? 'available' : 'in_transit',
+        })
+      })
     })
-    tx.update(transferRef, { lines: dispatchedLines, status: 'in_transit', preparedBy: actor.uid, handedOverBy: actor.uid, dispatchedAt: now }); return { transferId, status: 'in_transit' }
+    const finalStatus = isImmediate ? 'received' : 'in_transit'
+    tx.update(transferRef, {
+      lines: dispatchedLines,
+      status: finalStatus,
+      preparedBy: actor.uid,
+      handedOverBy: actor.uid,
+      dispatchedAt: now,
+      ...(isImmediate ? { receivedBy: actor.uid, receivedAt: now } : {}),
+    })
+    return { transferId, status: finalStatus }
   }
   if (type === 'receiveTransfer') {
     const transferId = payload.transferId; if (!validId(transferId)) throw new HttpsError('invalid-argument', 'Transferencia invÃ¡lida.')
@@ -213,16 +253,28 @@ async function applyNightclubMultiCashboxCommand({ tx, root, actor, branchId, op
     destinationSnaps.forEach((snap, index) => { if (!snap.exists || Number(snap.data().inTransitQuantity) < transfer.lines[index].quantity) throw new HttpsError('aborted', 'El trÃ¡nsito no coincide con la transferencia.') })
     destinationSnaps.forEach((snap, index) => { const line = transfer.lines[index]; tx.update(destinationRefs[index], { inTransitQuantity: amount(Number(snap.data().inTransitQuantity) - line.quantity), availableQuantity: amount(Number(snap.data().availableQuantity || 0) + line.quantity), updatedAt: now }) })
     transitLots.docs.forEach(lot => tx.update(lot.ref, { status: 'available', receivedAt: now, updatedAt: now })); tx.update(transferRef, { status: 'received', receivedBy: actor.uid, receivedAt: now }); return { transferId, status: 'received' }
-  }  if (type === 'requestTransfer') {
-    const draft = payload.transfer || {}, lines = transferRequestLines(draft.lines)
-    if (draft.mode !== 'pending_receipt') throw new HttpsError('invalid-argument', 'Las reposiciones de caja requieren recepción pendiente.')
-    const context = await tx.get(root.collection('nightclubOperatorContexts').doc(actor.uid))
-    if (!context.exists || context.data().branchId !== branchId || !validId(context.data().locationId) || context.data().locationId === 'warehouse-general' || !canUseCashbox(actor, context.data().cashboxId)) throw new HttpsError('failed-precondition', 'Selecciona una caja activa antes de solicitar reposición.')
-    const sourceLocationId = 'warehouse-general', destinationLocationId = context.data().locationId
+  }
+  if (type === 'requestTransfer') {
+    const draft = payload.transfer || {}
+    if (draft.mode !== 'pending_receipt' && draft.mode !== 'immediate') throw new HttpsError('invalid-argument', 'Las reposiciones de caja requieren recepción pendiente.')
+    let lines, sourceLocationId, destinationLocationId
+    if (draft.mode === 'immediate') {
+      lines = transferLines(draft.lines)
+      sourceLocationId = draft.sourceLocationId || 'warehouse-general'
+      destinationLocationId = draft.destinationLocationId
+    } else {
+      lines = transferRequestLines(draft.lines)
+      const context = await tx.get(root.collection('nightclubOperatorContexts').doc(actor.uid))
+      if (!context.exists || context.data().branchId !== branchId || !validId(context.data().locationId) || context.data().locationId === 'warehouse-general' || !canUseCashbox(actor, context.data().cashboxId)) throw new HttpsError('failed-precondition', 'Selecciona una caja activa antes de solicitar reposición.')
+      sourceLocationId = 'warehouse-general'
+      destinationLocationId = context.data().locationId
+    }
     const [source, destination, ...inventory] = await Promise.all([tx.get(root.collection('nightclubLocations').doc(sourceLocationId)), tx.get(root.collection('nightclubLocations').doc(destinationLocationId)), ...lines.map(line => tx.get(root.collection('nightclubInventory').doc(line.inventoryId)))])
     if (!source.exists || !destination.exists || source.data().branchId !== branchId || destination.data().branchId !== branchId || source.data().type !== 'warehouse' || destination.data().type !== 'cashbox') throw new HttpsError('not-found', 'Ubicación no disponible.')
     lines.forEach((line, index) => { if (!inventory[index].exists || inventory[index].data().branchId !== branchId || canonicalUnit(inventory[index].data().unit || 'unit') !== line.unit) throw new HttpsError('invalid-argument', 'Producto o unidad no disponibles.') })
-    const transferId = `transfer_${operationId}`; tx.create(root.collection('nightclubTransfers').doc(transferId), { id: transferId, tenantId: actor.tenantId, branchId, sourceLocationId, destinationLocationId, mode: 'pending_receipt', lines, status: 'requested', requestedBy: actor.uid, createdAt: now }); return { transferId, destinationLocationId }
+    const transferId = `transfer_${operationId}`
+    tx.create(root.collection('nightclubTransfers').doc(transferId), { id: transferId, tenantId: actor.tenantId, branchId, sourceLocationId, destinationLocationId, mode: draft.mode, lines, status: 'requested', requestedBy: actor.uid, createdAt: now })
+    return { transferId, destinationLocationId }
   }
   throw new HttpsError('invalid-argument', 'Comando de caja no reconocido.')
 }

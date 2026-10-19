@@ -219,9 +219,9 @@ async function manageMember(db, auth, request) {
   const actor = await tenantActor(db, request, 'users.manage'), input = request.data;
   const roleId = input.roleId || input.role;
   if (input.action === 'createMember') {
-    const nightclubPermissions = actor.tenant.businessType === 'nightclub_lounge' ? normalizeNightclubPermissions(input.nightclubPermissions) : undefined;
-    if (actor.tenant.businessType === 'nightclub_lounge' && roleId === 'admin' && !nightclubPermissions.includes('special.manageUsers')) throw new HttpsError('invalid-argument', 'Administración debe conservar la gestión de usuarios.');
-    if (actor.tenant.businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(actor.membership.roleId) && (roleId === 'admin' || nightclubPermissions.includes('special.manageUsers'))) throw new HttpsError('permission-denied', 'No puedes crear otro administrador.');
+    const nightclubPermissions = (actor.tenant.businessType === 'nightclub_lounge' && input.nightclubPermissions !== undefined) ? normalizeNightclubPermissions(input.nightclubPermissions) : undefined;
+    if (actor.tenant.businessType === 'nightclub_lounge' && roleId === 'admin' && nightclubPermissions && !nightclubPermissions.includes('special.manageUsers')) throw new HttpsError('invalid-argument', 'Administración debe conservar la gestión de usuarios.');
+    if (actor.tenant.businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(actor.membership.roleId) && (roleId === 'admin' || nightclubPermissions?.includes('special.manageUsers'))) throw new HttpsError('permission-denied', 'No puedes crear otro administrador.');
     if (!getTemplate(actor.tenant.businessType).roles.some(role => role.id === roleId && role.id !== 'owner')) throw new HttpsError('invalid-argument', 'Rol no válido.');
     const email = text(input.email, 160).toLowerCase(), displayName = text(input.displayName, 80);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof input.password !== 'string' || input.password.length < 8 || input.password.length > 72) throw new HttpsError('invalid-argument', 'Correo o contraseña inválidos.');
@@ -239,7 +239,7 @@ async function manageMember(db, auth, request) {
       if (!hasPermission(tenant.data(), fresh.data(), 'users.manage')) throw new HttpsError('permission-denied', 'Permiso revocado.');
       if (current.exists) return;
       const now = new Date().toISOString();
-      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions ? { nightclubPermissions } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
+      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions !== undefined ? { nightclubPermissions } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
       tx.create(ref, member);
       tx.create(db.doc(`users/${uid}`), { uid, email, displayName, defaultTenantId: actor.tenantId, managedByTenantId: actor.tenantId, createdAt: now, updatedAt: now });
       tx.create(db.doc(`users/${uid}/tenantLinks/${actor.tenantId}`), { tenantId: actor.tenantId, name: actor.tenant.name, businessType: actor.tenant.businessType });

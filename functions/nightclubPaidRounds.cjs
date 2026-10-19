@@ -25,12 +25,22 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     if (!Array.isArray(drafts) || !drafts.length || drafts.length > 50 || drafts.some(item => !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 999)) throw new HttpsError('invalid-argument', 'Pedido invÃ¡lido.')
     const productIds = [...new Set(drafts.map(item => id(item.productId)))]
     const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
+    for (let i = 0; i < productSnaps.length; i++) {
+      const snap = productSnaps[i]
+      if (!snap.exists || snap.data().branchId !== branchId) {
+        throw new HttpsError('not-found', `Producto ${productIds[i]} no encontrado.`)
+      }
+      const pData = snap.data()
+      if (pData.active === false || pData.isActive === false) {
+        throw new HttpsError('failed-precondition', `El producto ${pData.name || productIds[i]} no está activo.`)
+      }
+    }
     const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
     const requirements = new Map()
     let total = 0
     const items = drafts.map((draft, index) => {
       const product = products.get(draft.productId)
-      if (!product || product.branchId !== branchId || product.active === false || !Number.isFinite(product.price) || product.price <= 0) fail('Producto sin precio positivo; registra una cortesÃ­a aparte.')
+      if (!Number.isFinite(product.price) || product.price <= 0) fail('Producto sin precio positivo; registra una cortesía aparte.')
       // Bottle presentations resolve their physical inventory in the location
       // consumer. Keep the inventory id here as well so they pass the same
       // catalogue validation as recipe-backed products.

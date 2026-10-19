@@ -27,7 +27,7 @@ function ProductArtwork({ product }: { product: NightclubProduct }) {
   </div>
 }
 
-export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer, pendingOnly = false }: {
+export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer, pendingOnly = false, mode: _mode = 'demo' }: {
   data: NightclubDataset
   currentWaiterId?: string
   draft: NightclubRoundDraft[]
@@ -36,10 +36,11 @@ export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, 
   onDraftChange: (draft: NightclubRoundDraft[]) => void
   onOpenAccount: (target: NightclubServiceTarget) => string | Promise<string>
   onSendRound: (accountId: string, draft: NightclubRoundDraft[], operationId: string, customerId: string | null, serviceStaffId?: string) => boolean | Promise<boolean>
-  onSettleRound: (accountId: string, draft: NightclubRoundDraft[], payment: import('../domain/nightclubAccounts').NightclubPaymentDraft, operationId: string, sellerStaffId?: string) => boolean
+  onSettleRound: (accountId: string, draft: NightclubRoundDraft[], payment: import('../domain/nightclubAccounts').NightclubPaymentDraft, operationId: string, sellerStaffId?: string) => boolean | void | Promise<boolean | void>
   onCourtesy: (accountId: string) => void
-  onSaveCustomer: (customer: NightclubCustomer) => boolean
+  onSaveCustomer: (customer: NightclubCustomer) => boolean | void | Promise<boolean | void>
   pendingOnly?: boolean
+  mode?: 'tenant' | 'demo' | 'studio'
 }) {
   const [category, setCategory] = useState('Todos')
   const [search, setSearch] = useState('')
@@ -85,7 +86,27 @@ export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, 
     setCustomerName('')
   }
   const cancelDraft = () => { onDraftChange([]); selectAccount(''); setCustomerId(''); setCustomerName('') }
-  const settleRound = () => { if (!selected || !draft.length || lock.current) return; const received = Number(quickReceived || draftTotal); if (quickMethod === 'cash' && (!Number.isFinite(received) || received < draftTotal)) return; lock.current = true; setProcessing(true); const operationId = operation.current ||= crypto.randomUUID(); const success = onSettleRound(selected.id, draft, { method: quickMethod, ...(quickMethod === 'cash' ? { received } : {}) }, operationId, currentWaiterId); if (success) { onDraftChange([]); operation.current = null; setQuickPay(false); setQuickReceived(''); if (destinationMode === 'bar') selectAccount('') } lock.current = false; setProcessing(false) }
+  const settleRound = async () => {
+    if (!selected || !draft.length || lock.current) return
+    const received = Number(quickReceived || draftTotal)
+    if (quickMethod === 'cash' && (!Number.isFinite(received) || received < draftTotal)) return
+    lock.current = true
+    setProcessing(true)
+    const operationId = operation.current ||= crypto.randomUUID()
+    try {
+      const success = await onSettleRound(selected.id, draft, { method: quickMethod, ...(quickMethod === 'cash' ? { received } : {}) }, operationId, currentWaiterId)
+      if (success !== false) {
+        onDraftChange([])
+        operation.current = null
+        setQuickPay(false)
+        setQuickReceived('')
+        if (destinationMode === 'bar') selectAccount('')
+      }
+    } finally {
+      lock.current = false
+      setProcessing(false)
+    }
+  }
   const sendRound = async () => {
     if (!selected || selected.status !== 'open' || !draft.length || lock.current) return
     lock.current = true
@@ -117,10 +138,11 @@ export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, 
       setCustomerName('')
     } finally { lock.current = false; setProcessing(false) }
   }
-  const registerCustomer = () => {
+  const registerCustomer = async () => {
     if (!newCustomerName.trim()) return
     const id = crypto.randomUUID()
-    if (onSaveCustomer({ id, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), active: true, visits: 0, totalSpent: 0 })) {
+    const ok = await onSaveCustomer({ id, name: newCustomerName.trim(), phone: newCustomerPhone.trim(), active: true, visits: 0, totalSpent: 0 })
+    if (ok !== false) {
       setCustomerId(id); setCustomerSearch(''); setCustomerName(''); setNewCustomerName(''); setNewCustomerPhone(''); setCreatingCustomer(false); operation.current = null
     }
   }
