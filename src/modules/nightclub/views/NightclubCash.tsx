@@ -50,10 +50,6 @@ export function NightclubCash({
   const selectedCashbox = data.cashboxes?.find(item => item.id === selectedCashboxId)
   const selectedCashboxShift = data.cashboxShifts?.find(item => item.cashboxId === selectedCashboxId && item.status === 'open')
 
-  if (requireCashboxConfiguration && !isMultiCashbox) {
-    return <div className="space-y-5"><header><h1 className="text-2xl font-black">Caja y turnos</h1><p className="text-sm text-slate-400">Configura una caja y una ubicación antes de abrir turnos.</p></header><section role="status" className="rounded-2xl border border-amber-300/25 bg-amber-300/10 p-5 text-sm text-amber-100">Debes configurar las cajas y el almacén en Configuración antes de comenzar a operar.</section></div>
-  }
-
   const cashAccounts = useMemo(() => {
     if (isMultiCashbox) {
       if (!selectedCashboxId) return []
@@ -74,6 +70,10 @@ export function NightclubCash({
     }
     return data
   }, [data, isMultiCashbox, selectedCashboxId, cashAccounts])
+
+  if (requireCashboxConfiguration && !isMultiCashbox) {
+    return <div className="space-y-5"><header><h1 className="text-2xl font-black">Caja y turnos</h1><p className="text-sm text-slate-400">Configura una caja y una ubicación antes de abrir turnos.</p></header><section role="status" className="rounded-2xl border border-amber-300/25 bg-amber-300/10 p-5 text-sm text-amber-100">Debes configurar las cajas y el almacén en Configuración antes de comenzar a operar.</section></div>
+  }
 
   const cash = nightclubCashSummary(activeDataset)
   const profit = nightclubProfitSummary(activeDataset)

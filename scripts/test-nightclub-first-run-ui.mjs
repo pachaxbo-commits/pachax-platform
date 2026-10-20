@@ -33,6 +33,7 @@ try {
   socket.onmessage = event => {
     const value = JSON.parse(event.data)
     if (value.method === 'Runtime.exceptionThrown') browserErrors.push(value.params.exceptionDetails.text)
+    if (value.method === 'Runtime.consoleAPICalled' && value.params.type === 'error') browserErrors.push(value.params.args.map(arg => arg.value || arg.description || '').join(' '))
     if (!pending.has(value.id)) return
     const { resolve, reject } = pending.get(value.id)
     pending.delete(value.id)
@@ -69,8 +70,34 @@ try {
   assert.equal(calls[1].name, 'Caja 2')
   assert(calls.every(call => call.operationId.length > 20), 'cada acción debe enviar operationId')
   assert.equal(await evaluate("document.body.innerText.includes('Caja 2')"), true, 'Caja 2 debe aparecer tras respuesta y actualización realtime simulada')
+
+  await send('Page.enable')
+  await send('Page.navigate', { url: 'http://127.0.0.1:5196/tests/fixtures/nightclub-cash-hooks.html' })
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await evaluate("document.body.innerText.includes('Debes configurar las cajas y el almacén')")) break
+    await sleep(100)
+  }
+  const hasText = text => evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`)
+  const hasButton = text => evaluate(`[...document.querySelectorAll('button')].some(button => button.innerText.includes(${JSON.stringify(text)}))`)
+  assert.equal(await hasText('Debes configurar las cajas y el almacén'), true, 'primer render sin cajas debe mostrar configuración pendiente')
+  assert.equal(await hasButton('Iniciar turno'), false, 'sin cajas no debe ofrecer turno legacy')
+  assert.equal(await hasText('Arqueo y cierre'), false, 'sin cajas no debe mostrar arqueo')
+  await evaluate("document.querySelector('#configure').click()")
+  await sleep(100)
+  assert.equal(await hasButton('Caja principal'), true, 'la transición vacía → configurada debe mostrar el selector')
+  assert.equal(await hasButton('Abrir turno de Caja principal'), false, 'una caja no confirmada no debe iniciar operaciones')
+  await evaluate("document.querySelector('#confirm').click()")
+  await sleep(100)
+  assert.equal(await hasButton('Abrir turno de Caja principal'), true, 'la caja confirmada queda seleccionada para abrir explícitamente su turno')
+  await evaluate("document.querySelector('#empty').click()")
+  await sleep(100)
+  assert.equal(await hasText('Debes configurar las cajas y el almacén'), true, 'la transición configurada → vacía debe restaurar el aviso')
+  assert.equal(await hasButton('Iniciar turno'), false, 'la reversión no debe habilitar un turno accidental')
+  await evaluate("document.querySelector('#legacy').click()")
+  await sleep(100)
+  assert.equal(await hasButton('Iniciar turno'), true, 'tenant legacy conserva el inicio de turno')
   assert.equal(browserErrors.length, 0, browserErrors.join('\n'))
-  console.log('PASS: Configuración muestra primer uso, inicializa y crea Caja 2 desde el formulario con operationId.')
+  console.log('PASS: Configuración crea Caja 2 con operationId; NightclubCash conserva hooks y comportamiento al pasar vacío → configurado → vacío y tenant legacy.')
 } finally {
   socket?.close()
   browser.kill()
