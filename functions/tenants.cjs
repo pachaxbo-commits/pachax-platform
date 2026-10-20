@@ -1,5 +1,6 @@
 const { createHash } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
+const { FieldValue } = require('firebase-admin/firestore');
 const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id, tenantActor, audit, hasPermission } = require('./authorization.cjs');
 const { normalizeNightclubPermissions } = require('./nightclubUsers.cjs');
@@ -225,10 +226,36 @@ async function updateSettings(db, request) {
   });
   return { changed: true };
 }
+const cashboxIdsInput = value => {
+  if (!Array.isArray(value) || value.length > 50) throw new HttpsError('invalid-argument', 'La asignación de cajas no es válida.');
+  const seen = new Set();
+  for (const cashboxId of value) {
+    if (typeof cashboxId !== 'string' || !/^[A-Za-z0-9:_-]{1,160}$/.test(cashboxId) || seen.has(cashboxId)) {
+      throw new HttpsError('invalid-argument', 'La asignación contiene una caja inválida o duplicada.');
+    }
+    seen.add(cashboxId);
+  }
+  return [...seen];
+};
+async function validateCashboxIds(root, tenantId, cashboxIds, branchIds, tx) {
+  const refs = cashboxIds.map(cashboxId => root.collection('nightclubCashboxes').doc(cashboxId));
+  const snapshots = await Promise.all(refs.map(ref => tx ? tx.get(ref) : ref.get()));
+  for (let index = 0; index < snapshots.length; index += 1) {
+    const cashbox = snapshots[index].data();
+    if (!snapshots[index].exists || cashbox.tenantId !== tenantId || cashbox.active !== true || !branchIds.includes(cashbox.branchId)) {
+      throw new HttpsError('invalid-argument', 'Una o más cajas no existen, están inactivas o no pertenecen a una sucursal autorizada.');
+    }
+  }
+}
 async function manageMember(db, auth, request) {
   const actor = await tenantActor(db, request, 'users.manage'), input = request.data;
   const roleId = input.roleId || input.role;
   if (input.action === 'createMember') {
+    const hasCashboxAssignment = Object.prototype.hasOwnProperty.call(input, 'cashboxIds');
+    if (hasCashboxAssignment && actor.tenant.businessType !== 'nightclub_lounge') throw new HttpsError('failed-precondition', 'La asignación de cajas solo aplica a Nocturna.');
+    if (hasCashboxAssignment && !['owner', 'admin'].includes(actor.membership.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
+    if (hasCashboxAssignment && input.cashboxIds === null) throw new HttpsError('invalid-argument', 'Para quitar la restricción omite cashboxIds al crear el usuario.');
+    const assignedCashboxIds = hasCashboxAssignment ? cashboxIdsInput(input.cashboxIds) : undefined;
     const nightclubPermissions = (actor.tenant.businessType === 'nightclub_lounge' && input.nightclubPermissions !== undefined) ? normalizeNightclubPermissions(input.nightclubPermissions) : undefined;
     if (actor.tenant.businessType === 'nightclub_lounge' && roleId === 'admin' && nightclubPermissions && !nightclubPermissions.includes('special.manageUsers')) throw new HttpsError('invalid-argument', 'Administración debe conservar la gestión de usuarios.');
     if (actor.tenant.businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(actor.membership.roleId) && (roleId === 'admin' || nightclubPermissions?.includes('special.manageUsers'))) throw new HttpsError('permission-denied', 'No puedes crear otro administrador.');
@@ -240,22 +267,33 @@ async function manageMember(db, auth, request) {
     if (!Array.isArray(branchIds) || !branchIds.length || !Array.isArray(routeIds) || branchIds.length > 20 || routeIds.length > 20) throw new HttpsError('invalid-argument', 'Asignación inválida.');
     for (const branch of branchIds) if (!(await actor.root.collection('branches').doc(id(branch)).get()).exists) throw new HttpsError('invalid-argument', 'Sucursal desconocida.');
     for (const route of routeIds) if (!(await actor.root.collection('distRoutes').doc(id(route)).get()).exists) throw new HttpsError('invalid-argument', 'Ruta desconocida.');
+    if (assignedCashboxIds !== undefined) await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, branchIds);
     if (roleId === 'distributor' && routeIds.length !== 1) throw new HttpsError('invalid-argument', 'Asigna una ruta al distribuidor.');
-    try { await auth.createUser({ uid, email, password: input.password, displayName }); }
+    let authUserCreated = false;
+    try { await auth.createUser({ uid, email, password: input.password, displayName }); authUserCreated = true; }
     catch (error) { if (error.code !== 'auth/uid-already-exists') throw error; }
-    await db.runTransaction(async tx => {
+    try { await db.runTransaction(async tx => {
       const ref = actor.root.collection('members').doc(uid);
       const [tenant, fresh, current] = await Promise.all([tx.get(actor.root), tx.get(actor.root.collection('members').doc(actor.uid)), tx.get(ref)]);
       if (!hasPermission(tenant.data(), fresh.data(), 'users.manage')) throw new HttpsError('permission-denied', 'Permiso revocado.');
       if (current.exists) return;
+      if (assignedCashboxIds !== undefined) {
+        if (tenant.data().businessType !== 'nightclub_lounge' || !['owner', 'admin'].includes(fresh.data()?.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
+        await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, branchIds, tx);
+      }
       const now = new Date().toISOString();
-      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions !== undefined ? { nightclubPermissions } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
+      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions !== undefined ? { nightclubPermissions } : {}), ...(assignedCashboxIds !== undefined ? { cashboxIds: assignedCashboxIds } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
       tx.create(ref, member);
       tx.create(db.doc(`users/${uid}`), { uid, email, displayName, defaultTenantId: actor.tenantId, managedByTenantId: actor.tenantId, createdAt: now, updatedAt: now });
       tx.create(db.doc(`users/${uid}/tenantLinks/${actor.tenantId}`), { tenantId: actor.tenantId, name: actor.tenant.name, businessType: actor.tenant.businessType });
       tx.update(actor.root, { userCount: (tenant.data().userCount || 0) + 1 });
       audit(db, tx, actor, 'member.created', uid, null, member);
-    });
+    }); } catch (error) {
+      // Auth is external to the Firestore transaction. Remove only a user this call created.
+      // This prevents an invalidated assignment or a transaction failure leaving an orphan.
+      if (authUserCreated) await auth.deleteUser(uid).catch(() => {});
+      throw error;
+    }
     return { uid };
   }
   const uid = id(input.uid), ref = actor.root.collection('members').doc(uid);
@@ -275,6 +313,17 @@ async function manageMember(db, auth, request) {
     if (tenant.data().businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(fresh.data().roleId) && current.data().roleId === 'admin') throw new HttpsError('permission-denied', 'No puedes modificar a Administración.');
     if (!['updateMember', 'deleteMember'].includes(input.action)) throw new HttpsError('invalid-argument', 'Acción inválida.');
     const patch = { updatedAt: new Date().toISOString() };
+    const hasCashboxAssignment = Object.prototype.hasOwnProperty.call(input, 'cashboxIds');
+    if (hasCashboxAssignment && tenant.data().businessType !== 'nightclub_lounge') throw new HttpsError('failed-precondition', 'La asignación de cajas solo aplica a Nocturna.');
+    if (hasCashboxAssignment && !['owner', 'admin'].includes(fresh.data()?.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
+    if (hasCashboxAssignment) {
+      if (input.cashboxIds === null) patch.cashboxIds = FieldValue.delete();
+      else {
+        const assignedCashboxIds = cashboxIdsInput(input.cashboxIds);
+        await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, current.data().branchIds || ['main'], tx);
+        patch.cashboxIds = assignedCashboxIds;
+      }
+    }
     if (input.action === 'deleteMember' || input.active === false) patch.status = 'disabled';
     else if (input.active === true) patch.status = 'active';
     if (roleId) {
@@ -293,7 +342,10 @@ async function manageMember(db, auth, request) {
     }
     // Auth email/disabled are global: never change them when modifying one membership.
     if (input.email && input.email !== current.data().email) throw new HttpsError('failed-precondition', 'El correo global se cambia desde el perfil del usuario.');
-    tx.update(ref, patch); audit(db, tx, actor, 'member.updated', uid, current.data(), { ...current.data(), ...patch });
+    tx.update(ref, patch);
+    const after = { ...current.data(), ...patch };
+    if (hasCashboxAssignment && input.cashboxIds === null) delete after.cashboxIds;
+    audit(db, tx, actor, 'member.updated', uid, current.data(), after);
   });
   return { changed: true, deleted: input.action === 'deleteMember' };
 }

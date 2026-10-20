@@ -339,7 +339,21 @@ test('9. mode="tenant" connects N3B features while safely deferring complex/risk
 })
 
 // TEST 10
-test('10. subscribeActiveShift retains lastClosedShiftId so closing shift keeps total sales and cash reconciliation', () => {
+test('10. Nightclub member cashbox assignments reach the tenant user form and gateway payload', () => {
+  const repositorySource = readFileSync(new URL('../src/modules/nightclub/data/tenantNightclubRepository.ts', import.meta.url), 'utf8')
+  const actionsSource = readFileSync(new URL('../src/modules/nightclub/application/tenantNightclubActions.ts', import.meta.url), 'utf8')
+  const usersSource = readFileSync(new URL('../src/modules/nightclub/views/NightclubUsers.tsx', import.meta.url), 'utf8')
+  assert.match(repositorySource, /cashboxIds: item\.cashboxIds/)
+  assert.match(actionsSource, /cashboxIds: user\.cashboxIds/)
+  assert.match(usersSource, /Cajas autorizadas/)
+  assert.match(usersSource, /Todas las cajas/)
+  assert.match(usersSource, /Solo cajas seleccionadas/)
+  assert.match(usersSource, /Ninguna caja/)
+  assert.match(usersSource, /type="checkbox"[\s\S]*?\{cashbox\.name\}/)
+})
+
+// TEST 11
+test('11. subscribeActiveShift retains lastClosedShiftId so closing shift keeps total sales and cash reconciliation', () => {
   // When active shift exists:
   const openState = { activeShiftId: 'shift_active_001', lastClosedShiftId: 'shift_prev_999' }
   assert.equal(resolveShiftIdToTrack(openState), 'shift_active_001')
@@ -392,8 +406,8 @@ test('10. subscribeActiveShift retains lastClosedShiftId so closing shift keeps 
   assert.equal(diff, 22, 'Counted 262 - Expected 240 = +22 cash diff')
 })
 
-// TEST 11
-test('11. builtin customized role preserves canonical permissions while reflecting explicit nightclubPermissions in UI visibility', () => {
+// TEST 12
+test('12. builtin customized role preserves canonical permissions while reflecting explicit nightclubPermissions in UI visibility', () => {
   // Builtin waiter with explicit nightclub permissions (no cash.view)
   const waiterPerms = new Set(['floor.view', 'floor.create', 'accounts.view', 'accounts.create', 'pos.view', 'pos.create'])
   const visible = resolveNightclubVisibleModules({

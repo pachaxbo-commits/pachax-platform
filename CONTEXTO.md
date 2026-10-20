@@ -1,5 +1,14 @@
 # Continuidad del proyecto PACHAX
 
+## Asignación de cajas Nightclub por miembro (20/10/2026, rama de revisión)
+
+- Rama `nightclub-member-cashbox-assignments`, basada en `origin/main` `a66e5adc24d1033f91dc0d13d5da87afc94a3f86`. `createMember` y `updateMember` aceptan asignaciones únicamente para Nocturna y owner/admin con `users.manage`; el servidor valida IDs únicos, cajas activas, tenant y sucursales antes de crear Auth y dentro de la transacción. `cashboxIds` omitido conserva acceso legacy, `[]` niega todas las cajas y `null` elimina explícitamente la restricción durante una actualización. Las cajas actuales se vuelven a autorizar contra la membresía fresca en cada operación, incluso si existe un operatorContext antiguo.
+- Administración → Usuarios conserva `cashboxIds` al leer y editar, muestra “Todas las cajas”, cajas seleccionadas por nombre o “Ninguna caja”, y envía cambios al `tenantGateway`. No se cambiaron Rules ni se desplegó Firebase.
+- Emulador Nightclub: cubre creación, actualización, quitar restricción, caja ausente/inactiva/otra sucursal/otro tenant, cashier y supervisor parcial no autorizados, cashier inactivo, rechazo de caja 2 desde contexto obsoleto sin cobro/movimiento, apertura de caja 2 denegada y pago legítimo en caja 1. La prueba de lectura directa confirma que Rules aún permiten a un cashier restringido consultar `nightclubAccounts` y `nightclubPayments` de caja 2 dentro de su sucursal por rol+sucursal; pendiente decidir aislamiento financiero de lectura.
+- Verificaciones: onboarding first-run 15/15; Platform Security 40/40; aislamiento tenant 72/72; Nightclub backend (suite orders 15, con ciclo multi-caja previo aprobado); Nightclub 92/92; Platform 192/192; Restaurant 59/59; Restaurant backend 57/57; Distribution 55/55; Cash 4/4; Reports PASS; typecheck y build PASS; `git diff --check` PASS. ESLint focal mantiene las mismas 147 incidencias previas, sin errores nuevos. No se desplegaron Functions ni Rules.
+- Hallazgo abierto: el test de lectura directa confirma que un cashier limitado a Caja 1 puede leer `nightclubAccounts` y `nightclubPayments` de Caja 2 si están en la misma sucursal. Las Rules autorizan esas lecturas por rol+sucursal y no consultan `cashboxIds`; no se alteraron Rules.
+- Cierre de tarea: publicar exclusivamente esta rama y verificar Preview Vercel. Sin merge a `main` ni deploy de producción.
+
 ## Estados e historial de lounges de Relacionadores (08/10/2026, trabajo local sin commit)
 
 - Las reservas pendientes tienen una acción directa “Marcar como pagado”. El comando de dominio verifica rol, estado y conflictos de mesa/fecha; guarda fecha/hora y actor del controlador en la misma lista de cambios y auditoría. Repetir la acción sobre un registro pagado no añade entradas. No se registra cobro ni se modifica Caja, POS, Zonas o mesas.
