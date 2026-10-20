@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { Wallet } from 'lucide-react'
 import type { NightclubCashMovement, NightclubDataset, NightclubPaymentDraft } from '../domain/nightclubAccounts'
 import { nightclubAccountLabel, nightclubBalance, nightclubCashReconciliation, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary } from '../domain/nightclubAccounts'
+import { requiresCashboxSelection, resolveSelectedCashboxId } from '../domain/nightclubCashboxSelection'
 import { NightclubAccountPayment } from './NightclubAccountPayment'
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const labels = { inventory_purchase: 'Compra de inventario', payroll: 'Pago al personal', services: 'Servicios', rent: 'Alquiler', maintenance: 'Mantenimiento', transport: 'Transporte', advertising: 'Publicidad', cleaning: 'Limpieza', security: 'Seguridad', administrative: 'Gasto administrativo', other: 'Otro gasto' } as const
@@ -41,31 +42,32 @@ export function NightclubCash({
   const shift = data.shift
   const activeShiftId = shift?.id
 
-  const selectedCashboxId = (activeCashboxId && data.cashboxes?.some(c => c.id === activeCashboxId))
-    ? activeCashboxId
-    : (data.cashboxes?.[0]?.id || '')
+  // Solo una caja confirmada por el servidor (operatorContext) cuenta como seleccionada.
+  const selectedCashboxId = resolveSelectedCashboxId(data.cashboxes, activeCashboxId)
+  const needsCashboxSelection = requiresCashboxSelection(data.cashboxes, activeCashboxId)
   const selectedCashbox = data.cashboxes?.find(item => item.id === selectedCashboxId)
   const selectedCashboxShift = data.cashboxShifts?.find(item => item.cashboxId === selectedCashboxId && item.status === 'open')
 
   const cashAccounts = useMemo(() => {
-    if (isMultiCashbox && activeCashboxId) {
-      return data.accounts.filter(account => account.cashboxId === activeCashboxId && account.shiftId === activeShiftId)
+    if (isMultiCashbox) {
+      if (!selectedCashboxId) return []
+      return data.accounts.filter(account => account.cashboxId === selectedCashboxId && account.shiftId === activeShiftId)
     }
     if (activeShiftId) {
       return data.accounts.filter(account => account.shiftId === activeShiftId)
     }
     return data.accounts
-  }, [data.accounts, isMultiCashbox, activeCashboxId, activeShiftId])
+  }, [data.accounts, isMultiCashbox, selectedCashboxId, activeShiftId])
 
   const openAccounts = cashAccounts.filter(account => nightclubBalance(account) > 0)
   const billRequestedAccounts = cashAccounts.filter(account => account.status === 'bill_requested' && nightclubBalance(account) > 0)
 
   const activeDataset: NightclubDataset = useMemo(() => {
-    if (isMultiCashbox && activeCashboxId) {
+    if (isMultiCashbox && selectedCashboxId) {
       return { ...data, accounts: cashAccounts }
     }
     return data
-  }, [data, isMultiCashbox, activeCashboxId, cashAccounts])
+  }, [data, isMultiCashbox, selectedCashboxId, cashAccounts])
 
   const cash = nightclubCashSummary(activeDataset)
   const profit = nightclubProfitSummary(activeDataset)
@@ -105,9 +107,11 @@ export function NightclubCash({
         ))}
       </div>
       <p className="mt-3 text-sm">
-        {selectedCashboxShift
-          ? `Turno activo desde ${new Date(selectedCashboxShift.openedAt).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })}. Fondo: ${money(selectedCashboxShift.openingFloat)}`
-          : 'No hay turno abierto en esta caja.'}
+        {needsCashboxSelection
+          ? 'Selecciona una caja de trabajo.'
+          : selectedCashboxShift
+            ? `Turno activo desde ${new Date(selectedCashboxShift.openedAt).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })}. Fondo: ${money(selectedCashboxShift.openingFloat)}`
+            : 'No hay turno abierto en esta caja.'}
       </p>
       {!selectedCashboxShift && selectedCashbox && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -137,6 +141,19 @@ export function NightclubCash({
       )}
     </section>
   ) : null
+
+  // Multi-caja sin caja confirmada: no se expone turno global, cuentas, arqueo ni movimientos.
+  if (needsCashboxSelection) {
+    return (
+      <div className="space-y-5">
+        <header>
+          <h1 className="text-2xl font-black">Caja y turnos</h1>
+          <p className="text-sm text-slate-400">Selecciona una caja de trabajo para operar.</p>
+        </header>
+        {cashboxControl}
+      </div>
+    )
+  }
 
   if (!shift || shift.status === 'closed') {
     return (

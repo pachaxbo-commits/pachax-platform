@@ -1990,6 +1990,109 @@ try {
 
   console.log('PASS: Test 10 (Multi-cashbox financial attribution & isolation) completado exitosamente.')
 
+  // ==================================================================
+  console.log('=== TEST 11: PAY COMMISSIONS EXIGE TURNO MULTI-CAJA ABIERTO ===')
+  await root.collection('nightclubOperationalState').doc('main').set({ activeShiftId: 'shift-global' }, { merge: true })
+  await root.collection('nightclubShifts').doc('shift-global').set({ status: 'open' }, { merge: true })
+  await root.collection('nightclubShifts').doc('shift-2c').set({
+    id: 'shift-2c', tenantId, branchId: 'main', status: 'closed',
+    cashboxId: 'cashbox-2', locationId: 'loc-bar-2', openingFloat: 0,
+    openedAt: new Date().toISOString(), openedBy: 'admin',
+  })
+  await root.collection('nightclubOperatorContexts').doc('admin').set({
+    uid: 'admin', tenantId, branchId: 'main', cashboxId: 'cashbox-2', locationId: 'loc-bar-2',
+    activeShiftId: 'shift-2c', updatedAt: new Date().toISOString(),
+  })
+  await root.collection('nightclubCommissions').doc('comm-test-11').set({
+    id: 'comm-test-11', tenantId, branchId: 'main', staffId: 'waiter', amount: 15, paidAmount: 0,
+    status: 'earned', createdAt: new Date().toISOString(),
+  })
+  const commDraft11 = { draft: { staffId: 'waiter', amount: 15, method: 'cash', commissionIds: ['comm-test-11'] } }
+  await assert.rejects(
+    () => call('admin', 'payCommissions', 'op-pay-comm-11-fail', commDraft11),
+    err => err.code === 'failed-precondition',
+  )
+  assert.equal((await root.collection('nightclubCommissionPayments').doc('compay_op-pay-comm-11-fail').get()).exists, false)
+  assert.equal((await root.collection('nightclubCashMovements').doc('comm_compay_op-pay-comm-11-fail').get()).exists, false)
+  assert.equal((await data('nightclubCommissions/comm-test-11')).paidAmount, 0)
+  const globalCommPays = await root.collection('nightclubCommissionPayments').where('shiftId', '==', 'shift-global').get()
+  assert.equal(globalCommPays.docs.length, 0)
+
+  // Turno de la caja abierto correctamente -> pago permitido y atribuido a shift-2c
+  await root.collection('nightclubShifts').doc('shift-2c').set({ status: 'open' }, { merge: true })
+  const commPay11 = await call('admin', 'payCommissions', 'op-pay-comm-11-ok', commDraft11)
+  const commPay11Data = await data('nightclubCommissionPayments/' + commPay11.paymentId)
+  assert.equal(commPay11Data.shiftId, 'shift-2c')
+  assert.equal(commPay11Data.cashboxId, 'cashbox-2')
+  assert.equal(commPay11Data.locationId, 'loc-bar-2')
+  const commMov11 = await data('nightclubCashMovements/comm_' + commPay11.paymentId)
+  assert.equal(commMov11.shiftId, 'shift-2c')
+  assert.equal(commMov11.cashboxId, 'cashbox-2')
+  assert.equal(commMov11.locationId, 'loc-bar-2')
+  console.log('PASS: Test 11 (payCommissions con turno multi-caja cerrado denegado y atribución correcta) completado.')
+
+  // ==================================================================
+  console.log('=== TEST 12: NO SE PUEDE CERRAR EL TURNO GLOBAL DESDE UNA CAJA ===')
+  await root.collection('nightclubShifts').doc('shift-2d').set({
+    id: 'shift-2d', tenantId, branchId: 'main', status: 'open',
+    cashboxId: 'cashbox-2', locationId: 'loc-bar-2', openingFloat: 50,
+    openedAt: new Date().toISOString(), openedBy: 'cashier',
+  })
+  await root.collection('nightclubOperatorContexts').doc('cashier').set({
+    uid: 'cashier', tenantId, branchId: 'main', cashboxId: 'cashbox-2', locationId: 'loc-bar-2',
+    activeShiftId: 'shift-2d', updatedAt: new Date().toISOString(),
+  })
+  await assert.rejects(
+    () => call('cashier', 'closeShift', 'op-close-global-from-cb2', { shiftId: 'shift-global', countedCash: 100000 }),
+    err => err.code === 'permission-denied',
+  )
+  assert.equal((await data('nightclubShifts/shift-global')).status, 'open')
+  assert.equal((await data('nightclubShifts/shift-2d')).status, 'open')
+  assert.equal((await data('nightclubOperationalState/main')).activeShiftId, 'shift-global')
+
+  const close2d = await call('cashier', 'closeShift', 'op-close-2d', { shiftId: 'shift-2d', countedCash: 50 })
+  assert.equal(close2d.shiftId, 'shift-2d')
+  assert.equal((await data('nightclubShifts/shift-2d')).status, 'closed')
+  assert.equal((await data('nightclubShifts/shift-global')).status, 'open')
+  assert.equal((await data('nightclubOperatorContexts/cashier')).activeShiftId, null)
+  console.log('PASS: Test 12 (cierre global desde caja denegado; cierre de caja activa permitido) completado.')
+
+  // ==================================================================
+  console.log('=== TEST 13: NO SE PUEDE CERRAR OTRA CAJA ===')
+  await root.collection('nightclubShifts').doc('shift-2e').set({
+    id: 'shift-2e', tenantId, branchId: 'main', status: 'open',
+    cashboxId: 'cashbox-2', locationId: 'loc-bar-2', openingFloat: 0,
+    openedAt: new Date().toISOString(), openedBy: 'cashier',
+  })
+  await root.collection('nightclubOperatorContexts').doc('cashier').set({
+    uid: 'cashier', tenantId, branchId: 'main', cashboxId: 'cashbox-2', locationId: 'loc-bar-2',
+    activeShiftId: 'shift-2e', updatedAt: new Date().toISOString(),
+  })
+  const shift1Before = await data('nightclubShifts/shift-1')
+  assert.equal(shift1Before.status, 'open')
+  await assert.rejects(
+    () => call('cashier', 'closeShift', 'op-close-shift1-from-cb2', { shiftId: 'shift-1', countedCash: 100000 }),
+    err => err.code === 'permission-denied',
+  )
+  assert.deepEqual(await data('nightclubShifts/shift-1'), shift1Before)
+  console.log('PASS: Test 13 (cierre de otra caja denegado sin modificar su turno) completado.')
+
+  // ==================================================================
+  console.log('=== TEST 14: CIERRE LEGACY SIN CONTEXTO DE CAJA ===')
+  await root.collection('members').doc('legacyCashier').set({
+    uid: 'legacyCashier', tenantId, roleId: 'cashier', status: 'active', branchIds: ['main'],
+  })
+  await root.collection('nightclubShifts').doc('shift-legacy').set({
+    id: 'shift-legacy', tenantId, branchId: 'main', status: 'open', openingFloat: 0,
+    openedAt: new Date().toISOString(), openedBy: 'legacyCashier',
+  })
+  await root.collection('nightclubOperationalState').doc('main').set({ activeShiftId: 'shift-legacy' }, { merge: true })
+  const closeLegacy = await call('legacyCashier', 'closeShift', 'op-close-legacy', { shiftId: 'shift-legacy', countedCash: 0 })
+  assert.equal(closeLegacy.shiftId, 'shift-legacy')
+  assert.equal((await data('nightclubShifts/shift-legacy')).status, 'closed')
+  assert.equal((await data('nightclubOperationalState/main')).activeShiftId, null)
+  console.log('PASS: Test 14 (cierre legacy sin caja compatible) completado.')
+
 } finally {
   await deleteApp(app)
 }

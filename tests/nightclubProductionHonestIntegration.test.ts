@@ -6,6 +6,7 @@ import {
   resolveNightclubVisibleModules,
 } from '../src/modules/nightclub/application/nightclubActionRunner.ts'
 import { createTenantNightclubActions } from '../src/modules/nightclub/application/tenantNightclubActions.ts'
+import { requiresCashboxSelection, resolveSelectedCashboxId } from '../src/modules/nightclub/domain/nightclubCashboxSelection.ts'
 import {
   assembleOperationalAccounts,
   nightclubCashSummary,
@@ -812,4 +813,32 @@ test('16. selective permission subscriptions align with Rules: Waiter cannot sta
   assert.equal(canInv('inventory.read'), true, 'Inventory role reads locations')
   assert.equal(canInv('inventory.read'), true, 'Inventory role reads physical inventory')
   assert.equal(canInv('inventory.read') || canInv('cash.close'), true, 'Inventory role reads cashboxes')
+})
+
+test('17. NightclubCash never fakes a selected cashbox: only server-confirmed operatorContext selects', () => {
+  const cashboxes = [{ id: 'cb-1' }, { id: 'cb-2' }]
+
+  // Sin contexto confirmado: ninguna caja seleccionada, no se usa cb-1 automáticamente
+  assert.equal(resolveSelectedCashboxId(cashboxes, undefined), '')
+  assert.equal(resolveSelectedCashboxId(cashboxes, null), '')
+  assert.equal(requiresCashboxSelection(cashboxes, undefined), true)
+
+  // Contexto apuntando a una caja no autorizada/inexistente tampoco selecciona
+  assert.equal(resolveSelectedCashboxId(cashboxes, 'cb-9'), '')
+  assert.equal(requiresCashboxSelection(cashboxes, 'cb-9'), true)
+
+  // Tras confirmación del servidor (Firestore operatorContext)
+  assert.equal(resolveSelectedCashboxId(cashboxes, 'cb-2'), 'cb-2')
+  assert.equal(requiresCashboxSelection(cashboxes, 'cb-2'), false)
+
+  // Tenant legacy sin cajas: nunca bloquea
+  assert.equal(requiresCashboxSelection([], undefined), false)
+  assert.equal(requiresCashboxSelection(undefined, undefined), false)
+
+  // La vista real consume el helper y no conserva el fallback a la primera caja
+  const source = readFileSync(new URL('../src/modules/nightclub/views/NightclubCash.tsx', import.meta.url), 'utf8')
+  assert.match(source, /resolveSelectedCashboxId\(data\.cashboxes, activeCashboxId\)/)
+  assert.match(source, /requiresCashboxSelection\(data\.cashboxes, activeCashboxId\)/)
+  assert.equal(/cashboxes\?\.\[0\]/.test(source), false, 'No first-cashbox fallback')
+  assert.match(source, /Selecciona una caja de trabajo/)
 })

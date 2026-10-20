@@ -2190,6 +2190,26 @@ async function applyCommand(context) {
     const method = draft.method || 'cash'
     if (!['cash', 'qr', 'card', 'other'].includes(method)) throw new HttpsError('invalid-argument', 'Método de pago inválido.')
 
+    let commShiftId = effectiveShiftId
+    let commCashboxId = null
+    let commLocationId = null
+    if (operatorContextData?.cashboxId) {
+      if (!operatorShiftId) throw new HttpsError('failed-precondition', 'La caja seleccionada no tiene turno abierto.')
+      const opShiftDoc = await tx.get(root.collection('nightclubShifts').doc(operatorShiftId))
+      if (
+        !opShiftDoc.exists ||
+        opShiftDoc.data().status !== 'open' ||
+        opShiftDoc.data().branchId !== branchId ||
+        opShiftDoc.data().cashboxId !== operatorContextData.cashboxId ||
+        (opShiftDoc.data().locationId || null) !== (operatorContextData.locationId || null)
+      ) {
+        throw new HttpsError('failed-precondition', 'El turno de la caja seleccionada está cerrado o no coincide.')
+      }
+      commShiftId = operatorShiftId
+      commCashboxId = operatorContextData.cashboxId
+      commLocationId = operatorContextData.locationId || null
+    }
+
     const staffSnap = await tx.get(root.collection('members').doc(staffId))
     if (!staffSnap.exists || staffSnap.data().roleId !== 'waiter') {
       throw new HttpsError('failed-precondition', 'Selecciona un mesero registrado.')
@@ -2227,15 +2247,6 @@ async function applyCommand(context) {
       })
       remaining = money(remaining - applied)
       settled.push(c.id)
-    }
-
-    let commShiftId = effectiveShiftId
-    let commCashboxId = null
-    let commLocationId = null
-    if (operatorContextData?.cashboxId) {
-      commShiftId = operatorShiftId || effectiveShiftId
-      commCashboxId = operatorContextData.cashboxId
-      commLocationId = operatorContextData.locationId
     }
 
     const payData = {
@@ -2281,7 +2292,12 @@ async function applyCommand(context) {
   // Cierre de Turno Ciego
   if (type === 'closeShift') {
     const shiftId = id(payload.shiftId)
-    if (shiftId !== activeShiftId && shiftId !== operatorShiftId) throw new HttpsError('aborted', 'El turno cambió.')
+    if (operatorContextData?.cashboxId) {
+      if (!operatorShiftId) throw new HttpsError('failed-precondition', 'La caja seleccionada no tiene un turno activo para cerrar.')
+      if (shiftId !== operatorShiftId) throw new HttpsError('permission-denied', 'No puedes cerrar un turno ajeno a tu caja activa.')
+    } else {
+      if (shiftId !== activeShiftId) throw new HttpsError('aborted', 'El turno cambió.')
+    }
     const open = await tx.get(root.collection('nightclubAccounts').where('shiftId', '==', shiftId).where('status', 'in', ['open', 'bill_requested']))
     if (!open.empty) throw new HttpsError('failed-precondition', 'Existen cuentas con saldo.')
     if (payload.countedCash === '' || payload.countedCash == null) throw new HttpsError('invalid-argument', 'Ingresa el efectivo contado.')
@@ -2293,6 +2309,12 @@ async function applyCommand(context) {
       tx.get(root.collection('nightclubPayments').where('shiftId', '==', shiftId)),
     ])
     if (!shift.exists || shift.data().status !== 'open' || shift.data().branchId !== branchId) throw new HttpsError('aborted', 'El turno cambió.')
+    if (operatorContextData?.cashboxId) {
+      const shiftData = shift.data()
+      if (shiftData.cashboxId !== operatorContextData.cashboxId || (shiftData.locationId || null) !== (operatorContextData.locationId || null)) {
+        throw new HttpsError('permission-denied', 'El turno no coincide con la caja activa.')
+      }
+    }
     const expectedCents = Math.round((amount(shift.data().openingFloat) + Number.EPSILON) * 100) + movements.docs.reduce((tot, doc) => {
       const movement = doc.data()
       if (movement.method && movement.method !== 'cash') return tot
