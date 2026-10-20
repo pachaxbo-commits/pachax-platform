@@ -68,6 +68,7 @@ export type Unsubscribe = () => void
 export interface NightclubRepository {
   subscribeFloor(listener: (value: NightclubFloorSnapshot) => void): Unsubscribe
   subscribeOpenAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe
+  subscribeOperationalAccounts?(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void, options?: { includeRounds?: boolean; includePayments?: boolean }): Unsubscribe
   subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void): Unsubscribe
   subscribeActiveShift(listener: (value: NightclubShift | null) => void): Unsubscribe
   subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void): Unsubscribe

@@ -155,7 +155,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void): Unsubscribe {
+  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void, options?: { includeRounds?: boolean; includePayments?: boolean }): Unsubscribe {
     let openAccounts: Array<Record<string, unknown> & { id: string }> = []
     let closedAccounts: Array<Record<string, unknown> & { id: string }> = []
     let rounds: NightclubRound[] = []
@@ -166,6 +166,9 @@ export class TenantNightclubRepository implements NightclubRepository {
     let unsubClosed: Unsubscribe | null = null
     let unsubRounds: Unsubscribe | null = null
     let unsubPayments: Unsubscribe | null = null
+
+    const includeRounds = options?.includeRounds !== false
+    const includePayments = options?.includePayments !== false
 
     const emit = () => {
       if (!active) return
@@ -197,23 +200,27 @@ export class TenantNightclubRepository implements NightclubRepository {
         err => onError?.(err)
       )
 
-      unsubRounds = onSnapshot(
-        query(roundsRef, where('branchId', '==', this.branchId), fsLimit(200)),
-        snap => {
-          rounds = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubRound))
-          emit()
-        },
-        err => onError?.(err)
-      )
+      if (includeRounds) {
+        unsubRounds = onSnapshot(
+          query(roundsRef, where('branchId', '==', this.branchId), fsLimit(200)),
+          snap => {
+            rounds = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubRound))
+            emit()
+          },
+          err => onError?.(err)
+        )
+      }
 
-      unsubPayments = onSnapshot(
-        query(paymentsRef, where('branchId', '==', this.branchId), fsLimit(200)),
-        snap => {
-          payments = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubPayment))
-          emit()
-        },
-        err => onError?.(err)
-      )
+      if (includePayments) {
+        unsubPayments = onSnapshot(
+          query(paymentsRef, where('branchId', '==', this.branchId), fsLimit(200)),
+          snap => {
+            payments = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubPayment))
+            emit()
+          },
+          err => onError?.(err)
+        )
+      }
     })
 
     return () => {

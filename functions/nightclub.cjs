@@ -1206,7 +1206,7 @@ async function applyCommand(context) {
     return applyPaidRoundCommand({ ...context, activeShiftId: effectiveShiftId })
   }
 
-  if (['openAccount', 'createPendingRound'].includes(type) && operatorContextData?.cashboxId) {
+  if (['openAccount', 'createPendingRound', 'arriveReservation'].includes(type) && operatorContextData?.cashboxId) {
     if (!operatorContextData.locationId || !operatorShiftId) throw new HttpsError('failed-precondition', 'Selecciona una caja con turno abierto.')
     const shift = await tx.get(root.collection('nightclubShifts').doc(operatorShiftId))
     if (!shift.exists || shift.data().status !== 'open' || shift.data().branchId !== branchId || shift.data().cashboxId !== operatorContextData.cashboxId || shift.data().locationId !== operatorContextData.locationId) {
@@ -1307,11 +1307,14 @@ async function applyCommand(context) {
     const accountId = `account_${operationId}`
     const accountRef = root.collection('nightclubAccounts').doc(accountId)
     const storedTarget = { type: 'table', tableId: table.id }
+    const accountShiftId = operatorShiftId || activeShiftId
     const accountValue = {
       id: accountId,
       tenantId: actor.tenantId,
       branchId,
-      shiftId: activeShiftId,
+      shiftId: accountShiftId,
+      cashboxId: operatorContextData?.cashboxId || null,
+      locationId: operatorContextData?.locationId || null,
       tableId: table.id,
       serviceTarget: storedTarget,
       orderType: 'TABLE',
@@ -1479,13 +1482,14 @@ async function applyCommand(context) {
     const inventoryRefs = inventoryIds.map(inventoryId => root.collection('nightclubInventory').doc(inventoryId))
     const stocks = await Promise.all(inventoryRefs.map(ref => tx.get(ref)))
     const stocksMap = new Map(inventoryIds.map((invId, idx) => [invId, stocks[idx]]))
+    const roundShiftId = account.shiftId || effectiveShiftId
     const stockUpdates = calculateNightclubStockUpdates(stocksMap, requirementsMap, branchId)
     const consumption = applyNightclubStockUpdates(
       tx,
       root,
       actor,
       branchId,
-      activeShiftId,
+      roundShiftId,
       accountId,
       roundId,
       operationId,
@@ -1497,7 +1501,7 @@ async function applyCommand(context) {
       operationId,
       tenantId: actor.tenantId,
       branchId,
-      shiftId: activeShiftId,
+      shiftId: roundShiftId,
       accountId,
       tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null,
       sequence: (account.roundCount || 0) + 1,
@@ -1533,7 +1537,7 @@ async function applyCommand(context) {
         amount: comm.amount,
         paidAmount: 0,
         status: 'pending',
-        shiftId: activeShiftId,
+        shiftId: roundShiftId,
         createdAt: now,
       })
     }
@@ -1628,6 +1632,40 @@ async function applyCommand(context) {
     }
     const received = amount(payload.received ?? cashAmount)
     if (received < cashAmount) throw new HttpsError('invalid-argument', 'Efectivo recibido insuficiente.')
+    const accData = snap.data()
+    let paymentShiftId = accData.shiftId || effectiveShiftId
+    let paymentCashboxId = accData.cashboxId || null
+    let paymentLocationId = accData.locationId || null
+
+    if (accData.cashboxId) {
+      if (!accData.shiftId) {
+        throw new HttpsError('failed-precondition', 'La cuenta no tiene un turno financiero válido.')
+      }
+      if (!operatorContextData ||
+          operatorContextData.branchId !== branchId ||
+          operatorContextData.cashboxId !== accData.cashboxId ||
+          operatorContextData.locationId !== accData.locationId ||
+          operatorContextData.activeShiftId !== accData.shiftId) {
+        throw new HttpsError('permission-denied', 'No estás activo en la caja o turno de esta cuenta.')
+      }
+      const shiftSnap = await tx.get(root.collection('nightclubShifts').doc(accData.shiftId))
+      if (!shiftSnap.exists ||
+          shiftSnap.data().status !== 'open' ||
+          shiftSnap.data().branchId !== branchId ||
+          shiftSnap.data().cashboxId !== accData.cashboxId ||
+          shiftSnap.data().locationId !== accData.locationId) {
+        throw new HttpsError('failed-precondition', 'El turno de la caja ya no está abierto.')
+      }
+      paymentShiftId = accData.shiftId
+      paymentCashboxId = accData.cashboxId
+      paymentLocationId = accData.locationId
+    } else {
+      paymentShiftId = accData.shiftId || effectiveShiftId
+      if (!paymentShiftId) {
+        throw new HttpsError('failed-precondition', 'No hay turno activo para registrar el pago.')
+      }
+    }
+
     const remaining = money(balance - paid)
     let pendingCommsDocs = []
     if (remaining === 0) {
@@ -1644,7 +1682,9 @@ async function applyCommand(context) {
       operationId,
       tenantId: actor.tenantId,
       branchId,
-      shiftId: activeShiftId,
+      shiftId: paymentShiftId,
+      cashboxId: paymentCashboxId,
+      locationId: paymentLocationId,
       accountId,
       status: 'confirmed',
       method,
@@ -1664,7 +1704,9 @@ async function applyCommand(context) {
         operationId,
         tenantId: actor.tenantId,
         branchId,
-        shiftId: activeShiftId,
+        shiftId: paymentShiftId,
+        cashboxId: paymentCashboxId,
+        locationId: paymentLocationId,
         accountId,
         type: 'sale',
         amount: cashAmount,
@@ -1833,11 +1875,32 @@ async function applyCommand(context) {
     const notes = mov.notes ? text(mov.notes, 200) : null
     const movementId = id(mov.id || `cash_mov_${operationId}`)
     const movRef = root.collection('nightclubCashMovements').doc(movementId)
+    let movShiftId = effectiveShiftId
+    let movCashboxId = null
+    let movLocationId = null
+
+    if (operatorContextData?.cashboxId) {
+      if (!operatorShiftId) throw new HttpsError('failed-precondition', 'Selecciona una caja con turno abierto.')
+      const shiftSnap = await tx.get(root.collection('nightclubShifts').doc(operatorShiftId))
+      if (!shiftSnap.exists ||
+          shiftSnap.data().status !== 'open' ||
+          shiftSnap.data().branchId !== branchId ||
+          shiftSnap.data().cashboxId !== operatorContextData.cashboxId ||
+          shiftSnap.data().locationId !== operatorContextData.locationId) {
+        throw new HttpsError('failed-precondition', 'El turno de la caja ya no está abierto.')
+      }
+      movShiftId = operatorShiftId
+      movCashboxId = operatorContextData.cashboxId
+      movLocationId = operatorContextData.locationId
+    }
+
     const movData = {
       id: movementId,
       tenantId: actor.tenantId,
       branchId,
-      shiftId: activeShiftId,
+      shiftId: movShiftId,
+      cashboxId: movCashboxId,
+      locationId: movLocationId,
       type: movType,
       method,
       amount: amt,
@@ -1927,6 +1990,18 @@ async function applyCommand(context) {
       inventoryUpdates.push({ invRef, stock, needed, invId })
     }
 
+    let roundId = null
+    let account = null
+    if (draft.accountId) {
+      const accRef = root.collection('nightclubAccounts').doc(id(draft.accountId))
+      const accSnap = await tx.get(accRef)
+      if (!accSnap.exists || accSnap.data().branchId !== branchId || accSnap.data().status !== 'open') {
+        throw new HttpsError('failed-precondition', 'La cuenta de la mesa no acepta cortesías.')
+      }
+      account = accSnap.data()
+    }
+    const courtesyShiftId = account?.shiftId || effectiveShiftId
+
     const courtesyId = id(draft.id || `courtesy_${operationId}`)
     let cost = 0
     let hasCost = true
@@ -1939,7 +2014,7 @@ async function applyCommand(context) {
         operationId,
         tenantId: actor.tenantId,
         branchId,
-        shiftId: activeShiftId,
+        shiftId: courtesyShiftId,
         courtesyId,
         memberId: member.id,
         inventoryId: update.invId,
@@ -1954,15 +2029,7 @@ async function applyCommand(context) {
       else cost += update.needed * update.stock.unitCost
     }
 
-    let roundId = null
-    let account = null
-    if (draft.accountId) {
-      const accRef = root.collection('nightclubAccounts').doc(id(draft.accountId))
-      const accSnap = await tx.get(accRef)
-      if (!accSnap.exists || accSnap.data().branchId !== branchId || accSnap.data().status !== 'open') {
-        throw new HttpsError('failed-precondition', 'La cuenta de la mesa no acepta cortesías.')
-      }
-      account = accSnap.data()
+    if (account) {
       roundId = `round_${operationId}`
       const roundSeq = (account.roundCount || 0) + 1
       const isDirect = product.preparationArea === 'Directo'
@@ -1981,12 +2048,13 @@ async function applyCommand(context) {
         courtesyId,
         memberName: member.name,
       }]
+      const accRef = root.collection('nightclubAccounts').doc(id(draft.accountId))
       tx.create(root.collection('nightclubRounds').doc(roundId), {
         id: roundId,
         operationId,
         tenantId: actor.tenantId,
         branchId,
-        shiftId: activeShiftId,
+        shiftId: courtesyShiftId,
         accountId: account.id,
         tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null,
         sequence: roundSeq,
@@ -2039,9 +2107,13 @@ async function applyCommand(context) {
     const courtesy = cSnap.data()
     if (courtesy.status !== 'active') throw new HttpsError('failed-precondition', 'Esta cortesía ya está anulada.')
 
+    let cancelCourtesyShiftId = effectiveShiftId
     if (courtesy.accountId) {
       const accRef = root.collection('nightclubAccounts').doc(courtesy.accountId)
       const accSnap = await tx.get(accRef)
+      if (accSnap.exists && accSnap.data().shiftId) {
+        cancelCourtesyShiftId = accSnap.data().shiftId
+      }
       if (accSnap.exists && accSnap.data().status === 'closed') {
         throw new HttpsError('failed-precondition', 'Una cortesía ya entregada o de una mesa cerrada requiere revisión física antes de anularse.')
       }
@@ -2086,7 +2158,7 @@ async function applyCommand(context) {
         operationId,
         tenantId: actor.tenantId,
         branchId,
-        shiftId: activeShiftId,
+        shiftId: cancelCourtesyShiftId,
         courtesyId,
         memberId: courtesy.memberId,
         inventoryId: item.m.inventoryId,
@@ -2157,6 +2229,15 @@ async function applyCommand(context) {
       settled.push(c.id)
     }
 
+    let commShiftId = effectiveShiftId
+    let commCashboxId = null
+    let commLocationId = null
+    if (operatorContextData?.cashboxId) {
+      commShiftId = operatorShiftId || effectiveShiftId
+      commCashboxId = operatorContextData.cashboxId
+      commLocationId = operatorContextData.locationId
+    }
+
     const payData = {
       id: paymentId,
       tenantId: actor.tenantId,
@@ -2164,7 +2245,9 @@ async function applyCommand(context) {
       staffId,
       amount: payAmt,
       method,
-      shiftId: activeShiftId,
+      shiftId: commShiftId,
+      cashboxId: commCashboxId,
+      locationId: commLocationId,
       notes: draft.note ? text(draft.note, 200) : null,
       commissionIds: settled,
       actorUid: actor.uid,
@@ -2178,7 +2261,9 @@ async function applyCommand(context) {
         id: movId,
         tenantId: actor.tenantId,
         branchId,
-        shiftId: activeShiftId,
+        shiftId: commShiftId,
+        cashboxId: commCashboxId,
+        locationId: commLocationId,
         type: 'expense',
         method,
         amount: payAmt,

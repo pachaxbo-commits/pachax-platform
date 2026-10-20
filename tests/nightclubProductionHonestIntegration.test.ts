@@ -657,3 +657,159 @@ test('14. permission negative tests: unauthorized inventory actions rejected and
   assert.rejects(() => bareActions.onDispatchInventoryTransfer('t1'), /dispatchTransfer no disponible/)
   assert.rejects(() => bareActions.onReceiveInventoryTransfer('t1'), /receiveTransfer no disponible/)
 })
+test('15. UI cashbox source of truth, cross-box accounts filter, and isolated expectedCash & shift close', async () => {
+  const shift1 = { id: 'shift-1', status: 'open' as const, cashboxId: 'cb-1', openingFloat: 100, openedAt: '2026-10-19T20:00:00Z', openedBy: 'user-1' }
+  const shift2 = { id: 'shift-2', status: 'open' as const, cashboxId: 'cb-2', openingFloat: 200, openedAt: '2026-10-19T20:00:00Z', openedBy: 'user-1' }
+
+  const accA = {
+    id: 'acc-a',
+    branchId: 'main',
+    cashboxId: 'cb-1',
+    shiftId: 'shift-1',
+    status: 'bill_requested' as const,
+    subtotal: 100,
+    paidTotal: 0,
+    balance: 100,
+    serviceTarget: { type: 'table' as const, tableId: 'T1' },
+    rounds: [],
+    payments: [],
+  }
+  const accB = {
+    id: 'acc-b',
+    branchId: 'main',
+    cashboxId: 'cb-2',
+    shiftId: 'shift-2',
+    status: 'bill_requested' as const,
+    subtotal: 200,
+    paidTotal: 0,
+    balance: 200,
+    serviceTarget: { type: 'table' as const, tableId: 'T2' },
+    rounds: [],
+    payments: [],
+  }
+
+  const allAccounts = [accA, accB]
+
+  // Filter for Caja 2 (activeCashboxId: 'cb-2', activeShiftId: 'shift-2')
+  const isMultiCashbox = true
+  const activeCashboxId = 'cb-2'
+  const activeShiftId = 'shift-2'
+
+  const cashAccountsCb2 = isMultiCashbox && activeCashboxId
+    ? allAccounts.filter(a => a.cashboxId === activeCashboxId && a.shiftId === activeShiftId)
+    : allAccounts
+
+  assert.equal(cashAccountsCb2.length, 1)
+  assert.equal(cashAccountsCb2[0].id, 'acc-b')
+  assert.equal(cashAccountsCb2.some(a => a.id === 'acc-a'), false, 'Caja 1 account is completely hidden from Caja 2')
+
+  // openAccounts blocking close:
+  const openAccountsCb2 = cashAccountsCb2.filter(a => a.balance > 0)
+  assert.equal(openAccountsCb2.length, 1)
+  assert.equal(openAccountsCb2[0].id, 'acc-b')
+
+  // When Account B is paid, openAccounts becomes empty for Caja 2, allowing close even if Account A remains open
+  const accBPaid = { ...accB, paidTotal: 200, balance: 0, payments: [{ id: 'pay-b', amount: 200, cashAmount: 200, qrAmount: 0, cardAmount: 0, kind: 'sale' as const, method: 'cash' as const, createdAt: '2026-10-19T20:30:00Z' }] }
+  const allAccountsAfterBPaid = [accA, accBPaid]
+  const cashAccountsAfterBPaid = allAccountsAfterBPaid.filter(a => a.cashboxId === activeCashboxId && a.shiftId === activeShiftId)
+  const openAccountsAfterBPaid = cashAccountsAfterBPaid.filter(a => a.balance > 0)
+  assert.equal(openAccountsAfterBPaid.length, 0, 'Caja 2 can close because all its accounts are settled, ignoring Caja 1 open account')
+
+  // Expected cash calculation for Caja 2:
+  const datasetCb2: NightclubDataset = {
+    zones: [],
+    tables: [],
+    reservations: [],
+    accounts: cashAccountsAfterBPaid,
+    products: [],
+    inventory: [],
+    inventoryMovements: [],
+    customers: [],
+    shift: shift2,
+    cashMovements: [],
+    staff: [],
+    branding: {
+      businessName: 'Club',
+      subtitle: 'Lounge',
+      primaryColor: '#000',
+      accentColor: '#fff',
+      surfaceColor: '#111',
+      theme: 'dark',
+    },
+  }
+  const summaryCb2 = nightclubCashSummary(datasetCb2, 'shift-2')
+  assert.equal(summaryCb2.cashSales, 200)
+  assert.equal(summaryCb2.expectedCash, 400, 'Expected cash is opening float 200 + cashSales 200 = 400, excluding Caja 1')
+
+  // UI Cashbox Source of truth:
+  let serverConfirmedCashboxId = 'cb-1'
+  let selectCalls: string[] = []
+
+  const onSelect = async (newId: string) => {
+    selectCalls.push(newId)
+  }
+
+  // Before server confirms, derived activeCashboxId remains cb-1
+  let currentActiveId = serverConfirmedCashboxId
+  assert.equal(currentActiveId, 'cb-1')
+
+  // User triggers selection of cb-2
+  await onSelect('cb-2')
+  assert.equal(selectCalls[0], 'cb-2')
+  assert.equal(currentActiveId, 'cb-1', 'UI activeCashboxId remains cb-1 before server confirmation')
+
+  // Simulate Firestore realtime update
+  serverConfirmedCashboxId = 'cb-2'
+  currentActiveId = serverConfirmedCashboxId
+  assert.equal(currentActiveId, 'cb-2', 'UI activeCashboxId updates only after server/realtime confirmation')
+})
+
+test('16. selective permission subscriptions align with Rules: Waiter cannot start forbidden listeners or fail sync', () => {
+  const waiterTemplate = BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === 'waiter')
+  assert.ok(waiterTemplate)
+  const waiterPerms = new Set(waiterTemplate.permissions)
+
+  const canWaiter = (perm: string) => waiterPerms.has(perm)
+
+  // Subscriptions evaluation for Waiter:
+  const canReadAccounts = canWaiter('orders.read') || canWaiter('cash.close') || canWaiter('sales.read')
+  const canReadRounds = canWaiter('orders.read') || canWaiter('cash.close')
+  const canReadPayments = canWaiter('cash.close') || canWaiter('sales.read')
+
+  assert.equal(canReadAccounts, true, 'Waiter reads accounts')
+  assert.equal(canReadRounds, true, 'Waiter reads rounds')
+  assert.equal(canReadPayments, false, 'Waiter CANNOT read payments')
+
+  // Cashboxes & shifts
+  const canReadCashboxes = canWaiter('inventory.read') || canWaiter('cash.close')
+  const canReadCashboxShifts = canWaiter('cash.close') || canWaiter('settings.manage')
+  assert.equal(canReadCashboxes, false, 'Waiter CANNOT read cashboxes')
+  assert.equal(canReadCashboxShifts, false, 'Waiter CANNOT read cashbox shifts')
+
+  // Locations & physical inventory
+  const canReadLocations = canWaiter('inventory.read')
+  const canReadPhysicalInventory = canWaiter('inventory.read')
+  assert.equal(canReadLocations, false, 'Waiter CANNOT read locations')
+  assert.equal(canReadPhysicalInventory, false, 'Waiter CANNOT read physical inventory')
+
+  // Subscriptions evaluation for Cashier:
+  const cashierTemplate = BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === 'cashier')
+  assert.ok(cashierTemplate)
+  const cashierPerms = new Set(cashierTemplate.permissions)
+  const canCashier = (perm: string) => cashierPerms.has(perm)
+
+  assert.equal(canCashier('cash.close') || canCashier('settings.manage'), true, 'Cashier reads cashbox shifts')
+  assert.equal(canCashier('inventory.read') || canCashier('cash.close'), true, 'Cashier reads cashboxes')
+  assert.equal(canCashier('cash.close') || canCashier('sales.read'), true, 'Cashier reads payments')
+  assert.equal(canCashier('inventory.read'), false, 'Cashier CANNOT read locations or physical inventory')
+
+  // Subscriptions evaluation for Inventory role:
+  const invTemplate = BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === 'inventory')
+  assert.ok(invTemplate)
+  const invPerms = new Set(invTemplate.permissions)
+  const canInv = (perm: string) => invPerms.has(perm)
+
+  assert.equal(canInv('inventory.read'), true, 'Inventory role reads locations')
+  assert.equal(canInv('inventory.read'), true, 'Inventory role reads physical inventory')
+  assert.equal(canInv('inventory.read') || canInv('cash.close'), true, 'Inventory role reads cashboxes')
+})

@@ -152,9 +152,19 @@ export function useTenantNightclubController({
       unsubs.push(repository.subscribeFloor(setFloor, handleSyncError('zonas y mesas')))
     }
 
-    // 2. Cuentas operativas: orders.read, cash.close o sales.read
-    if (can('orders.read') || can('cash.close') || can('sales.read')) {
-      unsubs.push(repository.subscribeOperationalAccounts(setAccounts, handleSyncError('cuentas operativas')))
+    // 2. Cuentas operativas con listeners selectivos segun Rules
+    const canReadAccounts = can('orders.read') || can('cash.close') || can('sales.read')
+    const canReadRounds = can('orders.read') || can('cash.close')
+    const canReadPayments = can('cash.close') || can('sales.read')
+    if (canReadAccounts) {
+      unsubs.push(repository.subscribeOperationalAccounts(
+        setAccounts,
+        handleSyncError('cuentas operativas'),
+        {
+          includeRounds: canReadRounds,
+          includePayments: canReadPayments,
+        }
+      ))
     }
 
     // 3. Turno activo: cash.close o settings.manage
@@ -167,8 +177,8 @@ export function useTenantNightclubController({
       unsubs.push(repository.subscribeCatalog(setCatalog, handleSyncError('catálogo')))
     }
 
-    // 5. Inventario: inventory.read o settings.manage
-    if (can('inventory.read') || can('settings.manage')) {
+    // 5. Inventario: SOLO inventory.read (alineado con Rules)
+    if (can('inventory.read')) {
       unsubs.push(repository.subscribeInventory(setInventorySnap, handleSyncError('inventario')))
     }
 
@@ -216,19 +226,23 @@ export function useTenantNightclubController({
       unsubs.push(repository.subscribeOperatorContext(uid, setOperatorContext, handleSyncError('contexto de operador')))
     }
 
-    // 14. Cajas y turnos de caja: cash.close, sales.read, orders.read o settings.manage
-    if (can('cash.close') || can('sales.read') || can('orders.read') || can('settings.manage')) {
+    // 14a. Cajas: inventory.read o cash.close (Rules: inventory.read || cash.close)
+    if (can('inventory.read') || can('cash.close')) {
       if (repository.subscribeCashboxes) unsubs.push(repository.subscribeCashboxes(setRawCashboxes, handleSyncError('cajas')))
+    }
+
+    // 14b. Turnos de caja: cash.close o settings.manage (Rules: cash.close || settings.manage)
+    if (can('cash.close') || can('settings.manage')) {
       if (repository.subscribeCashboxShifts) unsubs.push(repository.subscribeCashboxShifts(setCashboxShifts, handleSyncError('turnos de caja')))
     }
 
-    // 15. Ubicaciones: orders.read, inventory.read, cash.close o settings.manage
-    if (can('orders.read') || can('inventory.read') || can('cash.close') || can('settings.manage')) {
+    // 15. Ubicaciones: SOLO inventory.read (Rules: inventory.read)
+    if (can('inventory.read')) {
       if (repository.subscribeLocations) unsubs.push(repository.subscribeLocations(setLocations, handleSyncError('ubicaciones')))
     }
 
-    // 16. Inventario sensible: solo con permisos de inventario o settings.manage
-    if (can('inventory.read') || can('inventory.manage') || can('settings.manage')) {
+    // 16. Inventario sensible: SOLO inventory.read (Rules: inventory.read)
+    if (can('inventory.read')) {
       if (repository.subscribeInventoryBalances) unsubs.push(repository.subscribeInventoryBalances(setInventoryBalances, handleSyncError('saldos de inventario')))
       if (repository.subscribeInventoryLots) unsubs.push(repository.subscribeInventoryLots(setInventoryLots, handleSyncError('lotes de inventario')))
       if (repository.subscribeOpenBottles) unsubs.push(repository.subscribeOpenBottles(setOpenBottles, handleSyncError('botellas abiertas')))
@@ -241,17 +255,19 @@ export function useTenantNightclubController({
   }, [repository, role, can, uid])
 
   const effectiveShift = useMemo(() => {
-    if (operatorContext?.activeShiftId) {
-      return cashboxShifts.find(s => s.id === operatorContext.activeShiftId) || shift
+    if (operatorContext?.cashboxId) {
+      if (operatorContext.activeShiftId) {
+        return cashboxShifts.find(s => s.id === operatorContext.activeShiftId) || null
+      }
+      return null
     }
     return shift
-  }, [operatorContext?.activeShiftId, cashboxShifts, shift])
+  }, [operatorContext, cashboxShifts, shift])
 
   // Shift-dependent cash movements (only if cash.close or settings.manage)
   useEffect(() => {
     const shiftIdToTrack = effectiveShift?.id
     if (!shiftIdToTrack || (!can('cash.close') && !can('settings.manage'))) {
-      setCashMovements([])
       return
     }
     const unsubCash = repository.subscribeCashMovements(
@@ -263,6 +279,7 @@ export function useTenantNightclubController({
     )
     return () => {
       unsubCash()
+      setCashMovements([])
     }
   }, [repository, effectiveShift?.id, can])
 

@@ -1768,6 +1768,228 @@ try {
   )
 
   console.log('PASS: Test 9 (Integridad económica, métodos de caja, permisos estrictos y productos inactivos) completado exitosamente.')
+
+  console.log('=== TEST 10: MULTI-CASHBOX FINANCIAL ATTRIBUTION & ISOLATION ===')
+  // 1. Configurar multi-caja y shifts independientes
+  await root.collection('nightclubCashboxes').doc('cashbox-1').set({
+    id: 'cashbox-1',
+    branchId: 'main',
+    name: 'Caja 1 - Principal',
+    locationId: 'loc-bar-1',
+  })
+  await root.collection('nightclubCashboxes').doc('cashbox-2').set({
+    id: 'cashbox-2',
+    branchId: 'main',
+    name: 'Caja 2 - Terraza',
+    locationId: 'loc-bar-2',
+  })
+  await root.collection('nightclubLocations').doc('loc-bar-1').set({
+    id: 'loc-bar-1',
+    branchId: 'main',
+    name: 'Barra 1',
+  })
+  await root.collection('nightclubLocations').doc('loc-bar-2').set({
+    id: 'loc-bar-2',
+    branchId: 'main',
+    name: 'Barra Terraza',
+  })
+
+  // Global shift
+  await root.collection('nightclubOperationalState').doc('main').set({
+    activeShiftId: 'shift-global',
+  }, { merge: true })
+  await root.collection('nightclubShifts').doc('shift-global').set({
+    id: 'shift-global',
+    tenantId,
+    branchId: 'main',
+    status: 'open',
+    openingFloat: 500,
+    openedAt: new Date().toISOString(),
+    openedBy: 'admin',
+  })
+
+  // Cashbox shifts
+  await root.collection('nightclubShifts').doc('shift-1').set({
+    id: 'shift-1',
+    tenantId,
+    branchId: 'main',
+    status: 'open',
+    cashboxId: 'cashbox-1',
+    locationId: 'loc-bar-1',
+    openingFloat: 100,
+    openedAt: new Date().toISOString(),
+    openedBy: 'cashier',
+  })
+  await root.collection('nightclubShifts').doc('shift-2').set({
+    id: 'shift-2',
+    tenantId,
+    branchId: 'main',
+    status: 'open',
+    cashboxId: 'cashbox-2',
+    locationId: 'loc-bar-2',
+    openingFloat: 200,
+    openedAt: new Date().toISOString(),
+    openedBy: 'cashier',
+  })
+
+  // Set cashier in Caja 2
+  await root.collection('nightclubOperatorContexts').doc('cashier').set({
+    uid: 'cashier',
+    tenantId,
+    branchId: 'main',
+    cashboxId: 'cashbox-2',
+    locationId: 'loc-bar-2',
+    activeShiftId: 'shift-2',
+    updatedAt: new Date().toISOString(),
+  })
+
+  // 2. Abrir cuenta bajo Caja 2
+  const accOp2 = await call('cashier', 'openAccount', 'op-acc-cb2', { target: { type: 'bar', displayName: 'Cliente Terraza' } })
+  const acc2Id = accOp2.accountId
+  assert.ok(acc2Id)
+  const acc2Data = await data('nightclubAccounts/' + acc2Id)
+  assert.equal(acc2Data.shiftId, 'shift-2')
+  assert.equal(acc2Data.cashboxId, 'cashbox-2')
+  assert.equal(acc2Data.locationId, 'loc-bar-2')
+
+  // Agregar ronda y solicitar cuenta
+  await call('waiter', 'addRound', 'op-round-cb2', { accountId: acc2Id, items: [{ productId: 'prod-active-9', quantity: 2 }] })
+  await call('waiter', 'requestBill', 'op-bill-cb2', { accountId: acc2Id })
+
+  // Registrar pago en efectivo bajo Caja 2
+  const payOp2 = await call('cashier', 'recordPayment', 'op-pay-cb2', { accountId: acc2Id, amount: 60, method: 'cash' })
+  assert.ok(payOp2.paymentId)
+  const pay2Data = await data('nightclubPayments/' + payOp2.paymentId)
+  assert.equal(pay2Data.shiftId, 'shift-2')
+  assert.equal(pay2Data.cashboxId, 'cashbox-2')
+  assert.equal(pay2Data.locationId, 'loc-bar-2')
+
+  const mov2Data = await data('nightclubCashMovements/cash_op-pay-cb2')
+  assert.equal(mov2Data.shiftId, 'shift-2')
+  assert.equal(mov2Data.cashboxId, 'cashbox-2')
+  assert.equal(mov2Data.locationId, 'loc-bar-2')
+
+  // Verificar ZERO pagos o movimientos financieros bajo shift-global
+  const globalPays = await root.collection('nightclubPayments').where('shiftId', '==', 'shift-global').get()
+  assert.equal(globalPays.docs.length, 0)
+  const globalMovs = await root.collection('nightclubCashMovements').where('shiftId', '==', 'shift-global').get()
+  assert.equal(globalMovs.docs.length, 0)
+
+  // 3. CROSS CASHBOX PAYMENT DENIED
+  const accCrossOp = await call('cashier', 'openAccount', 'op-acc-cross', { target: { type: 'bar', displayName: 'Cross Acc' } })
+  await call('waiter', 'addRound', 'op-round-cross', { accountId: accCrossOp.accountId, items: [{ productId: 'prod-active-9', quantity: 1 }] })
+  await call('waiter', 'requestBill', 'op-bill-cross', { accountId: accCrossOp.accountId })
+
+  // Cambiar operator context a Caja 1
+  await root.collection('nightclubOperatorContexts').doc('cashier').set({
+    uid: 'cashier',
+    tenantId,
+    branchId: 'main',
+    cashboxId: 'cashbox-1',
+    locationId: 'loc-bar-1',
+    activeShiftId: 'shift-1',
+    updatedAt: new Date().toISOString(),
+  })
+
+  // Intentar cobrar cuenta de Caja 2 estando en Caja 1 -> DENIED
+  await assert.rejects(
+    () => call('cashier', 'recordPayment', 'op-pay-cross-fail', { accountId: accCrossOp.accountId, amount: 30, method: 'cash' }),
+    err => err.code === 'permission-denied'
+  )
+
+  const crossAccData = await data('nightclubAccounts/' + accCrossOp.accountId)
+  assert.equal(crossAccData.balance, 30)
+  assert.equal(crossAccData.paidTotal, 0)
+
+  // Volver a Caja 2 -> Pago exitoso
+  await root.collection('nightclubOperatorContexts').doc('cashier').set({
+    uid: 'cashier',
+    tenantId,
+    branchId: 'main',
+    cashboxId: 'cashbox-2',
+    locationId: 'loc-bar-2',
+    activeShiftId: 'shift-2',
+    updatedAt: new Date().toISOString(),
+  })
+  const payCrossOk = await call('cashier', 'recordPayment', 'op-pay-cross-ok', { accountId: accCrossOp.accountId, amount: 30, method: 'cash' })
+  assert.ok(payCrossOk.paymentId)
+
+  // 4. MANUAL CASH MOVEMENT TEST
+  const movExpOp = await call('cashier', 'recordCashMovement', 'op-mov-exp', {
+    amount: 45,
+    type: 'expense',
+    method: 'cash',
+    description: 'Compra hielo adicional',
+    category: 'cleaning',
+  })
+  const movExpData = await data('nightclubCashMovements/cash_mov_op-mov-exp')
+  assert.equal(movExpData.shiftId, 'shift-2')
+  assert.equal(movExpData.cashboxId, 'cashbox-2')
+  assert.equal(movExpData.locationId, 'loc-bar-2')
+
+  // 5. RESERVATION ARRIVAL MULTI-CASHBOX TEST
+  await root.collection('nightclubTables').doc('T-RES-10').set({
+    id: 'T-RES-10',
+    branchId: 'main',
+    name: 'Mesa Reserva 10',
+    status: 'available',
+  })
+  await root.collection('nightclubReservations').doc('RES-10').set({
+    id: 'RES-10',
+    branchId: 'main',
+    tableId: 'T-RES-10',
+    customerName: 'Cliente VIP Reserva',
+    status: 'confirmed',
+    guests: 4,
+  })
+  const arriveOp = await call('cashier', 'arriveReservation', 'op-arrive-res10', { id: 'RES-10' })
+  const resAccData = await data('nightclubAccounts/' + arriveOp.accountId)
+  assert.equal(resAccData.shiftId, 'shift-2')
+  assert.equal(resAccData.cashboxId, 'cashbox-2')
+  assert.equal(resAccData.locationId, 'loc-bar-2')
+
+  // 6. COMMISSION PAYMENT SHIFT TEST
+  // Asignar comision a mesero
+  await root.collection('nightclubCommissions').doc('comm-test-10').set({
+    id: 'comm-test-10',
+    tenantId,
+    branchId: 'main',
+    staffId: 'waiter',
+    amount: 25,
+    paidAmount: 0,
+    status: 'earned',
+    createdAt: new Date().toISOString(),
+  })
+    await root.collection('nightclubOperatorContexts').doc('admin').set({
+    uid: 'admin',
+    tenantId,
+    branchId: 'main',
+    cashboxId: 'cashbox-2',
+    locationId: 'loc-bar-2',
+    activeShiftId: 'shift-2',
+    updatedAt: new Date().toISOString(),
+  })
+  const commPayOp = await call('admin', 'payCommissions', 'op-pay-comm-10', {
+    draft: {
+      staffId: 'waiter',
+      amount: 25,
+      method: 'cash',
+      commissionIds: ['comm-test-10'],
+    }
+  })
+  assert.ok(commPayOp.paymentId)
+  const commPayData = await data('nightclubCommissionPayments/' + commPayOp.paymentId)
+  assert.equal(commPayData.shiftId, 'shift-2')
+  assert.equal(commPayData.cashboxId, 'cashbox-2')
+  assert.equal(commPayData.locationId, 'loc-bar-2')
+
+  const commMovData = await data('nightclubCashMovements/comm_' + commPayOp.paymentId)
+  assert.equal(commMovData.shiftId, 'shift-2')
+  assert.equal(commMovData.cashboxId, 'cashbox-2')
+  assert.equal(commMovData.locationId, 'loc-bar-2')
+
+  console.log('PASS: Test 10 (Multi-cashbox financial attribution & isolation) completado exitosamente.')
+
 } finally {
   await deleteApp(app)
 }
