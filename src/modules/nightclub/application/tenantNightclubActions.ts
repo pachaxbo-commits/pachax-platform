@@ -438,6 +438,7 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
           roleId: user.role,
           active: user.active,
           nightclubPermissions: user.permissions,
+          ...(user.cashboxIds !== undefined ? { cashboxIds: user.cashboxIds } : {}),
         })
         await reloadStaff()
         return true
@@ -454,6 +455,7 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
           password: initialPassword,
           roleId: user.role,
           nightclubPermissions: user.permissions,
+          ...(Array.isArray(user.cashboxIds) ? { cashboxIds: user.cashboxIds } : {}),
         })
         await reloadStaff()
         return true

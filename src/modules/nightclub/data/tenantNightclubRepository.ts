@@ -444,13 +444,14 @@ export class TenantNightclubRepository implements NightclubRepository {
     const ref = collection(ctx.db, 'tenants', this.tenantId, 'members')
     const snap = await getDocs(ref)
     return snap.docs.map(d => {
-      const item = d.data() as { displayName?: string; email?: string; roleId?: string; status?: string; nightclubPermissions?: string[] }
+      const item = d.data() as { displayName?: string; email?: string; roleId?: string; status?: string; nightclubPermissions?: string[]; cashboxIds?: string[] | null }
       return {
         id: d.id,
         name: item.displayName || item.email || d.id,
         email: item.email || '',
         role: (item.roleId || 'waiter') as NightclubStaff['role'],
         active: item.status === 'active',
+        ...(Object.prototype.hasOwnProperty.call(item, 'cashboxIds') ? { cashboxIds: item.cashboxIds } : {}),
         permissions: item.nightclubPermissions,
       }
     })
