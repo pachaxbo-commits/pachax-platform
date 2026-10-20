@@ -4,7 +4,7 @@ const { tenantActor, hasPermission, id } = require('./authorization.cjs')
 const { applyPaidRoundCommand } = require('./nightclubPaidRounds.cjs')
 const { applyNightclubMultiCashboxCommand, canUseCashbox } = require('./nightclubMultiCashbox.cjs')
 const { consumeNightclubLocationStock, reverseNightclubLocationStock } = require('./nightclubLocationConsumption.cjs')
-const permissions = { openAccount:'sales.create', createPendingRound:'sales.create', settleRound:'sales.create', advanceRound:'orders.manage', deliverRound:'orders.manage', finishOccupancy:'orders.manage', refundRound:'settings.manage', inventoryMovement:'inventory.manage', receiveWarehouseIntake:'inventory.manage', confirmPhysicalCount:'inventory.manage', openShift:'cash.close', closeShift:'cash.close', selectCashbox:'cash.close', openCashboxShift:'cash.close', requestTransfer:'inventory.manage', dispatchTransfer:'inventory.manage', receiveTransfer:'inventory.manage', courtesy:'orders.manage', void:'cash.close' }
+const permissions = { openAccount:'sales.create', createPendingRound:'sales.create', settleRound:'sales.create', settlePendingRound:'sales.create', advanceRound:'orders.manage', deliverRound:'orders.manage', finishOccupancy:'orders.manage', refundRound:'settings.manage', inventoryMovement:'inventory.manage', receiveWarehouseIntake:'inventory.manage', confirmPhysicalCount:'inventory.manage', openShift:'cash.close', closeShift:'cash.close', selectCashbox:'cash.close', openCashboxShift:'cash.close', requestTransfer:'inventory.manage', dispatchTransfer:'inventory.manage', receiveTransfer:'inventory.manage', courtesy:'orders.manage', void:'cash.close' }
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
 const amount = value => { const number = Number(value); if (!Number.isFinite(number) || number < 0) throw new HttpsError('invalid-argument','Monto inválido.'); return money(number) }
 const text = (value,max=200) => { if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument','Texto inválido.'); return value.trim() }
@@ -49,12 +49,15 @@ async function applyCommand(context) {
   const operatorContext = await tx.get(root.collection('nightclubOperatorContexts').doc(actor.uid))
   const operatorContextData = operatorContext.exists && operatorContext.data().branchId === branchId ? operatorContext.data() : null
   if (operatorContextData?.cashboxId && !canUseCashbox(actor, operatorContextData.cashboxId)) throw new HttpsError('permission-denied', 'Tu contexto de caja ya no est? autorizado.')
+  // Reject an invalid BAR payload before reporting operational availability.
+  // This keeps the no-table invariant observable even for a stale operator context.
+  if (type === 'openAccount' && payload.target?.type === 'bar' && 'tableId' in payload.target) throw new HttpsError('invalid-argument', 'Un pedido en barra no puede incluir una mesa.')
   const operatorShiftId = operatorContextData?.activeShiftId || null
   // Paid-round commands validate the immutable account shift in their own
   // transaction. This lets a table stay with its original cashbox after the
   // operator changes context.
-  if (!activeShiftId && !operatorShiftId && !['settleRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) throw new HttpsError('failed-precondition','No hay turno activo.')
-  if (['settleRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) return applyPaidRoundCommand({ ...context, activeShiftId })
+  if (!activeShiftId && !operatorShiftId && !['settleRound', 'settlePendingRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) throw new HttpsError('failed-precondition','No hay turno activo.')
+  if (['settleRound', 'settlePendingRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) return applyPaidRoundCommand({ ...context, activeShiftId, operatorContextData, operatorShiftId })
   if (['openAccount', 'createPendingRound'].includes(type)) {
     if (!operatorContextData?.cashboxId || !operatorContextData.locationId || !operatorShiftId) throw new HttpsError('failed-precondition', 'Selecciona una caja con turno abierto.')
     const shift = await tx.get(root.collection('nightclubShifts').doc(operatorShiftId))
