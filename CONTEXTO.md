@@ -1166,3 +1166,12 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Un usuario Mesero sin permiso recibió rechazo de lectura en la interfaz y no obtuvo el botón de reembolso. El modo productivo mantiene visibles solo módulos de consulta; POS, Caja, Inventario y demás escrituras siguen bloqueados.
 - Studio continuó en el dataset Completo y su POS mostró los fallbacks específicos de producto, incluido Energizante como lata/vaso de bebida, sin imágenes rotas.
 - El historial canónico ahora interpreta líneas y pagos `partially_returned` / `partially_refunded` provenientes de Firestore, mostrando cantidad e importe reembolsados sin convertir la ronda en una devolución total.
+
+## Nightclub first-run y cajas configurables (19/10/2026, `nightclub-first-run-bootstrap`)
+
+- Onboarding y `createTenant` crean en su transacción el Almacén general, la ubicación de Caja principal y Caja principal para `nightclub_lounge`; no abren turnos ni crean stock ficticio. Los reintentos verifican la infraestructura existente sin duplicarla.
+- `initializeNightclubInfrastructure` permite que owner o administración autorizada inicialicen tenants anteriores si los documentos están ausentes. Los estados parciales o incompatibles se rechazan sin sobrescribir. `createNightclubCashbox` crea una caja adicional y su ubicación vinculada en la misma operación idempotente del gateway.
+- Configuración Nightclub muestra ubicaciones y cajas, ofrece inicialización solo a roles autorizados y permite añadir cajas. Caja y POS no operan sin contexto de caja confirmado cuando hay cajas configuradas. Las Rules mantienen bloqueadas las escrituras cliente de infraestructura, contextos y turnos.
+- Verificación local en emuladores: `test:nightclub-first-run` 14/14; `test:nightclub-orders-backend` 14 escenarios; `test:onboarding` 16; `test:tenant-core` 71; `test:platform-security`; `test:platform` 191; `test:nightclub` 92; `test:restaurant` y backend 57/57; `test:distribution` 55; `test:cash` 4; `test:reports`; typecheck y build aprobados.
+- ESLint focalizado reporta 166 problemas heredados en Nightclub; no hay errores en líneas añadidas y los archivos nuevos y `NightclubSettings` pasan. La validación visual de crear Caja 2 desde navegador autenticado queda pendiente.
+- No se desplegó Firebase ni se modificó `main`. Preview y push pertenecen a la revisión de esta rama.

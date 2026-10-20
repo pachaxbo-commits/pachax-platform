@@ -92,6 +92,8 @@ type ControllerContract = {
   onMarkPromoterLoungePaid?: (id: string) => boolean | void | Promise<boolean | void>
   onSavePromoterConsumption?: (consumption: NightclubConsumptionDraft) => boolean | void | Promise<boolean | void>
   onSelectCashbox?: (id: string, confirmPending?: boolean) => void | Promise<unknown>
+  onInitializeNightclubInfrastructure?: (operationId: string) => Promise<{ status: string }>
+  onCreateNightclubCashbox?: (name: string, operationId: string) => Promise<{ cashboxId: string; locationId: string }>
   onStartCashboxShift?: (id: string, amount: number) => void | Promise<unknown>
   onCloseCashboxShift?: (id: string, counted: number, expected: number) => void | Promise<unknown>
   onReceiveWarehouseIntake?: (receipt: any, operationId: string) => Promise<unknown>
@@ -132,6 +134,7 @@ const roleLabels = { owner: 'Propietario', admin: 'Administración', partner: 'S
 
 export function NightclubExperience(props: Props) {
   const { companyName, logoUrl, userName, role, data, onSignOut } = props
+  const configuredCashboxes = data.cashboxes || []
   const effectivePermissions = props.permissions !== undefined ? props.permissions : props.demoPermissions
   const normalizedRole = normalizeNightclubRole(role)
   const canPrintComanda = ['owner', 'admin', 'bar'].includes(normalizedRole)
@@ -434,7 +437,7 @@ export function NightclubExperience(props: Props) {
         <main className="min-w-0 p-4 pb-24 sm:p-6 lg:pb-6 xl:p-7">{notice && <button onClick={() => setNotice('')} role="status" className="mb-4 w-full rounded-xl border border-amber-300/25 bg-amber-300/10 p-3 text-left text-sm text-amber-100">{notice}</button>}{canDeliver && readyRounds.length > 0 && <button onClick={() => go('accounts')} className="mb-4 flex w-full items-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 p-3 text-left text-sm font-bold text-emerald-100"><Bell size={16} />{readyRounds.length} pedido(s) listo(s) para recoger <ChevronRight className="ml-auto" size={16} /></button>}
           {visibleModules.length === 0 && <div className="rounded-xl border border-white/10 p-5 text-sm text-slate-300">Este usuario no tiene secciones habilitadas. Vuelve a Administrador para ajustar sus permisos.</div>}{visibleModules.length > 0 && currentModule === 'dashboard' && (props.demoUserId && normalizedRole !== 'admin' ? <PersonalDashboard data={data} role={role} userName={userName} userId={props.demoUserId} permissions={effectivePermissions ?? new Set()} onGo={go} /> : <Dashboard data={data} activeAccounts={activeAccounts} barRounds={barRounds} sales={summary.totalSales} heroUrl={branding.heroDataUrl} isLight={isLight} mode={props.mode} onGo={go} />)}
           {currentModule === 'floor' && <NightclubZones data={data} mode={props.mode || 'demo'} onOpenAccount={async tableId => { try { const id = await props.onOpenAccount(tableId); if (id) setNotice('Cuenta abierta.'); return id } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo abrir la cuenta.'); return '' } }} onGoToPOS={id => { setSelectedAccountId(id); go('pos') }} onFinishAccount={id => run(() => props.onFinishAccount(id), 'Mesa libre.')} onDeliverRound={(id, roundId) => run(() => props.onDeliverRound(id, roundId), 'Pedido entregado.')} onSaveReservation={value => run(() => props.onSaveReservation?.(value), 'Reserva guardada.')} onCancelReservation={id => run(() => props.onCancelReservation?.(id), 'Reserva cancelada.')} onArriveReservation={async id => { try { const accountId = await props.onArriveReservation?.(id); if (accountId) setNotice('Llegada confirmada y cuenta abierta.'); return accountId || '' } catch (error) { setNotice(error instanceof Error ? error.message : 'No se pudo confirmar la llegada.'); return '' } }} onAssignCustomer={(accountId, customerId) => run(() => props.onAssignCustomer?.(accountId, customerId), 'Cliente asignado.')} canDeliver={canDeliver} />}
-          {currentModule === 'pos' && <NightclubPOS
+          {currentModule === 'pos' && props.mode === 'tenant' && (!configuredCashboxes.length || !props.activeCashboxId) ? <section role="status" className="mx-auto my-8 max-w-xl rounded-2xl border border-amber-300/25 bg-amber-300/10 p-6 text-amber-50"><h2 className="text-lg font-bold">Caja requerida para operar</h2><p className="mt-2 text-sm text-amber-100/80">{configuredCashboxes.length ? 'Selecciona una caja desde el módulo Caja antes de comenzar una venta.' : 'Debes configurar las cajas y el almacén desde Configuración antes de comenzar a operar.'}</p><button type="button" onClick={() => go(configuredCashboxes.length ? 'cash' : 'settings')} className="mt-4 min-h-11 rounded-xl bg-amber-300 px-4 font-bold text-slate-950">{configuredCashboxes.length ? 'Ir a Caja' : 'Ir a Configuración'}</button></section> : currentModule === 'pos' && <NightclubPOS
             data={posData}
             mode={props.mode || 'demo'}
             currentWaiterId={normalizedRole === 'waiter' ? props.demoUserId : undefined}
@@ -605,6 +608,7 @@ export function NightclubExperience(props: Props) {
           {currentModule === 'cash' && <NightclubCash
             data={data}
             activeCashboxId={props.activeCashboxId || undefined}
+            requireCashboxConfiguration={props.mode === 'tenant'}
             onStartShift={amount => run(() => props.onStartShift(amount), 'Turno abierto.')}
             onCloseShift={counted => run(() => props.onCloseShift(counted), 'Turno cerrado y arqueo guardado.')}
             onCashMovement={value => run(() => props.onCashMovement?.(value), 'Movimiento registrado.')}
@@ -633,6 +637,8 @@ export function NightclubExperience(props: Props) {
             tenantId={effectiveTenantId}
             branchId={effectiveBranchId}
             canManageSettings={['owner', 'admin'].includes(normalizedRole)}
+            onInitializeNightclubInfrastructure={props.onInitializeNightclubInfrastructure}
+            onCreateNightclubCashbox={props.onCreateNightclubCashbox}
             onSaveBranding={value => { if (value.theme) handleThemeChange(value.theme); return run(() => props.onSaveBranding?.(value), 'Identidad guardada.') }}
             onSaveZone={value => run(() => props.onSaveZone(value), 'Zona guardada.')}
             onSaveTable={value => run(() => props.onSaveTable(value), 'Mesa guardada.')}

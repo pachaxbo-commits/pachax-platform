@@ -76,6 +76,8 @@ export interface TenantNightclubActionsDeps {
     deleteCustomerIncident?: (payload: any) => Promise<any>
     assignCustomer?: (payload: any) => Promise<any>
     selectCashbox?: (payload: any) => Promise<any>
+    initializeNightclubInfrastructure?: (payload: { operationId: string }) => Promise<{ status: string; warehouseId: string; cashboxId: string }>
+    createNightclubCashbox?: (payload: { operationId: string; name: string }) => Promise<{ status: string; cashboxId: string; locationId: string; name: string }>
     openCashboxShift?: (payload: any) => Promise<any>
     closeCashboxShift?: (payload: any) => Promise<any>
     receiveWarehouseIntake?: (payload: any) => Promise<any>
@@ -557,6 +559,14 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       if (!repository.selectCashbox) throw new Error('selectCashbox no disponible en el repositorio.')
       await repository.selectCashbox({ operationId, cashboxId, confirmPending })
       return true
+    },
+    onInitializeNightclubInfrastructure: async (operationId: string): Promise<{ status: string }> => {
+      if (!repository.initializeNightclubInfrastructure) throw new Error('Inicialización de infraestructura no disponible en el repositorio.')
+      return repository.initializeNightclubInfrastructure({ operationId })
+    },
+    onCreateNightclubCashbox: async (name: string, operationId: string): Promise<{ cashboxId: string; locationId: string }> => {
+      if (!repository.createNightclubCashbox) throw new Error('Creación de cajas no disponible en el repositorio.')
+      return repository.createNightclubCashbox({ operationId, name })
     },
     onStartCashboxShift: async (cashboxId: string, openingFloat: number): Promise<boolean> => {
       const operationId = crypto.randomUUID()

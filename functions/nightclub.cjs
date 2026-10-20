@@ -3,6 +3,7 @@ const { createHash } = require('node:crypto')
 const { tenantActor, hasPermission } = require('./authorization.cjs')
 const { applyPaidRoundCommand } = require('./nightclubPaidRounds.cjs')
 const { applyNightclubMultiCashboxCommand, canUseCashbox } = require('./nightclubMultiCashbox.cjs')
+const { NIGHTCLUB_BASE_INFRASTRUCTURE, readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure, assertNightclubCashboxLinks, assertNoExistingNightclubInfrastructure } = require('./nightclubInfrastructure.cjs')
 const { consumeNightclubLocationStock, reverseNightclubLocationStock } = require('./nightclubLocationConsumption.cjs')
 const {
   planNightclubInventoryConsumption,
@@ -40,6 +41,8 @@ const permissions = {
   closeShift: 'cash.close',
   selectCashbox: 'cash.close',
   openCashboxShift: 'cash.close',
+  initializeNightclubInfrastructure: 'settings.manage',
+  createNightclubCashbox: 'settings.manage',
   openAccount: 'sales.create',
   createPendingRound: 'sales.create',
   addRound: 'orders.manage',
@@ -125,16 +128,30 @@ async function executeNightclubCommand(db, request) {
   const branchId = id(input.branchId), payload = input.payload || {}, requestHash = fingerprint({ type, branchId, payload })
   const root = actor.root, operationRef = root.collection('nightclubOperations').doc(operationId), now = new Date().toISOString()
   return db.runTransaction(async tx => {
-    const [stored, tenant, member] = await Promise.all([tx.get(operationRef), tx.get(root), tx.get(root.collection('members').doc(actor.uid))])
+    const needsActiveBranch = ['initializeNightclubInfrastructure', 'createNightclubCashbox'].includes(type)
+    const reads = [tx.get(operationRef), tx.get(root), tx.get(root.collection('members').doc(actor.uid))]
+    if (needsActiveBranch) reads.push(tx.get(root.collection('branches').doc(branchId)))
+    const [stored, tenant, member, branch] = await Promise.all(reads)
+    if (!hasPermission(tenant.data(), member.data(), permission)) throw new HttpsError('permission-denied', 'Permiso revocado.')
+    if (!member.data().branchIds?.includes(branchId)) throw new HttpsError('permission-denied', 'Sucursal no autorizada.')
+    const memberData = member.data()
+    if (needsActiveBranch) {
+      if (branchId !== 'main') throw new HttpsError('failed-precondition', 'La configuración de cajas de esta versión aplica únicamente a Sucursal principal.')
+      if (tenant.data()?.status !== 'active' || !branch?.exists || branch.data()?.active !== true) {
+        throw new HttpsError('failed-precondition', 'La empresa y sucursal deben estar activas para configurar cajas.')
+      }
+      if (!['owner', 'admin'].includes(memberData.roleId)) {
+        throw new HttpsError('permission-denied', 'Solo Propietario o Administración pueden configurar la infraestructura.')
+      }
+      if (memberData.roleId === 'admin' && Array.isArray(memberData.nightclubPermissions) && !memberData.nightclubPermissions.includes('settings.edit')) {
+        throw new HttpsError('permission-denied', 'Administración necesita el permiso Configuración → Editar.')
+      }
+    }
     if (stored.exists) {
       const previous = stored.data()
       if (previous.actorUid !== actor.uid || previous.requestHash !== requestHash) throw new HttpsError('already-exists', 'operationId ya pertenece a otra solicitud.')
       return previous.result
     }
-    if (!hasPermission(tenant.data(), member.data(), permission)) throw new HttpsError('permission-denied', 'Permiso revocado.')
-    if (!member.data().branchIds?.includes(branchId)) throw new HttpsError('permission-denied', 'Sucursal no autorizada.')
-
-    const memberData = member.data()
     const checkExists = async (col, docId) => {
       if (typeof docId !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(docId)) return false
       const snap = await tx.get(root.collection(col).doc(docId))
@@ -318,13 +335,52 @@ async function executeNightclubCommand(db, request) {
 
     const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now, member })
     tx.create(operationRef, { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, requestHash, status: 'confirmed', createdAt: now, result })
-    tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.transferId || result.countId || result.accountId || result.roundId || result.shiftId || result.movementId || result.zoneId || result.tableId || result.productId || result.customerId || result.reservationId || result.promoterId || result.eventId || result.saleId || result.consumptionId || result.inventoryId || result.memberId || result.courtesyId || result.paymentId || result.incidentId || null, createdAt: now })
+    tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.transferId || result.countId || result.accountId || result.roundId || result.shiftId || result.movementId || result.zoneId || result.tableId || result.productId || result.customerId || result.reservationId || result.promoterId || result.eventId || result.saleId || result.consumptionId || result.inventoryId || result.memberId || result.courtesyId || result.paymentId || result.incidentId || result.cashboxId || result.locationId || null, createdAt: now })
     return result
   })
 }
 
 async function applyCommand(context) {
   const { tx, root, actor, branchId, operationId, type, payload, now } = context
+  if (type === 'initializeNightclubInfrastructure') {
+    if (Object.keys(payload).length) throw new HttpsError('invalid-argument', 'La inicialización no acepta datos adicionales.')
+    const snapshots = await readNightclubBaseInfrastructure(tx, root)
+    const state = assertNightclubBaseInfrastructureState(snapshots, actor.tenantId)
+    const { warehouseId, cashboxId } = NIGHTCLUB_BASE_INFRASTRUCTURE
+    if (state === 'complete') {
+      await assertNightclubCashboxLinks(tx, root, actor.tenantId, branchId)
+      return { status: 'already_initialized', warehouseId, cashboxId }
+    }
+    await assertNoExistingNightclubInfrastructure(tx, root, branchId)
+    createNightclubBaseInfrastructure(tx, root, actor.tenantId, now)
+    return { status: 'initialized', warehouseId, cashboxId }
+  }
+  if (type === 'createNightclubCashbox') {
+    if (Object.keys(payload).some(key => key !== 'name')) throw new HttpsError('invalid-argument', 'Solo se permite enviar el nombre de la caja.')
+    const name = typeof payload.name === 'string' ? payload.name.trim().replace(/\s+/g, ' ') : ''
+    if (!name || name.length > 60 || /[\u0000-\u001f\u007f]/.test(name)) throw new HttpsError('invalid-argument', 'El nombre de la caja debe tener entre 1 y 60 caracteres.')
+    const base = await readNightclubBaseInfrastructure(tx, root)
+    if (assertNightclubBaseInfrastructureState(base, actor.tenantId) !== 'complete') {
+      throw new HttpsError('failed-precondition', 'Inicializa primero el almacén y la Caja principal.')
+    }
+    await assertNightclubCashboxLinks(tx, root, actor.tenantId, branchId)
+    const cashboxesRef = root.collection('nightclubCashboxes')
+    const existingBoxes = await tx.get(cashboxesRef.where('branchId', '==', branchId))
+    const nameKey = name.toLocaleLowerCase('es')
+    if (existingBoxes.docs.some(item => item.data().name?.trim().toLocaleLowerCase('es') === nameKey)) {
+      throw new HttpsError('already-exists', 'Ya existe una caja con ese nombre en esta sucursal.')
+    }
+    const cashboxId = `cashbox_${createHash('sha256').update(`${actor.tenantId}:${branchId}:${operationId}`).digest('hex').slice(0, 24)}`
+    const cashboxRef = cashboxesRef.doc(cashboxId)
+    const locationRef = root.collection('nightclubLocations').doc(cashboxId)
+    const [existingCashbox, existingLocation] = await Promise.all([tx.get(cashboxRef), tx.get(locationRef)])
+    if (existingCashbox.exists || existingLocation.exists) {
+      throw new HttpsError('already-exists', 'Los identificadores asignados a esta operación ya están ocupados; no se modificaron documentos.')
+    }
+    tx.create(cashboxRef, { id: cashboxId, tenantId: actor.tenantId, branchId, locationId: cashboxId, name, active: true, createdAt: now, updatedAt: now })
+    tx.create(locationRef, { id: cashboxId, tenantId: actor.tenantId, branchId, type: 'cashbox', name, linkedCashboxId: cashboxId, active: true, createdAt: now, updatedAt: now })
+    return { status: 'created', cashboxId, locationId: cashboxId, name }
+  }
   if (['selectCashbox', 'openCashboxShift', 'receiveWarehouseIntake', 'confirmPhysicalCount', 'requestTransfer', 'dispatchTransfer', 'receiveTransfer'].includes(type)) {
     return applyNightclubMultiCashboxCommand(context)
   }
@@ -1212,6 +1268,10 @@ async function applyCommand(context) {
     if (!shift.exists || shift.data().status !== 'open' || shift.data().branchId !== branchId || shift.data().cashboxId !== operatorContextData.cashboxId || shift.data().locationId !== operatorContextData.locationId) {
       throw new HttpsError('failed-precondition', 'El turno de la caja ya no está abierto.')
     }
+  }
+  if (['openAccount', 'createPendingRound', 'arriveReservation'].includes(type) && !operatorContextData?.cashboxId) {
+    const configuredCashboxes = await tx.get(root.collection('nightclubCashboxes').limit(1))
+    if (!configuredCashboxes.empty) throw new HttpsError('failed-precondition', 'Selecciona una caja con turno abierto antes de operar.')
   }
 
   // Apertura de Cuenta (Mesa o Barra)

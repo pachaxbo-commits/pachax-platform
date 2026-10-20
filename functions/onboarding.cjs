@@ -3,6 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https');
 const { FieldValue } = require('firebase-admin/firestore');
 const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id } = require('./authorization.cjs');
+const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 
 const ALLOWED_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding']);
 
@@ -78,6 +79,9 @@ async function completeOnboarding(db, auth, request) {
       tx.get(linkRef), tx.get(operatorRef), tx.get(db.collection(`users/${uid}/tenantLinks`).limit(1)),
       tx.get(branchRef), tx.get(root.collection('roles')),
     ]);
+    const infrastructure = template.businessType === 'nightclub_lounge'
+      ? await readNightclubBaseInfrastructure(tx, root)
+      : null;
     if (operator.data()?.active === true) throw new HttpsError('permission-denied', 'Una cuenta Platform no puede usar onboarding tenant.');
 
     if (marker.exists) {
@@ -89,6 +93,7 @@ async function completeOnboarding(db, auth, request) {
         && member.data()?.status === 'active' && profile.exists && link.exists && branch.data()?.active === true
         && roles.size === expectedRoles.size && roles.docs.every(role => expectedRoles.has(role.id));
       if (!complete) throw new HttpsError('failed-precondition', 'El onboarding existente está incompleto y requiere revisión administrativa.');
+      if (infrastructure) assertNightclubBaseInfrastructureState(infrastructure, tenantId);
       return response(tenantId, savedTemplate);
     }
 
@@ -96,6 +101,7 @@ async function completeOnboarding(db, auth, request) {
     if (tenant.exists || member.exists || link.exists || branch.exists || !roles.empty) {
       throw new HttpsError('failed-precondition', 'Se detectó un onboarding parcial; no se crearán documentos adicionales.');
     }
+    if (infrastructure) assertNightclubBaseInfrastructureState(infrastructure, tenantId);
 
     const now = FieldValue.serverTimestamp();
     const tenantData = {
@@ -135,6 +141,7 @@ async function completeOnboarding(db, auth, request) {
     tx.create(memberRef, membership);
     tx.create(branchRef, { tenantId, id: 'main', name: 'Sucursal principal', active: true, createdAt: now });
     for (const role of template.roles) tx.create(root.collection('roles').doc(role.id), { ...role, tenantId, createdAt: now });
+    if (infrastructure) createNightclubBaseInfrastructure(tx, root, tenantId, now);
     tx.set(profileRef, {
       uid, displayName: user.displayName || '', email: user.email || '',
       defaultTenantId: profile.data()?.defaultTenantId || tenantId,

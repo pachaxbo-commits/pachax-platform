@@ -3,6 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https');
 const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id, tenantActor, audit, hasPermission } = require('./authorization.cjs');
 const { normalizeNightclubPermissions } = require('./nightclubUsers.cjs');
+const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 36);
 function text(value, max = 100) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.');
@@ -140,16 +141,25 @@ async function createTenant(db, auth, request) {
     createdAt: now, updatedAt: now, userCount: 1, branchCount: 1 };
   await db.runTransaction(async tx => {
     const [current, profile, op] = await Promise.all([tx.get(root), tx.get(db.doc(`users/${uid}`)), tx.get(db.doc(`platformOperators/${uid}`))]);
+    const infrastructure = template.businessType === 'nightclub_lounge'
+      ? await readNightclubBaseInfrastructure(tx, root)
+      : null;
     if (op.data()?.active === true) throw new HttpsError('permission-denied', 'La creación de empresas requiere una cuenta de dueño.');
     if (current.exists) {
       if (current.data().ownerUid !== uid) throw new HttpsError('permission-denied', 'Operación no autorizada.');
+      if (current.data().businessType !== template.businessType || current.data().name !== name) {
+        throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con datos distintos.');
+      }
+      if (infrastructure) assertNightclubBaseInfrastructureState(infrastructure, tenantId);
       return;
     }
+    if (infrastructure) assertNightclubBaseInfrastructureState(infrastructure, tenantId);
     const membership = { uid, tenantId, displayName: user.displayName || user.email || 'Dueño', email: user.email || '', roleId: 'owner', status: 'active', branchIds: ['main'], routeIds: [], createdAt: now, createdBy: uid };
     tx.create(root, tenant);
     tx.create(root.collection('members').doc(uid), membership);
     tx.create(root.collection('branches').doc('main'), { tenantId, id: 'main', name: 'Sucursal principal', active: true, createdAt: now });
     for (const role of template.roles) tx.create(root.collection('roles').doc(role.id), { ...role, tenantId });
+    if (infrastructure) createNightclubBaseInfrastructure(tx, root, tenantId, now);
     tx.set(db.doc(`users/${uid}`), { uid, displayName: user.displayName || '', email: user.email || '', defaultTenantId: profile.data()?.defaultTenantId || tenantId, createdAt: profile.data()?.createdAt || now, updatedAt: now }, { merge: true });
     tx.create(db.doc(`users/${uid}/tenantLinks/${tenantId}`), { tenantId, name, businessType: template.businessType });
     audit(db, tx, { uid, tenantId, actorType: 'tenant' }, 'tenant.created', tenantId, null, { name, businessType: template.businessType });
