@@ -1,22 +1,184 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Wallet } from 'lucide-react'
 import type { NightclubCashMovement, NightclubDataset, NightclubPaymentDraft } from '../domain/nightclubAccounts'
 import { nightclubAccountLabel, nightclubBalance, nightclubCashReconciliation, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary } from '../domain/nightclubAccounts'
+import { requiresCashboxSelection, resolveSelectedCashboxId } from '../domain/nightclubCashboxSelection'
 import { NightclubAccountPayment } from './NightclubAccountPayment'
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const labels = { inventory_purchase: 'Compra de inventario', payroll: 'Pago al personal', services: 'Servicios', rent: 'Alquiler', maintenance: 'Mantenimiento', transport: 'Transporte', advertising: 'Publicidad', cleaning: 'Limpieza', security: 'Seguridad', administrative: 'Gasto administrativo', other: 'Otro gasto' } as const
 
-export function NightclubCash({ data, onStartShift, onCloseShift, onCashMovement, onRecordPayment, onSelectCashbox, onStartCashboxShift, onCloseCashboxShift }: { data: NightclubDataset; onStartShift: (amount: number) => void; onCloseShift: (countedCash: number) => void; onCashMovement: (draft: Omit<NightclubCashMovement, 'id' | 'shiftId' | 'at' | 'actor'>) => boolean; onRecordPayment: (accountId: string, payment: NightclubPaymentDraft) => boolean; onSelectCashbox?: (id: string, confirmPending?: boolean) => void; onStartCashboxShift?: (id: string, amount: number) => void; onCloseCashboxShift?: (id: string, counted: number, expected: number) => void }) {
-  const [opening, setOpening] = useState('200'); const [counted, setCounted] = useState(''); const [type, setType] = useState<'income' | 'expense'>('expense'); const [category, setCategory] = useState<keyof typeof labels>('other'); const [method, setMethod] = useState<'cash' | 'qr' | 'card'>('cash'); const [amount, setAmount] = useState(''); const [description, setDescription] = useState('')
+export function NightclubCash({
+  data,
+  onStartShift,
+  onCloseShift,
+  onCashMovement,
+  onRecordPayment,
+  onSelectCashbox,
+  onStartCashboxShift,
+  onCloseCashboxShift,
+  activeCashboxId,
+}: {
+  data: NightclubDataset
+  onStartShift: (amount: number) => void
+  onCloseShift: (countedCash: number) => void
+  onCashMovement: (draft: Omit<NightclubCashMovement, 'id' | 'shiftId' | 'at' | 'actor'>) => boolean | void | Promise<boolean | void>
+  onRecordPayment: (accountId: string, payment: NightclubPaymentDraft) => boolean | void | Promise<boolean | void>
+  onSelectCashbox?: (id: string, confirmPending?: boolean) => void | Promise<unknown>
+  onStartCashboxShift?: (id: string, amount: number) => void | Promise<unknown>
+  onCloseCashboxShift?: (id: string, counted: number, expected: number) => void | Promise<unknown>
+  activeCashboxId?: string
+}) {
+  const [opening, setOpening] = useState('200')
+  const [counted, setCounted] = useState('')
+  const [type, setType] = useState<'income' | 'expense'>('expense')
+  const [category, setCategory] = useState<keyof typeof labels>('other')
+  const [method, setMethod] = useState<'cash' | 'qr' | 'card'>('cash')
+  const [amount, setAmount] = useState('')
+  const [description, setDescription] = useState('')
   const [payingId, setPayingId] = useState<string | null>(null)
-  const shift = data.shift; const cash = nightclubCashSummary(data); const profit = nightclubProfitSummary(data); const openAccounts = data.accounts.filter(account => nightclubBalance(account) > 0); const movements = (data.cashMovements || []).filter(item => item.shiftId === shift?.id).slice().reverse()
-  const reconciliation = nightclubCashReconciliation(cash.expectedCash, counted)
-  const [selectedCashboxId, setSelectedCashboxId] = useState(data.cashboxes?.[0]?.id || '')
+  const [pendingCashboxId, setPendingCashboxId] = useState<string | null>(null)
+
+  const isMultiCashbox = Boolean(data.cashboxes && data.cashboxes.length > 0)
+  const shift = data.shift
+  const activeShiftId = shift?.id
+
+  // Solo una caja confirmada por el servidor (operatorContext) cuenta como seleccionada.
+  const selectedCashboxId = resolveSelectedCashboxId(data.cashboxes, activeCashboxId)
+  const needsCashboxSelection = requiresCashboxSelection(data.cashboxes, activeCashboxId)
   const selectedCashbox = data.cashboxes?.find(item => item.id === selectedCashboxId)
   const selectedCashboxShift = data.cashboxShifts?.find(item => item.cashboxId === selectedCashboxId && item.status === 'open')
-  const submit = () => { if (onCashMovement({ type, method, amount: Number(amount), description, ...(type === 'expense' ? { category } : {}) })) { setAmount(''); setDescription('') } }
-  const cashboxControl = data.cashboxes?.length ? <section className="rounded-2xl border border-slate-700 bg-slate-900 p-4"><h2 className="font-bold">Caja de trabajo</h2><p className="mt-1 text-sm text-slate-400">Cada caja mantiene su turno, efectivo y movimientos por separado.</p><div className="mt-3 flex flex-wrap gap-2">{data.cashboxes.map(cashbox => <button key={cashbox.id} onClick={() => { setSelectedCashboxId(cashbox.id); onSelectCashbox?.(cashbox.id) }} className={`min-h-11 rounded-xl px-4 font-bold ${cashbox.id === selectedCashboxId ? 'bg-amber-400 text-slate-950' : 'border border-slate-700 text-slate-200'}`}>{cashbox.name}</button>)}</div><p className="mt-3 text-sm">{selectedCashboxShift ? `Turno activo desde ${new Date(selectedCashboxShift.openedAt).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })}. Fondo: ${money(selectedCashboxShift.openingFloat)}` : 'No hay turno abierto en esta caja.'}</p>{!selectedCashboxShift && selectedCashbox && <button onClick={() => onStartCashboxShift?.(selectedCashbox.id, Number(opening))} className="mt-3 rounded-xl bg-amber-400 px-4 py-2 font-bold text-slate-950">Abrir turno de {selectedCashbox.name}</button>}{selectedCashboxShift && selectedCashbox && reconciliation.valid && <button onClick={() => onCloseCashboxShift?.(selectedCashbox.id, reconciliation.countedCash!, cash.expectedCash)} className="mt-3 rounded-xl border border-amber-300/40 px-4 py-2 font-bold text-amber-200">Cerrar turno de {selectedCashbox.name}</button>}</section> : null
-  if (!shift || shift.status === 'closed') return <div className="space-y-5"><header><h1 className="text-2xl font-black">Caja y turnos</h1><p className="text-sm text-slate-400">Cobros, resultado y arqueo de la noche.</p></header>{cashboxControl}<section className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="mb-3 text-sm">Inicia un turno para abrir cuentas y vender.</p><label className="block text-xs text-slate-400">Fondo inicial / cambio en caja<input type="number" min="0" value={opening} onChange={e => setOpening(e.target.value)} className="mt-1 block w-full rounded-xl bg-slate-950 p-3" /></label><button onClick={() => onStartShift(Number(opening))} className="mt-3 rounded-xl bg-amber-400 px-5 py-3 font-bold text-slate-950">Iniciar turno</button></section></div>
+
+  const cashAccounts = useMemo(() => {
+    if (isMultiCashbox) {
+      if (!selectedCashboxId) return []
+      return data.accounts.filter(account => account.cashboxId === selectedCashboxId && account.shiftId === activeShiftId)
+    }
+    if (activeShiftId) {
+      return data.accounts.filter(account => account.shiftId === activeShiftId)
+    }
+    return data.accounts
+  }, [data.accounts, isMultiCashbox, selectedCashboxId, activeShiftId])
+
+  const openAccounts = cashAccounts.filter(account => nightclubBalance(account) > 0)
+  const billRequestedAccounts = cashAccounts.filter(account => account.status === 'bill_requested' && nightclubBalance(account) > 0)
+
+  const activeDataset: NightclubDataset = useMemo(() => {
+    if (isMultiCashbox && selectedCashboxId) {
+      return { ...data, accounts: cashAccounts }
+    }
+    return data
+  }, [data, isMultiCashbox, selectedCashboxId, cashAccounts])
+
+  const cash = nightclubCashSummary(activeDataset)
+  const profit = nightclubProfitSummary(activeDataset)
+  const movements = (data.cashMovements || []).filter(item => item.shiftId === shift?.id).slice().reverse()
+  const reconciliation = nightclubCashReconciliation(cash.expectedCash, counted)
+
+  const submit = async () => {
+    const ok = await onCashMovement({ type, method, amount: Number(amount), description, ...(type === 'expense' ? { category } : {}) })
+    if (ok !== false) {
+      setAmount('')
+      setDescription('')
+    }
+  }
+
+  const cashboxControl = isMultiCashbox ? (
+    <section className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
+      <h2 className="font-bold">Caja de trabajo</h2>
+      <p className="mt-1 text-sm text-slate-400">Cada caja mantiene su turno, efectivo y movimientos por separado.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {data.cashboxes?.map(cashbox => (
+          <button
+            key={cashbox.id}
+            disabled={pendingCashboxId !== null}
+            onClick={async () => {
+              if (cashbox.id === selectedCashboxId) return
+              setPendingCashboxId(cashbox.id)
+              try {
+                await onSelectCashbox?.(cashbox.id)
+              } finally {
+                setPendingCashboxId(null)
+              }
+            }}
+            className={`min-h-11 rounded-xl px-4 font-bold ${cashbox.id === selectedCashboxId ? 'bg-amber-400 text-slate-950' : 'border border-slate-700 text-slate-200'}`}
+          >
+            {cashbox.name}
+          </button>
+        ))}
+      </div>
+      <p className="mt-3 text-sm">
+        {needsCashboxSelection
+          ? 'Selecciona una caja de trabajo.'
+          : selectedCashboxShift
+            ? `Turno activo desde ${new Date(selectedCashboxShift.openedAt).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })}. Fondo: ${money(selectedCashboxShift.openingFloat)}`
+            : 'No hay turno abierto en esta caja.'}
+      </p>
+      {!selectedCashboxShift && selectedCashbox && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            type="number"
+            min="0"
+            value={opening}
+            onChange={e => setOpening(e.target.value)}
+            className="w-32 rounded-xl bg-slate-950 p-2 text-sm"
+            placeholder="Fondo"
+          />
+          <button
+            onClick={() => onStartCashboxShift?.(selectedCashbox.id, Number(opening))}
+            className="rounded-xl bg-amber-400 px-4 py-2 font-bold text-slate-950"
+          >
+            Abrir turno de {selectedCashbox.name}
+          </button>
+        </div>
+      )}
+      {selectedCashboxShift && selectedCashbox && reconciliation.valid && (
+        <button
+          onClick={() => onCloseCashboxShift?.(selectedCashbox.id, reconciliation.countedCash!, cash.expectedCash)}
+          className="mt-3 rounded-xl border border-amber-300/40 px-4 py-2 font-bold text-amber-200"
+        >
+          Cerrar turno de {selectedCashbox.name}
+        </button>
+      )}
+    </section>
+  ) : null
+
+  // Multi-caja sin caja confirmada: no se expone turno global, cuentas, arqueo ni movimientos.
+  if (needsCashboxSelection) {
+    return (
+      <div className="space-y-5">
+        <header>
+          <h1 className="text-2xl font-black">Caja y turnos</h1>
+          <p className="text-sm text-slate-400">Selecciona una caja de trabajo para operar.</p>
+        </header>
+        {cashboxControl}
+      </div>
+    )
+  }
+
+  if (!shift || shift.status === 'closed') {
+    return (
+      <div className="space-y-5">
+        <header>
+          <h1 className="text-2xl font-black">Caja y turnos</h1>
+          <p className="text-sm text-slate-400">Cobros, resultado y arqueo de la noche.</p>
+        </header>
+        {cashboxControl}
+        {!isMultiCashbox && (
+          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <p className="mb-3 text-sm">Inicia un turno para abrir cuentas y vender.</p>
+            <label className="block text-xs text-slate-400">
+              Fondo inicial / cambio en caja
+              <input type="number" min="0" value={opening} onChange={e => setOpening(e.target.value)} className="mt-1 block w-full rounded-xl bg-slate-950 p-3" />
+            </label>
+            <button onClick={() => onStartShift(Number(opening))} className="mt-3 rounded-xl bg-amber-400 px-5 py-3 font-bold text-slate-950">
+              Iniciar turno
+            </button>
+          </section>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5">
       <header>
@@ -27,7 +189,7 @@ export function NightclubCash({ data, onStartShift, onCloseShift, onCashMovement
       <section className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
         <h2 className="font-bold">Cuentas por cobrar</h2>
         <div className="mt-3 space-y-2">
-          {data.accounts.filter(account => account.status === 'bill_requested' && nightclubBalance(account) > 0).map(account => (
+          {billRequestedAccounts.map(account => (
             <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-950 p-3">
               <div>
                 <strong>{nightclubAccountLabel(account, data)}</strong>
@@ -36,7 +198,7 @@ export function NightclubCash({ data, onStartShift, onCloseShift, onCashMovement
               <button onClick={() => setPayingId(account.id)} className="min-h-11 rounded-xl bg-emerald-400 px-4 font-bold text-slate-950">Registrar pago</button>
             </div>
           ))}
-          {!data.accounts.some(account => account.status === 'bill_requested' && nightclubBalance(account) > 0) && (
+          {!billRequestedAccounts.length && (
             <p className="text-sm text-slate-400">No hay saldos solicitados.</p>
           )}
         </div>
@@ -103,7 +265,19 @@ export function NightclubCash({ data, onStartShift, onCloseShift, onCashMovement
         <p className="mt-1 text-sm text-slate-400">{openAccounts.length ? `${openAccounts.length} cuenta(s) abiertas.` : 'Todas las cuentas están cerradas.'}</p>
         <div className="mt-3 flex gap-2">
           <input aria-label="Efectivo contado" type="number" min="0" step="0.01" placeholder="Efectivo contado" value={counted} onChange={e => setCounted(e.target.value)} className="rounded-xl bg-slate-950 p-3" />
-          <button disabled={openAccounts.length > 0 || !reconciliation.canClose} onClick={() => onCloseShift(reconciliation.countedCash!)} className="rounded-xl bg-amber-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-40">Cerrar turno</button>
+          <button
+            disabled={openAccounts.length > 0 || !reconciliation.canClose}
+            onClick={() => {
+              if (isMultiCashbox && selectedCashbox && onCloseCashboxShift) {
+                onCloseCashboxShift(selectedCashbox.id, reconciliation.countedCash!, cash.expectedCash)
+              } else {
+                onCloseShift(reconciliation.countedCash!)
+              }
+            }}
+            className="rounded-xl bg-amber-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-40"
+          >
+            {isMultiCashbox && selectedCashbox ? `Cerrar turno de ${selectedCashbox.name}` : 'Cerrar turno'}
+          </button>
         </div>
         <div className="mt-3 space-y-1 text-sm">
           <p>Efectivo esperado: <b>{money(cash.expectedCash)}</b></p>
@@ -114,11 +288,11 @@ export function NightclubCash({ data, onStartShift, onCloseShift, onCashMovement
           </p>
         </div>
       </section>
-      {payingId && data.accounts.find(account => account.id === payingId && account.status === 'bill_requested') && (
+      {payingId && cashAccounts.find(account => account.id === payingId && account.status === 'bill_requested') && (
         <NightclubAccountPayment
-          account={data.accounts.find(account => account.id === payingId)!}
+          account={cashAccounts.find(account => account.id === payingId)!}
           onClose={() => setPayingId(null)}
-          onPay={payment => onRecordPayment(payingId, payment)}
+          onPay={async payment => { const res = await onRecordPayment(payingId, payment); return res !== false }}
         />
       )}
     </div>

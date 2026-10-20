@@ -84,3 +84,21 @@ test('cash and QR settle separately; cash closure excludes QR', () => {
   assert.throws(() => validatePayments(5400, 2000, 3401))
   assert.deepEqual(cashClosure(10000, 2000, 500, 11400), { expectedMinor: 11500, declaredMinor: 11400, differenceMinor: -100 })
 })
+
+import { createRequire } from 'node:module'
+const req = createRequire(import.meta.url)
+const { hasPermission: serverHasPermission } = req('../functions/authorization.cjs')
+
+test('platform authorization regression: membership.permissions cannot bypass canonical role permissions in Restaurant/Distribution', () => {
+  const tenantRest = { tenantId: 'rest1', businessType: 'restaurant_pos', configuration: { features: { settings: true, users: true, sales: true } } }
+  const memberRest = { tenantId: 'rest1', roleId: 'waiter', status: 'active', permissions: ['settings.manage'] }
+  // Waiter in restaurant has sales.create, orders.read, etc. but NOT settings.manage
+  assert.equal(serverHasPermission(tenantRest, memberRest, 'settings.manage'), false)
+  assert.equal(serverHasPermission(tenantRest, memberRest, 'sales.create'), true)
+
+  const tenantDist = { tenantId: 'dist1', businessType: 'route_distribution', configuration: { features: { settings: true, users: true, sales: true } } }
+  const memberDist = { tenantId: 'dist1', roleId: 'distributor', status: 'active', permissions: ['users.manage'] }
+  // Distributor has dispatch.create, etc. but NOT users.manage
+  assert.equal(serverHasPermission(tenantDist, memberDist, 'users.manage'), false)
+  assert.equal(serverHasPermission(tenantDist, memberDist, 'sales.create'), true)
+})

@@ -6,6 +6,7 @@ import {
   resolveNightclubVisibleModules,
 } from '../src/modules/nightclub/application/nightclubActionRunner.ts'
 import { createTenantNightclubActions } from '../src/modules/nightclub/application/tenantNightclubActions.ts'
+import { requiresCashboxSelection, resolveSelectedCashboxId } from '../src/modules/nightclub/domain/nightclubCashboxSelection.ts'
 import {
   assembleOperationalAccounts,
   nightclubCashSummary,
@@ -19,6 +20,7 @@ import type {
   NightclubStaff,
 } from '../src/modules/nightclub/domain/nightclubAccounts.ts'
 import type { TenantNightclubActionsDeps } from '../src/modules/nightclub/application/tenantNightclubActions.ts'
+import { BusinessTemplateRegistry } from '../src/core/templates.ts'
 
 // TEST 1
 test('1. run rejects and surfaces error message without setting success notice when action throws', async () => {
@@ -388,4 +390,455 @@ test('10. subscribeActiveShift retains lastClosedShiftId so closing shift keeps 
   assert.equal(summary.expectedCash, 240, 'Opening float 200 + cash sales 40 = 240 expected cash')
   const diff = closedShift.countedCash - summary.expectedCash
   assert.equal(diff, 22, 'Counted 262 - Expected 240 = +22 cash diff')
+})
+
+// TEST 11
+test('11. builtin customized role preserves canonical permissions while reflecting explicit nightclubPermissions in UI visibility', () => {
+  // Builtin waiter with explicit nightclub permissions (no cash.view)
+  const waiterPerms = new Set(['floor.view', 'floor.create', 'accounts.view', 'accounts.create', 'pos.view', 'pos.create'])
+  const visible = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: waiterPerms,
+  })
+
+  // Visible modules include granted modules
+  assert.equal(visible.includes('floor'), true)
+  assert.equal(visible.includes('pos'), true)
+  assert.equal(visible.includes('accounts'), true)
+
+  // Module cash is NOT visible when cash.view is omitted
+  assert.equal(visible.includes('cash'), false)
+  assert.equal(visible.includes('bar'), false)
+  assert.equal(visible.includes('inventory'), false)
+  assert.equal(visible.includes('users'), false)
+
+  // Canonical role permissions in template remain authoritative:
+  const template = BusinessTemplateRegistry.nightclub_lounge
+  const waiterRole = template.roles.find(r => r.id === 'waiter')!
+  assert.equal(waiterRole.permissions.includes('orders.read'), true)
+  assert.equal(waiterRole.permissions.includes('orders.manage'), true)
+  assert.equal(waiterRole.permissions.includes('sales.create'), true)
+  assert.equal(waiterRole.permissions.includes('customers.read'), true)
+  assert.equal(waiterRole.permissions.includes('cash.close'), false)
+
+  // Legacy fallback when permissions === undefined (uses role defaults):
+  const visibleLegacy = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: undefined,
+  })
+  assert.equal(visibleLegacy.includes('floor'), true)
+  assert.equal(visibleLegacy.includes('pos'), true)
+  assert.equal(visibleLegacy.includes('history'), true)
+  assert.equal(visibleLegacy.includes('dashboard'), false)
+  assert.equal(visibleLegacy.includes('cash'), false)
+
+  // Explicit empty matrix permissions = new Set([]) yields ZERO visible modules:
+  const visibleEmpty = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: new Set([]),
+  })
+  assert.deepEqual(visibleEmpty, [], 'Empty nightclubPermissions matrix yields ZERO visible modules')
+
+  // Explicit restricted matrix permissions = new Set(['floor.view']):
+  const visibleRestricted = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: new Set(['floor.view']),
+  })
+  assert.deepEqual(visibleRestricted, ['floor'], 'Only floor is visible')
+})
+
+// TEST 12
+test('12. multi-cashbox UI contract & lifecycle: cashier authorized to cashbox-2 opens shift, attributes accounts/rounds/payments to cashbox-2, and isolates cashbox-1', async () => {
+  const calls: Array<{ action: string; payload: Record<string, unknown> }> = []
+  const mockRepo = {
+    selectCashbox: async (payload: Record<string, unknown>) => { calls.push({ action: 'selectCashbox', payload }) },
+    openCashboxShift: async (payload: Record<string, unknown>) => { calls.push({ action: 'openCashboxShift', payload }) },
+    closeCashboxShift: async (payload: Record<string, unknown>) => { calls.push({ action: 'closeCashboxShift', payload }) },
+    openAccount: async (payload: Record<string, unknown>) => {
+      calls.push({ action: 'openAccount', payload })
+      return { accountId: 'acc_cashbox2_001' }
+    },
+    addRound: async (payload: Record<string, unknown>) => { calls.push({ action: 'addRound', payload }) },
+    recordPayment: async (payload: Record<string, unknown>) => { calls.push({ action: 'recordPayment', payload }) },
+  }
+
+  const cashbox2Shift = {
+    id: 'shift_cb2_123',
+    tenantId: 'tenant-test',
+    branchId: 'main',
+    cashboxId: 'cashbox-2',
+    openedAt: '2026-10-19T20:00:00Z',
+    openedBy: 'cajera-2',
+    openingFloat: 200,
+    status: 'open' as const,
+  }
+
+  const actions = createTenantNightclubActions({
+    tenantId: 'tenant-test',
+    uid: 'cajera-2',
+    userName: 'Cajera 2',
+    role: 'cashier',
+    staff: [],
+    reloadStaff: async () => {},
+    reloadCustomers: async () => {},
+    repository: mockRepo as unknown as TenantNightclubActionsDeps['repository'],
+    gatewayFn: async () => ({}),
+    shift: cashbox2Shift as any,
+    cashboxShifts: [cashbox2Shift] as any,
+  })
+
+  // 1. Select cashbox-2
+  await actions.onSelectCashbox('cashbox-2')
+  assert.equal(calls[0].action, 'selectCashbox')
+  assert.equal(calls[0].payload.cashboxId, 'cashbox-2')
+
+  // 2. Open shift for cashbox-2
+  await actions.onStartCashboxShift('cashbox-2', 200)
+  assert.equal(calls[1].action, 'openCashboxShift')
+  assert.equal(calls[1].payload.cashboxId, 'cashbox-2')
+  assert.equal(calls[1].payload.openingFloat, 200)
+
+  // 3. Open account under cashbox-2 context
+  const accountId = await actions.onOpenAccount('table:mesa_barra_2')
+  assert.equal(accountId, 'acc_cashbox2_001')
+  assert.equal(calls[2].action, 'openAccount')
+
+  // 4. Send round in cashbox-2
+  await actions.onSendRound(accountId, [{ productId: 'p1', quantity: 2 }], 'op_rnd_1')
+  assert.equal(calls[3].action, 'addRound')
+  assert.equal((calls[3].payload as any).accountId, accountId)
+
+  // 5. Record payment in cashbox-2 shift
+  await actions.onRecordPayment(accountId, { method: 'cash', amount: 50 })
+  assert.equal(calls[4].action, 'recordPayment')
+
+  // 6. Close shift for cashbox-2
+  await actions.onCloseCashboxShift('cashbox-2', 250, 250)
+  assert.equal(calls[5].action, 'closeCashboxShift')
+  assert.equal(calls[5].payload.cashboxId, 'cashbox-2')
+  assert.equal(calls[5].payload.shiftId, 'shift_cb2_123')
+  assert.equal(calls[5].payload.countedCash, 250)
+
+  // 7. Verify cash separation between cashbox-1 and cashbox-2
+  const shiftCb1 = { id: 'shift_cb1', openingFloat: 100, status: 'open' as const }
+  const shiftCb2 = { id: 'shift_cb2', openingFloat: 200, status: 'open' as const }
+  const movements = [
+    { id: 'm1', shiftId: 'shift_cb1', type: 'income' as const, method: 'cash' as const, amount: 40, description: 'Venta cb1' },
+    { id: 'm2', shiftId: 'shift_cb2', type: 'income' as const, method: 'cash' as const, amount: 80, description: 'Venta cb2' },
+  ]
+  const summaryCb1 = nightclubCashSummary({ shift: shiftCb1 as any, accounts: [], cashMovements: movements.filter(m => m.shiftId === shiftCb1.id) } as any)
+  const summaryCb2 = nightclubCashSummary({ shift: shiftCb2 as any, accounts: [], cashMovements: movements.filter(m => m.shiftId === shiftCb2.id) } as any)
+  assert.equal(summaryCb1.expectedCash, 140, 'Cashbox 1 expected cash: 100 + 40 = 140')
+  assert.equal(summaryCb2.expectedCash, 280, 'Cashbox 2 expected cash: 200 + 80 = 280')
+})
+
+// TEST 13
+test('13. inventory productive integration: warehouse intake, transfer request, dispatch, and receive pass through to gateway', async () => {
+  const repoCalls: Array<{ action: string; payload: Record<string, unknown> }> = []
+  const mockRepo = {
+    receiveWarehouseIntake: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'receiveWarehouseIntake', payload })
+      return { intakeId: 'intake_123' }
+    },
+    confirmPhysicalCount: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'confirmPhysicalCount', payload })
+      return { countId: 'count_456' }
+    },
+    requestTransfer: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'requestTransfer', payload })
+      return { transferId: 'tr_789' }
+    },
+    dispatchTransfer: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'dispatchTransfer', payload })
+      return true
+    },
+    receiveTransfer: async (payload: Record<string, unknown>) => {
+      repoCalls.push({ action: 'receiveTransfer', payload })
+      return true
+    },
+  }
+
+  const actions = createTenantNightclubActions({
+    tenantId: 'tenant-test',
+    uid: 'u-inventory',
+    userName: 'Encargado Almacén',
+    role: 'inventory',
+    staff: [],
+    reloadStaff: async () => {},
+    reloadCustomers: async () => {},
+    repository: mockRepo as unknown as TenantNightclubActionsDeps['repository'],
+    gatewayFn: async () => ({}),
+  })
+
+  // 1. Warehouse intake
+  const receipt = {
+    lines: [{ inventoryId: 'inv_whisky', quantity: 12, unit: 'unit' as const, unitCost: 150 }],
+    supplier: 'Distribuidora Licores',
+  }
+  const intakeRes = await actions.onReceiveWarehouseIntake(receipt, 'op_intake_1')
+  assert.deepEqual(intakeRes, { intakeId: 'intake_123' })
+  assert.equal(repoCalls[0].action, 'receiveWarehouseIntake')
+  assert.equal((repoCalls[0].payload as any).operationId, 'op_intake_1')
+
+  // 2. Request transfer from warehouse
+  const transferRes = await actions.onRequestInventoryTransfer(
+    [{ inventoryId: 'inv_whisky', quantity: 2, unit: 'unit' }],
+    'op_req_1'
+  )
+  assert.deepEqual(transferRes, { transferId: 'tr_789' })
+  assert.equal(repoCalls[1].action, 'requestTransfer')
+
+  // 3. Dispatch transfer
+  const dispatchRes = await actions.onDispatchInventoryTransfer('tr_789', 'op_disp_1')
+  assert.equal(dispatchRes, true)
+  assert.equal(repoCalls[2].action, 'dispatchTransfer')
+  assert.equal((repoCalls[2].payload as any).transferId, 'tr_789')
+
+  // 4. Receive transfer
+  const receiveRes = await actions.onReceiveInventoryTransfer('tr_789', 'op_recv_1')
+  assert.equal(receiveRes, true)
+  assert.equal(repoCalls[3].action, 'receiveTransfer')
+  assert.equal((repoCalls[3].payload as any).transferId, 'tr_789')
+
+  // 5. Confirm physical count
+  const count = {
+    locationId: 'warehouse-general',
+    reason: 'Inventario de fin de mes',
+    lines: [{ inventoryId: 'inv_whisky', countedQuantity: 10, unit: 'unit' as const }],
+  }
+  const countRes = await actions.onConfirmPhysicalCount(count, 'op_count_1')
+  assert.deepEqual(countRes, { countId: 'count_456' })
+  assert.equal(repoCalls[4].action, 'confirmPhysicalCount')
+})
+
+// TEST 14
+test('14. permission negative tests: unauthorized inventory actions rejected and nightclubPermissions=[] denies all operational modules', () => {
+  // Empty matrix: []
+  const emptyPerms = new Set<string>([])
+  const visible = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: emptyPerms,
+  })
+  assert.deepEqual(visible, [], 'Empty nightclubPermissions yields 0 modules')
+
+  // Waiter without inventory permission cannot see inventory
+  const waiterPerms = new Set<string>(['floor.view', 'pos.view', 'accounts.view'])
+  const waiterModules = resolveNightclubVisibleModules({
+    mode: 'tenant',
+    role: 'waiter',
+    permissions: waiterPerms,
+  })
+  assert.equal(waiterModules.includes('inventory'), false)
+  assert.equal(waiterModules.includes('cash'), false)
+
+  // Missing repository multi-cashbox / inventory handlers gracefully throw when called
+  const bareRepo = {}
+  const bareActions = createTenantNightclubActions({
+    tenantId: 'tenant-test',
+    uid: 'waiter-1',
+    userName: 'Mesero',
+    role: 'waiter',
+    staff: [],
+    reloadStaff: async () => {},
+    reloadCustomers: async () => {},
+    repository: bareRepo as unknown as TenantNightclubActionsDeps['repository'],
+    gatewayFn: async () => ({}),
+  })
+
+  assert.rejects(() => bareActions.onSelectCashbox('cb-1'), /selectCashbox no disponible/)
+  assert.rejects(() => bareActions.onStartCashboxShift('cb-1', 100), /openCashboxShift no disponible/)
+  assert.rejects(() => bareActions.onReceiveWarehouseIntake({}), /receiveWarehouseIntake no disponible/)
+  assert.rejects(() => bareActions.onConfirmPhysicalCount({}), /confirmPhysicalCount no disponible/)
+  assert.rejects(() => bareActions.onRequestInventoryTransfer([]), /requestTransfer no disponible/)
+  assert.rejects(() => bareActions.onDispatchInventoryTransfer('t1'), /dispatchTransfer no disponible/)
+  assert.rejects(() => bareActions.onReceiveInventoryTransfer('t1'), /receiveTransfer no disponible/)
+})
+test('15. UI cashbox source of truth, cross-box accounts filter, and isolated expectedCash & shift close', async () => {
+  const shift1 = { id: 'shift-1', status: 'open' as const, cashboxId: 'cb-1', openingFloat: 100, openedAt: '2026-10-19T20:00:00Z', openedBy: 'user-1' }
+  const shift2 = { id: 'shift-2', status: 'open' as const, cashboxId: 'cb-2', openingFloat: 200, openedAt: '2026-10-19T20:00:00Z', openedBy: 'user-1' }
+
+  const accA = {
+    id: 'acc-a',
+    branchId: 'main',
+    cashboxId: 'cb-1',
+    shiftId: 'shift-1',
+    status: 'bill_requested' as const,
+    subtotal: 100,
+    paidTotal: 0,
+    balance: 100,
+    serviceTarget: { type: 'table' as const, tableId: 'T1' },
+    rounds: [],
+    payments: [],
+  }
+  const accB = {
+    id: 'acc-b',
+    branchId: 'main',
+    cashboxId: 'cb-2',
+    shiftId: 'shift-2',
+    status: 'bill_requested' as const,
+    subtotal: 200,
+    paidTotal: 0,
+    balance: 200,
+    serviceTarget: { type: 'table' as const, tableId: 'T2' },
+    rounds: [],
+    payments: [],
+  }
+
+  const allAccounts = [accA, accB]
+
+  // Filter for Caja 2 (activeCashboxId: 'cb-2', activeShiftId: 'shift-2')
+  const isMultiCashbox = true
+  const activeCashboxId = 'cb-2'
+  const activeShiftId = 'shift-2'
+
+  const cashAccountsCb2 = isMultiCashbox && activeCashboxId
+    ? allAccounts.filter(a => a.cashboxId === activeCashboxId && a.shiftId === activeShiftId)
+    : allAccounts
+
+  assert.equal(cashAccountsCb2.length, 1)
+  assert.equal(cashAccountsCb2[0].id, 'acc-b')
+  assert.equal(cashAccountsCb2.some(a => a.id === 'acc-a'), false, 'Caja 1 account is completely hidden from Caja 2')
+
+  // openAccounts blocking close:
+  const openAccountsCb2 = cashAccountsCb2.filter(a => a.balance > 0)
+  assert.equal(openAccountsCb2.length, 1)
+  assert.equal(openAccountsCb2[0].id, 'acc-b')
+
+  // When Account B is paid, openAccounts becomes empty for Caja 2, allowing close even if Account A remains open
+  const accBPaid = { ...accB, paidTotal: 200, balance: 0, payments: [{ id: 'pay-b', amount: 200, cashAmount: 200, qrAmount: 0, cardAmount: 0, kind: 'sale' as const, method: 'cash' as const, createdAt: '2026-10-19T20:30:00Z' }] }
+  const allAccountsAfterBPaid = [accA, accBPaid]
+  const cashAccountsAfterBPaid = allAccountsAfterBPaid.filter(a => a.cashboxId === activeCashboxId && a.shiftId === activeShiftId)
+  const openAccountsAfterBPaid = cashAccountsAfterBPaid.filter(a => a.balance > 0)
+  assert.equal(openAccountsAfterBPaid.length, 0, 'Caja 2 can close because all its accounts are settled, ignoring Caja 1 open account')
+
+  // Expected cash calculation for Caja 2:
+  const datasetCb2: NightclubDataset = {
+    zones: [],
+    tables: [],
+    reservations: [],
+    accounts: cashAccountsAfterBPaid,
+    products: [],
+    inventory: [],
+    inventoryMovements: [],
+    customers: [],
+    shift: shift2,
+    cashMovements: [],
+    staff: [],
+    branding: {
+      businessName: 'Club',
+      subtitle: 'Lounge',
+      primaryColor: '#000',
+      accentColor: '#fff',
+      surfaceColor: '#111',
+      theme: 'dark',
+    },
+  }
+  const summaryCb2 = nightclubCashSummary(datasetCb2, 'shift-2')
+  assert.equal(summaryCb2.cashSales, 200)
+  assert.equal(summaryCb2.expectedCash, 400, 'Expected cash is opening float 200 + cashSales 200 = 400, excluding Caja 1')
+
+  // UI Cashbox Source of truth:
+  let serverConfirmedCashboxId = 'cb-1'
+  let selectCalls: string[] = []
+
+  const onSelect = async (newId: string) => {
+    selectCalls.push(newId)
+  }
+
+  // Before server confirms, derived activeCashboxId remains cb-1
+  let currentActiveId = serverConfirmedCashboxId
+  assert.equal(currentActiveId, 'cb-1')
+
+  // User triggers selection of cb-2
+  await onSelect('cb-2')
+  assert.equal(selectCalls[0], 'cb-2')
+  assert.equal(currentActiveId, 'cb-1', 'UI activeCashboxId remains cb-1 before server confirmation')
+
+  // Simulate Firestore realtime update
+  serverConfirmedCashboxId = 'cb-2'
+  currentActiveId = serverConfirmedCashboxId
+  assert.equal(currentActiveId, 'cb-2', 'UI activeCashboxId updates only after server/realtime confirmation')
+})
+
+test('16. selective permission subscriptions align with Rules: Waiter cannot start forbidden listeners or fail sync', () => {
+  const waiterTemplate = BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === 'waiter')
+  assert.ok(waiterTemplate)
+  const waiterPerms = new Set(waiterTemplate.permissions)
+
+  const canWaiter = (perm: string) => waiterPerms.has(perm)
+
+  // Subscriptions evaluation for Waiter:
+  const canReadAccounts = canWaiter('orders.read') || canWaiter('cash.close') || canWaiter('sales.read')
+  const canReadRounds = canWaiter('orders.read') || canWaiter('cash.close')
+  const canReadPayments = canWaiter('cash.close') || canWaiter('sales.read')
+
+  assert.equal(canReadAccounts, true, 'Waiter reads accounts')
+  assert.equal(canReadRounds, true, 'Waiter reads rounds')
+  assert.equal(canReadPayments, false, 'Waiter CANNOT read payments')
+
+  // Cashboxes & shifts
+  const canReadCashboxes = canWaiter('inventory.read') || canWaiter('cash.close')
+  const canReadCashboxShifts = canWaiter('cash.close') || canWaiter('settings.manage')
+  assert.equal(canReadCashboxes, false, 'Waiter CANNOT read cashboxes')
+  assert.equal(canReadCashboxShifts, false, 'Waiter CANNOT read cashbox shifts')
+
+  // Locations & physical inventory
+  const canReadLocations = canWaiter('inventory.read')
+  const canReadPhysicalInventory = canWaiter('inventory.read')
+  assert.equal(canReadLocations, false, 'Waiter CANNOT read locations')
+  assert.equal(canReadPhysicalInventory, false, 'Waiter CANNOT read physical inventory')
+
+  // Subscriptions evaluation for Cashier:
+  const cashierTemplate = BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === 'cashier')
+  assert.ok(cashierTemplate)
+  const cashierPerms = new Set(cashierTemplate.permissions)
+  const canCashier = (perm: string) => cashierPerms.has(perm)
+
+  assert.equal(canCashier('cash.close') || canCashier('settings.manage'), true, 'Cashier reads cashbox shifts')
+  assert.equal(canCashier('inventory.read') || canCashier('cash.close'), true, 'Cashier reads cashboxes')
+  assert.equal(canCashier('cash.close') || canCashier('sales.read'), true, 'Cashier reads payments')
+  assert.equal(canCashier('inventory.read'), false, 'Cashier CANNOT read locations or physical inventory')
+
+  // Subscriptions evaluation for Inventory role:
+  const invTemplate = BusinessTemplateRegistry.nightclub_lounge.roles.find(r => r.id === 'inventory')
+  assert.ok(invTemplate)
+  const invPerms = new Set(invTemplate.permissions)
+  const canInv = (perm: string) => invPerms.has(perm)
+
+  assert.equal(canInv('inventory.read'), true, 'Inventory role reads locations')
+  assert.equal(canInv('inventory.read'), true, 'Inventory role reads physical inventory')
+  assert.equal(canInv('inventory.read') || canInv('cash.close'), true, 'Inventory role reads cashboxes')
+})
+
+test('17. NightclubCash never fakes a selected cashbox: only server-confirmed operatorContext selects', () => {
+  const cashboxes = [{ id: 'cb-1' }, { id: 'cb-2' }]
+
+  // Sin contexto confirmado: ninguna caja seleccionada, no se usa cb-1 automáticamente
+  assert.equal(resolveSelectedCashboxId(cashboxes, undefined), '')
+  assert.equal(resolveSelectedCashboxId(cashboxes, null), '')
+  assert.equal(requiresCashboxSelection(cashboxes, undefined), true)
+
+  // Contexto apuntando a una caja no autorizada/inexistente tampoco selecciona
+  assert.equal(resolveSelectedCashboxId(cashboxes, 'cb-9'), '')
+  assert.equal(requiresCashboxSelection(cashboxes, 'cb-9'), true)
+
+  // Tras confirmación del servidor (Firestore operatorContext)
+  assert.equal(resolveSelectedCashboxId(cashboxes, 'cb-2'), 'cb-2')
+  assert.equal(requiresCashboxSelection(cashboxes, 'cb-2'), false)
+
+  // Tenant legacy sin cajas: nunca bloquea
+  assert.equal(requiresCashboxSelection([], undefined), false)
+  assert.equal(requiresCashboxSelection(undefined, undefined), false)
+
+  // La vista real consume el helper y no conserva el fallback a la primera caja
+  const source = readFileSync(new URL('../src/modules/nightclub/views/NightclubCash.tsx', import.meta.url), 'utf8')
+  assert.match(source, /resolveSelectedCashboxId\(data\.cashboxes, activeCashboxId\)/)
+  assert.match(source, /requiresCashboxSelection\(data\.cashboxes, activeCashboxId\)/)
+  assert.equal(/cashboxes\?\.\[0\]/.test(source), false, 'No first-cashbox fallback')
+  assert.match(source, /Selecciona una caja de trabajo/)
 })

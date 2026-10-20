@@ -14,6 +14,7 @@ import { gateway } from '../../../services/gateway'
 import type {
   NightclubAccount,
   NightclubCashMovement,
+  NightclubCashbox,
   NightclubCommission,
   NightclubCommissionPayment,
   NightclubCommissionPaymentDraft,
@@ -22,9 +23,14 @@ import type {
   NightclubCustomer,
   NightclubCustomerIncident,
   NightclubCustomerStatus,
+  NightclubInventoryBalance,
   NightclubInventoryItem,
+  NightclubInventoryLot,
   NightclubInventoryMovement,
+  NightclubLocation,
   NightclubMember,
+  NightclubOpenBottle,
+  NightclubOperatorContext,
   NightclubPayment,
   NightclubPaymentDraft,
   NightclubProduct,
@@ -35,6 +41,7 @@ import type {
   NightclubShift,
   NightclubStaff,
   NightclubTable,
+  NightclubTransfer,
   NightclubZone,
 } from '../domain/nightclubAccounts.ts'
 import {
@@ -57,6 +64,8 @@ import type {
   NightclubCatalogSnapshot,
   NightclubFloorSnapshot,
   NightclubInventorySnapshot,
+  NightclubLocationInventorySnapshot,
+  NightclubRepository,
   Unsubscribe,
 } from './nightclubRepository'
 
@@ -64,13 +73,15 @@ const generateOpId = () => `op_${Date.now().toString(36)}_${Math.random().toStri
 
 export { assembleOperationalAccounts, resolveShiftIdToTrack }
 
-export class TenantNightclubRepository {
+export class TenantNightclubRepository implements NightclubRepository {
   private readonly tenantId: string
   private readonly branchId: string
+  private readonly uid?: string
 
-  constructor(tenantId: string, branchId = 'main') {
+  constructor(tenantId: string, branchId = 'main', uid?: string) {
     this.tenantId = tenantId
     this.branchId = branchId
+    this.uid = uid
   }
 
   private async dispatch<T = unknown>(
@@ -88,7 +99,7 @@ export class TenantNightclubRepository {
     })
   }
 
-  subscribeFloor(listener: (value: NightclubFloorSnapshot) => void): Unsubscribe {
+  subscribeFloor(listener: (value: NightclubFloorSnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
     let zones: NightclubZone[] = []
     let tables: NightclubTable[] = []
     let reservations: NightclubReservation[] = []
@@ -114,7 +125,7 @@ export class TenantNightclubRepository {
           zones = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubZone, 'id'>) })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubTables = onSnapshot(
@@ -123,7 +134,7 @@ export class TenantNightclubRepository {
           tables = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubTable, 'id'>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubRes = onSnapshot(
@@ -132,7 +143,7 @@ export class TenantNightclubRepository {
           reservations = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubReservation, 'id'>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -144,7 +155,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe {
+  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void, options?: { includeRounds?: boolean; includePayments?: boolean }): Unsubscribe {
     let openAccounts: Array<Record<string, unknown> & { id: string }> = []
     let closedAccounts: Array<Record<string, unknown> & { id: string }> = []
     let rounds: NightclubRound[] = []
@@ -155,6 +166,9 @@ export class TenantNightclubRepository {
     let unsubClosed: Unsubscribe | null = null
     let unsubRounds: Unsubscribe | null = null
     let unsubPayments: Unsubscribe | null = null
+
+    const includeRounds = options?.includeRounds !== false
+    const includePayments = options?.includePayments !== false
 
     const emit = () => {
       if (!active) return
@@ -174,7 +188,7 @@ export class TenantNightclubRepository {
           openAccounts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubClosed = onSnapshot(
@@ -183,26 +197,30 @@ export class TenantNightclubRepository {
           closedAccounts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
-      unsubRounds = onSnapshot(
-        query(roundsRef, where('branchId', '==', this.branchId), fsLimit(200)),
-        snap => {
-          rounds = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubRound))
-          emit()
-        },
-        () => {}
-      )
+      if (includeRounds) {
+        unsubRounds = onSnapshot(
+          query(roundsRef, where('branchId', '==', this.branchId), fsLimit(200)),
+          snap => {
+            rounds = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubRound))
+            emit()
+          },
+          err => onError?.(err)
+        )
+      }
 
-      unsubPayments = onSnapshot(
-        query(paymentsRef, where('branchId', '==', this.branchId), fsLimit(200)),
-        snap => {
-          payments = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubPayment))
-          emit()
-        },
-        () => {}
-      )
+      if (includePayments) {
+        unsubPayments = onSnapshot(
+          query(paymentsRef, where('branchId', '==', this.branchId), fsLimit(200)),
+          snap => {
+            payments = snap.docs.map(d => ({ ...(d.data() as Record<string, unknown>), id: d.id } as unknown as NightclubPayment))
+            emit()
+          },
+          err => onError?.(err)
+        )
+      }
     })
 
     return () => {
@@ -240,7 +258,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeActiveShift(listener: (value: NightclubShift | null) => void): Unsubscribe {
+  subscribeActiveShift(listener: (value: NightclubShift | null) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsubState: Unsubscribe | null = null
     let unsubShift: Unsubscribe | null = null
@@ -275,8 +293,8 @@ export class TenantNightclubRepository {
           } else {
             listener({ id: shiftSnap.id, ...(shiftSnap.data() as Omit<NightclubShift, 'id'>) })
           }
-        })
-      })
+        }, err => onError?.(err))
+      }, err => onError?.(err))
     })
 
     return () => {
@@ -286,7 +304,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void): Unsubscribe {
+  subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
 
@@ -303,7 +321,7 @@ export class TenantNightclubRepository {
             listener({ products })
           }
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -313,7 +331,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeInventory(listener: (value: NightclubInventorySnapshot) => void): Unsubscribe {
+  subscribeInventory(listener: (value: NightclubInventorySnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
     let inventory: NightclubInventoryItem[] = []
     let recentMovements: NightclubInventoryMovement[] = []
     let active = true
@@ -336,7 +354,7 @@ export class TenantNightclubRepository {
           inventory = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryItem, 'id'>) }))
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
 
       unsubMov = onSnapshot(
@@ -359,7 +377,7 @@ export class TenantNightclubRepository {
           })
           emit()
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -370,7 +388,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void): Unsubscribe {
+  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void, onError?: (err: Error) => void): Unsubscribe {
     if (!shiftId) {
       listener([])
       return () => {}
@@ -400,7 +418,7 @@ export class TenantNightclubRepository {
           })
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
 
@@ -547,11 +565,13 @@ export class TenantNightclubRepository {
     })
   }
 
-  async refundRound(input: { operationId: string; accountId: string; roundId: string; reason: string }): Promise<void> {
+  async refundRound(input: { operationId: string; accountId: string; roundId: string; reason: string; returnToStock?: boolean; items?: Array<{ itemId: string; quantity: number; returnToStock: boolean }> }): Promise<void> {
     await this.dispatch('refundRound', input.operationId, {
       accountId: input.accountId,
       roundId: input.roundId,
       reason: input.reason,
+      returnToStock: input.returnToStock,
+      items: input.items,
     })
   }
 
@@ -648,7 +668,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribePromoters(listener: (value: NightclubPromoter[]) => void): Unsubscribe {
+  subscribePromoters(listener: (value: NightclubPromoter[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -661,7 +681,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubPromoter, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -670,7 +690,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribePromoterEvents(listener: (value: NightclubPromoterEvent[]) => void): Unsubscribe {
+  subscribePromoterEvents(listener: (value: NightclubPromoterEvent[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -683,7 +703,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubPromoterEvent, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -692,7 +712,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribePromoterTicketSales(listener: (value: NightclubTicketSale[]) => void): Unsubscribe {
+  subscribePromoterTicketSales(listener: (value: NightclubTicketSale[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -705,7 +725,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubTicketSale, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -714,7 +734,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribePromoterLoungeSales(listener: (value: NightclubLoungeSale[]) => void): Unsubscribe {
+  subscribePromoterLoungeSales(listener: (value: NightclubLoungeSale[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -727,7 +747,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubLoungeSale, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -736,7 +756,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribePromoterConsumptions(listener: (value: NightclubPromoterConsumption[]) => void): Unsubscribe {
+  subscribePromoterConsumptions(listener: (value: NightclubPromoterConsumption[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -749,7 +769,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubPromoterConsumption, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -758,7 +778,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeMembers(listener: (value: NightclubMember[]) => void): Unsubscribe {
+  subscribeMembers(listener: (value: NightclubMember[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -771,7 +791,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubMember, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -780,7 +800,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeCourtesies(listener: (value: NightclubCourtesy[]) => void): Unsubscribe {
+  subscribeCourtesies(listener: (value: NightclubCourtesy[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -793,7 +813,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCourtesy, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -802,7 +822,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeCommissions(listener: (value: NightclubCommission[]) => void): Unsubscribe {
+  subscribeCommissions(listener: (value: NightclubCommission[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -815,7 +835,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCommission, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -824,7 +844,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeCommissionPayments(listener: (value: NightclubCommissionPayment[]) => void): Unsubscribe {
+  subscribeCommissionPayments(listener: (value: NightclubCommissionPayment[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -837,7 +857,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCommissionPayment, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -846,7 +866,7 @@ export class TenantNightclubRepository {
     }
   }
 
-  subscribeCustomerIncidents(listener: (value: NightclubCustomerIncident[]) => void): Unsubscribe {
+  subscribeCustomerIncidents(listener: (value: NightclubCustomerIncident[]) => void, onError?: (err: Error) => void): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
@@ -859,7 +879,7 @@ export class TenantNightclubRepository {
           const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCustomerIncident, 'id'>) }))
           listener(list)
         },
-        () => {}
+        err => onError?.(err)
       )
     })
     return () => {
@@ -954,5 +974,285 @@ export class TenantNightclubRepository {
 
   async assignCustomer(input: { operationId: string; accountId: string; customerId: string | null }): Promise<any> {
     return this.dispatch('assignCustomer', input.operationId, input)
+  }
+
+  subscribeOperatorContext(
+    uidOrListener: string | ((value: NightclubOperatorContext | null) => void),
+    maybeListener?: (value: NightclubOperatorContext | null) => void,
+    onError?: (err: Error) => void
+  ): Unsubscribe {
+    const targetUid = typeof uidOrListener === 'string' ? uidOrListener : this.uid || ''
+    const listener = typeof uidOrListener === 'function' ? uidOrListener : maybeListener!
+    let active = true
+    let unsub: Unsubscribe | null = null
+    if (!targetUid) {
+      listener(null)
+      return () => { active = false }
+    }
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const docRef = doc(ctx.db, 'tenants', this.tenantId, 'nightclubOperatorContexts', targetUid)
+      unsub = onSnapshot(
+        docRef,
+        snap => {
+          if (!active) return
+          if (snap.exists() && snap.data()?.branchId === this.branchId) {
+            listener({ id: snap.id, ...(snap.data() as Omit<NightclubOperatorContext, 'id'>) })
+          } else {
+            listener(null)
+          }
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCashboxes(listener: (value: NightclubCashbox[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCashboxes')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubCashbox, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeLocations(listener: (value: NightclubLocation[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubLocations')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubLocation, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeLocationInventory(locationId: string, listener: (value: NightclubLocationInventorySnapshot) => void, onError?: (err: Error) => void): Unsubscribe {
+    let balances: NightclubInventoryBalance[] = []
+    let lots: NightclubInventoryLot[] = []
+    let active = true
+    let unsubBalances: Unsubscribe | null = null
+    let unsubLots: Unsubscribe | null = null
+
+    const emit = () => {
+      if (!active) return
+      listener({ balances: [...balances], lots: [...lots] })
+    }
+
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const balRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryBalances')
+      unsubBalances = onSnapshot(
+        query(balRef, where('branchId', '==', this.branchId), where('locationId', '==', locationId)),
+        snap => {
+          if (!active) return
+          balances = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryBalance, 'id'>) }))
+          emit()
+        },
+        err => onError?.(err)
+      )
+
+      const lotRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryLots')
+      unsubLots = onSnapshot(
+        query(lotRef, where('branchId', '==', this.branchId), where('locationId', '==', locationId)),
+        snap => {
+          if (!active) return
+          lots = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryLot, 'id'>) }))
+          emit()
+        },
+        err => onError?.(err)
+      )
+    })
+
+    return () => {
+      active = false
+      if (unsubBalances) unsubBalances()
+      if (unsubLots) unsubLots()
+    }
+  }
+
+  subscribeInventoryBalances(listener: (value: NightclubInventoryBalance[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryBalances')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryBalance, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeInventoryLots(listener: (value: NightclubInventoryLot[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubInventoryLots')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubInventoryLot, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeOpenBottles(listener: (value: NightclubOpenBottle[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubOpenBottles')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubOpenBottle, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeTransfers(listener: (value: NightclubTransfer[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubTransfers')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubTransfer, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  subscribeCashboxShifts(listener: (value: NightclubShift[]) => void, onError?: (err: Error) => void): Unsubscribe {
+    let active = true
+    let unsub: Unsubscribe | null = null
+    void getFirebaseContext().then(ctx => {
+      if (!ctx || !active) return
+      const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubShifts')
+      unsub = onSnapshot(
+        query(ref, where('branchId', '==', this.branchId)),
+        snap => {
+          if (!active) return
+          const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<NightclubShift, 'id'>) }))
+          listener(list)
+        },
+        err => onError?.(err)
+      )
+    })
+    return () => {
+      active = false
+      if (unsub) unsub()
+    }
+  }
+
+  async selectCashbox(input: { operationId: string; cashboxId: string; confirmPending?: boolean }): Promise<{ cashboxId?: string; locationId: string; activeShiftId?: string | null }> {
+    return this.dispatch<{ cashboxId?: string; locationId: string; activeShiftId?: string | null }>('selectCashbox', input.operationId, {
+      cashboxId: input.cashboxId,
+      confirmPending: input.confirmPending === true,
+    })
+  }
+
+  async openCashboxShift(input: { operationId: string; cashboxId: string; openingFloat: number }): Promise<{ shiftId: string; cashboxId?: string }> {
+    return this.dispatch<{ shiftId: string; cashboxId?: string }>('openCashboxShift', input.operationId, {
+      cashboxId: input.cashboxId,
+      openingFloat: input.openingFloat,
+    })
+  }
+
+  async closeCashboxShift(input: { operationId: string; cashboxId: string; shiftId?: string; countedCash: number }): Promise<void> {
+    await this.dispatch('closeShift', input.operationId, {
+      shiftId: input.shiftId,
+      countedCash: input.countedCash,
+    })
+  }
+
+  async receiveWarehouseIntake(input: { operationId: string; receipt: any }): Promise<any> {
+    return this.dispatch('receiveWarehouseIntake', input.operationId, { receipt: input.receipt })
+  }
+
+  async confirmPhysicalCount(input: { operationId: string; count: any }): Promise<any> {
+    return this.dispatch('confirmPhysicalCount', input.operationId, { count: input.count })
+  }
+
+  async requestTransfer(input: { operationId: string; transfer: { lines: Array<{ inventoryId: string; quantity: number; unit: 'unit' | 'ml' | 'g' }> } }): Promise<{ transferId: string; destinationLocationId?: string }> {
+    return this.dispatch<{ transferId: string; destinationLocationId?: string }>('requestTransfer', input.operationId, {
+      transfer: { mode: 'pending_receipt', lines: input.transfer.lines },
+    })
+  }
+
+  async dispatchTransfer(input: { operationId: string; transferId: string }): Promise<{ transferId: string; status?: string } | void> {
+    return this.dispatch<{ transferId: string; status?: string }>('dispatchTransfer', input.operationId, {
+      transferId: input.transferId,
+    })
+  }
+
+  async receiveTransfer(input: { operationId: string; transferId: string }): Promise<{ transferId: string; status?: string } | void> {
+    return this.dispatch<{ transferId: string; status?: string }>('receiveTransfer', input.operationId, {
+      transferId: input.transferId,
+    })
   }
 }

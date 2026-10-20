@@ -75,7 +75,16 @@ export interface TenantNightclubActionsDeps {
     saveCustomerIncident?: (payload: any) => Promise<any>
     deleteCustomerIncident?: (payload: any) => Promise<any>
     assignCustomer?: (payload: any) => Promise<any>
+    selectCashbox?: (payload: any) => Promise<any>
+    openCashboxShift?: (payload: any) => Promise<any>
+    closeCashboxShift?: (payload: any) => Promise<any>
+    receiveWarehouseIntake?: (payload: any) => Promise<any>
+    confirmPhysicalCount?: (payload: any) => Promise<any>
+    requestTransfer?: (payload: any) => Promise<any>
+    dispatchTransfer?: (payload: any) => Promise<any>
+    receiveTransfer?: (payload: any) => Promise<any>
   }
+  cashboxShifts?: NightclubShift[]
   gatewayFn: (name: 'tenantGateway' | 'platformGateway', payload: Record<string, unknown>) => Promise<any>
 }
 
@@ -85,6 +94,7 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
     uid,
     staff,
     shift,
+    cashboxShifts,
     reloadStaff,
     reloadCustomers,
     repository,
@@ -234,9 +244,15 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       return true
     },
 
-    onRefundRound: async (accountId: string, roundId: string, reason: string): Promise<boolean> => {
+    onRefundRound: async (
+      accountId: string,
+      roundId: string,
+      reason: string,
+      returnToStock?: boolean,
+      items?: Array<{ itemId: string; quantity: number; returnToStock: boolean }>
+    ): Promise<boolean> => {
       const operationId = crypto.randomUUID()
-      await repository.refundRound({ operationId, accountId, roundId, reason })
+      await repository.refundRound({ operationId, accountId, roundId, reason, returnToStock, items })
       return true
     },
 
@@ -534,6 +550,53 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
       const operationId = crypto.randomUUID()
       if (!repository.savePromoterConsumption) throw new Error('savePromoterConsumption no disponible en el repositorio.')
       await repository.savePromoterConsumption({ operationId, consumption })
+      return true
+    },
+    onSelectCashbox: async (cashboxId: string, confirmPending?: boolean): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.selectCashbox) throw new Error('selectCashbox no disponible en el repositorio.')
+      await repository.selectCashbox({ operationId, cashboxId, confirmPending })
+      return true
+    },
+    onStartCashboxShift: async (cashboxId: string, openingFloat: number): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.openCashboxShift) throw new Error('openCashboxShift no disponible en el repositorio.')
+      await repository.openCashboxShift({ operationId, cashboxId, openingFloat })
+      return true
+    },
+    onCloseCashboxShift: async (cashboxId: string, countedCash: number): Promise<boolean> => {
+      const operationId = crypto.randomUUID()
+      if (!repository.closeCashboxShift) throw new Error('closeCashboxShift no disponible en el repositorio.')
+      const activeShift = cashboxShifts?.find(s => s.cashboxId === cashboxId && s.status === 'open') || shift
+      if (!activeShift?.id) throw new Error('No hay turno abierto para esta caja.')
+      await repository.closeCashboxShift({ operationId, cashboxId, shiftId: activeShift.id, countedCash })
+      return true
+    },
+    onReceiveWarehouseIntake: async (receipt: unknown, opId?: string): Promise<unknown> => {
+      const operationId = opId || crypto.randomUUID()
+      if (!repository.receiveWarehouseIntake) throw new Error('receiveWarehouseIntake no disponible en el repositorio.')
+      return await repository.receiveWarehouseIntake({ operationId, receipt: receipt as any })
+    },
+    onConfirmPhysicalCount: async (count: unknown, opId?: string): Promise<unknown> => {
+      const operationId = opId || crypto.randomUUID()
+      if (!repository.confirmPhysicalCount) throw new Error('confirmPhysicalCount no disponible en el repositorio.')
+      return await repository.confirmPhysicalCount({ operationId, count: count as any })
+    },
+    onRequestInventoryTransfer: async (lines: unknown[], opId?: string): Promise<unknown> => {
+      const operationId = opId || crypto.randomUUID()
+      if (!repository.requestTransfer) throw new Error('requestTransfer no disponible en el repositorio.')
+      return await repository.requestTransfer({ operationId, transfer: { lines } })
+    },
+    onDispatchInventoryTransfer: async (transferId: string, opId?: string): Promise<boolean> => {
+      const operationId = opId || crypto.randomUUID()
+      if (!repository.dispatchTransfer) throw new Error('dispatchTransfer no disponible en el repositorio.')
+      await repository.dispatchTransfer({ operationId, transferId })
+      return true
+    },
+    onReceiveInventoryTransfer: async (transferId: string, opId?: string): Promise<boolean> => {
+      const operationId = opId || crypto.randomUUID()
+      if (!repository.receiveTransfer) throw new Error('receiveTransfer no disponible en el repositorio.')
+      await repository.receiveTransfer({ operationId, transferId })
       return true
     },
   }

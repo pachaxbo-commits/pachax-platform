@@ -1,6 +1,6 @@
 import type { NightclubModuleId } from '../domain/nightclubAccounts.ts'
 import { nightclubCan, normalizeNightclubRole } from '../domain/nightclubAccounts.ts'
-import { demoCan } from '../../../demo/nightclub/nightclubDemoAccess.ts'
+import { hasNightclubPermission } from '../domain/nightclubPermissions.ts'
 
 export function createNightclubActionRunner(
   getIsRunning: () => boolean,
@@ -49,16 +49,19 @@ export function resolveNightclubVisibleModules({
   mode: _mode,
   role,
   demoPermissions,
+  permissions,
 }: {
   mode?: 'tenant' | 'demo' | 'studio'
   role: string
   demoPermissions?: ReadonlySet<string> | null
+  permissions?: ReadonlySet<string> | null
 }): NightclubModuleId[] {
   const modules = ALL_NIGHTCLUB_MODULE_IDS
   const normalizedRole = normalizeNightclubRole(role)
+  const effective = permissions !== undefined ? permissions : demoPermissions
   return modules.filter(id =>
-    demoPermissions !== undefined
-      ? demoCan(demoPermissions, id)
+    effective !== undefined
+      ? hasNightclubPermission(effective, id)
       : nightclubCan(normalizedRole, id)
   )
 }

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 // @ts-expect-error Node test types are intentionally absent from the browser tsconfig.
 import test from 'node:test'
-import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
+import { createNightclubDataset } from '../nightclubDatasets.ts'
 import type { NightclubAccount, NightclubPayment } from '../nightclubAccounts.ts'
 import { saveNightclubCustomer } from '../nightclubCustomers.ts'
 import { deleteNightclubCustomerIncident, listNightclubCustomerIncidents, saveNightclubCustomerIncident, setNightclubCustomerStatus } from '../nightclubCustomerIncidents.ts'

@@ -221,18 +221,7 @@ try {
   assert(onbHamb.body.error?.message?.includes('todavía no está disponible para crear empresas'))
   pass('tenantGateway completeOnboarding con hamburger_shop es DENEGADO (failed-precondition)')
 
-  // 2. completeOnboarding con nightclub_lounge -> DENIED / failed-precondition
-  const onbNight = await callTenantGateway(ordinaryUid, {
-    action: 'completeOnboarding',
-    requestId: `onb_night_${suffix}`,
-    companyName: 'Nightclub Bypass',
-    businessType: 'nightclub_lounge',
-  })
-  assert.equal(onbNight.body.error?.status, 'FAILED_PRECONDITION')
-  assert(onbNight.body.error?.message?.includes('todavía no está disponible para crear empresas'))
-  pass('tenantGateway completeOnboarding con nightclub_lounge es DENEGADO (failed-precondition)')
-
-  // 3. completeOnboarding con gelateria_weight_cafe -> DENIED / failed-precondition
+  // 2. completeOnboarding con gelateria_weight_cafe -> DENIED / failed-precondition
   const onbGel = await callTenantGateway(ordinaryUid, {
     action: 'completeOnboarding',
     requestId: `onb_gel_${suffix}`,
@@ -243,7 +232,7 @@ try {
   assert(onbGel.body.error?.message?.includes('todavía no está disponible para crear empresas'))
   pass('tenantGateway completeOnboarding con gelateria_weight_cafe es DENEGADO (failed-precondition)')
 
-  // 4. createTenant con coming-soon BusinessType -> DENIED / failed-precondition
+  // 3. createTenant con coming-soon BusinessType -> DENIED / failed-precondition
   const createComingSoon = await callTenantGateway(ordinaryUid, {
     action: 'createTenant',
     operationId: `create_hamb_${suffix}`,
@@ -254,7 +243,7 @@ try {
   assert(createComingSoon.body.error?.message?.includes('todavía no está disponible para crear empresas'))
   pass('createTenant vía tenantGateway con coming-soon BusinessType es DENEGADO')
 
-  // 5. completeOnboarding con route_distribution -> PASS
+  // 4. completeOnboarding con route_distribution -> PASS
   const onbDist = await callTenantGateway(ordinaryUid, {
     action: 'completeOnboarding',
     requestId: `onb_dist_${suffix}`,
@@ -266,7 +255,7 @@ try {
   assert(onbDist.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con route_distribution es PERMITIDO y converge')
 
-  // 6. completeOnboarding con restaurant_pos -> PASS
+  // 5. completeOnboarding con restaurant_pos -> PASS
   const restUserUid = `user_rest_${suffix}`
   await auth.createUser({ uid: restUserUid, email: `${restUserUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Restaurante' })
   const onbRest = await callTenantGateway(restUserUid, {
@@ -279,6 +268,20 @@ try {
   assert.equal(onbRest.body.result?.template?.businessType, 'restaurant_pos')
   assert(onbRest.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con restaurant_pos es PERMITIDO y converge')
+
+  // 6. completeOnboarding con nightclub_lounge -> PASS
+  const nightUserUid = `user_night_${suffix}`
+  await auth.createUser({ uid: nightUserUid, email: `${nightUserUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Nightclub' })
+  const onbNight = await callTenantGateway(nightUserUid, {
+    action: 'completeOnboarding',
+    requestId: `onb_night_${suffix}`,
+    companyName: 'Nightclub Autorizado',
+    businessType: 'nightclub_lounge',
+  })
+  assert.equal(onbNight.response.status, 200)
+  assert.equal(onbNight.body.result?.template?.businessType, 'nightclub_lounge')
+  assert(onbNight.body.result?.tenantId)
+  pass('tenantGateway completeOnboarding con nightclub_lounge es PERMITIDO y converge')
 
   assert.equal(checks, 40)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)

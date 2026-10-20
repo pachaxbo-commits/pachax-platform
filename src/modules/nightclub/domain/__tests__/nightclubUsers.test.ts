@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 // @ts-expect-error Node test types are intentionally absent from the browser tsconfig.
 import test from 'node:test'
-import { createNightclubDataset } from '../../../../demo/datasets/nightclub/nightclubDatasets.ts'
+import { createNightclubDataset } from '../nightclubDatasets.ts'
 import { deleteNightclubCustomRole, deleteNightclubUser, saveNightclubCustomRole, NIGHTCLUB_ROLE_DEFAULTS, NIGHTCLUB_USER_SECTIONS, nightclubUserPermissions, normalizeNightclubUserPermissions, saveNightclubRolePreset, saveNightclubUser } from '../nightclubUsers.ts'
 
 test('matriz cubre secciones reales y rechaza permisos incoherentes', () => {

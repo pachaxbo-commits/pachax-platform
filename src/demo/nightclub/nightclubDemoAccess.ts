@@ -1,5 +1,6 @@
 import type { NightclubDataset, NightclubModuleId, NightclubStaff } from '../../modules/nightclub/domain/nightclubAccounts'
 import { nightclubUserPermissions } from '../../modules/nightclub/domain/nightclubUsers.ts'
+import { hasNightclubPermission } from '../../modules/nightclub/domain/nightclubPermissions.ts'
 
 type Action = 'create' | 'edit' | 'delete'
 type Grant = { section: NightclubModuleId; action: Action; special?: string; collection?: keyof NightclubDataset }
@@ -37,14 +38,14 @@ const grants: Record<string, Grant> = {
   onSaveMember: { section: 'members', action: 'create', collection: 'members' },
   onRegisterCourtesy: { section: 'members', action: 'create' }, onCancelCourtesy: { section: 'members', action: 'delete' },
 }
+
 export function demoPermissionSet(data: NightclubDataset, user: NightclubStaff | null, selectedId: string): ReadonlySet<string> | null {
   if (!selectedId) return null
   if (!user?.active) return new Set()
   return new Set(nightclubUserPermissions(data, user))
 }
-export function demoCan(permissions: ReadonlySet<string> | null, section: NightclubModuleId, action: 'view' | Action = 'view') {
-  return permissions === null || permissions.has(section + '.' + action)
-}
+export const demoCan = hasNightclubPermission
+
 export function guardNightclubDemoController<T extends { data: NightclubDataset }>(controller: T, permissions: ReadonlySet<string> | null, user: NightclubStaff | null): T {
   if (permissions === null) return controller
   return new Proxy(controller, { get(target, key, receiver) {
