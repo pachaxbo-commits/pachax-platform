@@ -126,6 +126,7 @@ try {
   assert.equal((await legacy.root.collection('nightclubLocations').doc('warehouse-general').get()).data().name, 'Almacén de prueba renombrado')
   assert.equal((await legacy.root.collection('nightclubShifts').get()).size, 0)
   assert.equal((await legacy.root.collection('nightclubInventory').get()).size, 0)
+  assert.equal((await legacy.root.collection('nightclubAudit').where('operationId', '==', `initialize-${suffix}`).get()).size, 1)
   assert(warehouseBefore.createdAt)
   pass('tenant antiguo se inicializa; la repetición no sobrescribe nombres ni crea turnos/stock')
 
@@ -208,6 +209,17 @@ try {
   assert.equal((await partial.root.collection('nightclubCashboxes').get()).size, 0)
   pass('configuración parcial se rechaza sin completar ni sobrescribir documentos')
 
+  const inconsistent = await createFixtureTenant({ key: 'inconsistent' })
+  await inconsistent.root.collection('nightclubLocations').doc('warehouse-general').set({ id: 'warehouse-general', tenantId: inconsistent.tenantId, branchId: 'main', type: 'warehouse', name: 'Almacén general', active: true })
+  await inconsistent.root.collection('nightclubLocations').doc('cashbox-1').set({ id: 'cashbox-1', tenantId: inconsistent.tenantId, branchId: 'main', type: 'cashbox', name: 'Caja principal', linkedCashboxId: 'cashbox-1', active: true })
+  await inconsistent.root.collection('nightclubCashboxes').doc('cashbox-1').set({ id: 'cashbox-1', tenantId: inconsistent.tenantId, branchId: 'main', locationId: 'cashbox-1', name: 'Caja principal', active: true })
+  await inconsistent.root.collection('nightclubLocations').doc('orphan-cashbox').set({ id: 'orphan-cashbox', tenantId: inconsistent.tenantId, branchId: 'main', type: 'cashbox', name: 'Ubicación huérfana', linkedCashboxId: 'missing-cashbox', active: true })
+  const inconsistentResult = await command('inconsistent', inconsistent.tenantId, 'main', 'initializeNightclubInfrastructure', `inconsistent-${suffix}`)
+  assert.equal(inconsistentResult.status, 'FAILED_PRECONDITION')
+  assert.equal((await inconsistent.root.collection('nightclubCashboxes').get()).size, 1)
+  assert.equal((await inconsistent.root.collection('nightclubLocations').get()).size, 3)
+  pass('configuración incompatible se rechaza sin crear ni sobrescribir cajas o ubicaciones')
+
   const restaurant = await createFixtureTenant({ key: 'restaurant', businessType: 'restaurant_pos' })
   const wrongTemplate = await command('restaurant', restaurant.tenantId, 'main', 'initializeNightclubInfrastructure', `wrong-template-${suffix}`)
   assert.equal(wrongTemplate.status, 'FAILED_PRECONDITION')
@@ -232,7 +244,7 @@ try {
   }
   pass('Rules siguen bloqueando escrituras cliente a locations, cashboxes, operatorContexts y shifts')
 
-  assert.equal(checks, 14)
+  assert.equal(checks, 15)
   console.log(`${checks} comprobaciones de first-run Nightclub aprobadas`)
 } finally {
   for (const uid of users.values()) {
