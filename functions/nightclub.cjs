@@ -93,7 +93,7 @@ const permissions = {
   deleteCustomerIncident: 'settings.manage',
   assignCustomer: 'orders.manage',
 }
-
+permissions.settlePendingRound = 'sales.create'
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100
 const cents = value => Math.round(value * 100)
 const amount = value => {
@@ -208,6 +208,9 @@ async function executeNightclubCommand(db, request) {
     }
     if (type === 'recordPayment' && !nightclubOperationAllowed(memberData, 'cash.create', ['owner', 'admin', 'cashier'])) {
       throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden registrar pagos.')
+    }
+    if (type === 'settlePendingRound' && !nightclubOperationAllowed(memberData, 'cash.create', ['owner', 'admin', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden cobrar una ronda pendiente.')
     }
     if (type === 'finishOccupancy' && !nightclubOperationAllowed(memberData, 'accounts.edit', ['owner', 'admin', 'waiter', 'service'])) {
       throw new HttpsError('permission-denied', 'Solo Servicio puede cerrar mesas.')
@@ -1255,11 +1258,11 @@ async function applyCommand(context) {
   if (operatorContextData?.cashboxId && !canUseCashbox(actor, operatorContextData.cashboxId)) throw new HttpsError('permission-denied', 'Tu contexto de caja ya no está autorizado.')
   const operatorShiftId = operatorContextData?.activeShiftId || null
   const effectiveShiftId = operatorShiftId || activeShiftId
-  if (!effectiveShiftId && !['settleRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) throw new HttpsError('failed-precondition', 'No hay turno activo.')
+  if (!effectiveShiftId && !['settleRound', 'settlePendingRound', 'advanceRound', 'deliverRound', 'finishOccupancy', 'refundRound'].includes(type)) throw new HttpsError('failed-precondition', 'No hay turno activo.')
 
   // Rondas cobradas de barra inmediata y reembolsos
-  if (['settleRound', 'refundRound'].includes(type)) {
-    return applyPaidRoundCommand({ ...context, activeShiftId: effectiveShiftId })
+  if (['settleRound', 'settlePendingRound', 'refundRound'].includes(type)) {
+    return applyPaidRoundCommand({ ...context, activeShiftId: effectiveShiftId, operatorContextData, operatorShiftId })
   }
 
   if (['openAccount', 'createPendingRound', 'arriveReservation'].includes(type) && operatorContextData?.cashboxId) {

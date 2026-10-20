@@ -4,6 +4,14 @@ import type { NightclubRoundDraft, NightclubServiceTarget } from '../domain/nigh
 
 export type NightclubOpenAccountCommand = { tenantId: string; branchId: string; operationId: string; target: NightclubServiceTarget }
 export type NightclubPendingRoundCommand = { tenantId: string; branchId: string; operationId: string; accountId: string; items: NightclubRoundDraft[] }
+export type NightclubPendingRoundSettlementCommand = {
+  tenantId: string
+  branchId: string
+  operationId: string
+  accountId: string
+  roundId: string
+  payment: { method: 'cash' | 'qr' | 'card' | 'mixed'; amount?: number; cashAmount?: number; qrAmount?: number; cardAmount?: number; received?: number; confirmed?: boolean }
+}
 
 /** Creates a pending bar account with the server-authoritative cashbox, location
  * and open shift. It does not create a payment or any inventory movement. */
@@ -21,6 +29,16 @@ export function createNightclubPendingRoundThroughGateway(input: NightclubPendin
     action: 'nightclubCommand', tenantId: input.tenantId, branchId: input.branchId,
     commandType: 'createPendingRound', operationId: input.operationId,
     payload: { accountId: input.accountId, items: input.items },
+  })
+}
+
+/** Settles the existing pending round identified by roundId. The browser never
+ * sends prices, stock locations, FIFO allocations, or a replacement draft. */
+export function settleNightclubPendingRoundThroughGateway(input: NightclubPendingRoundSettlementCommand) {
+  return gateway<{ accountId: string; roundId: string; paymentId: string; total: number; status: 'pending' | 'ready' }>('tenantGateway', {
+    action: 'nightclubCommand', tenantId: input.tenantId, branchId: input.branchId,
+    commandType: 'settlePendingRound', operationId: input.operationId,
+    payload: { accountId: input.accountId, roundId: input.roundId, payment: input.payment },
   })
 }
 export type NightclubRefundLine = { itemId: string; quantity: number; returnToStock: boolean }

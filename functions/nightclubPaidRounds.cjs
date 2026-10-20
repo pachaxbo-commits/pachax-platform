@@ -5,8 +5,61 @@ const money = value => Math.round((value + Number.EPSILON) * 100) / 100
 const cents = value => Math.round(value * 100)
 const fail = message => { throw new HttpsError('failed-precondition', message) }
 
+function paymentBreakdown(total, payment = {}) {
+  if (!['cash', 'qr', 'card', 'mixed'].includes(payment.method)) throw new HttpsError('invalid-argument', 'Método de pago inválido.')
+  const cashAmount = payment.method === 'cash' ? total : payment.method === 'mixed' ? money(payment.cashAmount || 0) : 0
+  const qrAmount = payment.method === 'qr' ? total : payment.method === 'mixed' ? money(payment.qrAmount || 0) : 0
+  const cardAmount = payment.method === 'card' ? total : payment.method === 'mixed' ? money(payment.cardAmount || 0) : 0
+  if ((qrAmount > 0 || cardAmount > 0) && payment.confirmed !== true) fail('Confirma que el pago electrónico fue recibido.')
+  if ([cashAmount, qrAmount, cardAmount].some(value => !Number.isFinite(value) || value < 0) || cents(cashAmount + qrAmount + cardAmount) !== cents(total) || payment.amount !== undefined && cents(payment.amount) !== cents(total)) fail('El pago debe cubrir exactamente esta ronda.')
+  const received = payment.received === undefined ? cashAmount : money(payment.received)
+  if (!Number.isFinite(received) || received < cashAmount) fail('Efectivo recibido insuficiente.')
+  return { cashAmount, qrAmount, cardAmount, received }
+}
+
+async function settlePendingRound({ tx, root, actor, branchId, operationId, accountRef, account, payload, now, operatorContextData, operatorShiftId }) {
+  const roundId = id(payload.roundId)
+  if (!operatorContextData?.cashboxId || !operatorContextData.locationId || !operatorShiftId) fail('Selecciona una caja con turno abierto.')
+  if (account.cashboxId !== operatorContextData.cashboxId || account.locationId !== operatorContextData.locationId || account.shiftId !== operatorShiftId) fail('La cuenta pertenece a otra caja o turno.')
+  const shift = await tx.get(root.collection('nightclubShifts').doc(id(account.shiftId)))
+  if (!shift.exists || shift.data().status !== 'open' || shift.data().branchId !== branchId || shift.data().cashboxId !== account.cashboxId || shift.data().locationId !== account.locationId) fail('El turno original de la cuenta ya no está abierto.')
+  const roundRef = root.collection('nightclubRounds').doc(roundId)
+  const roundSnap = await tx.get(roundRef)
+  if (!roundSnap.exists || roundSnap.data().tenantId !== actor.tenantId || roundSnap.data().branchId !== branchId || roundSnap.data().accountId !== account.id) fail('Ronda pendiente no encontrada.')
+  const round = roundSnap.data()
+  if (round.status !== 'pending' || round.authorization !== 'account_charge' || round.paymentId || round.inventoryConsumptionStatus === 'consumed') fail('La ronda ya fue liquidada o no está pendiente.')
+  if (round.cashboxId !== account.cashboxId || round.locationId !== account.locationId || round.shiftId !== account.shiftId) fail('La ronda no conserva el contexto histórico de la cuenta.')
+  if (!Array.isArray(round.items) || !round.items.length) throw new HttpsError('invalid-argument', 'La ronda no contiene productos.')
+  const productIds = [...new Set(round.items.map(item => id(item.productId)))]
+  const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
+  const products = new Map(productSnaps.map((snap, index) => [productIds[index], snap.data()]))
+  let total = 0
+  const drafts = round.items.map(item => {
+    const product = products.get(item.productId)
+    if (!product || product.branchId !== branchId || !Number.isInteger(item.quantity) || item.quantity < 1 || !Number.isFinite(item.unitPrice) || !Number.isFinite(item.lineTotal) || cents(item.lineTotal) !== cents(item.unitPrice * item.quantity)) fail('La ronda pendiente tiene precios o cantidades inválidas.')
+    const recipe = product.inventoryMode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1 }] : product.bottlePresentation?.inventoryId ? [{ inventoryId: product.bottlePresentation.inventoryId, quantity: 1 }] : []
+    if (product.inventoryMode !== 'none' && !recipe.length) fail('El producto pendiente no tiene inventario configurado.')
+    total = money(total + item.lineTotal)
+    return { id: item.id, productId: item.productId, quantity: item.quantity }
+  })
+  if (!Number.isFinite(round.total) || cents(round.total) !== cents(total)) fail('El total histórico de la ronda no coincide con sus líneas.')
+  const payment = paymentBreakdown(total, payload.payment)
+  const paymentId = `payment_${operationId}`
+  const locationConsumption = await consumeNightclubLocationStock({ tx, root, actor, branchId, operationId, account: { ...account, id: account.id }, roundId, products, drafts, now })
+  const items = round.items.map(item => {
+    const fifoAllocations = locationConsumption.lineAllocations.filter(allocation => allocation.itemId === item.id)
+    const product = products.get(item.productId)
+    return { ...item, costAtSale: money(fifoAllocations.reduce((sum, allocation) => sum + Number(allocation.costTotal || 0), 0)), fifoAllocations, physicalReturnEligible: fifoAllocations.length > 0 && fifoAllocations.every(allocation => allocation.unit === 'unit') && !product?.bottlePresentation && fifoAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0) === item.quantity }
+  })
+  tx.update(roundRef, { items, authorization: 'payment', paymentId, paidAt: now, paidBy: actor.uid, inventoryConsumptionStatus: 'consumed', costAtSale: locationConsumption.costTotal, updatedAt: now })
+  tx.create(root.collection('nightclubPayments').doc(paymentId), { id: paymentId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, cashboxId: account.cashboxId, locationId: account.locationId, accountId: account.id, roundId, status: 'confirmed', method: payload.payment.method, amount: total, cashAmount: payment.cashAmount, qrAmount: payment.qrAmount, cardAmount: payment.cardAmount, received: payment.received, change: money(payment.received - payment.cashAmount), createdAt: now, actorUid: actor.uid })
+  if (payment.cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`cash_${operationId}`), { id: `cash_${operationId}`, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, cashboxId: account.cashboxId, locationId: account.locationId, accountId: account.id, roundId, type: 'sale', method: 'cash', amount: payment.cashAmount, actorUid: actor.uid, createdAt: now })
+  tx.update(accountRef, { paidTotal: money(Number(account.paidTotal || 0) + total), balance: money(Number(account.balance || 0) - total), updatedAt: now })
+  return { accountId: account.id, roundId, paymentId, total, status: round.status }
+}
+
 /** Runs inside nightclubCommand's tenant-scoped, idempotent transaction. */
-async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId, operationId, type, payload, now }) {
+async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId, operatorContextData, operatorShiftId, operationId, type, payload, now }) {
   const accountId = id(payload.accountId)
   const accountRef = root.collection('nightclubAccounts').doc(accountId)
   const accountSnap = await tx.get(accountRef)
@@ -17,6 +70,7 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
   const direct = account.serviceTarget?.type === 'bar' || account.serviceTarget?.type === 'customer'
   if (direct && (account.tableId || account.serviceTarget.tableId || account.orderType && account.orderType !== 'BAR')) fail('Un pedido en barra no puede estar vinculado a una mesa.')
   if (account.serviceTarget?.type === 'table' && account.orderType && account.orderType !== 'TABLE') fail('El tipo de pedido no coincide con la mesa.')
+  if (type === 'settlePendingRound') return settlePendingRound({ tx, root, actor, branchId, operationId, accountRef, account: { ...account, id: accountId }, payload, now, operatorContextData, operatorShiftId })
   if (type === 'settleRound') {
     if (account.status !== 'open' || cents(account.balance || 0) !== 0) fail('La ocupaciÃ³n necesita regularizar su saldo anterior antes de nuevos pedidos.')
     const shift = await tx.get(root.collection('nightclubShifts').doc(id(account.shiftId)))

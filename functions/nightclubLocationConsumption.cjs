@@ -23,7 +23,7 @@ async function consumeNightclubLocationStock({ tx, root, actor, branchId, operat
         // A closed bottle is a sellable line too. Keep its FIFO allocation on
         // the originating order item instead of only in the aggregated stock
         // total, just like a one-ingredient recipe.
-        lineRequirements.push({ itemId: `${operationId}_${draftIndex}`, productId: draft.productId, inventoryId: presentation.inventoryId, quantity: draft.quantity, unit: 'unit' })
+        lineRequirements.push({ itemId: draft.id || `${operationId}_${draftIndex}`, productId: draft.productId, inventoryId: presentation.inventoryId, quantity: draft.quantity, unit: 'unit' })
       }
       continue
     }
@@ -31,7 +31,7 @@ async function consumeNightclubLocationStock({ tx, root, actor, branchId, operat
     for (const part of recipe) {
       const quantity = Number(part.quantity) * draft.quantity * unitFactor(part.unit)
       if (!Number.isFinite(quantity) || quantity <= 0) fail('Receta inválida.')
-      add(part.unit === 'ml' || part.unit === 'l' ? liquid : regular, part.inventoryId, quantity); if (!(part.unit === 'ml' || part.unit === 'l')) lineRequirements.push({ itemId: `${operationId}_${draftIndex}`, productId: draft.productId, inventoryId: part.inventoryId, quantity, unit: part.unit || 'unit' })
+      add(part.unit === 'ml' || part.unit === 'l' ? liquid : regular, part.inventoryId, quantity); if (!(part.unit === 'ml' || part.unit === 'l')) lineRequirements.push({ itemId: draft.id || `${operationId}_${draftIndex}`, productId: draft.productId, inventoryId: part.inventoryId, quantity, unit: part.unit || 'unit' })
     }
   }
   const inventoryIds = [...new Set([...regular.keys(), ...liquid.keys()])]
