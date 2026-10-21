@@ -36,6 +36,13 @@
       return request.resource.data.tenantId == tenantId;
     }
 
+    // Break-glass intake switch. Missing means enabled for compatibility;
+    // only privileged server-side access may create this control document.
+    function tDistAcceptsOperations(tenantId) {
+      let control = /databases/$(database)/documents/tenants/$(tenantId)/distOperationControl/intake;
+      return !exists(control) || get(control).data.get('accepting', true) == true;
+    }
+
     // Catalogo y rutas: lectura para cualquier miembro activo, escritura solo
     // administracion (los precios son configuracion, no operacion diaria).
     match /tenants/{tenantId}/distProducts/{productId} {
@@ -135,6 +142,7 @@
       allow get: if tIsActiveMember(tenantId) && (resource == null || tDistAdmin(tenantId) || resource.data.createdBy == request.auth.uid);
       allow list: if tDistAdmin(tenantId) || (tIsActiveMember(tenantId) && resource.data.createdBy == request.auth.uid);
       allow create: if tIsActiveMember(tenantId)
+        && tDistAcceptsOperations(tenantId)
         && request.resource.data.keys().hasOnly(['id','tenantId','branchId','createdBy','createdAt','type','payload','status'])
         && request.resource.data.id == operationId && tDistTenantMatches(tenantId)
         && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'queued'
