@@ -30,6 +30,7 @@ export function createEmptyDistributionDataset(): DistributionDataset {
       requireQrVerification: true,
       defaultPaperWidth: '80mm',
     },
+    catalogSettings: { id: 'catalog', tenantId: 'preview-distribution', industryProfile: 'mixed', categories: [{ id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: now },
     products: [],
     routes: [
       { id: 'route-norte', name: 'Ruta Principal', kind: 'route', active: true, tenantId: 'preview-distribution', createdAt: now },
@@ -88,6 +89,7 @@ export function createFullDistributionDataset(): DistributionDataset {
       requireQrVerification: true,
       defaultPaperWidth: '80mm',
     },
+    catalogSettings: { id: 'catalog', tenantId: 'preview-distribution', industryProfile: 'food', categories: [{ id: 'granel', name: 'Granel', active: true }, { id: 'pack', name: 'Paquetes', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: now },
     products: [
       {
         id: 'p-viena',

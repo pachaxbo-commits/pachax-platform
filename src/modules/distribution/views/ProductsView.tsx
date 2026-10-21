@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react'
-import { ImagePlus, Pencil, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
+import { ImagePlus, Pencil, Plus, Search, Sparkles, Trash2, Tags } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
-import { Field, NumberInput, Segmented, TextInput } from '../../../components/ui/Form'
+import { Field, NumberInput, Segmented, SelectInput, TextInput } from '../../../components/ui/Form'
 import { EmptyBlock, Screen } from '../../../components/ui/Screen'
 import { round2 } from '../domain/engine'
-import { deleteProduct, saveProduct, saveRoute } from '../data/distributionRepository'
+import { deleteProduct, saveProduct, saveRoute, saveCatalogSettings } from '../data/distributionRepository'
 import { prepareProductPhoto } from '../data/productPhoto'
-import { PACHAX_PRODUCTS, PACHAX_ROUTES } from '../seed/pachaxSeed'
-import { PrimaryButton, SecondaryButton, formatBs, formatQty } from './shared'
+import { PACHAX_ROUTES } from '../seed/pachaxSeed'
+import { PrimaryButton, SecondaryButton, formatBs } from './shared'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistProduct, UnitType } from '../types'
+import { CONTENT_UNIT_OPTIONS, DISTRIBUTION_PROFILES, SALE_UNIT_OPTIONS, demoProductsForProfile, mergeProfileCategories, validateCatalogProduct } from '../domain/catalog'
 
 /**
  * Catalogo de SKU. Cada producto declara su unidad real (kg, unidad o paquete)
@@ -27,6 +28,15 @@ export function ProductsView({ data }: DistributionViewProps) {
   const [weight, setWeight] = useState('')
   const [cost, setCost] = useState('0')
   const [minimum, setMinimum] = useState('0')
+  const [sku, setSku] = useState('')
+  const [saleUnitLabel, setSaleUnitLabel] = useState('')
+  const [contentAmount, setContentAmount] = useState('')
+  const [contentUnit, setContentUnit] = useState<'unit' | 'g' | 'kg' | 'ml' | 'l'>('unit')
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
+  const [newCategory, setNewCategory] = useState('')
+  const [editingCategoryId, setEditingCategoryId] = useState('')
+  const [editingCategoryName, setEditingCategoryName] = useState('')
+  const [categoryBusy, setCategoryBusy] = useState(false)
   const [photoDataUrl, setPhotoDataUrl] = useState('')
   const [isPreparingPhoto, setIsPreparingPhoto] = useState(false)
   const [active, setActive] = useState(true)
@@ -48,13 +58,14 @@ export function ProductsView({ data }: DistributionViewProps) {
   const openCreate = () => {
     setEditing(null)
     setName('')
-    setCategory('Al vacio')
+    setCategory(data.catalogSettings.categories.find(item => item.active)?.name || 'General')
     setPresentation('')
     setUnitType('package')
     setPrice('0')
     setWeight('')
     setCost('0'); setMinimum('0')
     setPhotoDataUrl('')
+    setSku(''); setSaleUnitLabel(''); setContentAmount(''); setContentUnit('unit')
     setActive(true)
     setError(null)
     setIsOpen(true)
@@ -70,6 +81,9 @@ export function ProductsView({ data }: DistributionViewProps) {
     setCost(String(product.productionCost || 0)); setMinimum(String(product.minimumStock || 0))
     setPhotoDataUrl(product.photoDataUrl || '')
     setWeight(product.approximateWeightKg ? String(product.approximateWeightKg) : '')
+    setSku(product.sku || ''); setSaleUnitLabel(product.saleUnitLabel || '')
+    setContentAmount(product.presentationContent ? String(product.presentationContent.amount) : '')
+    setContentUnit(product.presentationContent?.unit || 'unit')
     setActive(product.active !== false)
     setError(null)
     setIsOpen(true)
@@ -91,6 +105,9 @@ export function ProductsView({ data }: DistributionViewProps) {
         .slice(0, 40)}-${Date.now().toString(36)}`
 
     if ([price, cost, minimum].some(v => !Number.isFinite(Number(v)) || Number(v) < 0)) { setError('Precio, costo y mínimo deben ser números positivos o cero.'); return }
+    const content = contentAmount ? { amount: Number(contentAmount), unit: contentUnit } : undefined
+    const catalogError = validateCatalogProduct({ name, category, unitType, saleUnitLabel, presentationContent: content })
+    if (catalogError) { setError(catalogError); return }
     try {
     await saveProduct({
       id,
@@ -98,6 +115,9 @@ export function ProductsView({ data }: DistributionViewProps) {
       photoDataUrl,
       category,
       presentation: presentation.trim(),
+      sku: sku.trim() || undefined,
+      saleUnitLabel: saleUnitLabel.trim() || undefined,
+      presentationContent: content,
       unitType,
       referencePrice: round2(Number(price)),
       productionCost: round2(Number(cost)), minimumStock: round2(Number(minimum)),
@@ -110,17 +130,31 @@ export function ProductsView({ data }: DistributionViewProps) {
     } catch (err) { setError((err as Error).message) }
   }
 
+  const updateCategories = async (next: typeof data.catalogSettings.categories) => {
+    setCategoryBusy(true)
+    try { await saveCatalogSettings({ industryProfile: data.catalogSettings.industryProfile, categories: next }) }
+    catch (err) { setError((err as Error).message) }
+    finally { setCategoryBusy(false) }
+  }
+
+  const changeProfile = async (profile: typeof data.catalogSettings.industryProfile) => {
+    const merged = mergeProfileCategories(data.catalogSettings.categories, profile)
+    setCategoryBusy(true)
+    try { await saveCatalogSettings({ industryProfile: profile, categories: merged }) }
+    catch (err) { setError((err as Error).message) }
+    finally { setCategoryBusy(false) }
+  }
+
   /** Siembra el catalogo inicial sin pisar lo que ya exista (ids estables). */
   const seedCatalog = async () => {
     setIsSeeding(true)
     try {
-      const existingProducts = new Set(data.products.map((product) => product.id))
       const existingRoutes = new Set(data.routes.map((route) => route.id))
 
       let index = data.products.length
-      for (const product of PACHAX_PRODUCTS) {
-        if (existingProducts.has(product.id)) continue
-        await saveProduct({ ...product, active: true, sortOrder: index++ })
+      for (const sample of demoProductsForProfile(data.catalogSettings.industryProfile)) {
+        if (data.products.some(product => product.id === sample.id)) continue
+        await saveProduct({ ...sample, productionCost: 0, minimumStock: 0, active: true, sortOrder: index++ })
       }
       for (const route of PACHAX_ROUTES) {
         if (existingRoutes.has(route.id)) continue
@@ -137,12 +171,21 @@ export function ProductsView({ data }: DistributionViewProps) {
       subtitle={`${data.products.length} SKU en catalogo`}
       actions={
         <div className="flex items-center gap-2">
+          <SecondaryButton onClick={() => setCategoriesOpen(true)}><Tags size={16} /> Categorías</SecondaryButton>
           <button type="button" aria-label={deleteMode ? 'Salir de eliminar productos' : 'Eliminar productos'} onClick={() => setDeleteMode(value => !value)} className={`flex h-11 w-11 items-center justify-center rounded-2xl border ${deleteMode ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600'}`}><Pencil size={17} /></button>
           <PrimaryButton onClick={openCreate}><Plus size={16} /> Nuevo</PrimaryButton>
         </div>
       }
     >
       <div className="grid w-full min-w-0 gap-3">
+        <section className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <Field label="Rubro de la distribuidora" hint="Solo organiza sugerencias. Puedes vender cualquier producto.">
+            <SelectInput value={data.catalogSettings.industryProfile} disabled={categoryBusy} onChange={event => void changeProfile(event.target.value as typeof data.catalogSettings.industryProfile)}>
+              {DISTRIBUTION_PROFILES.map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+            </SelectInput>
+          </Field>
+          <span className="text-[11px] font-semibold text-slate-500">El cambio conserva productos y existencias.</span>
+        </section>
         {data.products.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4">
             <p className="text-xs font-bold text-slate-700">El catalogo esta vacio.</p>
@@ -183,9 +226,9 @@ export function ProductsView({ data }: DistributionViewProps) {
               {deleteMode && <span className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-rose-600 text-white shadow"><Trash2 size={15} /></span>}
               {product.photoDataUrl && <img src={product.photoDataUrl} alt={`Foto de ${product.name}`} onError={(event) => { event.currentTarget.style.display = 'none' }} className="aspect-[16/9] w-full object-cover" />}
               <div className="flex min-w-0 flex-1 flex-col justify-between gap-2 p-3">
-                <p className="text-xs font-extrabold leading-snug text-slate-900">{product.name}</p>
+                <div><p className="text-xs font-extrabold leading-snug text-slate-900">{product.name}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">{product.presentation || (product.saleUnitLabel ? `Por ${product.saleUnitLabel}` : '')}{product.sku ? ` · SKU ${product.sku}` : ''}</p></div>
                 <div className="flex flex-wrap items-end justify-between gap-1.5">
-                  <span className="text-[10px] font-semibold text-slate-500">{formatQty(stock, product.unitType)} disponibles</span>
+                  <span className="text-[10px] font-semibold text-slate-500">{Number(stock.toFixed(product.unitType === 'kg' ? 3 : 0))} {product.saleUnitLabel || (product.unitType === 'kg' ? 'kg' : product.unitType === 'package' ? 'paquetes' : 'unidades')} disponibles</span>
                   <span className="text-sm font-black tabular-nums" style={{ color: 'var(--primary)' }}>{formatBs(product.referencePrice)}</span>
                 </div>
               </div>
@@ -223,15 +266,24 @@ export function ProductsView({ data }: DistributionViewProps) {
           <Field label="Nombre" required>
             <TextInput value={name} onChange={(event) => setName(event.target.value)} />
           </Field>
-          <Field label="Categoria / presentacion comercial">
-            <Segmented value={category} onChange={setCategory} options={[{ value: 'Al vacio', label: 'Al vacío' }, { value: 'Granel', label: 'Granel' }, { value: 'Otros', label: 'Otros' }]} />
+          <Field label="Categoría" required hint="Administra las opciones desde Categorías.">
+            <SelectInput value={category} onChange={event => setCategory(event.target.value)}>
+              {!data.catalogSettings.categories.some(item => item.active && item.name === category) && <option value={category}>{category} · categoría histórica</option>}
+              {data.catalogSettings.categories.filter(item => item.active).map(item => <option key={item.id} value={item.name}>{item.name}</option>)}
+            </SelectInput>
           </Field>
           <Field label="Detalle de presentacion" hint="Ej: sachet 200 g, 10 unidades 12 cm">
             <TextInput value={presentation} onChange={(event) => setPresentation(event.target.value)} />
           </Field>
           <Field label="Unidad de venta" hint="Los reportes no convierten paquetes a kilos.">
-            {editing ? <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-bold text-slate-700">{unitType === 'kg' ? 'Granel (kg)' : unitType === 'package' ? 'Paquete / sachet' : 'Unidad'}</div> : <Segmented value={unitType} onChange={setUnitType} options={[{ value: 'kg', label: 'Granel (kg)' }, { value: 'package', label: 'Paquete' }, { value: 'unit', label: 'Unidad' }]} />}
+            {editing ? <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-bold text-slate-700">{SALE_UNIT_OPTIONS.find(option => option.value === unitType)?.label}</div> : <Segmented value={unitType} onChange={setUnitType} options={SALE_UNIT_OPTIONS} />}
           </Field>
+          <Field label="Nombre de una unidad" hint="Ej.: bolsa, botella, caja, pieza. Se controla como SKU independiente."><TextInput value={saleUnitLabel} maxLength={24} onChange={event => setSaleUnitLabel(event.target.value)} placeholder="unidad" /></Field>
+          <div className="grid grid-cols-[1fr_1fr] gap-2">
+            <Field label="Contenido por presentación" hint="Informativo; no convierte inventario"><NumberInput min={0} step="any" value={contentAmount} onChange={event => setContentAmount(event.target.value)} placeholder="Opcional" /></Field>
+            <Field label="Unidad de contenido"><SelectInput value={contentUnit} onChange={event => setContentUnit(event.target.value as typeof contentUnit)}>{CONTENT_UNIT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectInput></Field>
+          </div>
+          <Field label="SKU / código opcional"><TextInput value={sku} maxLength={48} onChange={event => setSku(event.target.value)} /></Field>
           <Field label="Precio de referencia (Bs)" hint="Solo Administración puede modificar el precio de venta.">
             <NumberInput value={price} min={0} step={0.5} onChange={(event) => setPrice(event.target.value)} />
           </Field>
@@ -245,6 +297,12 @@ export function ProductsView({ data }: DistributionViewProps) {
             Producto activo
           </label>
           {error && <p className="text-xs font-bold text-rose-600">{error}</p>}
+        </div>
+      </Modal>
+      <Modal isOpen={categoriesOpen} onClose={() => setCategoriesOpen(false)} title="Categorías del catálogo" subtitle="Desactivar conserva las referencias históricas.">
+        <div className="grid gap-3">
+          <div className="flex gap-2"><TextInput value={newCategory} maxLength={60} onChange={event => setNewCategory(event.target.value)} placeholder="Nueva categoría" /><PrimaryButton disabled={categoryBusy || !newCategory.trim()} onClick={() => { const name = newCategory.trim(); const id = `cat-${name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`; if (data.catalogSettings.categories.some(item => item.name.toLowerCase() === name.toLowerCase())) return; setNewCategory(''); void updateCategories([...data.catalogSettings.categories, { id, name, active: true }]) }}><Plus size={15} /> Agregar</PrimaryButton></div>
+          {data.catalogSettings.categories.map(item => <div key={item.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">{editingCategoryId === item.id ? <TextInput value={editingCategoryName} maxLength={60} onChange={event => setEditingCategoryName(event.target.value)} /> : <span className={`text-sm font-bold ${item.active ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{item.name}</span>}{editingCategoryId === item.id ? <button type="button" disabled={categoryBusy || !editingCategoryName.trim()} onClick={() => { const name = editingCategoryName.trim(); setEditingCategoryId(''); void updateCategories(data.catalogSettings.categories.map(row => row.id === item.id ? { ...row, name } : row)) }} className="min-h-10 rounded-lg px-2 text-xs font-bold text-emerald-700">Guardar</button> : <button type="button" disabled={categoryBusy} onClick={() => { setEditingCategoryId(item.id); setEditingCategoryName(item.name) }} className="min-h-10 rounded-lg px-2 text-xs font-bold text-slate-600">Editar</button>}<button type="button" disabled={categoryBusy} onClick={() => void updateCategories(data.catalogSettings.categories.map(categoryRow => categoryRow.id === item.id ? { ...categoryRow, active: !categoryRow.active } : categoryRow))} className="min-h-10 rounded-lg px-2 text-xs font-bold text-slate-600">{item.active ? 'Desactivar' : 'Reactivar'}</button></div>)}
         </div>
       </Modal>
       <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Eliminar producto" subtitle={deleteTarget?.name} footer={<div className="grid grid-cols-2 gap-2"><SecondaryButton full disabled={isDeleting} onClick={() => setDeleteTarget(null)}>Cancelar</SecondaryButton><button type="button" disabled={isDeleting} onClick={async () => { if (!deleteTarget) return; setIsDeleting(true); setError(null); try { await deleteProduct(deleteTarget.id); setDeleteTarget(null) } catch (e) { setError((e as Error).message) } finally { setIsDeleting(false) } }} className="min-h-[44px] rounded-2xl bg-rose-600 px-3 text-sm font-extrabold text-white disabled:opacity-50">{isDeleting ? 'Eliminando...' : 'Sí, eliminar'}</button></div>}><p className="text-sm text-slate-700">El producto dejará de aparecer en ventas, inventario y selectores. Sus ventas anteriores conservarán el detalle histórico.</p>{error && <p className="mt-3 text-xs font-bold text-rose-600">{error}</p>}</Modal>

@@ -8,6 +8,18 @@
 /** kg = granel por peso, unit = pieza suelta, package = paquete/sachet cerrado */
 export type UnitType = 'kg' | 'unit' | 'package'
 
+/** A presentation is a separately stocked SKU. Contents are descriptive unless
+ * an explicit transactional conversion is implemented; they never change stock. */
+export type DistributionIndustryProfile = 'food' | 'beverages' | 'cleaning' | 'hardware' | 'pharmacy' | 'pets' | 'stationery' | 'spare_parts' | 'mixed'
+export type PresentationContentUnit = 'unit' | 'g' | 'kg' | 'ml' | 'l'
+export interface DistCatalogSettings {
+  id: 'catalog'
+  tenantId: string
+  industryProfile: DistributionIndustryProfile
+  categories: Array<{ id: string; name: string; active: boolean }>
+  updatedAt: string
+}
+
 export type PaymentKind = 'cash' | 'qr' | 'credit' | 'mixed'
 
 export type SourceLocation = 'route' | 'centralWarehouse'
@@ -54,6 +66,12 @@ export interface DistProduct {
   referencePrice: number
   /** Peso aproximado por paquete/unidad. NO se usa para convertir reportes. */
   approximateWeightKg?: number
+  /** Unique shop SKU/code. */
+  sku?: string
+  /** Display label for one stock/sale unit. */
+  saleUnitLabel?: string
+  /** Exact content of one SKU, informational; never used to convert stock. */
+  presentationContent?: { amount: number; unit: PresentationContentUnit }
   active: boolean
   sortOrder: number
   tenantId: string
@@ -178,6 +196,8 @@ export interface DistSaleLine {
   productNameSnapshot: string
   quantity: number
   unitType: UnitType
+  /** Snapshot of the commercial name for one stocked SKU. */
+  unitLabel?: string
   /** Precio realmente aplicado, congelado historicamente */
   actualUnitPrice: number
   subtotal: number

@@ -38,6 +38,14 @@ La revisión de San José se hizo desde `origin/main`; el checkout fuente no se 
 - No convertir kg a litros ni otras dimensiones sin una conversión explícita, validada y transaccional.
 - Antes de activar UI: definir migración compatible para productos legacy, precisión/rounding, asignación de lotes, devoluciones parciales, cambio de presentación, inventario en tránsito, importaciones y pruebas de ida/vuelta.
 
+## Distribución 5B — catálogo universal (21/10/2026)
+
+- El perfil de rubro vive en `tenants/{tenantId}/distSettings/catalog`, separado de `businessType`, y solo Owner/Administración puede cambiarlo. El cambio agrega sugerencias de categoría sin borrar productos, categorías anteriores ni existencias.
+- Cada tenant puede mantener categorías propias en ese documento: agregar, renombrar y desactivar/reactivar. Desactivar no elimina las referencias históricas de producto. Las Rules limitan acceso a miembros activos de Distribución y las escrituras de configuración a Owner/Administración.
+- El formulario de SKU incluye categoría, código SKU, unidad comercial y contenido exacto de su presentación (cantidad + dimensión: unidad, masa o volumen). `saleUnitLabel` se guarda como snapshot en ventas nuevas y se usa en recibos y exportes.
+- Límite deliberado: las operaciones transaccionales conservan `kg | unit | package`. Una botella de 1 L, una bolsa de 5 kg o una caja de 12 unidades se manejan como SKU separado con cantidad entera por envase; el contenido es descriptivo y jamás convierte stock. Venta por gramo/ml y conversiones caja↔unidad aún requieren una futura operación atómica, FIFO/FEFO, devolución y precisión completa. `approximateWeightKg` sigue siendo informativo.
+- La demo ofrece muestras ficticias según el rubro seleccionado únicamente tras una acción explícita; el adaptador Demo no consulta ni importa productos de San José. Los perfiles existentes guardados antes de 5B reciben compatibilidad `mixta` sin reemplazar productos.
+
 ## Cierre 5A.3 — integridad financiera
 
 - El cierre administrativo bloquea nuevas mutaciones financieras del mismo día y se serializa con ventas/cobros concurrentes; no modifica cierres previos ni reabre jornadas. Las operaciones de rutas continúan aisladas.

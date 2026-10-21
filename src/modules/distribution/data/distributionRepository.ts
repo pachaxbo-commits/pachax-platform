@@ -44,6 +44,7 @@ import type {
   DistLot, DistTransfer, DistClaim, DistCreditStatus, DistCreditOverride,
   PaymentKind,
   SourceLocation,
+  DistCatalogSettings,
 } from '../types.ts'
 import { DEFAULT_SUPPORT_SETTINGS, type SupportSettings } from './supportMaintenance.ts'
 
@@ -95,6 +96,8 @@ export interface DistributionRepositoryAdapter {
     declaredReturnNonSellableReasons?: Record<string, string>,
   ): Promise<void>
   subscribeProducts(onData: (rows: DistProduct[]) => void, onError?: (error: Error) => void): () => void
+  subscribeCatalogSettings(onData: (settings: DistCatalogSettings) => void, onError?: (error: Error) => void): () => void
+  saveCatalogSettings(settings: Pick<DistCatalogSettings, 'industryProfile' | 'categories'>): Promise<void>
   subscribeRoutes(onData: (rows: DistRoute[]) => void, onError?: (error: Error) => void): () => void
   subscribeCustomers(onData: (rows: DistCustomer[]) => void, onError?: (error: Error) => void): () => void
   subscribeBalances(onData: (rows: DistBalance[]) => void, onError?: (error: Error) => void): () => void
@@ -471,6 +474,36 @@ function subscribeQuery<T>(
 export function subscribeProducts(onData: (rows: DistProduct[]) => void, onError?: (error: Error) => void) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeProducts(onData, onError)
   return subscribeQuery<DistProduct>((context) => collectionRef(context, DIST_COLLECTIONS.products), rows => onData(rows.filter(product => !product.deleted)), onError)
+}
+
+export const DEFAULT_DIST_CATALOG_SETTINGS: Omit<DistCatalogSettings, 'tenantId' | 'updatedAt'> = {
+  id: 'catalog', industryProfile: 'mixed', categories: [
+    { id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true },
+  ],
+}
+
+export function subscribeCatalogSettings(onData: (settings: DistCatalogSettings) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeCatalogSettings(onData, onError)
+  return subscribeQuery<DistCatalogSettings>(ctx => query(collectionRef(ctx, 'distSettings'), where(documentId(), '==', 'catalog')), rows => {
+    onData(rows[0] ?? { ...DEFAULT_DIST_CATALOG_SETTINGS, tenantId: '', updatedAt: '' })
+  }, onError)
+}
+
+export async function saveCatalogSettings(settings: Pick<DistCatalogSettings, 'industryProfile' | 'categories'>) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveCatalogSettings(settings)
+  const ctx = await getContext()
+  const allowedProfiles = ['food', 'beverages', 'cleaning', 'hardware', 'pharmacy', 'pets', 'stationery', 'spare_parts', 'mixed']
+  if (!allowedProfiles.includes(settings.industryProfile) || settings.categories.length > 80) throw new Error('Configuración de catálogo inválida.')
+  const seen = new Set<string>()
+  for (const category of settings.categories) {
+    const key = category.id.trim()
+    if (!key || key.length > 48 || !category.name.trim() || category.name.trim().length > 60 || seen.has(key)) throw new Error('Revisa los nombres de las categorías.')
+    seen.add(key)
+  }
+  const ref = docRef(ctx, 'distSettings', 'catalog')
+  await runTransaction(ctx.db, async tx => {
+    tx.set(ref, { id: 'catalog', ...settings, tenantId: ctx.tenantId, updatedAt: new Date().toISOString() }, { merge: true })
+  })
 }
 
 export function subscribeRoutes(onData: (rows: DistRoute[]) => void, onError?: (error: Error) => void) {

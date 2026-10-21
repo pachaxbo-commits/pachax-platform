@@ -135,6 +135,31 @@ try {
   const distBClient = env.authenticatedContext(uids.distributorB).firestore()
   const warehouseClient = env.authenticatedContext(uids.warehouse).firestore()
 
+  // Tenant scoped universal catalog profile and descriptive SKU contents.
+  const catalogSettings = {
+    id: 'catalog', tenantId, industryProfile: 'beverages', updatedAt: new Date().toISOString(),
+    categories: [{ id: 'soft-drinks', name: 'Gaseosas', active: true }],
+  }
+  await assertSucceeds(setDoc(doc(ownerClient, 'tenants', tenantId, 'distSettings', 'catalog'), catalogSettings))
+  pass('owner configura el perfil y categorías de su catálogo Distribution')
+  await assertSucceeds(setDoc(doc(adminClient, 'tenants', tenantId, 'distSettings', 'catalog'), { ...catalogSettings, industryProfile: 'cleaning' }))
+  pass('admin puede cambiar el perfil conservando categorías existentes')
+  await assertFails(setDoc(doc(accountantClient, 'tenants', tenantId, 'distSettings', 'catalog'), catalogSettings))
+  pass('accountant no administra catálogo de Distribution')
+  await assertFails(setDoc(doc(ownerClient, 'tenants', foreignTenantId, 'distSettings', 'catalog'), { ...catalogSettings, tenantId: foreignTenantId }))
+  pass('el perfil de catálogo no puede escribirse en otro tenant')
+  await assertSucceeds(setDoc(doc(adminClient, 'tenants', tenantId, 'distProducts', 'sku-box'), {
+    id: 'sku-box', tenantId, name: 'Refresco', category: 'Gaseosas', unitType: 'package',
+    saleUnitLabel: 'caja', sku: 'BEB-12', presentationContent: { amount: 12, unit: 'unit' },
+    referencePrice: 60, productionCost: 40, minimumStock: 1, active: true,
+  }))
+  pass('producto universal guarda presentación como SKU de caja sin alterar su unidad operativa')
+  await assertFails(setDoc(doc(adminClient, 'tenants', tenantId, 'distProducts', 'sku-bad'), {
+    id: 'sku-bad', tenantId, name: 'Producto', category: 'Gaseosas', unitType: 'package',
+    presentationContent: { amount: 1, unit: 'kg', conversion: 1000 }, referencePrice: 1, active: true,
+  }))
+  pass('Rules rechazan campos de conversión no admitidos')
+
   // =========================================================================
   // 1. TESTS supportConfig: Hardening de permisos y exclusión de Accountant
   // =========================================================================

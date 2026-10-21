@@ -7,6 +7,7 @@ import {
   reportPersonName,
   reportReceiptNumber,
   reportUnitLabel,
+  reportQuantity,
 } from '../reportLabels.ts'
 
 function assertEqual(actual: unknown, expected: unknown) {
@@ -29,6 +30,9 @@ assertEqual(reportCreditLabel('PAID'), 'Pagado')
 
 assertEqual(reportUnitLabel('unit'), 'unidad')
 assertEqual(reportUnitLabel('package'), 'paquete')
+assertEqual(reportUnitLabel('package', 'botella'), 'botella')
+assertEqual(reportUnitLabel('kg', 'saco'), 'kg')
+assertEqual(reportQuantity(2, 'package', 'botella'), '2 botellas')
 assertEqual(reportMovementLabel('dispatch_addition'), 'Aumento de despacho')
 assertEqual(reportMovementLabel('customer_return'), 'Devolución del cliente')
 

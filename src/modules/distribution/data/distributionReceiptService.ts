@@ -109,7 +109,7 @@ export function distSaleToReceiptData(
   const isCourtesy = sale.saleKind === 'courtesy'
 
   const items: CanonicalReceiptItem[] = sale.lines.map((l) => {
-    const unit = l.unitType === 'kg' ? 'kg' : l.unitType === 'package' ? 'paq' : 'u'
+    const unit = l.unitLabel || (l.unitType === 'kg' ? 'kg' : l.unitType === 'package' ? 'paq' : 'u')
     const refVal = l.actualUnitPrice * l.quantity
     return {
       name: l.productNameSnapshot,
@@ -608,7 +608,7 @@ export function buildSaleReceiptText(sale: DistSale, context: ReceiptContext): s
   lines.push('--------------------------------')
   for (const line of sale.lines) {
     lines.push(
-      `${line.quantity} ${line.unitType === 'kg' ? 'kg' : line.unitType === 'package' ? 'paq' : 'u'} x ${line.productNameSnapshot} @ Bs ${round2(line.actualUnitPrice).toFixed(2)} = Bs ${round2(line.subtotal).toFixed(2)}`
+      `${line.quantity} ${line.unitLabel || (line.unitType === 'kg' ? 'kg' : line.unitType === 'package' ? 'paq' : 'u')} x ${line.productNameSnapshot} @ Bs ${round2(line.actualUnitPrice).toFixed(2)} = Bs ${round2(line.subtotal).toFixed(2)}`
     )
   }
   lines.push('--------------------------------')

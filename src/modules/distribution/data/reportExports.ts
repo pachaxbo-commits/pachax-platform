@@ -170,7 +170,7 @@ export function reportSheets(
         reportReceiptNumber(l.sale.id),
         l.productNameSnapshot,
         l.quantity,
-        reportUnitLabel(l.unitType),
+        reportUnitLabel(l.unitType, l.unitLabel),
         l.actualUnitPrice,
         l.subtotal,
         l.costTotal ?? null,
@@ -196,7 +196,7 @@ export function reportSheets(
         r.customerName,
         r.customerCode || "",
         r.saleLines
-          ?.map((l) => `${l.productNameSnapshot} (${reportQuantity(l.quantity, l.unitType)})`)
+          ?.map((l) => `${l.productNameSnapshot} (${reportQuantity(l.quantity, l.unitType, l.unitLabel)})`)
           .join("; ") || "",
         r.originalAmount,
         r.paidAmount,

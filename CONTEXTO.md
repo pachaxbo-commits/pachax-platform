@@ -1,5 +1,15 @@
 # Continuidad del proyecto PACHAX
 
+## Distribución 5B — catálogo universal y perfiles por rubro (21/10/2026, rama de revisión)
+
+- Rama `codex/distribution-universal-5b`, creada desde 5A `981e479cc0223321b1949f8fc30e51b7da4bc1d3`; `origin/main` comprobado en `c7d0b41b22a1870a96e993859b891b6eb91550e4` antes de empezar.
+- Añadido perfil tenant-local de Distribución (alimentos, bebidas, limpieza, ferretería, farmacia, mascotas, papelería, repuestos y mixto) en `distSettings/catalog`, sin cambiar `businessType`. Owner/admin gestionan rubro y categorías; pueden agregar, renombrar, desactivar y reactivar sin borrar productos. Cambiar rubro conserva las categorías previas y existencias.
+- El formulario universal permite categoría, SKU, presentación, unidad de venta comercial, contenido numérico por presentación con dimensión, costo, precio, mínimo y foto. El nombre comercial de unidad queda snapshot en ventas nuevas, recibos y exportes.
+- Seguridad de Settings se limita a miembros activos del tenant Distribution; lectura a trabajadores y escritura de catálogo a Owner/Admin. Producto mantiene unidad transaccional heredada (kg/unidad/paquete), restringida e inmutable con stock por las reglas existentes. Una botella, caja o bolsa se trata como SKU separado. Contenido/peso aproximado no convierte inventario.
+- Demo usa ejemplos ficticios por rubro bajo acción expresa y conserva el estado previamente guardado. No importa catálogo de San José.
+- Pruebas focales de catálogo y emulator Rules añadidas; `test:distribution` 59/59 y reportes pasan. Typecheck/build y regresiones completas, lint focal, push y Vercel Preview aún pendientes al escribir este checkpoint. Firebase productivo y `main` no se modificaron.
+- Pendiente conocido frente al objetivo amplio: la elección del rubro se realiza en Configuración de Productos después del onboarding existente, no dentro del alta de tenant. Tampoco hay conversión de masa/volumen/paquetes a unidad base; cada presentación debe ser SKU separado hasta implementar una operación de conversión completa.
+
 ## Distribution 5A — recuperación para primer release backend (21/10/2026)
 
 - Rama `codex/distribution-san-jose-parity`, base revisada `origin/main` `c7d0b41b22a1870a96e993859b891b6eb91550e4`, HEAD inicial `7b448041839fd98442728c63b0faf87aa9adad0e`. Infraestructura Firebase productiva consultada en modo lectura: proyecto `pachax-platform`, Firestore `(default)` en `southamerica-west1`; no hay Functions Gen1, Eventarc triggers ni procesadores Distribution desplegados. Cloud Functions Gen2 y Cloud Run solo contienen `platformGateway` y `tenantGateway` en `southamerica-west1`, ACTIVE/Ready; el listado completo confirma que los tres triggers Distribution están ausentes.

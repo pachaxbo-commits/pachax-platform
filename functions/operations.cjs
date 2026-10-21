@@ -665,6 +665,7 @@ async function sale(o, p) {
       productId: l.productId,
       productNameSnapshot: product.name,
       unitType: product.unitType,
+      unitLabel: product.saleUnitLabel || (product.unitType === 'kg' ? 'kg' : product.unitType === 'package' ? 'paquete' : 'unidad'),
       quantity: l.quantity,
       actualUnitPrice,
       subtotal,

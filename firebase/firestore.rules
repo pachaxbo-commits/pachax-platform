@@ -1071,7 +1071,33 @@ service cloud.firestore {
         && request.resource.data.get('photoDataUrl', '').size() <= 150000
         && (request.resource.data.get('photoDataUrl', '') == ''
           || request.resource.data.get('photoDataUrl', '').matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$'))
+        && request.resource.data.get('sku', '') is string
+        && request.resource.data.get('sku', '').size() <= 48
+        && request.resource.data.get('saleUnitLabel', '') is string
+        && request.resource.data.get('saleUnitLabel', '').size() <= 24
+        && request.resource.data.get('saleUnitLabel', '').matches('^[A-Za-zÀ-ÿ0-9 ._-]*$')
+        && (request.resource.data.unitType != 'kg' || request.resource.data.get('saleUnitLabel', '') in ['', 'kg', 'KG'])
+        && (!request.resource.data.keys().hasAny(['presentationContent'])
+          || (request.resource.data.presentationContent is map
+            && request.resource.data.presentationContent.keys().hasOnly(['amount', 'unit'])
+            && request.resource.data.presentationContent.amount is number
+            && request.resource.data.presentationContent.amount > 0
+            && request.resource.data.presentationContent.amount <= 1000000
+            && request.resource.data.presentationContent.unit in ['unit', 'g', 'kg', 'ml', 'l']))
         && (resource == null || request.resource.data.unitType == resource.data.unitType);
+      allow delete: if false;
+    }
+
+    // Perfil y categorías son configuración del tenant; el contenido por SKU
+    // es descriptivo y nunca autoriza ni ejecuta conversiones de inventario.
+    match /tenants/{tenantId}/distSettings/{settingId} {
+      allow read: if tDistWorker(tenantId);
+      allow create, update: if settingId == 'catalog' && tDistSettingsAdmin(tenantId)
+        && request.resource.data.id == 'catalog'
+        && request.resource.data.tenantId == tenantId
+        && request.resource.data.industryProfile in ['food','beverages','cleaning','hardware','pharmacy','pets','stationery','spare_parts','mixed']
+        && request.resource.data.categories is list
+        && request.resource.data.categories.size() <= 80;
       allow delete: if false;
     }
 
