@@ -33,6 +33,15 @@ export function routeBalanceId(routeId: string, productId: string): string {
   return `route__${routeId}__${productId}`
 }
 
+/** A central sale never belongs to a route dispatch, even if old client state
+ * attached that dispatch ID to the sale. */
+export function isSaleForDispatch(
+  sale: { routeId?: string | null; sourceLocation?: string | null },
+  dispatchRouteId: string,
+): boolean {
+  return (!sale.routeId || sale.routeId === dispatchRouteId) && sale.sourceLocation !== 'centralWarehouse'
+}
+
 export function formatQuantity(quantity: number, unitType: UnitType): string {
   const value = round2(quantity)
   if (unitType === 'kg') return `${value} kg`

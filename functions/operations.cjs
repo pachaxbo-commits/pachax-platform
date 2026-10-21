@@ -10,6 +10,9 @@ const roundAt = (n, precision = 2) => {
   return Math.round((Number(n) + Number.EPSILON) * factor) / factor;
 };
 
+const isSaleForDispatch = (sale, routeId) =>
+  (!sale.routeId || sale.routeId === routeId) && sale.sourceLocation !== "centralWarehouse";
+
 function splitAllocationsByAmounts(allocations, amounts) {
   const groups = amounts.map(() => []);
   let groupIndex = 0;
@@ -687,7 +690,9 @@ async function sale(o, p) {
     routeName: p.routeName,
     sellerUid: o.actor,
     sellerName: o.member.displayName || o.actor,
-    dispatchId: p.dispatchId || "",
+    // Solo una venta de distribuidor pertenece a un despacho. No confiar en
+    // el dispatchId que pueda conservar la pantalla administrativa.
+    dispatchId: o.member.role === "distributor" ? p.dispatchId || "" : "",
     customerId: p.customerId || "",
     customerName: p.customerName || "",
     customerCode: p.customerCode || "",
@@ -1034,6 +1039,7 @@ module.exports = {
   dayKey,
   round,
   handlers,
+  isSaleForDispatch,
 };
 async function adjustment(o, p) {
   o.admin();
@@ -1288,7 +1294,9 @@ async function closure(o, p) {
     previous = (await o.read("distClosures", id)) || {};
   const route = location("route", d.routeId),
     warehouse = location("warehouse", d.warehouseId || "central");
-  const sales = await o.query("distSales", "dispatchId", d.id);
+  const sales = (await o.query("distSales", "dispatchId", d.id))
+    .filter((sale) => isSaleForDispatch(sale, d.routeId))
+    .map((sale) => sale.effectiveSnapshot ? { ...sale, ...sale.effectiveSnapshot } : sale);
   if (p.mode === "warehouse") {
     o.owns(warehouse);
     check(!previous.warehouseClosedBy, "El retorno ya se confirmó.");

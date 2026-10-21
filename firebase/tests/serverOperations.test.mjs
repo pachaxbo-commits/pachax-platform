@@ -58,6 +58,11 @@ try {
  const transfer=await command(admin,'transfer',{from:'central',to:wh,line:{productId:pid,quantity:4},note:'QA'})
  ok(transfer.result.allocations[0].lotCode==='PRIMERO','FEFO prioriza el vencimiento más próximo')
  const dispatch=await command(warehouse,'dispatch',{warehouseId:wh,routeId:route,routeName:'QA ruta',distributorUid:seller,distributorName:'QA vendedor',lines:[{productId:pid,quantity:3}]})
+ const adminSaleDuringRoute=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:10,qrAmount:0,creditAmount:0,paymentKind:'cash'})
+ ok(adminSaleDuringRoute.result.dispatchId===''&&adminSaleDuringRoute.result.sourceLocation==='centralWarehouse','venta administrativa no hereda el despacho abierto aunque llegue en el payload')
+ const centralAfterAdminSale=(await read('distBalances',`central__${pid}`)).quantity,routeAfterAdminSale=(await read('distBalances',`route__${route}__${pid}`)).quantity
+ ok(centralAfterAdminSale===10&&routeAfterAdminSale===3,`venta administrativa descuenta almacén central sin tocar inventario de ruta (${centralAfterAdminSale}/${routeAfterAdminSale})`)
+ await root.collection('distSales').doc(`${prefix}-legacy-central-sale`).set({id:`${prefix}-legacy-central-sale`,restaurantId:'pachax',sourceLocation:'centralWarehouse',routeId:route,dispatchId:dispatch.id,lines:[{productId:pid,quantity:9}],cashAmount:90,qrAmount:0,creditAmount:0,total:90,createdAt:new Date().toISOString()})
  const base={sourceLocation:'route',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,customerId:cust,lines:[{productId:pid,quantity:2,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:20,paymentKind:'credit'}
  await command(seller,'sale',{...base,lines:[{productId:pid,quantity:2,actualUnitPrice:9}],creditAmount:18},'rejected');checks++
  await command(seller,'sale',{...base,customerId:old,creditAmount:20,cashAmount:0,paymentKind:'credit'},'rejected');checks++
@@ -79,6 +84,8 @@ try {
  ok((await read('distBalances',`warehouse__${wh}__${pid}`)).quantity===2,'retorno vuelve al almacén de origen y conserva lote')
  const closed=await command(seller,'closure',{...closeInput,mode:'money'})
  ok(closed.result.expectedCash===5&&closed.result.cashDifference===0,'cierre calcula efectivo en servidor')
+ ok(closed.result.cashSales===0&&closed.result.expectedCash===5,'cierre de ruta excluye venta administrativa histórica con dispatchId obsoleto')
+ ok(closed.result.products.find(row=>row.productId===pid)?.sold===2,'conciliación física de ruta excluye unidades de ventas centrales')
  const client=env.authenticatedContext(seller).firestore()
  const adminClient=env.authenticatedContext(admin).firestore()
  await assertFails(setDoc(doc(client,'restaurants','pachax','distSales',`${prefix}-forged`),{restaurantId:'pachax',routeId:route}));checks++

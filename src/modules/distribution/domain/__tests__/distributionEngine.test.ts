@@ -8,6 +8,7 @@ import {
   computeSoldKilograms,
   computeSoldPackages,
   describeVariance,
+  isSaleForDispatch,
   nextReceivableStatus,
   round2,
   splitPayment,
@@ -140,6 +141,10 @@ export async function runDistributionEngineTestSuite(): Promise<{ passed: number
   // --- Helpers basicos ---
   assert(round2(0.1 + 0.2) === 0.3, 'round2 elimina el ruido de punto flotante')
   assert(toDayKey(new Date(2026, 7, 14)) === '2026-08-14', 'toDayKey genera clave local YYYY-MM-DD')
+  assert(isSaleForDispatch({ routeId: 'ruta-a', sourceLocation: 'route' }, 'ruta-a'), 'la venta de ruta se atribuye a su despacho')
+  assert(!isSaleForDispatch({ routeId: 'ruta-a', sourceLocation: 'centralWarehouse' }, 'ruta-a'), 'una venta central se excluye del cierre aunque coincida routeId')
+  assert(!isSaleForDispatch({ routeId: 'ruta-b', sourceLocation: 'route' }, 'ruta-a'), 'una venta de otra ruta se excluye del cierre')
+  assert(isSaleForDispatch({ sourceLocation: 'route' }, 'ruta-a'), 'una venta histórica de ruta sin routeId conserva compatibilidad')
 
   // --- Carga: inicial + aumentos ---
   const dispatch = makeDispatch()
