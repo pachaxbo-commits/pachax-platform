@@ -7,20 +7,18 @@ import {
   getDemoStorageKey,
   getDemoItem,
   setDemoItem,
-  removeDemoItem,
   clearDemoState,
 } from '../src/demo/core/demoContext.ts'
 import { DemoDistributionRepository } from '../src/demo/distribution/demoDistributionRepository.ts'
 import {
   setDistributionRepositoryAdapter,
-  getDistributionRepositoryAdapter,
   saveCustomer,
   registerSale,
   confirmDispatch,
-  saveClosure,
   subscribeCustomers,
+  getCustomerStatementHistory,
 } from '../src/modules/distribution/data/distributionRepository.ts'
-import { hasPermission, getRoleDefaultPermissions } from '../src/services/permissionService.ts'
+import { hasPermission } from '../src/services/permissionService.ts'
 import { getActiveTenant } from '../src/store/activeTenant.ts'
 import { getTemplate } from '../src/core/templates.ts'
 import { PUBLIC_TEMPLATES } from '../src/core/publicTemplates.ts'
@@ -54,6 +52,22 @@ test('2. Initial seed loads correctly with deterministic baseline data', () => {
   const centralBalance = data.balances.find(b => b.productId === 'p-viena' && b.warehouseId === 'central')
   assert.ok(centralBalance)
   assert.equal(centralBalance.quantity, 180)
+})
+
+test('2a. Demo customer statement history reads its own dataset and is complete', async () => {
+  clearDemoState('route_distribution')
+  const repo = new DemoDistributionRepository('full')
+  setDistributionRepositoryAdapter(repo)
+  try {
+    const customer = repo.getData().customers[0]
+    const history = await getCustomerStatementHistory(customer.id)
+    assert.equal(history.complete, true)
+    assert.deepEqual(history.receivables, repo.getData().receivables.filter(row => row.customerId === customer.id))
+    assert.deepEqual(history.collections, repo.getData().collections.filter(row => row.customerId === customer.id))
+    assert.deepEqual(history.sales, repo.getData().sales.filter(row => row.customerId === customer.id))
+  } finally {
+    setDistributionRepositoryAdapter(null)
+  }
 })
 
 test('3. Demo writes persist in sessionStorage namespace', async () => {

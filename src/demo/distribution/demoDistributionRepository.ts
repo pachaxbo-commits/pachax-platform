@@ -965,4 +965,14 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
     this.persist({ ...this.data, claims: [claim, ...this.data.claims] })
     this.notify('claims')
   }
+
+  async getCustomerStatementHistory(customerId: string) {
+    return {
+      receivables: this.data.receivables.filter(row => row.customerId === customerId),
+      collections: this.data.collections.filter(row => row.customerId === customerId),
+      claims: this.data.claims.filter(row => row.customerId === customerId),
+      sales: this.data.sales.filter(row => row.customerId === customerId),
+      complete: true as const,
+    }
+  }
 }

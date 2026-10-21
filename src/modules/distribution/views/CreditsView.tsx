@@ -14,7 +14,7 @@ import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalRece
 import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
 import { distCollectionToReceiptData, printCollectionReceipt } from '../data/distributionReceiptService'
 import { exportCustomerStatement } from '../data/reportExports'
-import { buildCustomerStatement, type CustomerStatementMovement } from '../domain/customerStatement.ts'
+import { analyzeCustomerStatement, type CustomerStatementAnalysis } from '../domain/customerStatement.ts'
 
 interface CustomerCredit {
   customerId: string
@@ -47,9 +47,10 @@ export function CreditsView({ session, data, documentContext, businessIdentity }
   const [paidOpen, setPaidOpen] = useState(false)
   const [statementBusy, setStatementBusy] = useState(false)
   const [statementError, setStatementError] = useState('')
-  const [statement, setStatement] = useState<{ customerId: string; rows: CustomerStatementMovement[] }>({ customerId: '', rows: [] })
+  const [statement, setStatement] = useState<{ customerId: string; analysis: CustomerStatementAnalysis | null }>({ customerId: '', analysis: null })
   const [statementLoadingId, setStatementLoadingId] = useState('')
-  const statementRows = statement.customerId === selected?.customerId ? statement.rows : []
+  const statementAnalysis = statement.customerId === selected?.customerId ? statement.analysis : null
+  const statementRows = statementAnalysis?.movements ?? []
   const statementLoading = statementLoadingId !== '' && statementLoadingId === selected?.customerId
 
   const selectCustomer = (entry: CustomerCredit) => {
@@ -57,10 +58,10 @@ export function CreditsView({ session, data, documentContext, businessIdentity }
     setPaidOpen(false)
     setStatementError('')
     if (!isAdmin) return
-    setStatement({ customerId: entry.customerId, rows: [] })
+    setStatement({ customerId: entry.customerId, analysis: null })
     setStatementLoadingId(entry.customerId)
     void getCustomerStatementHistory(entry.customerId).then(history => {
-      setStatement({ customerId: entry.customerId, rows: buildCustomerStatement(history.receivables, history.collections, history.claims, history.sales) })
+      setStatement({ customerId: entry.customerId, analysis: analyzeCustomerStatement(history.receivables, history.collections, history.claims, history.sales) })
     }).catch(failure => setStatementError((failure as Error).message || 'No se pudo cargar el historial completo.'))
       .finally(() => setStatementLoadingId(current => current === entry.customerId ? '' : current))
   }
@@ -303,7 +304,13 @@ export function CreditsView({ session, data, documentContext, businessIdentity }
         <div className="grid gap-2">
           {selected && isAdmin && <div className="grid grid-cols-2 gap-2"><button type="button" disabled={statementBusy} onClick={() => void exportStatement('PDF')} className="min-h-11 rounded-xl border p-2 text-xs font-bold disabled:opacity-50">{statementBusy ? 'Preparando…' : 'Estado de cuenta PDF'}</button><button type="button" disabled={statementBusy} onClick={() => void exportStatement('Excel')} className="min-h-11 rounded-xl border p-2 text-xs font-bold disabled:opacity-50">Estado de cuenta Excel</button></div>}
           {statementError && <p role="alert" className="text-xs font-bold text-rose-700">{statementError}</p>}
-          {selected && isAdmin && <section className="rounded-2xl border border-slate-200 p-3"><h3 className="text-xs font-extrabold">Estado de cuenta completo</h3>{statementLoading ? <p className="mt-2 text-xs text-slate-500">Cargando historial autorizado…</p> : statementRows.length === 0 ? <p className="mt-2 text-xs text-slate-500">No hay movimientos históricos.</p> : <div className="mt-2 grid max-h-72 gap-2 overflow-y-auto">{statementRows.map(row => <article key={row.id} className="rounded-xl bg-slate-50 p-2 text-[11px]"><div className="flex justify-between gap-2"><strong>{row.kind === 'credit' ? 'Venta a crédito' : row.kind === 'payment' ? 'Cobranza' : 'Ajuste'}</strong><span className="shrink-0">{new Date(row.at).toLocaleString('es-BO')}</span></div><p>{row.route} · {row.detail}</p>{row.method && <p>{row.method}</p>}{row.note && <p>Nota: {row.note}</p>}<p className="flex justify-between"><span>Debe {formatBs(row.debit)} · Haber {formatBs(row.credit)}</span><strong>Saldo {formatBs(row.balance)}</strong></p></article>)}<p className="flex justify-between border-t pt-2 text-xs"><strong>Saldo progresivo</strong><strong>{formatBs(statementRows.at(-1)?.balance || 0)}</strong></p></div>}</section>}
+          {selected && isAdmin && <section className="rounded-2xl border border-slate-200 p-3">
+            <h3 className="text-xs font-extrabold">Estado de cuenta completo</h3>
+            {statementLoading ? <p className="mt-2 text-xs text-slate-500">Cargando y confirmando historial con el servidor…</p> : !statementAnalysis ? <p className="mt-2 text-xs text-slate-500">El historial completo no está cargado.</p> : <>
+              {statementAnalysis.warnings.length > 0 && <div role="alert" className="mt-2 grid gap-1 rounded-xl bg-amber-50 p-3 text-xs text-amber-900"><strong>Revisión necesaria: historial con movimientos sin conciliar.</strong>{statementAnalysis.warnings.map((warning, index) => <p key={`${index}-${warning}`}>{warning}</p>)}</div>}
+              {statementRows.length === 0 ? <p className="mt-2 text-xs text-slate-500">No hay movimientos históricos.</p> : <div className="mt-2 grid max-h-72 gap-2 overflow-y-auto">{statementRows.map(row => <article key={row.id} className={`rounded-xl p-2 text-[11px] ${row.warning ? 'bg-amber-50 text-amber-950' : 'bg-slate-50'}`}><div className="flex justify-between gap-2"><strong>{row.kind === 'credit' ? 'Venta a crédito' : row.kind === 'payment' ? 'Cobranza' : 'Ajuste'}</strong><span className="shrink-0">{new Date(row.at).toLocaleString('es-BO')}</span></div><p>{row.route} · {row.detail}</p>{row.method && <p>{row.method}</p>}{row.note && <p>Nota: {row.note}</p>}{row.warning && <p className="font-bold">{row.warning}</p>}<p className="flex justify-between"><span>Debe {formatBs(row.debit)} · Haber {formatBs(row.credit)}</span><strong>Saldo {formatBs(row.balance)}</strong></p></article>)}<p className="flex justify-between border-t pt-2 text-xs"><strong>Saldo progresivo</strong><strong>{formatBs(statementAnalysis.ledgerBalance)}</strong></p><p className="flex justify-between text-xs"><span>Saldo actual de cartera</span><strong>{formatBs(statementAnalysis.currentBalance)}</strong></p></div>}
+            </>}
+          </section>}
           {filtered.map((entry) => (
             <button
               key={entry.customerId}

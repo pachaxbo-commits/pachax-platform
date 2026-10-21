@@ -5,10 +5,13 @@ import {
   collection,
   runTransaction,
   getDocs,
+  getDocsFromServer,
+  documentId,
   limit,
   startAfter,
   doc,
   onSnapshot,
+  orderBy,
   query,
   where,
   writeBatch,
@@ -18,6 +21,7 @@ import {
   type Unsubscribe,
   type WriteBatch,
 } from 'firebase/firestore'
+import { fetchCompleteStatementPages } from './statementPaging.ts'
 import { getFirebaseContext } from '../../../lib/firebase.ts'
 import { centralBalanceId, round2, toDayKey, collectionQrAmount } from '../domain/engine.ts'
 import type {
@@ -124,6 +128,13 @@ export interface DistributionRepositoryAdapter {
   subscribeCreditOverrides(onData: (rows: DistCreditOverride[]) => void, onError?: (error: Error) => void): () => void
   submitCreditOverride(input: { customerId?: string; reason?: string; days?: number; validUntil?: string; revoke?: boolean; overrideId?: string }): Promise<void>
   registerClaim(payload: Record<string, unknown>, operationId: string): Promise<void>
+  getCustomerStatementHistory?(customerId: string): Promise<{
+    receivables: DistReceivable[]
+    collections: DistCollection[]
+    claims: DistClaim[]
+    sales: DistSale[]
+    complete: true
+  }>
 }
 
 let activeRepositoryAdapter: DistributionRepositoryAdapter | null = null
@@ -925,27 +936,40 @@ export function subscribeLots(onData: (rows: DistLot[]) => void, onError?: (erro
  * Each source is paginated so older debt/payment rows are not silently omitted. */
 export async function getCustomerStatementHistory(customerId: string) {
   if (!customerId.trim()) throw new Error('Selecciona un cliente.');
+  if (activeRepositoryAdapter) {
+    const history = await activeRepositoryAdapter.getCustomerStatementHistory?.(customerId)
+    if (!history) throw new Error('El historial completo no está disponible en este entorno de demostración.')
+    return history
+  }
   const context = await getContext();
   const fetchAll = async <T,>(name: string): Promise<T[]> => {
-    const base = query(collectionRef(context, name), where('customerId', '==', customerId), limit(250));
-    const rows: T[] = [];
-    let cursor: Awaited<ReturnType<typeof getDocs>>['docs'][number] | undefined;
-    while (true) {
+    const base = query(collectionRef(context, name), where('customerId', '==', customerId), orderBy(documentId()), limit(250));
+    return fetchCompleteStatementPages(async cursor => {
       const pageQuery = cursor ? query(base, startAfter(cursor)) : base;
-      const page = await getDocs(pageQuery);
-      rows.push(...page.docs.map(doc => ({ id: doc.id, ...doc.data() }) as T));
-      if (page.size < 250) break;
-      cursor = page.docs[page.docs.length - 1];
-    }
-    return rows;
+      const page = await getDocsFromServer(pageQuery);
+      return {
+        rows: page.docs.map(doc => ({ id: doc.id, ...doc.data() }) as T),
+        nextCursor: page.docs.at(-1),
+        hasMore: page.size === 250,
+      };
+    });
   };
-  const [receivables, collections, claims, sales] = await Promise.all([
-    fetchAll<DistReceivable>('distReceivables'),
-    fetchAll<DistCollection>('distCollections'),
-    fetchAll<DistClaim>('distClaims'),
-    fetchAll<DistSale>('distSales'),
-  ]);
-  return { receivables, collections, claims, sales };
+  try {
+    const [receivables, collections, claims, sales] = await Promise.all([
+      fetchAll<DistReceivable>('distReceivables'),
+      fetchAll<DistCollection>('distCollections'),
+      fetchAll<DistClaim>('distClaims'),
+      fetchAll<DistSale>('distSales'),
+    ]);
+    return { receivables, collections, claims, sales, complete: true as const };
+  } catch (error) {
+    const code = (error as { code?: string })?.code || '';
+    if (code.includes('permission-denied')) throw new Error('No tienes permiso para consultar el estado de cuenta de este cliente.', { cause: error });
+    if (['unavailable', 'deadline-exceeded', 'failed-precondition'].some(value => code.includes(value))) {
+      throw new Error('No hay conexión confirmada con el servidor. El historial completo no está disponible; inténtalo de nuevo con conexión.', { cause: error });
+    }
+    throw new Error(`No se pudo confirmar el historial completo desde el servidor: ${(error as Error)?.message || 'error de lectura'}`, { cause: error });
+  }
 }
 export function subscribeOperations(onData: (rows: PendingOperation[]) => void, onError?: (error: Error) => void) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeOperations(onData, onError)

@@ -1,4 +1,5 @@
-import { buildCustomerStatement } from '../customerStatement.ts'
+import { analyzeCustomerStatement, buildCustomerStatement } from '../customerStatement.ts'
+import { assertCompleteStatementHistory, fetchCompleteStatementPages } from '../../data/statementPaging.ts'
 import { originalLotQuantity, summarizeLotsByProductLocation } from '../lotSummary.ts'
 import type { DistCollection, DistLot, DistReceivable, DistStockMovement } from '../../types.ts'
 
@@ -20,6 +21,24 @@ assert(JSON.stringify(statement.map(row => row.balance)) === JSON.stringify([50,
 assert(statement.at(-1)?.method === 'QR', 'second payment method appears')
 assert(statement.at(-1)?.balance === 0, 'current chronological balance is correct')
 assert(statement.length === 6, 'history contains both old and current credit sales, collections and adjustment')
+const unassigned = analyzeCustomerStatement(debts, [...payments, { ...payments[0], id: 'legacy-no-debt', receivableId: 'missing-debt', allocations: undefined, amount: 7, createdAt: '2025-03-01T10:00:00Z' }], claims)
+assert(unassigned.warnings.some(warning => warning.includes('legacy-no-debt')), 'legacy payment without a matching debt remains visible as a reconciliation warning')
+assert(unassigned.movements.some(row => row.reference === 'legacy-no-debt' && row.unallocatedAmount === 7), 'unassigned legacy payment amount is not silently discarded')
+
+const paged = await fetchCompleteStatementPages(async (cursor: number | undefined, pageSize) => {
+  const offset = cursor || 0
+  const rows = Array.from({ length: Math.min(pageSize, 251 - offset) }, (_, index) => offset + index)
+  return { rows, nextCursor: offset + rows.length, hasMore: offset + rows.length < 251 }
+})
+assert(paged.length === 251 && paged[250] === 250, 'history pagination returns every row beyond the 250-document page limit')
+let offlineFailed = false
+try { await fetchCompleteStatementPages(async () => { throw Object.assign(new Error('offline'), { code: 'unavailable' }) }) }
+catch { offlineFailed = true }
+assert(offlineFailed, 'offline history read rejects instead of returning a cached partial statement')
+let partialExportFailed = false
+try { assertCompleteStatementHistory({ complete: false }) }
+catch (error) { partialExportFailed = (error as Error).message.includes('historial') }
+assert(partialExportFailed, 'statement export refuses history not explicitly marked complete')
 
 const lots: DistLot[] = [
   { id: 'lot-a', tenantId: 'tenant', productId: 'p', productName: 'Producto', unitType: 'unit', lotCode: 'A', manufacturedOn: '', expiresOn: '', productionCost: 2, quantities: { central: 4, warehouse__w1: 3 }, createdAt: '', createdBy: '' },
