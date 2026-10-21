@@ -53,6 +53,7 @@ type ControllerContract = {
   onRequestBill: (accountId: string) => boolean | void | Promise<boolean | void>
   onReopenBill: (accountId: string) => boolean | void | Promise<boolean | void>
   onRecordPayment: (accountId: string, payment: NightclubPaymentDraft) => boolean | void | Promise<boolean | void>
+  onSettlePendingRound?: (accountId: string, roundId: string, payment: NightclubPaymentDraft) => boolean | void | Promise<boolean | void>
   onAdvanceRound: (accountId: string, roundId: string) => boolean | void | Promise<boolean | void>
   onDeliverRound: (accountId: string, roundId: string) => boolean | void | Promise<boolean | void>
   onFinishAccount: (accountId: string) => boolean | void | Promise<boolean | void>
@@ -576,6 +577,7 @@ export function NightclubExperience(props: Props) {
             onRequestBill={id => run(() => props.onRequestBill(id), 'Cuenta solicitada a Caja.')}
             onReopenBill={id => run(() => props.onReopenBill(id), 'Cuenta reabierta.')}
             onRecordPayment={(id, payment) => run(() => props.onRecordPayment(id, payment), 'Pago registrado en Caja.')}
+            onSettlePendingRound={props.mode === 'tenant' && props.onSettlePendingRound ? (id, roundId, payment) => run(() => props.onSettlePendingRound!(id, roundId, payment), 'Ronda liquidada y enviada a preparación.') : undefined}
             onOpenReceipt={canAccessReceipt ? (account: NightclubAccount) => setReceiptModalAccount(account) : undefined}
             onPrintComanda={canPrintComanda ? (accountId: string, roundId: string, isReprint?: boolean) => handlePrintBarComanda(accountId, roundId, isReprint) : undefined}
           />}

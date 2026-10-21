@@ -1682,6 +1682,10 @@ async function applyCommand(context) {
     if (snap.data().status !== 'bill_requested') throw new HttpsError('aborted', 'La cuenta no está por cobrar.')
     const balance = amount(snap.data().balance)
     if (balance <= 0) throw new HttpsError('failed-precondition', 'La cuenta no tiene saldo pendiente.')
+    const pendingRounds = await tx.get(root.collection('nightclubRounds').where('accountId', '==', accountId))
+    if (pendingRounds.docs.some(doc => doc.data().branchId === branchId && doc.data().authorization === 'account_charge' && !doc.data().paymentId && doc.data().inventoryConsumptionStatus === 'not_consumed')) {
+      throw new HttpsError('failed-precondition', 'Liquida las rondas pendientes desde Cuentas antes de registrar el pago total.')
+    }
     const paid = amount(payload.amount)
     const method = text(payload.method, 20)
     if (paid <= 0 || paid > balance || !['cash', 'qr', 'card', 'mixed'].includes(method)) {

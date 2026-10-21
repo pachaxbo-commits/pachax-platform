@@ -90,6 +90,7 @@ export interface NightclubRepository {
   openAccount(input: { operationId: string; target: NightclubServiceTarget }): Promise<{ accountId: string }>
   addRound(input: { operationId: string; accountId: string; items: NightclubRoundDraft[]; customerId?: string | null; serviceStaffId?: string }): Promise<{ roundId: string; accountId: string; total: number; status: string }>
   settleRound(input: { operationId: string; accountId: string; items: NightclubRoundDraft[]; payment: NightclubPaymentDraft }): Promise<{ roundId: string; paymentId: string; total: number }>
+  settlePendingRound?(input: { operationId: string; accountId: string; roundId: string; payment: NightclubPaymentDraft }): Promise<{ accountId: string; roundId: string; paymentId: string; total: number; status: string }>
   advanceRound(input: { operationId: string; accountId: string; roundId: string }): Promise<void>
   deliverRound(input: { operationId: string; accountId: string; roundId: string }): Promise<void>
   requestBill(input: { operationId: string; accountId: string }): Promise<{ accountId: string; status: string }>

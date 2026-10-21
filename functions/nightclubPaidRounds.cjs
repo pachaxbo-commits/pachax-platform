@@ -27,8 +27,9 @@ async function settlePendingRound({ tx, root, actor, branchId, operationId, acco
   const roundSnap = await tx.get(roundRef)
   if (!roundSnap.exists || roundSnap.data().tenantId !== actor.tenantId || roundSnap.data().branchId !== branchId || roundSnap.data().accountId !== account.id) fail('Ronda pendiente no encontrada.')
   const round = roundSnap.data()
-  if (round.status !== 'pending' || round.authorization !== 'account_charge' || round.paymentId || round.inventoryConsumptionStatus === 'consumed') fail('La ronda ya fue liquidada o no está pendiente.')
+  if (!['pending', 'preparing', 'ready', 'delivered'].includes(round.status) || round.authorization !== 'account_charge' || round.paymentId || round.inventoryConsumptionStatus !== 'not_consumed') fail('La ronda ya fue liquidada o no está pendiente.')
   if (round.cashboxId !== account.cashboxId || round.locationId !== account.locationId || round.shiftId !== account.shiftId) fail('La ronda no conserva el contexto histórico de la cuenta.')
+  if (!Number.isFinite(account.balance) || cents(account.balance) < cents(round.total)) fail('El saldo de la cuenta ya no cubre esta ronda pendiente.')
   if (!Array.isArray(round.items) || !round.items.length) throw new HttpsError('invalid-argument', 'La ronda no contiene productos.')
   const productIds = [...new Set(round.items.map(item => id(item.productId)))]
   const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
@@ -44,6 +45,10 @@ async function settlePendingRound({ tx, root, actor, branchId, operationId, acco
   })
   if (!Number.isFinite(round.total) || cents(round.total) !== cents(total)) fail('El total histórico de la ronda no coincide con sus líneas.')
   const payment = paymentBreakdown(total, payload.payment)
+  const accountPayments = await tx.get(root.collection('nightclubPayments').where('accountId', '==', account.id))
+  if (accountPayments.docs.some(doc => doc.data().branchId === branchId && doc.data().status === 'confirmed' && !doc.data().roundId)) {
+    fail('La cuenta ya tiene pagos generales sin asociar a una ronda. No se puede cobrar esta ronda nuevamente.')
+  }
   const paymentId = `payment_${operationId}`
   const locationConsumption = await consumeNightclubLocationStock({ tx, root, actor, branchId, operationId, account: { ...account, id: account.id }, roundId, products, drafts, now })
   const items = round.items.map(item => {
