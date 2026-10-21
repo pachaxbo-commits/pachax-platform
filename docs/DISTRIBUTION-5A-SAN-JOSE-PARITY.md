@@ -1,0 +1,45 @@
+# Distribución 5A — matriz de paridad San José / Platform
+
+Auditoría de `pachaxbo-commits/Embutidos-San-Jose@6c8be730b86c1d5001a86cd5326152f017f953fb` contra `pachaxbo-commits/pachax-platform@c7d0b41b22a1870a96e993859b891b6eb91550e4`.
+La revisión de San José se hizo desde `origin/main`; el checkout fuente no se modificó. Platform conserva su modelo multiempresa, gateway y Rules propias.
+
+| Función | San José | Platform antes | Diferencia / clasificación | Prioridad | Archivos / pruebas |
+|---|---|---|---|---|---|
+| Venta administrativa con ruta abierta | Fuerza `dispatchId` vacío para ventas administrativas; stock sale del central | La UI enviaba el despacho abierto y el backend guardaba el ID enviado, aunque descontaba central | FALTA — corregido: backend descarta ID ajeno al rol y venta central queda fuera del despacho | Crítica | `functions/operations.cjs`, `SellView.tsx`, `serverOperations.test.mjs` |
+| Cierre físico y caja de ruta | Excluye ventas de central y ventas con `routeId` ajeno, incluso registros históricos mal atribuidos | Consultaba por `dispatchId` y contaba todos los documentos devueltos | FALTA — corregido con filtro server-side y filtro visual equivalente | Crítica | `functions/operations.cjs`, `ClosureView.tsx`; emulador |
+| Caja/cierre administrativo separado | Cierre administrativo diario con atribución por alias | No existe un cierre administrativo independiente en el flujo de Platform inspeccionado | NO APLICA a la corrección de despacho; PARCIAL respecto a paridad de operación de caja. Requiere decisión de producto antes de añadir flujo | Alta | `operations.cjs`, `ClosureView.tsx`, `ReportsView.tsx` |
+| Consolidación de ventas | Combina ventas centrales y de rutas en reportes | Reportes y exportación consolidan ventas; la protección principal es conservar el origen | YA EXISTE, sujeto a validación de regresión | Alta | `reportExports.ts`, `ReportsView.tsx` |
+| Verificación QR y monto | Verificación basada en el monto efectivo, reglas contra duplicación y control ante rectificación | Transacción lee el origen actual y Rules cotejan el monto QR; ID determinista evita duplicado. Platform no tiene flujo de rectificación de venta equivalente | PARCIAL: verificación ordinaria existe; rectificación y versionado no aplican hasta que exista edición de venta | Alta | `distributionRepository.ts`, `tenant-distribution.rules`, `QrView.tsx` |
+| Fecha de venta y fecha de verificación | Las muestra por separado; fechas ambiguas solo muestran día; zona Bolivia explícita | Mostraba ambos timestamps, pero dependía de la zona del dispositivo y podía inventar presentación de hora local | FALTA — corregido con formateador `America/La_Paz`, precisión date-only para históricos ambiguos | Media | `domain/qrRecordDate.ts`, `QrView.tsx`, test de fecha |
+| Ingresos históricos y exportes | Reportes filtrables y PDF/Excel | Reportes/exportación PDF/Excel ya existen | YA EXISTE | Media | `reportExports.ts`, `reportFiles.ts`, `ReportsView.tsx` |
+| Mermas y costo de pérdida | Ingresos/pérdidas históricos y costo de merma | Ajustes, movimientos, lotes y pérdidas valorizadas ya se reflejan en reportes cuando hay costo conocido | YA EXISTE; validar datos con costo desconocido | Media | `operations.cjs`, `reportExports.ts`, `ReportsView.tsx` |
+| Consulta de lotes por producto | Vista dedicada consulta lotes del producto/almacén | Inventario e historial muestran lotes/movimientos; no se halló exactamente el mismo resumen por producto de San José | PARCIAL; valorar un resumen consolidado sin duplicar la consulta existente | Media | `InventoryView.tsx`, `LotsAndHistory.tsx`, `distributionRepository.ts` |
+| Estado de cuenta por cliente | Estado de cuenta cronológico con saldo progresivo y exportación | Créditos/cobranzas y reportes están; no se encontró un documento único de estado de cuenta cronológico | FALTA | Media | `CreditsView.tsx`, `CustomersView.tsx`, futura prueba de dominio |
+| Retornos, reclamos y conciliación | Cambios recientes simplifican declaración de retorno; movimientos de lotes preservados | Flujo distribuido y de almacén, merma recuperable/no apta, lotes, evidencia e historial ya existen | YA EXISTE; no copiar simplificación si reduce evidencia de Platform | Alta | `operations.cjs`, `ClosureView.tsx`, `distributionPhysicalCycle.test.ts` |
+| Diagnóstico de operaciones | Centro global de errores y diagnósticos de cierres | Cola de operaciones expone estados/rechazos y soporte permite mantenimiento; no hay centro global equivalente | PARCIAL — mejoras de presentación pendientes | Baja | `operationQueue.ts`, `SupportView.tsx`, `supportMaintenance.ts` |
+| Rectificación histórica de cierre | Herramienta auditada especial para una fecha/caso concreto | No existe rectificación equivalente. Los scripts de San José son específicos de sus datos | NO APLICA para portación; nunca ejecutar ni copiar script específico | N/A | `closureRectification` de origen, revisar solo como referencia |
+| Reglas y aislamiento | Proyecto de una sola empresa | Tenant/branch, gateway y permisos canónicos propios | REQUIERE ADAPTACIÓN ARQUITECTÓNICA; Rules del origen no se copian | Crítica | `firebase/tenant-distribution.rules`, `functions/authorization.cjs` |
+| Interfaz responsive | Ajustes visuales y tema de app San José | UI canónica y estilos independientes de Platform | NO APLICA: no importar identidad ni temas del origen | N/A | `DistributionExperience.tsx`, estilos de Platform |
+
+## Cambios de esta rama
+
+1. Las ventas administrativas nunca conservan el `dispatchId` de una ruta. El servidor sigue derivando la ubicación central por rol y no confía en el payload.
+2. El cierre físico y monetario filtra ventas centrales e incompatibles con la ruta, también al leer registros históricos con `dispatchId` heredado.
+3. El formulario QR muestra la hora inequívoca en Bolivia y separa la fecha de operación de la fecha de verificación; fechas antiguas sin zona horaria conservan solo el día.
+
+## Contrato preliminar para 5B: catálogo generalizable
+
+- Mantener `UnitType = kg | unit | package` hasta que las operaciones backend, precisión decimal, lotes, FIFO, retornos, existencias, movimientos y reportes soporten una unidad nueva de extremo a extremo.
+- Separar categoría editable, presentación comercial, unidad de venta y unidad base de inventario. Guardar contenido por presentación y SKU explícitos; no derivar conversiones de texto ni del peso aproximado informativo.
+- Precios y costos deben guardarse como valores numéricos autoritativos y conservar snapshots en ventas/movimientos; incluir stock mínimo y configuración inicial por tipo de distribuidora.
+- No convertir kg a litros ni otras dimensiones sin una conversión explícita, validada y transaccional.
+- Antes de activar UI: definir migración compatible para productos legacy, precisión/rounding, asignación de lotes, devoluciones parciales, cambio de presentación, inventario en tránsito, importaciones y pruebas de ida/vuelta.
+
+## Pendientes de paridad 5A
+
+- Diseñar si Platform necesita caja administrativa con cierre independiente y conciliación propia; no está añadida en este lote.
+- Estado de cuenta cronológico de cliente con saldo progresivo y exportación.
+- Revisar si la consulta dedicada de lotes aporta algo sobre las vistas actuales de inventario/historial.
+- Completar diagnósticos operativos legibles para usuarios, manteniendo códigos y eventos server-side existentes.
+- No hay edición/rectificación de venta en Platform comparable con el versionado QR de San José; si se incorpora, diseñar revisiones, invalidación/reverificación QR y auditoría antes de habilitarla.
+- No portar rectificaciones históricas de cierres de San José ni cambios de identidad/tema Android.
