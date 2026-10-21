@@ -1065,7 +1065,9 @@ service cloud.firestore {
     match /tenants/{tenantId}/distProducts/{productId} {
       allow read: if tDistWorker(tenantId);
       allow create, update: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
-        && request.resource.data.unitType in ['kg','g','unit','package','box','liter']
+        && (resource == null
+          ? request.resource.data.unitType in ['kg','unit','package']
+          : request.resource.data.unitType == resource.data.unitType)
         && request.resource.data.referencePrice is number && request.resource.data.referencePrice >= 0
         && request.resource.data.get('productionCost',0) >= 0 && request.resource.data.get('minimumStock',0) >= 0
         && request.resource.data.get('photoDataUrl', '').size() <= 150000
@@ -1083,8 +1085,7 @@ service cloud.firestore {
             && request.resource.data.presentationContent.amount is number
             && request.resource.data.presentationContent.amount > 0
             && request.resource.data.presentationContent.amount <= 1000000
-            && request.resource.data.presentationContent.unit in ['unit', 'g', 'kg', 'ml', 'l']))
-        && (resource == null || request.resource.data.unitType == resource.data.unitType);
+            && request.resource.data.presentationContent.unit in ['unit', 'g', 'kg', 'ml', 'l']));
       allow delete: if false;
     }
 

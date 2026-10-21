@@ -16,6 +16,8 @@ import { getPublicTemplate, PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } 
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
+import { DISTRIBUTION_PROFILES } from '../../modules/distribution/domain/catalog'
+import type { DistributionIndustryProfile } from '../../modules/distribution/types'
 
 interface ColorPreset {
   id: string
@@ -66,6 +68,7 @@ export function PublicRegisterView() {
     if (match && isTemplateProvisioningAvailable(match.businessType)) return match.businessType
     return '' // No hacer fallback silencioso a otra plantilla si el query param solicitó una no disponible
   })
+  const [industryProfile, setIndustryProfile] = useState<DistributionIndustryProfile>('mixed')
 
   // Paleta de personalización
   const [selectedPalette, setSelectedPalette] = useState<ColorPreset>(BRAND_PALETTES[0])
@@ -134,6 +137,7 @@ export function PublicRegisterView() {
           requestId,
           companyName: companyName.trim(),
           businessType: selectedTemplate,
+          ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -474,6 +478,24 @@ export function PublicRegisterView() {
                 </div>
               </div>
 
+              {/* Perfil de rubro para empresas de Distribución */}
+              {selectedTemplate === 'route_distribution' && (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                  <label htmlFor="public-distribution-industry-profile" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    ¿Qué tipo de productos distribuye tu empresa?
+                  </label>
+                  <select
+                    id="public-distribution-industry-profile"
+                    value={industryProfile}
+                    onChange={event => setIndustryProfile(event.target.value as DistributionIndustryProfile)}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  >
+                    {DISTRIBUTION_PROFILES.map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-600">Solo prepara categorías sugeridas. Puedes vender otros productos y cambiar el rubro después.</p>
+                </div>
+              )}
+
               {/* Paletas */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
@@ -543,6 +565,12 @@ export function PublicRegisterView() {
                   <span className="text-slate-500">Cuenta administradora:</span>
                   <span className="font-bold text-slate-900">{fullName} ({email})</span>
                 </div>
+                {selectedTemplate === 'route_distribution' && (
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Rubro:</span>
+                    <span className="font-bold text-slate-900">{DISTRIBUTION_PROFILES.find(profile => profile.id === industryProfile)?.label}</span>
+                  </div>
+                )}
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Empresa:</span>
                   <span className="font-bold text-slate-900">{companyName}</span>

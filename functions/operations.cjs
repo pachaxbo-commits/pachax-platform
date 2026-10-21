@@ -1969,6 +1969,14 @@ async function updateLot(o, p) {
   return updated;
 }
 handlers.updateLot = updateLot;
+Object.assign(handlers, {
+  adjustment,
+  expense,
+  deleteExpense,
+  deleteProduct,
+  closure,
+  claim,
+});
 async function refreshCreditStatus(db, root, customerId) {
   await db.runTransaction(async (tx) => {
     const [receivablesSnap, supportSnap, overridesSnap] = await Promise.all([

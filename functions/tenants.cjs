@@ -5,6 +5,7 @@ const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id, tenantActor, audit, hasPermission } = require('./authorization.cjs');
 const { normalizeNightclubPermissions } = require('./nightclubUsers.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
+const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 36);
 function text(value, max = 100) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.');
@@ -131,17 +132,24 @@ function businessIdentity(input = {}, existing = {}, tenantName = '', tenantBran
 async function createTenant(db, auth, request) {
   const uid = authenticated(request), input = request.data || {};
   const operationId = id(input.operationId), name = text(input.name), template = getTemplate(input.businessType);
+  let industryProfile;
+  try { industryProfile = distributionProfile(template.businessType, input.industryProfile); }
+  catch (error) { throw new HttpsError('invalid-argument', error.message); }
   const tenantId = `t_${hash(`${uid}:${operationId}`)}`, root = db.doc(`tenants/${tenantId}`);
   const user = await auth.getUser(uid);
   const now = new Date().toISOString();
   const brand = branding(input.branding);
+  const catalogRef = root.collection('distSettings').doc('catalog');
   const ident = businessIdentity(input.businessIdentity, {}, name, brand);
   const tenant = { tenantId, name, nameKey: name.toLowerCase(), businessType: template.businessType, ownerUid: uid,
     ownerEmail: user.email || '', status: 'active', branding: brand, businessIdentity: ident, configuration: configuration(input, template.defaults),
     entitlements: {}, planKey: null, subscriptionStatus: 'trial', schemaVersion: 1, templateVersion: template.version,
     createdAt: now, updatedAt: now, userCount: 1, branchCount: 1 };
   await db.runTransaction(async tx => {
-    const [current, profile, op] = await Promise.all([tx.get(root), tx.get(db.doc(`users/${uid}`)), tx.get(db.doc(`platformOperators/${uid}`))]);
+    const [current, profile, op, catalog] = await Promise.all([
+      tx.get(root), tx.get(db.doc(`users/${uid}`)), tx.get(db.doc(`platformOperators/${uid}`)),
+      industryProfile ? tx.get(catalogRef) : Promise.resolve(null),
+    ]);
     const infrastructure = template.businessType === 'nightclub_lounge'
       ? await readNightclubBaseInfrastructure(tx, root)
       : null;
@@ -150,6 +158,9 @@ async function createTenant(db, auth, request) {
       if (current.data().ownerUid !== uid) throw new HttpsError('permission-denied', 'Operación no autorizada.');
       if (current.data().businessType !== template.businessType || current.data().name !== name) {
         throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con datos distintos.');
+      }
+      if (input.industryProfile !== undefined && catalog?.exists && catalog.data()?.industryProfile !== industryProfile) {
+        throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con otro rubro de Distribución.');
       }
       if (infrastructure) assertNightclubBaseInfrastructureState(infrastructure, tenantId);
       return;
@@ -161,9 +172,10 @@ async function createTenant(db, auth, request) {
     tx.create(root.collection('branches').doc('main'), { tenantId, id: 'main', name: 'Sucursal principal', active: true, createdAt: now });
     for (const role of template.roles) tx.create(root.collection('roles').doc(role.id), { ...role, tenantId });
     if (infrastructure) createNightclubBaseInfrastructure(tx, root, tenantId, now);
+    if (industryProfile) tx.create(catalogRef, catalogForTenant(tenantId, industryProfile, now));
     tx.set(db.doc(`users/${uid}`), { uid, displayName: user.displayName || '', email: user.email || '', defaultTenantId: profile.data()?.defaultTenantId || tenantId, createdAt: profile.data()?.createdAt || now, updatedAt: now }, { merge: true });
     tx.create(db.doc(`users/${uid}/tenantLinks/${tenantId}`), { tenantId, name, businessType: template.businessType });
-    audit(db, tx, { uid, tenantId, actorType: 'tenant' }, 'tenant.created', tenantId, null, { name, businessType: template.businessType });
+    audit(db, tx, { uid, tenantId, actorType: 'tenant' }, 'tenant.created', tenantId, null, { name, businessType: template.businessType, ...(industryProfile ? { industryProfile } : {}) });
   });
   return { tenantId };
 }

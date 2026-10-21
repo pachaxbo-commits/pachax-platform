@@ -50,6 +50,10 @@ try {
       businessType: 'route_distribution',
       active: true,
     })
+    await setDoc(doc(db, 'tenants', tenantId, 'distProducts', 'legacy-box'), {
+      id: 'legacy-box', tenantId, name: 'Producto legacy', category: 'Otros', unitType: 'box',
+      referencePrice: 10, active: true,
+    })
 
     // 2. Memberships
     const member = (uid, tId, roleId) => ({
@@ -135,6 +139,9 @@ try {
   const distBClient = env.authenticatedContext(uids.distributorB).firestore()
   const warehouseClient = env.authenticatedContext(uids.warehouse).firestore()
 
+  await assertSucceeds(getDoc(doc(adminClient, 'tenants', tenantId, 'distProducts', 'legacy-box')))
+  pass('producto legacy con unidad antigua conserva lectura')
+
   // Tenant scoped universal catalog profile and descriptive SKU contents.
   const catalogSettings = {
     id: 'catalog', tenantId, industryProfile: 'beverages', updatedAt: new Date().toISOString(),
@@ -144,6 +151,8 @@ try {
   pass('owner configura el perfil y categorías de su catálogo Distribution')
   await assertSucceeds(setDoc(doc(adminClient, 'tenants', tenantId, 'distSettings', 'catalog'), { ...catalogSettings, industryProfile: 'cleaning' }))
   pass('admin puede cambiar el perfil conservando categorías existentes')
+  await assertFails(setDoc(doc(distAClient, 'tenants', tenantId, 'distSettings', 'catalog'), { ...catalogSettings, industryProfile: 'pets' }))
+  pass('distribuidor no puede cambiar el perfil empresarial ni el catálogo')
   await assertFails(setDoc(doc(accountantClient, 'tenants', tenantId, 'distSettings', 'catalog'), catalogSettings))
   pass('accountant no administra catálogo de Distribution')
   await assertFails(setDoc(doc(ownerClient, 'tenants', foreignTenantId, 'distSettings', 'catalog'), { ...catalogSettings, tenantId: foreignTenantId }))
@@ -154,6 +163,13 @@ try {
     referencePrice: 60, productionCost: 40, minimumStock: 1, active: true,
   }))
   pass('producto universal guarda presentación como SKU de caja sin alterar su unidad operativa')
+  for (const [unitType, id] of [['g', 'unit-g'], ['box', 'unit-box'], ['liter', 'unit-liter']]) {
+    await assertFails(setDoc(doc(adminClient, 'tenants', tenantId, 'distProducts', id), {
+      id, tenantId, name: 'Unidad aún no soportada', category: 'Otros', unitType,
+      saleUnitLabel: 'unidad', referencePrice: 1, active: true,
+    }))
+  }
+  pass('Rules rechazan nuevas unidades sin motor operativo y conservan compatibilidad de lectura legacy')
   await assertFails(setDoc(doc(adminClient, 'tenants', tenantId, 'distProducts', 'sku-bad'), {
     id: 'sku-bad', tenantId, name: 'Producto', category: 'Gaseosas', unitType: 'package',
     presentationContent: { amount: 1, unit: 'kg', conversion: 1000 }, referencePrice: 1, active: true,

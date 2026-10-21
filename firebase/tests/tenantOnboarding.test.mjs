@@ -19,6 +19,8 @@ const suffix = Date.now().toString(36)
 const ids = {
   ownerA: `onboarding-a-${suffix}`,
   ownerB: `onboarding-b-${suffix}`,
+  ownerDistribution: `onboarding-distribution-${suffix}`,
+  ownerInvalid: `onboarding-invalid-${suffix}`,
   ownerNightclub: `onboarding-nightclub-${suffix}`,
   partial: `onboarding-partial-${suffix}`,
   platform: `onboarding-platform-${suffix}`,
@@ -118,6 +120,20 @@ try {
   assert(!(await db.doc(`users/${ids.ownerB}/onboarding/initialTenant`).get()).exists)
   pass('template inválido no deja onboarding parcial')
 
+  const invalidIndustry = await callOnboarding(await signIn(ids.ownerInvalid), {
+    requestId: `invalid-industry-${suffix}`, companyName: 'Rubro inválido', businessType: 'route_distribution', industryProfile: 'autos',
+  })
+  assert.equal(invalidIndustry.body.error.status, 'INVALID_ARGUMENT')
+  assert(!(await db.doc(`tenants/${initialTenantId(ids.ownerInvalid)}`).get()).exists)
+  pass('onboarding rechaza rubros desconocidos antes de escribir documentos')
+
+  const wrongTemplateProfile = await callOnboarding(await signIn(ids.ownerInvalid), {
+    requestId: `wrong-template-profile-${suffix}`, companyName: 'Perfil fuera de plantilla', businessType: 'restaurant_pos', industryProfile: 'food',
+  })
+  assert.equal(wrongTemplateProfile.body.error.status, 'INVALID_ARGUMENT')
+  assert(!(await db.doc(`tenants/${initialTenantId(ids.ownerInvalid)}`).get()).exists)
+  pass('onboarding rechaza industryProfile en plantillas distintas de Distribución')
+
   const forgedPlatform = await callOnboarding(tokenB, { requestId: `forged-platform-${suffix}`, companyName: 'Empresa B', businessType: 'gelateria_weight_cafe', platformRole: 'platform_owner' })
   assert.equal(forgedPlatform.body.error.status, 'INVALID_ARGUMENT')
   assert(!(await db.doc(`platformOperators/${ids.ownerB}`).get()).exists)
@@ -146,6 +162,41 @@ try {
   assert.equal((await db.doc(`tenants/${nightclubTenant}`).get()).data().businessType, 'nightclub_lounge')
   pass('Nightclub completa onboarding con tenant, owner y roles del template canónico')
 
+  const distributionRequestId = `distribution-${suffix}`
+  const distributionResult = await callOnboarding(await signIn(ids.ownerDistribution), {
+    requestId: distributionRequestId, companyName: 'Bebidas QA', businessType: 'route_distribution', industryProfile: 'beverages',
+  })
+  assert(distributionResult.response.ok, JSON.stringify(distributionResult.body))
+  const distributionTenant = distributionResult.result.tenantId
+  const catalogRef = db.doc(`tenants/${distributionTenant}/distSettings/catalog`)
+  const initialCatalog = await catalogRef.get()
+  assert.equal(initialCatalog.data()?.industryProfile, 'beverages')
+  assert.deepEqual(initialCatalog.data()?.categories.map(category => category.name), ['Agua', 'Gaseosas', 'Jugos', 'Otros'])
+  assert.equal((await db.collection(`tenants/${distributionTenant}/distProducts`).get()).size, 0)
+  const distributionRetry = await callOnboarding(await signIn(ids.ownerDistribution), {
+    requestId: distributionRequestId, companyName: 'Bebidas QA', businessType: 'route_distribution', industryProfile: 'beverages',
+  })
+  assert(distributionRetry.response.ok)
+  assert.equal((await catalogRef.get()).data()?.categories.length, 4)
+  pass('onboarding Distribution persiste perfil/categorías dentro del alta sin sembrar productos y reintenta sin duplicar')
+
+  const createTenantResponse = await callOnboarding(await signIn(ids.ownerA), {
+    action: 'createTenant', operationId: `create-distribution-${suffix}`, name: 'Mascotas QA', businessType: 'route_distribution', industryProfile: 'pets',
+  })
+  assert(createTenantResponse.response.ok, JSON.stringify(createTenantResponse.body))
+  const extraTenant = createTenantResponse.result.tenantId
+  const extraCatalogRef = db.doc(`tenants/${extraTenant}/distSettings/catalog`)
+  const extraCatalog = await extraCatalogRef.get()
+  assert.equal(extraCatalog.data()?.industryProfile, 'pets')
+  assert.deepEqual(extraCatalog.data()?.categories.map(category => category.name), ['Alimento', 'Higiene', 'Accesorios', 'Otros'])
+  const createTenantRetry = await callOnboarding(await signIn(ids.ownerA), {
+    action: 'createTenant', operationId: `create-distribution-${suffix}`, name: 'Mascotas QA', businessType: 'route_distribution', industryProfile: 'pets',
+  })
+  assert(createTenantRetry.response.ok)
+  assert.equal(createTenantRetry.result.tenantId, extraTenant)
+  assert.equal((await db.collection(`tenants/${extraTenant}/distSettings`).get()).size, 1)
+  pass('createTenant Distribution persiste el rubro y reintenta idempotentemente')
+
   const clientA = env.authenticatedContext(ids.ownerA).firestore()
   await assertSucceeds(getDoc(doc(clientA, 'tenants', tenantA)))
   await assertFails(getDoc(doc(clientA, 'tenants', tenantB)))
@@ -172,7 +223,7 @@ try {
   assert(!(await db.doc(`tenants/${initialTenantId(ids.platform)}`).get()).exists)
   pass('operador Platform activo no usa onboarding tenant como acceso lateral')
 
-  assert.equal(checks, 16)
+  assert.equal(checks, 20)
   console.log(`${checks} comprobaciones de onboarding seguro aprobadas`)
 } finally {
   await env.cleanup()

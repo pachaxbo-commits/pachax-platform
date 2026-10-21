@@ -4,8 +4,9 @@ const { FieldValue } = require('firebase-admin/firestore');
 const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id } = require('./authorization.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
+const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
 
-const ALLOWED_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding']);
+const ALLOWED_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding', 'industryProfile']);
 
 function initialTenantId(uid) {
   const digest = createHash('sha256').update(`initial-tenant:${uid}`).digest('hex').slice(0, 36);
@@ -62,6 +63,9 @@ async function completeOnboarding(db, auth, request) {
   const requestId = id(input.requestId);
   const name = companyName(input.companyName);
   const template = templateFor(input.businessType);
+  let industryProfile;
+  try { industryProfile = distributionProfile(template.businessType, input.industryProfile); }
+  catch (error) { throw new HttpsError('invalid-argument', error.message); }
   const branding = initialBranding(input.branding);
   const user = await auth.getUser(uid);
   const tenantId = initialTenantId(uid);
@@ -72,12 +76,14 @@ async function completeOnboarding(db, auth, request) {
   const linkRef = db.doc(`users/${uid}/tenantLinks/${tenantId}`);
   const onboardingRef = db.doc(`users/${uid}/onboarding/initialTenant`);
   const operatorRef = db.doc(`platformOperators/${uid}`);
+  const catalogRef = root.collection('distSettings').doc('catalog');
 
   return db.runTransaction(async tx => {
-    const [marker, tenant, member, profile, link, operator, links, branch, roles] = await Promise.all([
+    const [marker, tenant, member, profile, link, operator, links, branch, roles, catalog] = await Promise.all([
       tx.get(onboardingRef), tx.get(root), tx.get(memberRef), tx.get(profileRef),
       tx.get(linkRef), tx.get(operatorRef), tx.get(db.collection(`users/${uid}/tenantLinks`).limit(1)),
       tx.get(branchRef), tx.get(root.collection('roles')),
+      industryProfile ? tx.get(catalogRef) : Promise.resolve(null),
     ]);
     const infrastructure = template.businessType === 'nightclub_lounge'
       ? await readNightclubBaseInfrastructure(tx, root)
@@ -94,6 +100,12 @@ async function completeOnboarding(db, auth, request) {
         && roles.size === expectedRoles.size && roles.docs.every(role => expectedRoles.has(role.id));
       if (!complete) throw new HttpsError('failed-precondition', 'El onboarding existente está incompleto y requiere revisión administrativa.');
       if (infrastructure) assertNightclubBaseInfrastructureState(infrastructure, tenantId);
+      if (industryProfile && catalog?.exists && catalog.data()?.industryProfile !== industryProfile) {
+        throw new HttpsError('failed-precondition', 'El onboarding ya existe con otro rubro de Distribución.');
+      }
+      if (industryProfile && marker.data()?.industryProfile && marker.data().industryProfile !== industryProfile) {
+        throw new HttpsError('failed-precondition', 'El onboarding ya existe con otro rubro de Distribución.');
+      }
       return response(tenantId, savedTemplate);
     }
 
@@ -142,17 +154,18 @@ async function completeOnboarding(db, auth, request) {
     tx.create(branchRef, { tenantId, id: 'main', name: 'Sucursal principal', active: true, createdAt: now });
     for (const role of template.roles) tx.create(root.collection('roles').doc(role.id), { ...role, tenantId, createdAt: now });
     if (infrastructure) createNightclubBaseInfrastructure(tx, root, tenantId, now);
+    if (industryProfile) tx.create(catalogRef, catalogForTenant(tenantId, industryProfile, new Date().toISOString()));
     tx.set(profileRef, {
       uid, displayName: user.displayName || '', email: user.email || '',
       defaultTenantId: profile.data()?.defaultTenantId || tenantId,
       createdAt: profile.data()?.createdAt || now, updatedAt: now,
     }, { merge: true });
     tx.create(linkRef, { tenantId, name, businessType: template.businessType, roleId: 'owner', status: 'active', createdAt: now });
-    tx.create(onboardingRef, { status: 'complete', tenantId, businessType: template.businessType, requestId, createdAt: now, completedAt: now });
+    tx.create(onboardingRef, { status: 'complete', tenantId, businessType: template.businessType, ...(industryProfile ? { industryProfile } : {}), requestId, createdAt: now, completedAt: now });
     tx.create(root.collection('auditLogs').doc(), {
       actorUid: uid, actorType: 'tenant', tenantId, action: 'onboarding.completed',
       resource: 'tenant', resourceId: tenantId, before: null,
-      after: { name, businessType: template.businessType }, reason: null, createdAt: now,
+      after: { name, businessType: template.businessType, ...(industryProfile ? { industryProfile } : {}) }, reason: null, createdAt: now,
     });
     return response(tenantId, template);
   });

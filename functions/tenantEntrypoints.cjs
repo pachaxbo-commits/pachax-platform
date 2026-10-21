@@ -19,7 +19,7 @@ const distributionEventOptions = {
   maxInstances: 3,
   concurrency: 1,
 };
-const ONBOARDING_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding']);
+const ONBOARDING_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding', 'industryProfile']);
 function assertProvisionableTemplate(businessType) {
   try { getTemplate(businessType); }
   catch { throw new HttpsError('invalid-argument', 'Plantilla de negocio no reconocida.'); }

@@ -18,6 +18,8 @@ import { BrandMark } from '../public/components/BrandMark'
 import { gateway } from '../services/gateway'
 import type { BusinessType } from '../core/platform'
 import { isTemplateProvisioningAvailable } from '../core/publicTemplates'
+import { DISTRIBUTION_PROFILES } from '../modules/distribution/domain/catalog'
+import type { DistributionIndustryProfile } from '../modules/distribution/types'
 
 interface OnboardingWizardProps {
   userEmail: string | null
@@ -110,6 +112,7 @@ export function OnboardingWizard({
   const [phone, setPhone] = useState('')
   const [city, setCity] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<BusinessType>('route_distribution')
+  const [industryProfile, setIndustryProfile] = useState<DistributionIndustryProfile>('mixed')
   const [selectedPalette, setSelectedPalette] = useState<ColorPreset>(BRAND_PALETTES[0])
 
   // Submission & Idempotency
@@ -164,6 +167,7 @@ export function OnboardingWizard({
           requestId,
           companyName: trimmedName,
           businessType: selectedTemplate,
+          ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -177,6 +181,7 @@ export function OnboardingWizard({
           operationId: requestId,
           name: trimmedName,
           businessType: selectedTemplate,
+          ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -454,6 +459,22 @@ export function OnboardingWizard({
             </p>
 
             <div className="mt-6 space-y-6">
+              {selectedTemplate === 'route_distribution' && (
+                <div>
+                  <label htmlFor="distribution-industry-profile" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                    ¿Qué tipo de productos distribuye tu empresa?
+                  </label>
+                  <select
+                    id="distribution-industry-profile"
+                    value={industryProfile}
+                    onChange={event => setIndustryProfile(event.target.value as DistributionIndustryProfile)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  >
+                    {DISTRIBUTION_PROFILES.map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">Esto sugiere categorías iniciales; puedes vender otros productos y cambiar el rubro luego.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
                   Paleta de color de marca
@@ -545,6 +566,13 @@ export function OnboardingWizard({
                 <span className="text-xs font-medium text-slate-500">Nombre comercial:</span>
                 <span className="text-sm font-bold text-slate-900">{companyName}</span>
               </div>
+
+              {selectedTemplate === 'route_distribution' && (
+                <div className="flex items-center justify-between py-1 border-b border-slate-200/80">
+                  <span className="text-xs font-medium text-slate-500">Rubro de distribución:</span>
+                  <span className="text-sm font-semibold text-slate-900">{DISTRIBUTION_PROFILES.find(profile => profile.id === industryProfile)?.label}</span>
+                </div>
+              )}
 
               <div className="flex items-center justify-between py-1 border-b border-slate-200/80">
                 <span className="text-xs font-medium text-slate-500">Modelo de negocio:</span>
