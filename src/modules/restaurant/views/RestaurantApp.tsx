@@ -196,10 +196,10 @@ export function RestaurantApp({
       unsubs.push(subscribeShiftHistory(tenantId, 'main', setShiftHistory, handleSyncError('historial de turnos')))
     }
 
-    // 3. Mesas y sectores: roles con orders.read o settings.manage
-    if (can('orders.read') || can('settings.manage')) {
+    // 3. Mesas y sectores: lectura operativa para pedidos, ventas o configuración.
+    if (can('orders.read') || can('sales.create') || can('settings.manage')) {
       unsubs.push(subscribeTables(tenantId, 'main', setTables, handleSyncError('mesas')))
-      unsubs.push(subscribeSectors(tenantId, setSectors, handleSyncError('sectores')))
+      unsubs.push(subscribeSectors(tenantId, 'main', setSectors, handleSyncError('sectores')))
     }
 
     // 4. Pedidos: roles con orders.read, cash.close o sales.read

@@ -102,6 +102,7 @@ service cloud.firestore {
           'orderSource',
           'fulfillmentType',
           'orderType',
+          'tableId',
           'tableInfo',
           'customerName',
           'customerPhone',
@@ -126,6 +127,14 @@ service cloud.firestore {
         && (request.resource.data.expectedPaymentMethod == null || request.resource.data.expectedPaymentMethod in ['cash', 'qr', 'mixed'])
         && request.resource.data.orderSource in ['local', 'whatsapp']
         && request.resource.data.fulfillmentType in ['table', 'pickup', 'delivery']
+        && (
+          request.resource.data.fulfillmentType != 'table'
+          || ('tableId' in request.resource.data && isValidString(request.resource.data.tableId))
+        )
+        && (
+          request.resource.data.fulfillmentType == 'table'
+          || !('tableId' in request.resource.data)
+        )
         && (!('tableInfo' in request.resource.data) || request.resource.data.tableInfo is string)
         && (!('customerName' in request.resource.data) || request.resource.data.customerName is string)
         && (!('customerPhone' in request.resource.data) || request.resource.data.customerPhone is string)
@@ -951,11 +960,12 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantSectors/{sectorId} {
-      allow read: if tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings');
+      allow read: if tBranch(tenantId,resource.data.branchId) &&
+        (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantTables/{tableId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantOrders/{orderId} {

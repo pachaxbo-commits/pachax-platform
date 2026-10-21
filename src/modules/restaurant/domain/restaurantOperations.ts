@@ -9,10 +9,12 @@ export function resolveOrderTable(order: Order, tables: RestaurantTable[]): Rest
   if (order.tableId) return tables.find(table => table.id === order.tableId)
   if (order.fulfillmentType !== 'table' || !order.tableInfo) return undefined
   const name = order.tableInfo.trim().toLocaleLowerCase('es-BO')
-  const exact = tables.find(table => table.name.toLocaleLowerCase('es-BO') === name)
-  if (exact) return exact
+  const exactMatches = tables.filter(table => table.name.toLocaleLowerCase('es-BO') === name)
+  if (exactMatches.length === 1) return exactMatches[0]
   const number = name.match(/^(?:mesa\s*)?(\d+)$/)?.[1]
-  return number ? tables.find(table => table.number === Number(number)) : undefined
+  if (!number) return undefined
+  const numberMatches = tables.filter(table => table.number === Number(number))
+  return numberMatches.length === 1 ? numberMatches[0] : undefined
 }
 
 export function reconcileTableOrders(orders: Order[], tables: RestaurantTable[]) {

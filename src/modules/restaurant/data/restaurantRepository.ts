@@ -228,6 +228,7 @@ export function subscribeTables(
 
 export function subscribeSectors(
   tenantId: string,
+  branchId: string,
   onNext: (sectors: RestaurantSector[]) => void,
   onError?: (err: Error) => void
 ): () => void {
@@ -237,8 +238,9 @@ export function subscribeSectors(
   getFirebaseContext().then(ctx => {
     if (!active || !ctx) return
     const col = collection(ctx.db, 'tenants', tenantId, 'restaurantSectors')
+    const q = query(col, where('branchId', '==', branchId || 'main'))
     unsub = onSnapshot(
-      col,
+      q,
       snap => {
         if (!active) return
         const sectors: RestaurantSector[] = snap.docs.map(d => ({

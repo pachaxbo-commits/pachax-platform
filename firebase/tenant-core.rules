@@ -239,11 +239,12 @@
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantSectors/{sectorId} {
-      allow read: if tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings');
+      allow read: if tBranch(tenantId,resource.data.branchId) &&
+        (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantTables/{tableId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'settings.manage','settings'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
     match /tenants/{tenantId}/restaurantOrders/{orderId} {
