@@ -353,6 +353,25 @@ class Operation {
     for (const w of this.writes.values()) this.tx.set(w.ref, w.data);
   }
 }
+
+// All administrative cash operations and the daily close read/write this
+// tenant/day document in their transaction. Firestore transaction conflicts
+// serialize a sale against a simultaneous close; a retry then either sees the
+// sale in the close totals or sees the closed marker and is rejected.
+async function assertAdministrativeDayOpen(o) {
+  if (o.member.role !== "admin") return;
+  const day = await o.read("distAdministrativeDays", o.today);
+  check(day?.status !== "closed", "La caja administrativa de hoy ya fue cerrada. No se permiten nuevas operaciones financieras.");
+  o.put("distAdministrativeDays", o.today, {
+    ...(day || {}),
+    id: o.today,
+    ...o.base(),
+    status: "open",
+    lastOperationAt: o.now,
+    lastOperationId: o.id,
+  });
+}
+
 async function intake(o, p) {
   o.owns("central");
   check(Array.isArray(p.lines) && p.lines.length, "Agrega productos.");
@@ -562,6 +581,7 @@ async function sale(o, p) {
       (o.member.role === "distributor" ? "route" : "centralWarehouse"),
     "Origen de venta no autorizado.",
   );
+  await assertAdministrativeDayOpen(o);
   const isCourtesy = p.saleKind === "courtesy";
   if (isCourtesy) {
     check(
@@ -746,6 +766,7 @@ async function collection(o, p) {
     ["admin", "distributor"].includes(o.member.role),
     "No puedes cobrar esta deuda.",
   );
+  await assertAdministrativeDayOpen(o);
   check(["cash", "qr", "mixed"].includes(p.method), "Método de pago inválido.");
   check(Number.isFinite(p.amount) && p.amount > 0, "Monto inválido.");
   const amount = round(p.amount);
@@ -1072,6 +1093,7 @@ async function expense(o, p) {
       (o.member.role === "distributor" && p.routeId === o.member.routeId),
     "No puedes registrar gastos en esta ruta.",
   );
+  await assertAdministrativeDayOpen(o);
   check(
     Number.isFinite(p.amount) && p.amount > 0 && p.concept?.trim(),
     "Revisa concepto y monto.",
@@ -1097,6 +1119,11 @@ async function deleteExpense(o, p) {
   o.admin();
   const expense = await o.read("distExpenses", p.expenseId);
   check(expense && !expense.voided, "El gasto ya no está activo.");
+  if (expense.expenseOrigin === "administration" && expense.dayKey) {
+    const financialDay = await o.read("distAdministrativeDays", expense.dayKey);
+    const legacyClose = await o.read("distClosures", `admin_close_${expense.dayKey}`);
+    check(financialDay?.status !== "closed" && !legacyClose, "No se puede modificar un gasto administrativo de una jornada cerrada.");
+  }
   o.put("distExpenses", expense.id, {
     ...expense,
     voided: true,
@@ -1142,28 +1169,37 @@ async function closure(o, p) {
     const id = `admin_close_${p.dayKey}`;
     const existing = await o.read("distClosures", id);
     check(!existing, "La caja administrativa de este día ya fue cerrada.");
-    const [sales, collections, expenses] = await Promise.all([
+    const financialDay = await o.read("distAdministrativeDays", p.dayKey);
+    check(financialDay?.status !== "closed", "La caja administrativa de este día ya fue cerrada.");
+    const [sales, collections, expenses, claims] = await Promise.all([
       o.query("distSales", "dayKey", p.dayKey),
       o.query("distCollections", "dayKey", p.dayKey),
       o.query("distExpenses", "dayKey", p.dayKey),
+      o.query("distClaims", "dayKey", p.dayKey),
     ]);
     const adminSales = sales.filter(s => s.sourceLocation === "centralWarehouse" && !s.pendingConfirmation && s.saleKind !== "courtesy");
     const adminCollections = collections.filter(c => c.collectionOrigin === "administration" && !c.pendingConfirmation);
     const adminExpenses = expenses.filter(e => e.expenseOrigin === "administration" && !e.voided && !e.pendingConfirmation);
+    const adminClaims = claims.filter(c => !c.pendingConfirmation);
     const cashSales = round(adminSales.reduce((sum, sale) => sum + (Number(sale.cashAmount) || 0), 0));
     const qrSales = round(adminSales.reduce((sum, sale) => sum + (Number(sale.qrAmount) || 0), 0));
     const creditSales = round(adminSales.reduce((sum, sale) => sum + (Number(sale.creditAmount) || 0), 0));
     const cashCollections = round(adminCollections.reduce((sum, row) => sum + (Number(row.cashAmount) || 0), 0));
     const qrCollections = round(adminCollections.reduce((sum, row) => sum + (Number(row.qrAmount) || 0), 0));
     const expensesTotal = round(adminExpenses.reduce((sum, row) => sum + row.amount, 0));
-    const expectedCash = round(cashSales + cashCollections - expensesTotal);
+    const claimCashIn = round(adminClaims.reduce((sum, row) => sum + (Number(row.cashIn) || 0), 0));
+    const claimCashOut = round(adminClaims.reduce((sum, row) => sum + (Number(row.cashOut) || 0), 0));
+    const claimQrIn = round(adminClaims.reduce((sum, row) => sum + (Number(row.qrIn) || 0), 0));
+    const claimQrOut = round(adminClaims.reduce((sum, row) => sum + (Number(row.qrOut) || 0), 0));
+    const expectedCash = round(cashSales + cashCollections + claimCashIn - claimCashOut - expensesTotal);
     const close = {
       id, ...o.base(), closeType: "administrative", status: "closed", dayKey: p.dayKey,
       routeId: "central", routeName: "Administración", dispatchId: "", responsibleUid: o.actor,
       responsibleName: o.member.displayName || o.actor,
       distributorUid: "", distributorName: "Administración", products: [],
-      salesCount: adminSales.length, collectionsCount: adminCollections.length, expensesCount: adminExpenses.length,
+      salesCount: adminSales.length, collectionsCount: adminCollections.length, expensesCount: adminExpenses.length, claimsCount: adminClaims.length,
       cashSales, qrSales, creditSales, cashCollections, qrCollections, expensesTotal,
+      claimCashIn, claimCashOut, claimQrIn, claimQrOut,
       creditGenerated: creditSales, cashExpenses: expensesTotal,
       totalSales: round(adminSales.reduce((sum, sale) => sum + sale.total, 0)),
       totalCollections: round(adminCollections.reduce((sum, row) => sum + row.amount, 0)),
@@ -1171,6 +1207,17 @@ async function closure(o, p) {
       closedAt: o.now,
     };
     o.put("distClosures", id, close);
+    o.put("distAdministrativeDays", p.dayKey, {
+      ...(financialDay || {}),
+      id: p.dayKey,
+      ...o.base(),
+      status: "closed",
+      closedAt: o.now,
+      closeId: id,
+      closedBy: o.actor,
+      lastOperationAt: o.now,
+      lastOperationId: o.id,
+    });
     return close;
   }
   if (p.mode === "declaration") {
@@ -1746,6 +1793,7 @@ async function closure(o, p) {
 }
 async function claim(o, p) {
   o.admin();
+  await assertAdministrativeDayOpen(o);
   check(p.reason?.trim(), "Indica el motivo del cambio o devolución.");
   check(["exchange", "return"].includes(p.kind), "Tipo de reclamo inválido.");
   const s = await o.read("distSales", p.saleId);

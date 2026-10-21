@@ -344,6 +344,11 @@ export interface DistClosure extends DistBaseDoc {
   salesCount?: number
   collectionsCount?: number
   expensesCount?: number
+  claimsCount?: number
+  claimCashIn?: number
+  claimCashOut?: number
+  claimQrIn?: number
+  claimQrOut?: number
   declaredCash?: number
   warehouseId?: string
   declaredReturns?: Record<string, number>
@@ -415,7 +420,7 @@ export interface DistLot {
  quantities: Record<string, number>; quarantined?: boolean; legacy?: boolean; createdAt: string; createdBy: string;
 }
 export interface DistTransfer { id: string; fromWarehouseId: string; toWarehouseId: string; line: DistDispatchLine; createdAt: string; createdBy: string; responsibleName?: string; note?: string }
-export interface DistClaim { id: string; kind: 'exchange'|'return'; saleId: string; customerId: string; customerName: string; productId: string; productName: string; quantity: number; unitType: UnitType; reason: string; routeId: string; createdAt: string; dayKey: string; revenueDelta: number; additionalCost: number | null; debtReduction: number; cashIn: number; cashOut: number; qrIn: number; qrOut: number; replacement: {productId: string;productName: string;quantity: number;unitType: UnitType;total: number} | null }
+export interface DistClaim { id: string; kind: 'exchange'|'return'; saleId: string; customerId: string; customerName: string; productId: string; productName: string; quantity: number; unitType: UnitType; reason: string; routeId: string; createdAt: string; dayKey: string; revenueDelta: number; additionalCost: number | null; debtReduction: number; cashIn: number; cashOut: number; qrIn: number; qrOut: number; method?: 'cash' | 'qr' | 'none'; replacement: {productId: string;productName:string;quantity:number;unitType:UnitType;total:number} | null }
 export interface DistCreditStatus {
   id: string
   oldestPendingAt: string | null

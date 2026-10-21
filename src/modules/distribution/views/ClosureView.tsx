@@ -35,6 +35,7 @@ function AdministrativeCashClose({ session, data }: DistributionViewProps) {
   const adminSales = sales.filter(row => row.sourceLocation === 'centralWarehouse' && !row.pendingConfirmation && row.saleKind !== 'courtesy')
   const adminCollections = collections.filter(row => row.collectionOrigin === 'administration' && !row.pendingConfirmation)
   const adminExpenses = expenses.filter(row => row.expenseOrigin === 'administration' && !row.pendingConfirmation && !row.voided)
+  const adminClaims = data.claims.filter(row => row.dayKey === dayKey)
   const unknownOriginCount = collections.filter(row => !row.pendingConfirmation && !row.collectionOrigin).length + expenses.filter(row => !row.pendingConfirmation && !row.voided && !row.expenseOrigin).length
   const cashSales = round2(adminSales.reduce((sum, row) => sum + (row.cashAmount || 0), 0))
   const qrSales = round2(adminSales.reduce((sum, row) => sum + (row.qrAmount || 0), 0))
@@ -42,16 +43,24 @@ function AdministrativeCashClose({ session, data }: DistributionViewProps) {
   const cashCollections = round2(adminCollections.reduce((sum, row) => sum + (row.cashAmount || 0), 0))
   const qrCollections = round2(adminCollections.reduce((sum, row) => sum + (row.qrAmount || 0), 0))
   const expensesTotal = round2(adminExpenses.reduce((sum, row) => sum + row.amount, 0))
-  const expectedCash = round2(cashSales + cashCollections - expensesTotal)
+  const claimCashIn = round2(adminClaims.reduce((sum, row) => sum + (row.cashIn || 0), 0))
+  const claimCashOut = round2(adminClaims.reduce((sum, row) => sum + (row.cashOut || 0), 0))
+  const claimQrIn = round2(adminClaims.reduce((sum, row) => sum + (row.qrIn || 0), 0))
+  const claimQrOut = round2(adminClaims.reduce((sum, row) => sum + (row.qrOut || 0), 0))
+  const expectedCash = round2(cashSales + cashCollections + claimCashIn - claimCashOut - expensesTotal)
   const history = data.closures.filter(row => row.closeType === 'administrative').sort((a, b) => b.dayKey.localeCompare(a.dayKey))
   return <SectionCard title="Caja administrativa">
-    <p className="mb-3 text-xs text-slate-500">Solo ventas, cobranzas y gastos originados en Administración · {dayKey}</p>
+    <p className="mb-3 text-xs text-slate-500">Ventas, cobranzas, reclamos y gastos de Administración · {dayKey}</p>
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       <KpiCard label="Efectivo de ventas" value={formatBs(cashSales)} />
       <KpiCard label="QR de ventas" value={formatBs(qrSales)} />
       <KpiCard label="Crédito generado" value={formatBs(creditSales)} />
       <KpiCard label="Efectivo cobrado" value={formatBs(cashCollections)} />
       <KpiCard label="QR cobrado" value={formatBs(qrCollections)} />
+      <KpiCard label="Reembolsos efectivos" value={formatBs(claimCashOut)} />
+      <KpiCard label="Otros ingresos en efectivo" value={formatBs(claimCashIn)} />
+      <KpiCard label="Reembolsos QR" value={formatBs(claimQrOut)} />
+      <KpiCard label="Otros ingresos QR" value={formatBs(claimQrIn)} />
       <KpiCard label="Gastos administrativos" value={formatBs(expensesTotal)} />
     </div>
     {unknownOriginCount > 0 && <p className="mt-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Hay {unknownOriginCount} cobro(s) o gasto(s) históricos del día sin origen verificable. No se suman automáticamente; revisa el efectivo contado antes de cerrar.</p>}
