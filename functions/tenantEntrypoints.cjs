@@ -15,6 +15,7 @@ const { getTemplate } = require('./generated/templates.js');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
 const distributionEventOptions = {
   region: PACHAX_FUNCTIONS_REGION,
+  serviceAccount: 'distribution-ops-runtime@pachax-platform.iam.gserviceaccount.com',
   retry: true,
   maxInstances: 3,
   concurrency: 1,

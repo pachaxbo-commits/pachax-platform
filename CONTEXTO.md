@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Distribution 5C — identidad de ejecución dedicada (21/10/2026)
+
+- En `codex/distribution-universal-5b`, los triggers `processTenantOperation`, `refreshTenantCredit` e `initializeTenantCredit` quedan configurados para usar `distribution-ops-runtime@pachax-platform.iam.gserviceaccount.com` en `southamerica-west1`. `tenantGateway`, Platform, Nightclub, Restaurante y demás plantillas conservan su identidad y configuración.
+- La prueba focal inspecciona los endpoints reales exportados por Firebase Functions y exige la cuenta dedicada en los tres triggers, la región Santiago y que `tenantGateway` conserve su identidad actual. En producción aún no se creó la cuenta ni se modificó IAM; queda pendiente la autorización del release. IAM previsto para la identidad de runtime: `roles/datastore.user` en `pachax-platform`; `iam.serviceAccounts.actAs` se limita al principal de despliegue sobre esta cuenta, y el agente administrado de Eventarc debe conservar los permisos de invocación requeridos.
+- Sin deployment ni datos de producción. El cambio se publica únicamente en la rama de revisión para generar Preview y revisar antes de solicitar, en una sola autorización, el release y el smoke QA productivo.
+
 ## Distribución 5B — catálogo universal y perfiles por rubro (21/10/2026, rama de revisión)
 
 - Rama `codex/distribution-universal-5b`, creada desde 5A `981e479cc0223321b1949f8fc30e51b7da4bc1d3`; `origin/main` comprobado en `c7d0b41b22a1870a96e993859b891b6eb91550e4` antes de empezar.

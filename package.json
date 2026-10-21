@@ -21,6 +21,7 @@
     "test:tenant-isolation": "node firebase/tests/multiTenantIsolation.test.mjs",
     "test:tenant-core": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/multiTenantIsolation.test.mjs\"",
     "test:distribution-operation-pause": "npm run build:rules && firebase emulators:exec --only firestore --project demo-pachax-platform \"node firebase/tests/distributionOperationPause.test.mjs\"",
+    "test:distribution-runtime-identity": "node functions/tests/distributionRuntimeIdentity.test.cjs",
     "test:distribution-first-release-recovery": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-pachax-platform \"node firebase/tests/distributionFirstReleaseRecovery.test.cjs\"",
     "test:distribution-universal-e2e": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/distributionUniversalE2E.test.mjs\"",
     "test:platform-security": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only firestore,auth,functions --project demo-pachax-platform \"node firebase/tests/platformSecurity.test.mjs\"",
