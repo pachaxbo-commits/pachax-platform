@@ -89,6 +89,73 @@
       ]
     },
     {
+      "collectionGroup": "nightclubAccounts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nightclubRounds",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nightclubRounds",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nightclubPayments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nightclubShifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nightclubCashMovements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" },
+        { "fieldPath": "shiftId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nightclubCommissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "nightclubCommissionPayments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "cashboxId", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "nightclubInventoryMovements",
       "queryScope": "COLLECTION",
       "fields": [

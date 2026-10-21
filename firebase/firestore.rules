@@ -735,6 +735,16 @@ service cloud.firestore {
     function tBranch(tenantId, branchId) {
       return tIsActiveMember(tenantId) && branchId in tMemberData(tenantId).branchIds;
     }
+    // cashboxIds is a restriction on existing role permissions, not a grant.
+    // Missing keeps legacy behavior; an explicit empty list grants no boxes.
+    function tNightclubFinancialDocScope(tenantId, data) {
+      let member = tMemberData(tenantId);
+      return member.roleId in ['owner', 'admin']
+        || !('cashboxIds' in member)
+        || (data.get('cashboxId', null) is string
+          && member.cashboxIds is list
+          && data.cashboxId in member.cashboxIds);
+    }
     match /tenants/{tenantId} {
       allow get: if tIsActiveMember(tenantId);
       allow list, write: if false;
@@ -828,15 +838,15 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubAccounts/{accountId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tNightclubFinancialDocScope(tenantId,resource.data) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubRounds/{roundId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tNightclubFinancialDocScope(tenantId,resource.data) && (tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash'));
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubPayments/{paymentId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tNightclubFinancialDocScope(tenantId,resource.data) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.read','sales'));
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubReservations/{reservationId} {
@@ -923,19 +933,19 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubCommissions/{commissionId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tNightclubFinancialDocScope(tenantId,resource.data) && (tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'orders.read','orders') || tPermission(tenantId,'cash.close','cash'));
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubCommissionPayments/{paymentId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tNightclubFinancialDocScope(tenantId,resource.data) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubShifts/{shiftId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tNightclubFinancialDocScope(tenantId,resource.data) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubCashMovements/{movementId} {
-      allow read: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
+      allow read: if tBranch(tenantId,resource.data.branchId) && tNightclubFinancialDocScope(tenantId,resource.data) && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'settings.manage','settings'));
       allow write: if false;
     }
     match /tenants/{tenantId}/nightclubOperationalState/{branchId} {
