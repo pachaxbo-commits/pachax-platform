@@ -11,24 +11,32 @@ const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
 const { executeRestaurantCommand } = require('./restaurant.cjs');
 const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
+const { getTemplate } = require('./generated/templates.js');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
+const ONBOARDING_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding']);
+function assertProvisionableTemplate(businessType) {
+  try { getTemplate(businessType); }
+  catch { throw new HttpsError('invalid-argument', 'Plantilla de negocio no reconocida.'); }
+  if (!isTemplateProvisioningAvailable(businessType)) {
+    throw new HttpsError('failed-precondition', 'La plantilla seleccionada todavía no está disponible para crear empresas.');
+  }
+}
 exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);
     case 'completeOnboarding': {
-      const bType = request.data?.businessType;
-      if (!isTemplateProvisioningAvailable(bType)) {
-        throw new HttpsError('failed-precondition', 'La plantilla seleccionada todavía no está disponible para crear empresas.');
+      if (Object.keys(request.data || {}).some(key => !ONBOARDING_FIELDS.has(key))) {
+        throw new HttpsError('invalid-argument', 'El onboarding contiene campos no permitidos.');
       }
+      const bType = request.data?.businessType;
+      assertProvisionableTemplate(bType);
       return onboarding.completeOnboarding(db, auth, request);
     }
     case 'createTenant': {
       const bType = request.data?.businessType;
-      if (!isTemplateProvisioningAvailable(bType)) {
-        throw new HttpsError('failed-precondition', 'La plantilla seleccionada todavía no está disponible para crear empresas.');
-      }
+      assertProvisionableTemplate(bType);
       return tenants.createTenant(db, auth, request);
     }
     case 'listMemberships': return tenants.listMemberships(db, request);

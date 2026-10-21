@@ -108,6 +108,8 @@ export interface NightclubRepository {
   saveInventory(input: { operationId: string; item: NightclubInventoryItem }): Promise<void>
   saveCustomer(input: { operationId: string; customer: NightclubCustomer }): Promise<void>
   selectCashbox?(input: { operationId: string; cashboxId: string; confirmPending?: boolean }): Promise<{ cashboxId?: string; locationId: string; activeShiftId?: string | null }>
+  initializeNightclubInfrastructure?(input: { operationId: string }): Promise<{ status: 'initialized' | 'already_initialized'; warehouseId: string; cashboxId: string }>
+  createNightclubCashbox?(input: { operationId: string; name: string }): Promise<{ status: 'created'; cashboxId: string; locationId: string; name: string }>
   openCashboxShift?(input: { operationId: string; cashboxId: string; openingFloat: number }): Promise<{ shiftId: string; cashboxId?: string }>
   closeCashboxShift?(input: { operationId: string; cashboxId: string; shiftId?: string; countedCash: number }): Promise<void>
   receiveWarehouseIntake?(input: { operationId: string; receipt: any }): Promise<any>

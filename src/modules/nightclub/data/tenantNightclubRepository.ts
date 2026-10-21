@@ -1216,6 +1216,14 @@ export class TenantNightclubRepository implements NightclubRepository {
     })
   }
 
+  async initializeNightclubInfrastructure(input: { operationId: string }): Promise<{ status: 'initialized' | 'already_initialized'; warehouseId: string; cashboxId: string }> {
+    return this.dispatch('initializeNightclubInfrastructure', input.operationId)
+  }
+
+  async createNightclubCashbox(input: { operationId: string; name: string }): Promise<{ status: 'created'; cashboxId: string; locationId: string; name: string }> {
+    return this.dispatch('createNightclubCashbox', input.operationId, { name: input.name })
+  }
+
   async openCashboxShift(input: { operationId: string; cashboxId: string; openingFloat: number }): Promise<{ shiftId: string; cashboxId?: string }> {
     return this.dispatch<{ shiftId: string; cashboxId?: string }>('openCashboxShift', input.operationId, {
       cashboxId: input.cashboxId,

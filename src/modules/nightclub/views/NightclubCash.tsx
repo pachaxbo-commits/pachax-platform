@@ -17,6 +17,7 @@ export function NightclubCash({
   onStartCashboxShift,
   onCloseCashboxShift,
   activeCashboxId,
+  requireCashboxConfiguration = false,
 }: {
   data: NightclubDataset
   onStartShift: (amount: number) => void
@@ -27,6 +28,7 @@ export function NightclubCash({
   onStartCashboxShift?: (id: string, amount: number) => void | Promise<unknown>
   onCloseCashboxShift?: (id: string, counted: number, expected: number) => void | Promise<unknown>
   activeCashboxId?: string
+  requireCashboxConfiguration?: boolean
 }) {
   const [opening, setOpening] = useState('200')
   const [counted, setCounted] = useState('')
@@ -68,6 +70,10 @@ export function NightclubCash({
     }
     return data
   }, [data, isMultiCashbox, selectedCashboxId, cashAccounts])
+
+  if (requireCashboxConfiguration && !isMultiCashbox) {
+    return <div className="space-y-5"><header><h1 className="text-2xl font-black">Caja y turnos</h1><p className="text-sm text-slate-400">Configura una caja y una ubicación antes de abrir turnos.</p></header><section role="status" className="rounded-2xl border border-amber-300/25 bg-amber-300/10 p-5 text-sm text-amber-100">Debes configurar las cajas y el almacén en Configuración antes de comenzar a operar.</section></div>
+  }
 
   const cash = nightclubCashSummary(activeDataset)
   const profit = nightclubProfitSummary(activeDataset)

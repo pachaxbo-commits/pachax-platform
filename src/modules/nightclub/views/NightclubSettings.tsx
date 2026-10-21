@@ -1,6 +1,6 @@
-import { ChevronDown, Palette, Printer, Save, SlidersHorizontal, Store, TableProperties, Users } from 'lucide-react'
+import { ChevronDown, Palette, Printer, Save, SlidersHorizontal, Store, TableProperties, Users, Plus, Warehouse } from 'lucide-react'
 import { useState } from 'react'
-import type { ReactNode } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import type { NightclubBranding, NightclubDataset } from '../domain/nightclubAccounts'
 import type { TableDraft, ZoneDraft } from '../domain/nightclubFloor'
 import type { BusinessIdentity } from '../../../core/businessIdentity'
@@ -27,6 +27,8 @@ type Props = {
   tenantId?: string
   branchId?: string
   canManageSettings?: boolean
+  onInitializeNightclubInfrastructure?: (operationId: string) => Promise<{ status: string }>
+  onCreateNightclubCashbox?: (name: string, operationId: string) => Promise<{ cashboxId: string; locationId: string }>
 }
 
 const defaultBranding = (name: string, logo?: string): NightclubBranding => ({
@@ -57,11 +59,71 @@ export function NightclubSettings({
   tenantId,
   branchId = 'main',
   canManageSettings = true,
+  onInitializeNightclubInfrastructure,
+  onCreateNightclubCashbox,
 }: Props) {
   const [branding, setBranding] = useState<NightclubBranding>(
     () => structuredClone(data.branding || defaultBranding(fallbackName, fallbackLogo))
   )
   const [message, setMessage] = useState('')
+  const [infrastructureSaving, setInfrastructureSaving] = useState(false)
+  const [infrastructureOperationId, setInfrastructureOperationId] = useState<string | null>(null)
+  const [cashboxModalOpen, setCashboxModalOpen] = useState(false)
+  const [cashboxName, setCashboxName] = useState('')
+  const [cashboxSaving, setCashboxSaving] = useState(false)
+  const [cashboxOperationId, setCashboxOperationId] = useState<string | null>(null)
+  const [cashboxError, setCashboxError] = useState('')
+
+  const branchLocations = (data.locations || []).filter(location => location.branchId === branchId)
+  const branchCashboxes = (data.cashboxes || []).filter(cashbox => cashbox.branchId === branchId)
+  const warehouse = branchLocations.find(location => location.id === 'warehouse-general')
+  const baseCashbox = branchCashboxes.find(cashbox => cashbox.id === 'cashbox-1')
+  const baseCashboxLocation = branchLocations.find(location => location.id === 'cashbox-1')
+  const infrastructureReady = warehouse?.type === 'warehouse' && warehouse.active
+    && baseCashbox?.active === true && baseCashbox.locationId === 'cashbox-1'
+    && baseCashboxLocation?.type === 'cashbox' && baseCashboxLocation.active
+    && baseCashboxLocation.linkedCashboxId === 'cashbox-1'
+    && branchCashboxes.every(cashbox => {
+      const location = branchLocations.find(item => item.id === cashbox.locationId)
+      return cashbox.active && location?.active && location.type === 'cashbox' && location.linkedCashboxId === cashbox.id
+    })
+  const infrastructureMissing = branchLocations.length === 0 && branchCashboxes.length === 0
+
+  const initializeInfrastructure = async () => {
+    if (!onInitializeNightclubInfrastructure || infrastructureSaving) return
+    const operationId = infrastructureOperationId || crypto.randomUUID()
+    setInfrastructureOperationId(operationId)
+    setInfrastructureSaving(true)
+    try {
+      const result = await onInitializeNightclubInfrastructure(operationId)
+      setMessage(result.status === 'initialized' ? 'Almacén y Caja principal configurados.' : 'La infraestructura Nightclub ya estaba configurada.')
+      setInfrastructureOperationId(null)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudo configurar la infraestructura. Puedes reintentar.')
+    } finally {
+      setInfrastructureSaving(false)
+    }
+  }
+
+  const createCashbox = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!onCreateNightclubCashbox || cashboxSaving) return
+    const operationId = cashboxOperationId || crypto.randomUUID()
+    setCashboxOperationId(operationId)
+    setCashboxSaving(true)
+    setCashboxError('')
+    try {
+      const result = await onCreateNightclubCashbox(cashboxName, operationId)
+      setMessage(`Caja creada y vinculada a su ubicación (${result.cashboxId}).`)
+      setCashboxModalOpen(false)
+      setCashboxName('')
+      setCashboxOperationId(null)
+    } catch (error) {
+      setCashboxError(error instanceof Error ? error.message : 'No se pudo crear la caja. Puedes reintentar.')
+    } finally {
+      setCashboxSaving(false)
+    }
+  }
 
   const saveBranding = async () => {
     if (mode === 'tenant') {
@@ -157,6 +219,52 @@ export function NightclubSettings({
         </div>
       </Accordion>
 
+      {mode === 'tenant' && (
+        <Accordion icon={Warehouse} title="Cajas y ubicaciones" description="Almacén general y cajas operativas de esta sucursal" open>
+          <div className="space-y-3 rounded-2xl bg-slate-900/60 p-4">
+            {!infrastructureReady && infrastructureMissing && (
+              <div role="status" className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
+                <p>Debes configurar las cajas y el almacén antes de comenzar a operar.</p>
+                {canManageSettings && !readOnly && onInitializeNightclubInfrastructure && (
+                  <button type="button" disabled={infrastructureSaving} onClick={() => void initializeInfrastructure()} className="mt-3 min-h-11 rounded-xl bg-amber-300 px-4 font-bold text-slate-950 disabled:opacity-60">
+                    {infrastructureSaving ? 'Configurando…' : 'Configurar almacén y Caja principal'}
+                  </button>
+                )}
+              </div>
+            )}
+            {!infrastructureReady && !infrastructureMissing && (
+              <p role="alert" className="rounded-xl border border-rose-300/30 bg-rose-300/10 p-4 text-sm text-rose-100">
+                La configuración de cajas y ubicaciones está incompleta o no coincide. No se realizaron cambios; solicita una revisión administrativa.
+              </p>
+            )}
+            {infrastructureReady && !warehouse && (
+              <p role="status" className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">No se pudo leer el almacén. Revisa los permisos de inventario.</p>
+            )}
+            {warehouse && (
+              <article className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                <div><p className="font-semibold text-white">{warehouse.name || 'Almacén general'}</p><p className="text-xs text-slate-400">Ubicación {warehouse.id}</p></div>
+                <span className="rounded-full bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-200">{warehouse.active ? 'Activo' : 'Inactivo'}</span>
+              </article>
+            )}
+            <div className="space-y-2">
+              {branchCashboxes.map(cashbox => {
+                const location = branchLocations.find(item => item.id === cashbox.locationId)
+                return <article key={cashbox.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                  <div className="min-w-0"><p className="truncate font-semibold text-white">{cashbox.name}</p><p className="text-xs text-slate-400">Ubicación vinculada: {location?.name || cashbox.locationId}</p></div>
+                  <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${cashbox.active && location?.active ? 'bg-emerald-300/10 text-emerald-200' : 'bg-rose-300/10 text-rose-200'}`}>{cashbox.active && location?.active ? 'Activa' : 'Revisar'}</span>
+                </article>
+              })}
+              {infrastructureReady && branchCashboxes.length === 0 && <p className="text-sm text-slate-400">No hay cajas visibles para esta sucursal.</p>}
+            </div>
+            {infrastructureReady && canManageSettings && !readOnly && onCreateNightclubCashbox && (
+              <button type="button" onClick={() => { setCashboxError(''); setCashboxModalOpen(true) }} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300/40 px-4 font-bold text-amber-100 hover:bg-amber-300/10">
+                <Plus size={16} /> Añadir caja
+              </button>
+            )}
+          </div>
+        </Accordion>
+      )}
+
       {/* 3. APARIENCIA / PREFERENCIAS VISUALES */}
       <fieldset disabled={readOnly || !canManageSettings} className="space-y-5">
         <Accordion icon={Palette} title="Apariencia del salón" description="Tema visual, alto contraste y superficies">
@@ -238,6 +346,17 @@ export function NightclubSettings({
             embedded
           />
         </Accordion>
+      )}
+
+      {cashboxModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4" onMouseDown={event => { if (event.target === event.currentTarget && !cashboxSaving) setCashboxModalOpen(false) }}>
+          <form role="dialog" aria-modal="true" aria-labelledby="nightclub-cashbox-title" onSubmit={event => void createCashbox(event)} className="w-full max-w-md space-y-4 rounded-2xl border border-white/10 bg-[#101b25] p-5 shadow-2xl">
+            <div><h2 id="nightclub-cashbox-title" className="text-lg font-bold text-white">Añadir caja</h2><p className="mt-1 text-sm text-slate-400">Se creará una ubicación vinculada de forma segura.</p></div>
+            <label className="block text-sm font-semibold text-slate-200">Nombre de la caja<input autoFocus required maxLength={60} value={cashboxName} onChange={event => setCashboxName(event.target.value)} placeholder="Caja 2" className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-slate-950 px-3 text-white outline-none focus:border-amber-300" /></label>
+            {cashboxError && <p role="alert" className="rounded-lg bg-rose-400/10 p-3 text-sm text-rose-200">{cashboxError}</p>}
+            <div className="flex justify-end gap-2"><button type="button" disabled={cashboxSaving} onClick={() => setCashboxModalOpen(false)} className="min-h-11 rounded-xl border border-white/15 px-4 text-sm font-semibold text-slate-200 disabled:opacity-60">Cancelar</button><button type="submit" disabled={cashboxSaving || !cashboxName.trim()} className="min-h-11 rounded-xl bg-amber-300 px-4 text-sm font-bold text-slate-950 disabled:opacity-60">{cashboxSaving ? 'Guardando…' : 'Guardar caja'}</button></div>
+          </form>
+        </div>
       )}
 
       {/* 5. USUARIOS Y PERMISOS */}

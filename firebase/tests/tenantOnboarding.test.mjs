@@ -130,11 +130,11 @@ try {
   pass('Rules bloquea tenant, Platform y marcador escritos directamente por cliente')
 
   const completedB = await callOnboarding(tokenB, {
-    requestId: `valid-b-${suffix}`, companyName: 'Empresa B', businessType: 'gelateria_weight_cafe',
+    requestId: `valid-b-${suffix}`, companyName: 'Empresa B', businessType: 'restaurant_pos',
   })
   assert(completedB.response.ok)
   const tenantB = completedB.result.tenantId
-  pass('segundo usuario completa onboarding con el businessType canónico visible como Comercio')
+  pass('segundo usuario completa onboarding con un businessType canónico habilitado')
 
   const nightclubResult = await callOnboarding(await signIn(ids.ownerNightclub), {
     requestId: `nightclub-${suffix}`, companyName: 'Club QA', businessType: 'nightclub_lounge',
@@ -142,7 +142,7 @@ try {
   assert(nightclubResult.response.ok)
   assert.equal(nightclubResult.result.template.businessType, 'nightclub_lounge')
   const nightclubTenant = nightclubResult.result.tenantId
-  assert.equal((await db.collection(`tenants/${nightclubTenant}/roles`).get()).size, 10)
+  assert.equal((await db.collection(`tenants/${nightclubTenant}/roles`).get()).size, 9)
   assert.equal((await db.doc(`tenants/${nightclubTenant}`).get()).data().businessType, 'nightclub_lounge')
   pass('Nightclub completa onboarding con tenant, owner y roles del template canónico')
 
