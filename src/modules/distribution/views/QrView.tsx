@@ -1,4 +1,5 @@
 import { toDayKey, collectionQrAmount } from '../domain/engine'
+import { formatQrRecordDate } from '../domain/qrRecordDate'
 import { useState } from 'react'
 import { Check, CheckCircle2 } from 'lucide-react'
 import { Screen } from '../../../components/ui/Screen'
@@ -40,8 +41,8 @@ export function QrView({ session, data }: DistributionViewProps) {
         const verification = data.qrVerifications.find(v => v.id === `${row.type}_${row.id}`)
         return <div key={`${row.type}_${row.id}`} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border bg-white p-3 ${verification ? 'border-emerald-200' : 'border-slate-200'}`}>
           <div className="min-w-0"><p className="break-words text-sm font-bold">{row.name} · {formatBs(row.amount)}</p>
-          <p className="text-[11px] text-slate-500">{row.type === 'sale' ? 'Venta' : row.type === 'claim' ? 'Diferencia de cambio' : 'Cobro'} · {new Date(row.at).toLocaleString('es-BO')}</p>
-          {verification && <p className="mt-1 break-words text-[10px] font-semibold text-emerald-700">{verification.reference} · {new Date(verification.verifiedAt).toLocaleString('es-BO')}</p>}</div>
+          <p className="text-[11px] text-slate-500">{row.type === 'sale' ? 'Venta' : row.type === 'claim' ? 'Diferencia de cambio' : 'Cobro'} · {formatQrRecordDate(row.at).text}</p>
+          {verification && <p className="mt-1 break-words text-[10px] font-semibold text-emerald-700">{verification.reference} · Verificado {formatQrRecordDate(verification.verifiedAt).text}</p>}</div>
           {verification || !requiresVerification ? <span title={verification ? 'Depósito confirmado' : 'Confirmación automática'} className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle2 size={20} /></span> :
             <button type="button" aria-label={`Confirmar depósito de ${row.name}`} onClick={() => { setTarget({ type: row.type, id: row.id }); setReference(''); setError('') }} className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--primary)] text-white shadow-sm"><Check size={20} /></button>}
         </div>
