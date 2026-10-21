@@ -1,5 +1,7 @@
 ﻿import { collection, doc, onSnapshot, query, where, type Firestore } from 'firebase/firestore'
 import type { NightclubAccount, NightclubCashbox, NightclubDataset, NightclubInventoryBalance, NightclubInventoryItem, NightclubInventoryLot, NightclubInventoryMovement, NightclubLocation, NightclubOpenBottle, NightclubOperatorContext, NightclubPayment, NightclubRound, NightclubShift, NightclubTransfer } from '../domain/nightclubAccounts'
+import type { NightclubFinancialReadScope } from './nightclubFinancialSubscriptions'
+import { subscribeCashboxScopedCollection } from './nightclubFinancialSubscriptions'
 
 type FirestoreAccount = Omit<NightclubAccount, 'rounds' | 'payments' | 'payment'> & { branchId?: string }
 type FirestoreRound = NightclubRound & { accountId: string; branchId?: string }
@@ -25,6 +27,7 @@ export interface NightclubFirestoreDatasetOptions {
   includeInventory?: boolean
   operatorUid?: string
   includeCashboxContext?: boolean
+  financialReadScope?: NightclubFinancialReadScope
 }
 
 /** Maps production documents to the shared experience without demo accounts or rounds. */
@@ -113,7 +116,23 @@ export function subscribeToNightclubFirestoreDataset(
     snapshot => { replaceSnapshot(data[name] as Map<string, T>, snapshot.docs); publish() },
     onError,
   )
-  const stops = [subscribe<FirestoreAccount>('accounts', 'nightclubAccounts'), subscribe<FirestoreRound>('rounds', 'nightclubRounds'), subscribe<FirestorePayment>('payments', 'nightclubPayments')]
+  const financialReadScope = options.financialReadScope ?? { kind: 'unresolved' as const }
+  const subscribeFinancial = <T>(name: keyof CollectionMaps, path: string) => {
+    if (financialReadScope.kind === 'unresolved') return () => {}
+    if (financialReadScope.kind === 'unrestricted') return subscribe<T>(name, path)
+    return subscribeCashboxScopedCollection({
+      db, path: ['tenants', tenantId, path], branchId, cashboxIds: financialReadScope.cashboxIds,
+      mapDocument: (id, value) => ({ ...value, id }),
+      listener: rows => {
+        const target = data[name] as Map<string, { id: string }>
+        target.clear()
+        rows.forEach(row => target.set(row.id, row))
+        publish()
+      },
+      onError,
+    })
+  }
+  const stops = [subscribeFinancial<FirestoreAccount>('accounts', 'nightclubAccounts'), subscribeFinancial<FirestoreRound>('rounds', 'nightclubRounds'), subscribeFinancial<FirestorePayment>('payments', 'nightclubPayments')]
   if (options.includeInventory) stops.push(
     subscribe<NightclubLocation>('locations', 'nightclubLocations'), subscribe<NightclubCashbox>('cashboxes', 'nightclubCashboxes'), subscribe<NightclubInventoryItem>('inventory', 'nightclubInventory'), subscribe<NightclubInventoryBalance>('inventoryBalances', 'nightclubInventoryBalances'), subscribe<NightclubInventoryLot>('inventoryLots', 'nightclubInventoryLots'), subscribe<NightclubInventoryMovement>('inventoryMovements', 'nightclubInventoryMovements'), subscribe<NightclubOpenBottle>('openBottles', 'nightclubOpenBottles'), subscribe<NightclubTransfer>('transfers', 'nightclubTransfers'),
   )
@@ -128,6 +147,6 @@ export function subscribeToNightclubFirestoreDataset(
     onError,
   ))
   if (options.includeCashboxContext && !options.includeInventory) stops.push(subscribe<NightclubCashbox>('cashboxes', 'nightclubCashboxes'))
-  if (options.includeCashboxContext) stops.push(subscribe<NightclubShift>('cashboxShifts', 'nightclubShifts'))
+  if (options.includeCashboxContext) stops.push(subscribeFinancial<NightclubShift>('cashboxShifts', 'nightclubShifts'))
   return { unsubscribe: () => stops.forEach(stop => stop()) }
 }

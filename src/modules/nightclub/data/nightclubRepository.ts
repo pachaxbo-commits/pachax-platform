@@ -30,6 +30,7 @@ import type {
   NightclubTransfer,
   NightclubZone,
 } from '../domain/nightclubAccounts'
+import type { NightclubFinancialReadScope } from './nightclubFinancialSubscriptions'
 import type { ReservationDraft } from '../domain/nightclubFloor'
 import type {
   NightclubConsumptionDraft,
@@ -68,9 +69,9 @@ export type Unsubscribe = () => void
 export interface NightclubRepository {
   subscribeFloor(listener: (value: NightclubFloorSnapshot) => void): Unsubscribe
   subscribeOpenAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe
-  subscribeOperationalAccounts?(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void, options?: { includeRounds?: boolean; includePayments?: boolean }): Unsubscribe
-  subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void): Unsubscribe
-  subscribeActiveShift(listener: (value: NightclubShift | null) => void): Unsubscribe
+  subscribeOperationalAccounts?(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void, options?: { includeRounds?: boolean; includePayments?: boolean; financialReadScope?: NightclubFinancialReadScope }): Unsubscribe
+  subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void, financialReadScope?: NightclubFinancialReadScope): Unsubscribe
+  subscribeActiveShift(listener: (value: NightclubShift | null) => void, onError?: (err: Error) => void, financialReadScope?: NightclubFinancialReadScope): Unsubscribe
   subscribeCatalog(listener: (value: NightclubCatalogSnapshot) => void): Unsubscribe
   subscribeInventory(listener: (value: NightclubInventorySnapshot) => void): Unsubscribe
   subscribeOperatorContext?(listener: (value: NightclubOperatorContext | null) => void): Unsubscribe
@@ -82,10 +83,10 @@ export interface NightclubRepository {
   subscribeInventoryLots?(listener: (value: NightclubInventoryLot[]) => void, onError?: (err: Error) => void): Unsubscribe
   subscribeOpenBottles?(listener: (value: NightclubOpenBottle[]) => void, onError?: (err: Error) => void): Unsubscribe
   subscribeTransfers?(listener: (value: NightclubTransfer[]) => void, onError?: (err: Error) => void): Unsubscribe
-  subscribeCashboxShifts?(listener: (value: NightclubShift[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCashboxShifts?(listener: (value: NightclubShift[]) => void, onError?: (err: Error) => void, financialReadScope?: NightclubFinancialReadScope): Unsubscribe
   getCustomers(query?: string, limit?: number): Promise<NightclubCustomer[]>
   getStaff(): Promise<NightclubStaff[]>
-  getCashMovements(shiftId: string): Promise<NightclubCashMovement[]>
+  getCashMovements(shiftId: string, financialReadScope?: NightclubFinancialReadScope): Promise<NightclubCashMovement[]>
   openAccount(input: { operationId: string; target: NightclubServiceTarget }): Promise<{ accountId: string }>
   addRound(input: { operationId: string; accountId: string; items: NightclubRoundDraft[]; customerId?: string | null; serviceStaffId?: string }): Promise<{ roundId: string; accountId: string; total: number; status: string }>
   settleRound(input: { operationId: string; accountId: string; items: NightclubRoundDraft[]; payment: NightclubPaymentDraft }): Promise<{ roundId: string; paymentId: string; total: number }>
@@ -126,8 +127,8 @@ export interface NightclubRepository {
   subscribePromoterConsumptions?(listener: (value: NightclubPromoterConsumption[]) => void, onError?: (err: Error) => void): Unsubscribe
   subscribeMembers?(listener: (value: NightclubMember[]) => void, onError?: (err: Error) => void): Unsubscribe
   subscribeCourtesies?(listener: (value: NightclubCourtesy[]) => void, onError?: (err: Error) => void): Unsubscribe
-  subscribeCommissions?(listener: (value: NightclubCommission[]) => void, onError?: (err: Error) => void): Unsubscribe
-  subscribeCommissionPayments?(listener: (value: NightclubCommissionPayment[]) => void, onError?: (err: Error) => void): Unsubscribe
+  subscribeCommissions?(listener: (value: NightclubCommission[]) => void, onError?: (err: Error) => void, financialReadScope?: NightclubFinancialReadScope): Unsubscribe
+  subscribeCommissionPayments?(listener: (value: NightclubCommissionPayment[]) => void, onError?: (err: Error) => void, financialReadScope?: NightclubFinancialReadScope): Unsubscribe
   subscribeCustomerIncidents?(listener: (value: NightclubCustomerIncident[]) => void, onError?: (err: Error) => void): Unsubscribe
   saveReservation?(input: { operationId: string; reservation: ReservationDraft }): Promise<{ reservationId: string }>
   cancelReservation?(input: { operationId: string; id: string }): Promise<void>

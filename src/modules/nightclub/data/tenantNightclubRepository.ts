@@ -68,6 +68,8 @@ import type {
   NightclubRepository,
   Unsubscribe,
 } from './nightclubRepository'
+import type { NightclubFinancialReadScope } from './nightclubFinancialSubscriptions'
+import { NIGHTCLUB_CASHBOX_STATUS_QUERY_CHUNK_SIZE, subscribeCashboxScopedCollection } from './nightclubFinancialSubscriptions'
 
 const generateOpId = () => `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
@@ -155,7 +157,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void, options?: { includeRounds?: boolean; includePayments?: boolean }): Unsubscribe {
+  subscribeOperationalAccounts(listener: (value: NightclubAccount[]) => void, onError?: (err: Error) => void, options?: { includeRounds?: boolean; includePayments?: boolean; financialReadScope?: NightclubFinancialReadScope }): Unsubscribe {
     let openAccounts: Array<Record<string, unknown> & { id: string }> = []
     let closedAccounts: Array<Record<string, unknown> & { id: string }> = []
     let rounds: NightclubRound[] = []
@@ -169,6 +171,7 @@ export class TenantNightclubRepository implements NightclubRepository {
 
     const includeRounds = options?.includeRounds !== false
     const includePayments = options?.includePayments !== false
+    const financialReadScope = options?.financialReadScope ?? { kind: 'unresolved' as const }
 
     const emit = () => {
       if (!active) return
@@ -178,9 +181,25 @@ export class TenantNightclubRepository implements NightclubRepository {
 
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active) return
+      if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) {
+        listener([])
+        return
+      }
       const accRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubAccounts')
       const roundsRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubRounds')
       const paymentsRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubPayments')
+
+      const onOpen = (rows: Array<Record<string, unknown> & { id: string }>) => { if (active) { openAccounts = rows; emit() } }
+      const onClosed = (rows: Array<Record<string, unknown> & { id: string }>) => { if (active) { closedAccounts = rows; emit() } }
+      const onRounds = (rows: NightclubRound[]) => { if (active) { rounds = rows; emit() } }
+      const onPayments = (rows: NightclubPayment[]) => { if (active) { payments = rows; emit() } }
+      if (financialReadScope.kind === 'restricted') {
+        unsubOpen = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubAccounts'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, chunkSize: NIGHTCLUB_CASHBOX_STATUS_QUERY_CHUNK_SIZE, constraints: [where('status', 'in', ['open', 'bill_requested'])], mapDocument: (id, data) => ({ id, ...data }), listener: onOpen, onError })
+        unsubClosed = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubAccounts'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, constraints: [where('status', '==', 'closed'), fsLimit(50)], mapDocument: (id, data) => ({ id, ...data }), listener: onClosed, onError })
+        if (includeRounds) unsubRounds = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubRounds'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, constraints: [fsLimit(200)], mapDocument: (id, data) => ({ ...data, id } as unknown as NightclubRound), listener: onRounds, onError })
+        if (includePayments) unsubPayments = subscribeCashboxScopedCollection<NightclubPayment & { id: string }>({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubPayments'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, constraints: [fsLimit(200)], mapDocument: (id, data) => ({ ...data, id }) as NightclubPayment & { id: string }, listener: rows => onPayments(rows), onError })
+        return
+      }
 
       unsubOpen = onSnapshot(
         query(accRef, where('branchId', '==', this.branchId), where('status', 'in', ['open', 'bill_requested'])),
@@ -233,16 +252,21 @@ export class TenantNightclubRepository implements NightclubRepository {
   }
 
   subscribeOpenAccounts(listener: (value: NightclubAccount[]) => void): Unsubscribe {
-    return this.subscribeOperationalAccounts(listener)
+    return this.subscribeOperationalAccounts(listener, undefined, { financialReadScope: { kind: 'unresolved' } })
   }
 
-  subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void): Unsubscribe {
+  subscribeActiveBarRounds(listener: (value: NightclubRound[]) => void, financialReadScope: NightclubFinancialReadScope = { kind: 'unresolved' }): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
 
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active) return
       const roundsRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubRounds')
+      if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) { listener([]); return }
+      if (financialReadScope.kind === 'restricted') {
+        unsub = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubRounds'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, chunkSize: NIGHTCLUB_CASHBOX_STATUS_QUERY_CHUNK_SIZE, constraints: [where('status', 'in', ['pending', 'preparing'])], mapDocument: (id, data) => ({ ...data, id } as unknown as NightclubRound), listener: rows => { if (active) listener(rows) } })
+        return
+      }
       unsub = onSnapshot(
         query(roundsRef, where('branchId', '==', this.branchId), where('status', 'in', ['pending', 'preparing'])),
         snap => {
@@ -258,7 +282,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeActiveShift(listener: (value: NightclubShift | null) => void, onError?: (err: Error) => void): Unsubscribe {
+  subscribeActiveShift(listener: (value: NightclubShift | null) => void, onError?: (err: Error) => void, financialReadScope: NightclubFinancialReadScope = { kind: 'unresolved' }): Unsubscribe {
     let active = true
     let unsubState: Unsubscribe | null = null
     let unsubShift: Unsubscribe | null = null
@@ -266,11 +290,18 @@ export class TenantNightclubRepository implements NightclubRepository {
 
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active) return
+      if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) { listener(null); return }
       const stateRef = doc(ctx.db, 'tenants', this.tenantId, 'nightclubOperationalState', this.branchId)
 
       unsubState = onSnapshot(stateRef, snap => {
         if (!active) return
         const data = snap.data()
+        if (financialReadScope.kind === 'restricted' && (!data?.cashboxId || !financialReadScope.cashboxIds.includes(String(data.cashboxId)))) {
+          if (unsubShift) { unsubShift(); unsubShift = null }
+          currentShiftId = null
+          listener(null)
+          return
+        }
         const shiftIdToTrack = resolveShiftIdToTrack(data)
         if (shiftIdToTrack === currentShiftId) return
         currentShiftId = shiftIdToTrack
@@ -388,7 +419,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void, onError?: (err: Error) => void): Unsubscribe {
+  subscribeCashMovements(shiftId: string, listener: (value: NightclubCashMovement[]) => void, onError?: (err: Error) => void, financialReadScope: NightclubFinancialReadScope = { kind: 'unresolved' }): Unsubscribe {
     if (!shiftId) {
       listener([])
       return () => {}
@@ -399,6 +430,22 @@ export class TenantNightclubRepository implements NightclubRepository {
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active) return
       const cashRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCashMovements')
+      if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) { listener([]); return }
+      const mapMovement = (id: string, data: Record<string, unknown>): NightclubCashMovement => ({
+        id,
+        shiftId,
+        type: (data.type as 'income' | 'expense') || 'income',
+        method: (data.method as 'cash' | 'qr' | 'card') || 'cash',
+        amount: (data.amount as number) || 0,
+        description: (data.description as string) || `Movimiento ${id}`,
+        at: (data.createdAt as string) || new Date().toISOString(),
+        actor: (data.actorUid as string) || 'Caja',
+        category: data.category as NightclubCashMovement['category'],
+      })
+      if (financialReadScope.kind === 'restricted') {
+        unsub = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubCashMovements'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, constraints: [where('shiftId', '==', shiftId)], mapDocument: mapMovement, listener: rows => { if (active) listener(rows) }, onError })
+        return
+      }
       unsub = onSnapshot(
         query(cashRef, where('branchId', '==', this.branchId), where('shiftId', '==', shiftId)),
         snap => {
@@ -457,14 +504,20 @@ export class TenantNightclubRepository implements NightclubRepository {
     })
   }
 
-  async getCashMovements(shiftId: string): Promise<NightclubCashMovement[]> {
+  async getCashMovements(shiftId: string, financialReadScope: NightclubFinancialReadScope = { kind: 'unresolved' }): Promise<NightclubCashMovement[]> {
     const ctx = await getFirebaseContext()
-    if (!ctx || !shiftId) return []
+    if (!ctx || !shiftId || financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) return []
     const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCashMovements')
-    const snap = await getDocs(query(ref, where('branchId', '==', this.branchId), where('shiftId', '==', shiftId)))
-    return snap.docs.map(d => {
+    const snapshots = financialReadScope.kind === 'unrestricted'
+      ? [await getDocs(query(ref, where('branchId', '==', this.branchId), where('shiftId', '==', shiftId)))]
+      : await Promise.all(Array.from({ length: Math.ceil(financialReadScope.cashboxIds.length / 30) }, (_, index) => {
+        const ids = financialReadScope.cashboxIds.slice(index * 30, index * 30 + 30)
+        return getDocs(query(ref, where('branchId', '==', this.branchId), where('shiftId', '==', shiftId), where('cashboxId', 'in', ids)))
+      }))
+    const movements = new Map<string, NightclubCashMovement>()
+    for (const d of snapshots.flatMap(snapshot => snapshot.docs)) {
       const data = d.data() as Record<string, unknown>
-      return {
+      movements.set(d.id, {
         id: d.id,
         shiftId,
         type: (data.type as 'income' | 'expense') || 'income',
@@ -473,8 +526,9 @@ export class TenantNightclubRepository implements NightclubRepository {
         description: (data.description as string) || `Movimiento ${d.id}`,
         at: (data.createdAt as string) || new Date().toISOString(),
         actor: (data.actorUid as string) || 'Caja',
-      }
-    })
+      })
+    }
+    return [...movements.values()]
   }
 
   async openAccount(input: { operationId: string; target: NightclubServiceTarget }): Promise<{ accountId: string }> {
@@ -823,11 +877,16 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCommissions(listener: (value: NightclubCommission[]) => void, onError?: (err: Error) => void): Unsubscribe {
+  subscribeCommissions(listener: (value: NightclubCommission[]) => void, onError?: (err: Error) => void, financialReadScope: NightclubFinancialReadScope = { kind: 'unresolved' }): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active) return
+      if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) { listener([]); return }
+      if (financialReadScope.kind === 'restricted') {
+        unsub = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubCommissions'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, constraints: [fsLimit(100)], mapDocument: (id, data) => ({ id, ...(data as Omit<NightclubCommission, 'id'>) }), listener: rows => { if (active) listener(rows) }, onError })
+        return
+      }
       const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCommissions')
       unsub = onSnapshot(
         query(ref, where('branchId', '==', this.branchId), fsLimit(100)),
@@ -845,11 +904,16 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCommissionPayments(listener: (value: NightclubCommissionPayment[]) => void, onError?: (err: Error) => void): Unsubscribe {
+  subscribeCommissionPayments(listener: (value: NightclubCommissionPayment[]) => void, onError?: (err: Error) => void, financialReadScope: NightclubFinancialReadScope = { kind: 'unresolved' }): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active) return
+      if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) { listener([]); return }
+      if (financialReadScope.kind === 'restricted') {
+        unsub = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubCommissionPayments'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, constraints: [fsLimit(100)], mapDocument: (id, data) => ({ id, ...(data as Omit<NightclubCommissionPayment, 'id'>) }), listener: rows => { if (active) listener(rows) }, onError })
+        return
+      }
       const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCommissionPayments')
       unsub = onSnapshot(
         query(ref, where('branchId', '==', this.branchId), fsLimit(100)),
@@ -1188,11 +1252,16 @@ export class TenantNightclubRepository implements NightclubRepository {
     }
   }
 
-  subscribeCashboxShifts(listener: (value: NightclubShift[]) => void, onError?: (err: Error) => void): Unsubscribe {
+  subscribeCashboxShifts(listener: (value: NightclubShift[]) => void, onError?: (err: Error) => void, financialReadScope: NightclubFinancialReadScope = { kind: 'unresolved' }): Unsubscribe {
     let active = true
     let unsub: Unsubscribe | null = null
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active) return
+      if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) { listener([]); return }
+      if (financialReadScope.kind === 'restricted') {
+        unsub = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubShifts'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, mapDocument: (id, data) => ({ id, ...(data as Omit<NightclubShift, 'id'>) }), listener: rows => { if (active) listener(rows) }, onError })
+        return
+      }
       const ref = collection(ctx.db, 'tenants', this.tenantId, 'nightclubShifts')
       unsub = onSnapshot(
         query(ref, where('branchId', '==', this.branchId)),

@@ -2176,15 +2176,17 @@ try {
   assert.equal((await data(`nightclubAccounts/${'assignment-authorized-account'}`)).balance, 0)
   console.log('PASS: operatorContext Caja 2 obsoleto no autoriza selección, apertura ni cobro; cobro en Caja 1 sí funciona y el intento rechazado no genera escrituras.')
 
-  // Rules currently scope these financial reads by role and branch, not membership.cashboxIds.
+  // Firestore Rules now enforce the same assigned-cashbox scope as the gateway.
   const restricted = root.collection('members').doc('cashier')
   await restricted.update({ cashboxIds: ['cashbox-1'] })
   const readDb = rulesEnv.authenticatedContext('cashier').firestore()
-  await assertSucceeds(getDoc(doc(readDb, `tenants/${tenantId}/nightclubAccounts/assignment-cross-account`)))
-  await assertSucceeds(getDoc(doc(readDb, `tenants/${tenantId}/nightclubPayments/${payCrossOk.paymentId}`)))
-  await assertSucceeds(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubAccounts`), where('branchId', '==', 'main'))))
-  await assertSucceeds(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubPayments`), where('branchId', '==', 'main'))))
-  console.log('READ SCOPE: cashier limitado a Caja 1 todavía puede leer cuentas y pagos de Caja 2 por reglas actuales de rol+sucursal.')
+  await assertFails(getDoc(doc(readDb, `tenants/${tenantId}/nightclubAccounts/assignment-cross-account`)))
+  await assertFails(getDoc(doc(readDb, `tenants/${tenantId}/nightclubPayments/${payCrossOk.paymentId}`)))
+  await assertFails(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubAccounts`), where('branchId', '==', 'main'))))
+  await assertFails(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubPayments`), where('branchId', '==', 'main'))))
+  await assertSucceeds(getDoc(doc(readDb, `tenants/${tenantId}/nightclubAccounts/assignment-authorized-account`)))
+  await assertSucceeds(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubAccounts`), where('branchId', '==', 'main'), where('cashboxId', '==', 'cashbox-1'))))
+  console.log('READ SCOPE: cashier Caja 1 no lee Caja 2 ni la sucursal completa; sí lee sus documentos filtrados por Caja 1.')
 
 } finally {
   await rulesEnv.cleanup()
