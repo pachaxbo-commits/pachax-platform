@@ -141,6 +141,7 @@ export function DistributionExperience({
   const [internalModule, setInternalModule] = useState<ModuleId>('dist.dashboard')
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
+  const [copiedOperationId, setCopiedOperationId] = useState('')
 
   const effectiveCompanyName =
     businessIdentity?.tradeName?.trim() || companyName || session.restaurantName
@@ -401,19 +402,20 @@ export function DistributionExperience({
           {data.operations
             .filter((o) => o.status === 'rejected' && !o.acknowledged)
             .map((o) => (
-              <p key={o.id} role="alert" className="mb-2 rounded-xl bg-rose-50 p-3 text-sm">
-                No se aplicó una operación: {o.error}{' '}
-                {onAcknowledgeOperation && (
-                  <button
-                    className="ml-2 underline"
-                    onClick={() => {
-                      void onAcknowledgeOperation(o.id)
-                    }}
-                  >
-                    Entendido
-                  </button>
-                )}
-              </p>
+              <div key={o.id} role="alert" className="mb-2 rounded-xl bg-rose-50 p-3 text-sm">
+                <p className="font-bold">No se aplicó {({sale:'la venta', collection:'el cobro', expense:'el gasto', closure:'el cierre', intake:'el ingreso', transfer:'la transferencia', dispatch:'el despacho', addition:'el aumento de despacho', adjustment:'el ajuste', claim:'el cambio o devolución'} as Record<string,string>)[o.type] || 'la operación'}.</p>
+                <p>{o.error || 'El servidor rechazó la solicitud. Revisa los datos o consulta a soporte.'}</p>
+                <p className="mt-1 text-xs text-rose-800">ID {o.id} · {o.type} · {new Date(o.createdAt).toLocaleString('es-BO')} · Rechazada</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button className="rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-bold" onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(JSON.stringify({ id: o.id, type: o.type, status: o.status, createdAt: o.createdAt, error: o.error || '' }, null, 2))
+                      setCopiedOperationId(o.id)
+                    } catch { setCopiedOperationId('') }
+                  }}>{copiedOperationId === o.id ? 'Detalles copiados' : 'Copiar detalles para soporte'}</button>
+                  {onAcknowledgeOperation && <button className="px-2.5 py-1.5 text-xs font-bold underline" onClick={() => { void onAcknowledgeOperation(o.id) }}>Entendido</button>}
+                </div>
+              </div>
             ))}
           {renderModule()}
         </main>
