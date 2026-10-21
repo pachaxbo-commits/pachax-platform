@@ -30,8 +30,8 @@ export function DashboardView({ session, data }: DistributionViewProps) {
   )
   const visibleClosures = useMemo(
     () => isWarehouse
-      ? data.closures.filter(closure => (closure.warehouseId || 'central') === assignedWarehouse)
-      : data.closures,
+      ? data.closures.filter(closure => closure.closeType !== 'administrative' && (closure.warehouseId || 'central') === assignedWarehouse)
+      : data.closures.filter(closure => closure.closeType !== 'administrative'),
     [data.closures, isWarehouse, assignedWarehouse],
   )
 

@@ -65,7 +65,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
     [data.expenses, routeFilter, sellerFilter],
   )
   const closures = useMemo(
-    () => data.closures.filter((row) => !routeFilter || row.routeId === routeFilter),
+    () => data.closures.filter((row) => row.closeType !== 'administrative' && (!routeFilter || row.routeId === routeFilter)),
     [data.closures, routeFilter],
   )
 

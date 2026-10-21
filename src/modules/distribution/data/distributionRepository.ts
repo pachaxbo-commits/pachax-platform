@@ -5,6 +5,8 @@ import {
   collection,
   runTransaction,
   getDocs,
+  limit,
+  startAfter,
   doc,
   onSnapshot,
   query,
@@ -904,6 +906,10 @@ export async function saveClosure(input: SaveClosureInput): Promise<string> {
   return input.closure.id
 }
 
+export async function saveAdministrativeCashClosure(dayKey: string, declaredCash: number, operationId: string) {
+  await submitOperation('closure', { mode: 'administrative', dayKey, declaredCash }, operationId)
+}
+
 /** Reapertura administrativa de una ruta cerrada */
 export async function reopenClosure(closure: DistClosure, reason?: string): Promise<void> {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.reopenClosure(closure, reason)
@@ -913,6 +919,33 @@ export async function reopenClosure(closure: DistClosure, reason?: string): Prom
 export function subscribeLots(onData: (rows: DistLot[]) => void, onError?: (error: Error) => void) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeLots(onData, onError)
   return subscribeQuery<DistLot>(ctx => collectionRef(ctx, 'distLots'), onData, onError)
+}
+
+/** Fetches the complete, tenant-scoped financial history for an admin statement.
+ * Each source is paginated so older debt/payment rows are not silently omitted. */
+export async function getCustomerStatementHistory(customerId: string) {
+  if (!customerId.trim()) throw new Error('Selecciona un cliente.');
+  const context = await getContext();
+  const fetchAll = async <T,>(name: string): Promise<T[]> => {
+    const base = query(collectionRef(context, name), where('customerId', '==', customerId), limit(250));
+    const rows: T[] = [];
+    let cursor: Awaited<ReturnType<typeof getDocs>>['docs'][number] | undefined;
+    while (true) {
+      const pageQuery = cursor ? query(base, startAfter(cursor)) : base;
+      const page = await getDocs(pageQuery);
+      rows.push(...page.docs.map(doc => ({ id: doc.id, ...doc.data() }) as T));
+      if (page.size < 250) break;
+      cursor = page.docs[page.docs.length - 1];
+    }
+    return rows;
+  };
+  const [receivables, collections, claims, sales] = await Promise.all([
+    fetchAll<DistReceivable>('distReceivables'),
+    fetchAll<DistCollection>('distCollections'),
+    fetchAll<DistClaim>('distClaims'),
+    fetchAll<DistSale>('distSales'),
+  ]);
+  return { receivables, collections, claims, sales };
 }
 export function subscribeOperations(onData: (rows: PendingOperation[]) => void, onError?: (error: Error) => void) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeOperations(onData, onError)

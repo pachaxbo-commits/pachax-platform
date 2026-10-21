@@ -122,6 +122,7 @@ export interface DistStockMovement extends DistBaseDoc {
   fromLocation?: string
   toLocation?: string
   routeId?: string
+  lotId?: string
   /** Documento que origino el movimiento (dispatchId, saleId, closureId) */
   refType?: 'dispatch' | 'sale' | 'closure' | 'manual'
   refId?: string
@@ -242,6 +243,7 @@ export interface DistCollectionAllocation {
 }
 
 export interface DistCollection extends DistBaseDoc {
+  collectionOrigin?: 'route' | 'administration'
   saleLines?: DistSaleLine[]
   customerCode?: string
   operationId: string
@@ -263,6 +265,7 @@ export interface DistCollection extends DistBaseDoc {
 }
 
 export interface DistExpense extends DistBaseDoc {
+  expenseOrigin?: 'route' | 'administration'
   voided?: boolean
   voidedAt?: string
   voidedBy?: string
@@ -331,6 +334,17 @@ export interface DistClosureProductRow {
 export type ClosureStatus = 'draft' | 'warehouse_done' | 'closed' | 'reopened'
 
 export interface DistClosure extends DistBaseDoc {
+  closeType?: 'route' | 'administrative'
+  responsibleUid?: string
+  responsibleName?: string
+  creditSales?: number
+  expensesTotal?: number
+  totalSales?: number
+  totalCollections?: number
+  salesCount?: number
+  collectionsCount?: number
+  expensesCount?: number
+  declaredCash?: number
   warehouseId?: string
   declaredReturns?: Record<string, number>
   declaredReturnMermas?: Record<string, number>

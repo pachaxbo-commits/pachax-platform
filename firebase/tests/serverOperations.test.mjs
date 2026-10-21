@@ -18,13 +18,13 @@ const prefix=`q${Date.now().toString(36)}`,pid=`${prefix}-p`,pid2=`${prefix}-p2`
 let checks=0
 const ok=(v,msg)=>{assert(v,msg);checks++;console.log('PASS',msg)}
 const read=async(col,id)=>(await root.collection(col).doc(id).get()).data()
-async function command(actor,type,payload,expect='confirmed'){
- const id=`${prefix}-${type}-${Math.random().toString(36).slice(2)}`
+async function command(actor,type,payload,expect='confirmed',operationId){
+ const id=operationId||`${prefix}-${type}-${Math.random().toString(36).slice(2)}`
  await setDoc(doc(env.authenticatedContext(actor).firestore(),'restaurants','pachax','distOperations',id),{id,restaurantId:'pachax',createdBy:actor,createdAt:new Date().toISOString(),type,payload,status:'queued'})
  // The emulator trigger is the production entrypoint. Poll only the resulting record.
  const until=Date.now()+60000;let op
  while(Date.now()<until){op=await read('distOperations',id);if(op.status!=='queued')break;await new Promise(r=>setTimeout(r,100))}
- assert.equal(op.status,expect,`${type}: ${op.error||'sin procesar'}`);return {...op,id}
+ if(expect!=='any')assert.equal(op.status,expect,`${type}: ${op.error||'sin procesar'}`);return {...op,id}
 }
 try {
  await adminAuth.createUser({uid:admin,email:`${prefix}-admin@example.test`,password:'Inicial123'})
@@ -60,8 +60,30 @@ try {
  const dispatch=await command(warehouse,'dispatch',{warehouseId:wh,routeId:route,routeName:'QA ruta',distributorUid:seller,distributorName:'QA vendedor',lines:[{productId:pid,quantity:3}]})
  const adminSaleDuringRoute=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:10,qrAmount:0,creditAmount:0,paymentKind:'cash'})
  ok(adminSaleDuringRoute.result.dispatchId===''&&adminSaleDuringRoute.result.sourceLocation==='centralWarehouse','venta administrativa no hereda el despacho abierto aunque llegue en el payload')
+ ok(adminSaleDuringRoute.result.routeId==='central'&&adminSaleDuringRoute.result.routeName==='Administración','venta administrativa ignora ruta obsoleta y queda atribuida a Administración')
  const centralAfterAdminSale=(await read('distBalances',`central__${pid}`)).quantity,routeAfterAdminSale=(await read('distBalances',`route__${route}__${pid}`)).quantity
  ok(centralAfterAdminSale===10&&routeAfterAdminSale===3,`venta administrativa descuenta almacén central sin tocar inventario de ruta (${centralAfterAdminSale}/${routeAfterAdminSale})`)
+ const adminCredit=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:route,routeName:'Ruta obsoleta',customerId:cust,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:10,paymentKind:'credit'})
+ const adminPayment=await command(admin,'collection',{receivableId:adminCredit.id,routeId:route,amount:2,method:'cash',cashAmount:2})
+ const adminExpense=await command(admin,'expense',{concept:'Gasto de administración',amount:1,routeId:route,routeName:'Ruta obsoleta'})
+ ok(adminPayment.result.collectionOrigin==='administration'&&adminPayment.result.routeId==='central'&&(await read('distExpenses',adminExpense.id)).expenseOrigin==='administration','cobro y gasto administrativos quedan marcados con origen propio, ignorando ruta obsoleta')
+ await root.collection('distSales').doc(`${prefix}-route-close-isolation`).set({id:`${prefix}-route-close-isolation`,restaurantId:'pachax',sourceLocation:'route',routeId:`${prefix}-other-route`,dispatchId:`${prefix}-other-dispatch`,cashAmount:75,qrAmount:0,creditAmount:0,total:75,dayKey:dayKey(),createdAt:new Date().toISOString()})
+ await root.collection('distCollections').doc(`${prefix}-route-collection-isolation`).set({id:`${prefix}-route-collection-isolation`,restaurantId:'pachax',collectionOrigin:'route',routeId:`${prefix}-other-route`,amount:30,cashAmount:30,qrAmount:0,dayKey:dayKey(),createdAt:new Date().toISOString()})
+ await root.collection('distExpenses').doc(`${prefix}-route-expense-isolation`).set({id:`${prefix}-route-expense-isolation`,restaurantId:'pachax',expenseOrigin:'route',routeId:`${prefix}-other-route`,amount:20,dayKey:dayKey(),createdAt:new Date().toISOString()})
+ const closeAttempts=await Promise.all([
+  command(admin,'closure',{mode:'administrative',dayKey:dayKey(),declaredCash:11},'any'),
+  command(admin,'closure',{mode:'administrative',dayKey:dayKey(),declaredCash:11},'any'),
+ ])
+ const adminClose=closeAttempts.find(row=>row.status==='confirmed')
+ ok(closeAttempts.filter(row=>row.status==='confirmed').length===1&&closeAttempts.filter(row=>row.status==='rejected').length===1,'cierres administrativos concurrentes crean un único cierre sin estados contradictorios')
+ ok(adminClose.result.cashSales===10&&adminClose.result.creditSales===10&&adminClose.result.cashCollections===2&&adminClose.result.expensesTotal===1&&adminClose.result.expectedCash===11&&adminClose.result.cashDifference===0,'cierre administrativo concilia efectivo, QR/crédito, cobranzas y gastos sin sumar dinero de rutas')
+ await processCommand(db,root.collection('distOperations').doc(adminClose.id))
+ ok((await root.collection('distClosures').where('closeType','==','administrative').get()).size===1,'reintento del mismo operationId no duplica cierre administrativo')
+ const adminClosePath=['restaurants','pachax','distClosures',`admin_close_${dayKey()}`]
+ ok((await getDoc(doc(env.authenticatedContext(admin).firestore(),...adminClosePath))).exists(),'administración puede consultar el cierre administrativo persistido')
+ await assertFails(getDoc(doc(env.authenticatedContext(seller).firestore(),...adminClosePath)));checks++
+ ok(true,'distribuidor no puede leer el cierre administrativo de la empresa')
+ await command(seller,'closure',{mode:'administrative',dayKey:dayKey(),declaredCash:0},'rejected');checks++
  await root.collection('distSales').doc(`${prefix}-legacy-central-sale`).set({id:`${prefix}-legacy-central-sale`,restaurantId:'pachax',sourceLocation:'centralWarehouse',routeId:route,dispatchId:dispatch.id,lines:[{productId:pid,quantity:9}],cashAmount:90,qrAmount:0,creditAmount:0,total:90,createdAt:new Date().toISOString()})
  const base={sourceLocation:'route',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,customerId:cust,lines:[{productId:pid,quantity:2,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:20,paymentKind:'credit'}
  await command(seller,'sale',{...base,lines:[{productId:pid,quantity:2,actualUnitPrice:9}],creditAmount:18},'rejected');checks++
