@@ -38,7 +38,7 @@ export interface TenantNightclubActionsDeps {
     openAccount: (payload: any) => Promise<{ accountId: string }>
     addRound: (payload: any) => Promise<any>
     settleRound: (payload: any) => Promise<any>
-    settlePendingRound?: (payload: any) => Promise<any>
+    settlePendingRound?: (payload: { operationId: string; accountId: string; roundId: string; payment: NightclubPaymentDraft }) => Promise<{ accountId: string; roundId: string; paymentId: string; total: number; status: string }>
     requestBill: (payload: any) => Promise<any>
     reopenBill: (payload: any) => Promise<any>
     recordPayment: (payload: any) => Promise<any>

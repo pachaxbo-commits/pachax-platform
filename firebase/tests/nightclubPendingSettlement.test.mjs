@@ -11,7 +11,7 @@ const { getFirestore } = require('firebase-admin/firestore')
 const { getTemplate } = require('./generated/templates.js')
 const suffix = Date.now().toString(36)
 const tenantId = `nightclub-pending-settle-${suffix}`
-const owner = `owner-${suffix}`, cashier = `cashier-${suffix}`, denied = `denied-${suffix}`, cashierOne = `cashier-one-${suffix}`
+const owner = `owner-${suffix}`, cashier = `cashier-${suffix}`, denied = `denied-${suffix}`, cashierOne = `cashier-one-${suffix}`, waiter = `waiter-${suffix}`
 const app = initializeApp({ projectId }, `pending-settle-${suffix}`)
 const db = getFirestore(app), auth = getAuth(app), root = db.doc(`tenants/${tenantId}`)
 const pass = value => console.log(`PASS ${value}`)
@@ -41,18 +41,19 @@ try {
   await root.collection('members').doc(cashier).set({ uid: cashier, tenantId, roleId: 'cashier', status: 'active', branchIds: ['main'], cashboxIds: ['cashbox-2'] })
   await root.collection('members').doc(cashierOne).set({ uid: cashierOne, tenantId, roleId: 'cashier', status: 'active', branchIds: ['main'], cashboxIds: ['cashbox-1'] })
   await root.collection('members').doc(denied).set({ uid: denied, tenantId, roleId: 'restricted', status: 'active', branchIds: ['main'], cashboxIds: ['cashbox-2'] })
+  await root.collection('members').doc(waiter).set({ uid: waiter, tenantId, roleId: 'waiter', status: 'active', branchIds: ['main'], cashboxIds: ['cashbox-2'] })
   for (const number of [1, 2, 3, 4]) {
     await root.collection('nightclubCashboxes').doc(`cashbox-${number}`).set({ id: `cashbox-${number}`, tenantId, branchId: 'main', locationId: `cashbox-${number}`, active: true })
     await root.collection('nightclubShifts').doc(`shift-${number}`).set({ id: `shift-${number}`, tenantId, branchId: 'main', cashboxId: `cashbox-${number}`, locationId: `cashbox-${number}`, status: 'open' })
   }
-  for (const [uid, number] of [[owner, 2], [cashier, 2], [cashierOne, 1], [denied, 2]]) await root.collection('nightclubOperatorContexts').doc(uid).set({ id: uid, tenantId, userId: uid, branchId: 'main', cashboxId: `cashbox-${number}`, locationId: `cashbox-${number}`, activeShiftId: `shift-${number}` })
+  for (const [uid, number] of [[owner, 2], [cashier, 2], [cashierOne, 1], [denied, 2], [waiter, 2]]) await root.collection('nightclubOperatorContexts').doc(uid).set({ id: uid, tenantId, userId: uid, branchId: 'main', cashboxId: `cashbox-${number}`, locationId: `cashbox-${number}`, activeShiftId: `shift-${number}` })
   await root.collection('nightclubProducts').doc('beer').set({ id: 'beer', tenantId, branchId: 'main', name: 'Cerveza', price: 100, active: true, inventoryMode: 'recipe', preparationArea: 'Barra', recipe: [{ inventoryId: 'beer-stock', quantity: 1, unit: 'unit' }] })
   for (const [number, quantity] of [[1,20],[2,30],[3,10],[4,15]]) {
     const locationId=`cashbox-${number}`
     await root.collection('nightclubInventoryBalances').doc(`${locationId}:beer-stock`).set({ id: `${locationId}:beer-stock`, tenantId, branchId: 'main', locationId, inventoryId: 'beer-stock', availableQuantity: quantity, reservedQuantity: 0, inTransitQuantity: 0, minimumQuantity: 0, unit: 'unit', updatedAt: '2026-01-01T00:00:00.000Z' })
     await root.collection('nightclubInventoryLots').doc(`lot-${number}`).set({ id: `lot-${number}`, tenantId, branchId: 'main', locationId, inventoryId: 'beer-stock', remainingQuantity: quantity, receivedQuantity: quantity, unitCost: 40 + number, receivedAt: `2026-01-0${number}T00:00:00.000Z`, status: 'available' })
   }
-  const ownerToken = await token(owner), cashierToken = await token(cashier), cashierOneToken = await token(cashierOne), deniedToken = await token(denied)
+  const ownerToken = await token(owner), cashierToken = await token(cashier), cashierOneToken = await token(cashierOne), deniedToken = await token(denied), waiterToken = await token(waiter)
   const first = await openPending(cashierToken, 'cash')
   const initialRound = (await root.collection('nightclubRounds').doc(first.roundId).get()).data()
   assert.equal(initialRound.total, 300); assert.equal(initialRound.authorization, 'account_charge')
@@ -109,8 +110,9 @@ try {
   const wrongBox = await openPending(cashierToken, 'wrong-box', 1)
   assert.equal((await command(cashierOneToken, 'settlePendingRound', 'settle-wrong-box', { accountId: wrongBox.accountId, roundId: wrongBox.roundId, payment: { method: 'card', confirmed: true } })).response.ok, false)
   assert.equal((await command(deniedToken, 'settlePendingRound', 'settle-denied', { accountId: wrongBox.accountId, roundId: wrongBox.roundId, payment: { method: 'card', confirmed: true } })).response.ok, false)
+  assert.equal((await command(waiterToken, 'settlePendingRound', 'settle-waiter-denied', { accountId: wrongBox.accountId, roundId: wrongBox.roundId, payment: { method: 'card', confirmed: true } })).response.ok, false)
   assert.equal((await root.collection('nightclubPayments').where('roundId', '==', wrongBox.roundId).get()).empty, true)
-  pass('caja ajena y usuario sin sales.create no generan pagos')
+  pass('caja ajena, usuario sin permiso de venta y mesero sin permiso de caja no generan pagos')
   const concurrentRound = await openPending(cashierToken, 'concurrent', 1)
   const [firstAttempt, secondAttempt] = await Promise.all([
     command(cashierToken, 'settlePendingRound', 'settle-concurrent-a', { accountId: concurrentRound.accountId, roundId: concurrentRound.roundId, payment: { method: 'card', confirmed: true } }),

@@ -1,5 +1,13 @@
 # Continuidad del proyecto PACHAX
 
+## Reconciliación final Nightclub con main actualizado (21/10/2026)
+
+- La rama `integrate/nightclub-release-final` parte de `origin/main` `abf2936e8c65565bcf7aaa22ecde4cacf4379d9c`. Se portaron los commits de asignación de cajas `3589027` y aislamiento de lectura `bcc93d1`; el commit de backend `settlePendingRound` ya estaba en main, así que solo se aplicó el delta de guards, contrato, interfaz productiva y pruebas desde la rama revisada.
+- Se conservaron los cambios de Restaurante de main: `firebase/legacy.rules`, sectores/mesas, `tableId`, repositorio, operaciones y `RestaurantApp`. `build:rules` reconstruyó las Rules desde sus fuentes; el archivo generado contiene las reglas de Restaurant, Platform, Distribution y el alcance financiero por `cashboxIds`.
+- Liquidar una ronda pendiente requiere el permiso canónico de ventas y la autorización Nightclub de Caja; Mesero sin permiso de Caja queda rechazado. Se comprueban saldo suficiente, cobros previos, caja/turno vigente e inventario sin consumir. La operación mantiene una sola implementación backend y consume FIFO junto al pago de forma transaccional e idempotente.
+- Verificación en emuladores: first-run 15 checks; pedidos Nightclub 15 escenarios; aislamiento de lectura 7/7; liquidación pendiente PASS incluyendo permiso de Mesero, FIFO, idempotencia, concurrencia y bloqueo de doble cobro. También aprobaron Platform Security, tenant core 72, Platform, Restaurant 59, Restaurant backend, Distribution 55, Nightclub 94, Cash 4 y Reports. Typecheck y build aprobaron.
+- ESLint focal en 15 archivos marca 177 incidencias heredadas; ninguna está en líneas añadidas o modificadas de TypeScript/TSX. Firebase solo se probó en `demo-pachax-platform` y emuladores; no se desplegó Firebase ni se modificó main. Pendientes: commit final de la rama, push y Preview Vercel.
+
 ## Asignación de cajas Nightclub por miembro (20/10/2026, rama de revisión)
 
 - Rama `nightclub-member-cashbox-assignments`, basada en `origin/main` `a66e5adc24d1033f91dc0d13d5da87afc94a3f86`. `createMember` y `updateMember` aceptan asignaciones únicamente para Nocturna y owner/admin con `users.manage`; el servidor valida IDs únicos, cajas activas, tenant y sucursales antes de crear Auth y dentro de la transacción. `cashboxIds` omitido conserva acceso legacy, `[]` niega todas las cajas y `null` elimina explícitamente la restricción durante una actualización. Las cajas actuales se vuelven a autorizar contra la membresía fresca en cada operación, incluso si existe un operatorContext antiguo.

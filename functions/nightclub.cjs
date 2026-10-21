@@ -192,8 +192,11 @@ async function executeNightclubCommand(db, request) {
     if (type === 'addRound' && !nightclubOperationAllowed(memberData, ['pos.create', 'accounts.edit'], ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
       throw new HttpsError('permission-denied', 'No tienes permiso para agregar pedidos.')
     }
-    if (['settleRound', 'settlePendingRound'].includes(type) && !nightclubOperationAllowed(memberData, ['pos.create', 'cash.create', 'bar.create'], ['owner', 'admin', 'cashier', 'waiter', 'service', 'bar'])) {
+    if (type === 'settleRound' && !nightclubOperationAllowed(memberData, ['pos.create', 'cash.create', 'bar.create'], ['owner', 'admin', 'cashier', 'waiter', 'service', 'bar'])) {
       throw new HttpsError('permission-denied', 'No tienes permiso para cobrar rondas.')
+    }
+    if (type === 'settlePendingRound' && !nightclubOperationAllowed(memberData, 'cash.create', ['owner', 'admin', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden liquidar rondas pendientes.')
     }
     if (type === 'advanceRound' && !nightclubOperationAllowed(memberData, 'bar.edit', ['owner', 'admin', 'bar'])) {
       throw new HttpsError('permission-denied', 'Solo Barra puede preparar pedidos.')
