@@ -13,6 +13,7 @@ import {
 } from '../domain/nightclubAccounts'
 import { NightclubRefundDialog } from './NightclubRefundDialog'
 import { NightclubAccountPayment } from './NightclubAccountPayment'
+import { NightclubPendingRoundPayment } from './NightclubPendingRoundPayment'
 import { NightclubProductExchangeDialog } from './NightclubProductExchangeDialog'
 import { Printer, ReceiptText } from 'lucide-react'
 
@@ -34,6 +35,7 @@ export function NightclubAccounts({
   onRequestBill,
   onReopenBill,
   onRecordPayment,
+  onSettlePendingRound,
   onOpenReceipt,
   onPrintComanda,
   canPrintComanda = true,
@@ -54,6 +56,7 @@ export function NightclubAccounts({
   onRequestBill: (accountId: string) => void
   onReopenBill: (accountId: string) => void
   onRecordPayment: (accountId: string, payment: NightclubPaymentDraft) => boolean | void | Promise<boolean | void>
+  onSettlePendingRound?: (accountId: string, roundId: string, payment: NightclubPaymentDraft) => boolean | void | Promise<boolean | void>
   onOpenReceipt?: (account: NightclubAccount) => void
   onPrintComanda?: (accountId: string, roundId: string, isReprint: boolean) => void
   canPrintComanda?: boolean
@@ -64,6 +67,7 @@ export function NightclubAccounts({
   const [exchangeTarget, setExchangeTarget] = useState<{ accountId: string; roundId: string; itemId: string } | null>(null)
   const [refundTarget, setRefundTarget] = useState<{ accountId: string; roundId: string } | null>(null)
   const [payingId, setPayingId] = useState<string | null>(null)
+  const [settlingRound, setSettlingRound] = useState<{ accountId: string; roundId: string } | null>(null)
   const accounts = data.accounts.filter(
     (account) =>
       account.status !== 'closed' &&
@@ -154,6 +158,11 @@ export function NightclubAccounts({
                           className="rounded-lg bg-emerald-400 px-3 py-2 font-bold text-slate-950 cursor-pointer"
                         >
                           Marcar entregado
+                        </button>
+                      )}
+                      {mode === 'tenant' && canPay && onSettlePendingRound && round.status !== 'cancelled' && round.authorization === 'account_charge' && round.inventoryConsumptionStatus === 'not_consumed' && (
+                        <button type="button" onClick={() => setSettlingRound({ accountId: account.id, roundId: round.id })} className="rounded-lg border border-emerald-300 px-3 py-2 font-bold text-emerald-200">
+                          Cobrar esta ronda · {money(round.total ?? round.items.reduce((sum, item) => sum + item.lineTotal, 0))}
                         </button>
                       )}
                       {canPrintComanda && onPrintComanda && (
@@ -329,6 +338,11 @@ export function NightclubAccounts({
           onPay={async (payment) => { const res = await onRecordPayment(payingId, payment); return res !== false }}
         />
       )}
+      {settlingRound && onSettlePendingRound && (() => {
+        const account = data.accounts.find(value => value.id === settlingRound.accountId)
+        const round = account?.rounds.find(value => value.id === settlingRound.roundId)
+        return account && round ? <NightclubPendingRoundPayment account={account} round={round} onClose={() => setSettlingRound(null)} onPay={payment => Promise.resolve(onSettlePendingRound(account.id, round.id, payment)).then(result => result !== false)} /> : null
+      })()}
     </div>
   )
 }

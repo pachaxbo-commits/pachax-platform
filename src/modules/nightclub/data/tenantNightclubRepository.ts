@@ -70,6 +70,7 @@ import type {
 } from './nightclubRepository'
 import type { NightclubFinancialReadScope } from './nightclubFinancialSubscriptions'
 import { NIGHTCLUB_CASHBOX_STATUS_QUERY_CHUNK_SIZE, subscribeCashboxScopedCollection } from './nightclubFinancialSubscriptions'
+import { settleNightclubPendingRoundThroughGateway } from './nightclubGateway'
 
 const generateOpId = () => `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
@@ -564,6 +565,25 @@ export class TenantNightclubRepository implements NightclubRepository {
       accountId: input.accountId,
       items: input.items,
       payment: input.payment,
+    })
+  }
+
+  async settlePendingRound(input: { operationId: string; accountId: string; roundId: string; payment: NightclubPaymentDraft }): Promise<{ accountId: string; roundId: string; paymentId: string; total: number; status: string }> {
+    return settleNightclubPendingRoundThroughGateway({
+      tenantId: this.tenantId,
+      branchId: this.branchId,
+      operationId: input.operationId,
+      accountId: input.accountId,
+      roundId: input.roundId,
+      payment: {
+        method: input.payment.method,
+        amount: input.payment.amount,
+        received: input.payment.received,
+        cashAmount: input.payment.cashAmount,
+        qrAmount: input.payment.qrAmount,
+        cardAmount: input.payment.cardAmount,
+        confirmed: input.payment.confirmed,
+      },
     })
   }
 

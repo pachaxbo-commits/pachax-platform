@@ -35,7 +35,7 @@ export function createNightclubPendingRoundThroughGateway(input: NightclubPendin
 /** Settles the existing pending round identified by roundId. The browser never
  * sends prices, stock locations, FIFO allocations, or a replacement draft. */
 export function settleNightclubPendingRoundThroughGateway(input: NightclubPendingRoundSettlementCommand) {
-  return gateway<{ accountId: string; roundId: string; paymentId: string; total: number; status: 'pending' | 'ready' }>('tenantGateway', {
+  return gateway<{ accountId: string; roundId: string; paymentId: string; total: number; status: string }>('tenantGateway', {
     action: 'nightclubCommand', tenantId: input.tenantId, branchId: input.branchId,
     commandType: 'settlePendingRound', operationId: input.operationId,
     payload: { accountId: input.accountId, roundId: input.roundId, payment: input.payment },

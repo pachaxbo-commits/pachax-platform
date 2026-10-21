@@ -38,6 +38,7 @@ export interface TenantNightclubActionsDeps {
     openAccount: (payload: any) => Promise<{ accountId: string }>
     addRound: (payload: any) => Promise<any>
     settleRound: (payload: any) => Promise<any>
+    settlePendingRound?: (payload: any) => Promise<any>
     requestBill: (payload: any) => Promise<any>
     reopenBill: (payload: any) => Promise<any>
     recordPayment: (payload: any) => Promise<any>
@@ -189,6 +190,17 @@ export function createTenantNightclubActions(deps: TenantNightclubActionsDeps) {
         payment,
       })
       return res || true
+    },
+
+    onSettlePendingRound: async (accountId: string, roundId: string, payment: NightclubPaymentDraft): Promise<boolean> => {
+      if (!repository.settlePendingRound) throw new Error('El cobro de rondas pendientes no está disponible.')
+      await repository.settlePendingRound({
+        operationId: payment.operationId || crypto.randomUUID(),
+        accountId,
+        roundId,
+        payment,
+      })
+      return true
     },
 
     onGetRound: async (roundId: string) => {

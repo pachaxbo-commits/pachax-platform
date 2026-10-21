@@ -1177,6 +1177,14 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - Studio continuó en el dataset Completo y su POS mostró los fallbacks específicos de producto, incluido Energizante como lata/vaso de bebida, sin imágenes rotas.
 - El historial canónico ahora interpreta líneas y pagos `partially_returned` / `partially_refunded` provenientes de Firestore, mostrando cantidad e importe reembolsados sin convertir la ronda en una devolución total.
 
+## Integración de liquidación de rondas Nightclub (21/10/2026, `integrate/nightclub-cashbox-pending-review`)
+
+- Se revisó el cambio exclusivo de `cambios-dario` para `settlePendingRound` y se portó el flujo necesario a una rama basada en `nightclub-member-cashbox-assignments`. La acción productiva en Cuentas utiliza el gateway y conserva la caja, ubicación y turno vigentes; no se expone a Demo/Studio.
+- La liquidación valida el saldo de la cuenta, evita volver a cobrar pagos generales previos y requiere rondas con inventario aún no consumido. El pago y el consumo FIFO son una operación idempotente; reintentos no duplican pago ni stock. Rondas ya en Barra conservan su estado.
+- Se agregaron pruebas de emulador para pagos, atribución a caja, idempotencia, concurrencia, permisos, reintentos, stock insuficiente y compatibilidad con pagos previos. Se añadió prueba de cableado de acciones del controlador.
+- Validación: `test:nightclub-pending-settlement`, `test:nightclub-orders-backend`, `test:nightclub-cashbox-read-isolation`, `test:nightclub-first-run`, `test:nightclub`, `test:tenant-core`, `test:platform-security`, `test:platform`, `test:restaurant`, `test:restaurant-backend`, `test:distribution`, `test:cash`, `test:reports`, `typecheck`, `build` y `git diff --check` aprobaron. ESLint de archivos nuevos aprobó; el lint conjunto aún reporta deuda heredada de Nightclub y no se refactorizó.
+- Main permanece en `a66e5adc24d1033f91dc0d13d5da87afc94a3f86`. No se desplegó Firebase ni producción. La Preview de la rama se verificará después de publicar.
+
 ## Nightclub first-run y cajas configurables (19/10/2026, `nightclub-first-run-bootstrap`)
 
 - Onboarding y `createTenant` crean en su transacción el Almacén general, la ubicación de Caja principal y Caja principal para `nightclub_lounge`; no abren turnos ni crean stock ficticio. Los reintentos verifican la infraestructura existente sin duplicarla.
