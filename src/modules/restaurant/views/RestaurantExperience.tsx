@@ -43,6 +43,8 @@ import { RestaurantUsers, type RestaurantMember, type Role } from '../components
 import { RestaurantReports } from '../components/RestaurantReports'
 import { RestaurantSettings } from '../components/RestaurantSettings'
 import { RestaurantPrinters } from '../components/RestaurantPrinters'
+import { RestaurantSetupGuide } from '../components/RestaurantSetupGuide'
+import { RestaurantInteractiveTour } from '../components/RestaurantInteractiveTour'
 import type { KitchenPrinterConfig } from '../components/kitchenPrinterConfig'
 import type { BusinessIdentity } from '../../../core/businessIdentity'
 import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
@@ -52,6 +54,10 @@ import { getActiveReceiptPrinter } from '../../../services/printing/printerBoots
 import { PrintEngineService } from '../../../services/printing/printEngineService'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import type { CatalogCategory, Order, OrderStatus, Product, ProductExtra } from '../../../types'
+import { getRestaurantSetupSteps, mayManageRestaurantSetup, restaurantSetupGuidePreferenceKey } from '../domain/restaurantSetupGuide'
+import { restaurantPosMobileTourSteps, restaurantPosTourPreferenceKey, restaurantPosTourSteps } from '../domain/restaurantPosTour'
+import { restaurantTablesMobileTourSteps, restaurantTablesTourPreferenceKey, restaurantTablesTourSteps } from '../domain/restaurantTablesTour'
+import { restaurantKitchenMobileTourSteps, restaurantKitchenTourPreferenceKey, restaurantKitchenTourSteps } from '../domain/restaurantKitchenTour'
 
 import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
 import './restaurantKiosk.css'
@@ -80,6 +86,8 @@ export interface RestaurantSession {
   uid: string
   userName: string
   role: string
+  /** Studio can simulate a role without changing its shared team session. */
+  setupRole?: string
   can?: (permission: string) => boolean
 }
 
@@ -292,8 +300,43 @@ export function RestaurantExperience({
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isMoreDesktopOpen, setIsMoreDesktopOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
+  const setupGuideStorageKey = restaurantSetupGuidePreferenceKey(session.tenantId, session.uid)
+  const posTourStorageKey = restaurantPosTourPreferenceKey(session.tenantId, session.uid)
+  const tablesTourStorageKey = restaurantTablesTourPreferenceKey(session.tenantId, session.uid)
+  const kitchenTourStorageKey = restaurantKitchenTourPreferenceKey(session.tenantId, session.uid)
+  const [isSetupGuideOpen, setIsSetupGuideOpen] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return window.localStorage.getItem(setupGuideStorageKey) === null
+  })
+  const [isPosTourOpen, setIsPosTourOpen] = useState(false)
+  const [isTablesTourOpen, setIsTablesTourOpen] = useState(false)
+  const [isKitchenTourOpen, setIsKitchenTourOpen] = useState(false)
   const moreDropdownRef = useRef<HTMLDivElement>(null)
   const saleProducts = useMemo(() => stockAwareProducts(products), [products])
+
+  useEffect(() => {
+    if (!isSetupGuideOpen || typeof window === 'undefined') return
+    if (window.localStorage.getItem(setupGuideStorageKey) === null) {
+      window.localStorage.setItem(setupGuideStorageKey, 'seen')
+    }
+  }, [isSetupGuideOpen, setupGuideStorageKey])
+
+  const setupRole = session.setupRole ?? session.role
+  const canManageSetup = mayManageRestaurantSetup(setupRole, session.can?.('settings.manage'))
+  const hasSetupAdminRole = ['owner', 'admin', 'team'].includes(setupRole)
+  const setupSteps = useMemo(() => getRestaurantSetupSteps({
+    hasBusinessIdentity: Boolean(businessIdentity?.tradeName?.trim()),
+    sectors,
+    tables,
+    products,
+    members,
+    shift,
+    shiftHistory,
+  }), [businessIdentity?.tradeName, members, products, sectors, shift, shiftHistory, tables])
+  const dismissSetupGuide = () => {
+    setIsSetupGuideOpen(false)
+    window.localStorage.setItem(setupGuideStorageKey, 'dismissed')
+  }
 
   const displayName = businessIdentity?.tradeName || companyName || session.restaurantName || 'Bistró Demo'
   const effectiveLogoUrl = businessIdentity?.showLogo !== false ? (businessIdentity?.logoUrl || logoUrl) : undefined
@@ -439,6 +482,60 @@ export function RestaurantExperience({
     window.scrollTo({ top: 0 })
   }
 
+  const openSetupGuide = () => {
+    setIsSetupGuideOpen(true)
+    window.localStorage.setItem(setupGuideStorageKey, 'seen')
+    selectModule('dashboard')
+  }
+
+  const startPosTour = () => {
+    window.localStorage.setItem(posTourStorageKey, 'started')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    setIsPosTourOpen(true)
+  }
+
+  const dismissPosTour = () => {
+    window.localStorage.setItem(posTourStorageKey, 'skipped')
+    setIsPosTourOpen(false)
+  }
+
+  const completePosTour = () => {
+    window.localStorage.setItem(posTourStorageKey, 'completed')
+  }
+
+  const startTablesTour = () => {
+    window.localStorage.setItem(tablesTourStorageKey, 'started')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    setIsTablesTourOpen(true)
+  }
+
+  const dismissTablesTour = () => {
+    window.localStorage.setItem(tablesTourStorageKey, 'skipped')
+    setIsTablesTourOpen(false)
+  }
+
+  const completeTablesTour = () => {
+    window.localStorage.setItem(tablesTourStorageKey, 'completed')
+  }
+
+  const startKitchenTour = () => {
+    window.localStorage.setItem(kitchenTourStorageKey, 'started')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    setIsKitchenTourOpen(true)
+  }
+
+  const dismissKitchenTour = () => {
+    window.localStorage.setItem(kitchenTourStorageKey, 'skipped')
+    setIsKitchenTourOpen(false)
+  }
+
+  const completeKitchenTour = () => {
+    window.localStorage.setItem(kitchenTourStorageKey, 'completed')
+  }
+
   const roleLabel =
     session.role === 'owner'
       ? 'Dueño'
@@ -453,6 +550,10 @@ export function RestaurantExperience({
       : session.role === 'inventory'
       ? 'Inventario'
       : isCounterService ? 'Mostrador' : 'Restaurante'
+
+  const canRunPosTour = visibleModules.some((module) => module.id === 'pos')
+  const canRunTablesTour = visibleModules.some((module) => module.id === 'tables')
+  const canRunKitchenTour = visibleModules.some((module) => module.id === 'kitchen')
 
   return (
     <div
@@ -483,6 +584,25 @@ export function RestaurantExperience({
               {operationalShiftOpen ? 'Turno abierto' : 'Turno cerrado'}
             </span>
 
+            {!isCounterService && hasSetupAdminRole && canManageSetup && (
+              <button
+                type="button"
+                onClick={openSetupGuide}
+                className="inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Guía inicial
+              </button>
+            )}
+            {canRunPosTour && (
+              <button
+                type="button"
+                onClick={activeModule === 'tables' && canRunTablesTour ? startTablesTour : activeModule === 'kitchen' && canRunKitchenTour ? startKitchenTour : startPosTour}
+                className="inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                ¿Cómo funciona?
+              </button>
+            )}
+
             {onSignOut && (
               <button
                 type="button"
@@ -497,6 +617,7 @@ export function RestaurantExperience({
             <button
               type="button"
               className="restaurant-menu-toggle"
+              data-tour="restaurant-menu-toggle"
               aria-label="Abrir menú"
               aria-expanded={isMoreOpen}
               onClick={() => setIsMoreOpen(true)}
@@ -523,6 +644,7 @@ export function RestaurantExperience({
                   aria-current={isActive ? 'page' : undefined}
                   onClick={() => selectModule(module.id)}
                   className={`restaurant-nav-btn ${isActive ? 'is-active' : ''}`}
+                  data-tour={module.id === 'pos' ? 'restaurant-nav-pos' : module.id === 'tables' ? 'restaurant-nav-tables' : module.id === 'kitchen' ? 'restaurant-nav-kitchen' : undefined}
                 >
                   <Icon size={15} />
                   <span>{module.label}</span>
@@ -576,6 +698,14 @@ export function RestaurantExperience({
       </header>
       <div className="restaurant-workspace">
         <main className="restaurant-main" id="restaurant-main-content">
+          {!isCounterService && hasSetupAdminRole && canManageSetup && isSetupGuideOpen && activeModule === 'dashboard' && (
+            <RestaurantSetupGuide
+              steps={setupSteps}
+              onNavigate={selectModule}
+              onDismiss={dismissSetupGuide}
+              onStartPosTour={canRunPosTour ? startPosTour : undefined}
+            />
+          )}
           {activeModule === 'dashboard' && (
             <RestaurantDashboard
               orders={orders}
@@ -617,6 +747,7 @@ export function RestaurantExperience({
               tables={tables}
               sectors={sectors}
               canManageFloor={session.can ? session.can('settings.manage') : ['owner', 'admin', 'team'].includes(session.role)}
+              onStartTour={canRunTablesTour ? startTablesTour : undefined}
               onFloorAction={onFloorAction}
               orders={orders}
               initialTableId={selectedTableId}
@@ -645,7 +776,7 @@ export function RestaurantExperience({
             />
           )}
           {activeModule === 'kitchen' && (
-            <RestaurantKitchen orders={orders} onAdvanceStatus={onAdvanceStatus} onAdvanceItemStatus={onAdvanceItemStatus} />
+            <RestaurantKitchen orders={orders} onAdvanceStatus={onAdvanceStatus} onAdvanceItemStatus={onAdvanceItemStatus} onStartTour={canRunKitchenTour ? startKitchenTour : undefined} />
           )}
           {activeModule === 'history' && (
             <RestaurantHistory orders={orders} shiftHistory={shiftHistory} onAdvanceStatus={onAdvanceStatus} onCancelOrder={onCancelOrder} />
@@ -759,6 +890,7 @@ export function RestaurantExperience({
                 type="button"
                 onClick={() => selectModule(m.id)}
                 aria-current={isActive ? 'page' : undefined}
+                data-tour={m.id === 'pos' ? 'restaurant-mobile-nav-pos' : m.id === 'tables' ? 'restaurant-mobile-nav-tables' : m.id === 'kitchen' ? 'restaurant-mobile-nav-kitchen' : undefined}
                 className={`flex min-h-[56px] items-center gap-2.5 rounded-2xl border px-3 text-left text-xs font-extrabold ${
                   isActive
                     ? 'border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]'
@@ -792,6 +924,39 @@ export function RestaurantExperience({
           )}
         </div>
       </Modal>
+
+      {isPosTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantPosTourSteps}
+          mobileSteps={restaurantPosMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial POS"
+          onDismiss={dismissPosTour}
+          onComplete={completePosTour}
+        />
+      )}
+
+      {isTablesTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantTablesTourSteps}
+          mobileSteps={restaurantTablesMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Mesas"
+          onDismiss={dismissTablesTour}
+          onComplete={completeTablesTour}
+        />
+      )}
+
+      {isKitchenTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantKitchenTourSteps}
+          mobileSteps={restaurantKitchenMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Cocina"
+          onDismiss={dismissKitchenTour}
+          onComplete={completeKitchenTour}
+        />
+      )}
 
       {viewingReceiptOrder && (
         <CanonicalReceiptModal

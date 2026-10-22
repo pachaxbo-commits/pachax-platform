@@ -1197,6 +1197,7 @@ export function RestaurantDemo({
     uid: isStudio ? 'studio-cashier-uid' : 'demo-cashier-uid',
     userName: effectiveUserName,
     role: sessionRole,
+    setupRole: simulatedRole || sessionRole,
   }
 
   return (
@@ -1269,7 +1270,7 @@ export function RestaurantDemo({
         restaurantStorage.removeItem('cocina-tickets-impresos')
         try {
           localStorage.removeItem(`pachax:printers:${sessionTenantId}:main`)
-        } catch {}
+        } catch { /* LocalStorage may be unavailable in embedded previews. */ }
         window.location.reload()
       }}
       onSelectRole={onSelectRole}

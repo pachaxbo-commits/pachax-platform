@@ -17,10 +17,12 @@ export function CocinaView({
   orders,
   onAdvanceStatus,
   onAdvanceItemStatus,
+  onStartTour,
 }: {
   orders: Order[]
   onAdvanceStatus: (orderId: string, status: OrderStatus) => Promise<boolean>
   onAdvanceItemStatus?: (orderId: string, itemId: string, status: 'preparing' | 'ready' | 'delivered') => Promise<boolean>
+  onStartTour?: () => void
 }) {
   const [area, setArea] = useState<'all' | 'Cocina' | 'Barra' | 'Otro'>('all')
   const [notice, setNotice] = useState<string | null>(null)
@@ -152,7 +154,7 @@ export function CocinaView({
   }, [orders])
 
   return (
-    <section className="space-y-4">
+    <section data-tour="kitchen-board" className="space-y-4">
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
@@ -170,6 +172,7 @@ export function CocinaView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onStartTour && <button data-tour="kitchen-start-tour" type="button" onClick={onStartTour} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50">¿Cómo funciona?</button>}
           {notice && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-1.5 text-xs font-bold text-amber-800 animate-pulse">
               {notice}
@@ -192,7 +195,7 @@ export function CocinaView({
       </div>
 
       {onAdvanceItemStatus && <div className="flex flex-wrap gap-2">{(['all', 'Cocina', 'Barra', 'Otro'] as const).map(name => <button key={name} onClick={() => setArea(name)} className={`rounded-xl px-4 py-2 text-xs font-bold ${area === name ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'border border-slate-200 bg-white text-slate-700'}`}>{name === 'all' ? 'Todos' : name}</button>)}</div>}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div data-tour="kitchen-orders" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {activeOrders.map((order) => {
           const isLegacy = order.status === 'preparing' || order.status === 'ready'
           const isNew = new Date().getTime() - new Date(order.createdAt).getTime() < 60000
@@ -206,6 +209,7 @@ export function CocinaView({
           return (
             <article
               key={order.id}
+              data-tour="kitchen-order-card"
               className={`rounded-2xl border p-4.5 shadow-xs transition-all duration-150 hover:shadow-md ${bgBorderColor}`}
             >
               {/* Header: Nro Pedido y Reloj */}
@@ -254,7 +258,7 @@ export function CocinaView({
               ) : null}
 
               {/* Items List */}
-              <div className="mt-4 space-y-2.5">
+              <div data-tour="kitchen-order-items" className="mt-4 space-y-2.5">
                 {order.items.filter(item => area === 'all' || !onAdvanceItemStatus || (item.productArea || 'Cocina') === area).map((item) => (
                   <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
                     <div className="text-base sm:text-lg font-extrabold leading-snug text-slate-900">
@@ -287,7 +291,7 @@ export function CocinaView({
                         OBS: {emphasizeText(item.modifiers.note)}
                       </div>
                     ) : null}
-                    {onAdvanceItemStatus && <div className="mt-3 flex flex-wrap items-center gap-2"><span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold">{item.productArea || 'Cocina'} · {item.status === 'preparing' ? 'En preparación' : item.status === 'ready' ? 'Listo' : item.status === 'delivered' ? 'Entregado' : 'Pendiente'}</span>{item.status !== 'delivered' && <button type="button" onClick={() => void onAdvanceItemStatus(order.id, item.id, item.status === 'preparing' ? 'ready' : item.status === 'ready' ? 'delivered' : 'preparing')} className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[10px] font-bold text-[var(--accent-foreground)]">{item.status === 'preparing' ? 'Marcar listo' : item.status === 'ready' ? 'Entregar' : 'Preparar'}</button>}</div>}
+                    {onAdvanceItemStatus && <div className="mt-3 flex flex-wrap items-center gap-2"><span data-tour="kitchen-status" className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold">{item.productArea || 'Cocina'} · {item.status === 'preparing' ? 'En preparación' : item.status === 'ready' ? 'Listo' : item.status === 'delivered' ? 'Entregado' : 'Pendiente'}</span>{item.status !== 'delivered' && <button data-tour={item.status === 'preparing' ? 'kitchen-ready-control' : item.status === 'ready' ? 'kitchen-delivery-control' : 'kitchen-prepare-control'} type="button" onClick={() => void onAdvanceItemStatus(order.id, item.id, item.status === 'preparing' ? 'ready' : item.status === 'ready' ? 'delivered' : 'preparing')} className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-[10px] font-bold text-[var(--accent-foreground)]">{item.status === 'preparing' ? 'Marcar listo' : item.status === 'ready' ? 'Entregar' : 'Preparar'}</button>}</div>}
                   </div>
                 ))}
               </div>
@@ -312,14 +316,14 @@ export function CocinaView({
                       ? (order.fulfillmentType === 'table' ? 'ready' : order.fulfillmentType === 'pickup' ? 'ready_for_pickup' : 'ready_for_dispatch')
                       : 'preparing'
 
-                  const tone = isReady ? 'primary' : isPreparing ? 'success' : 'warning'
+                  const tone = isReady ? 'primary' : isPreparing ? 'success' : 'secondary'
 
                   return (
                     <div className="flex gap-2">
                     <Button
                       fullWidth
                       size="lg"
-                      tone={tone as any}
+                      tone={tone}
                       className="py-4 text-base font-black tracking-wide shadow-md shadow-success/10 rounded-2xl min-h-[48px]"
                       disabled={busyOrderId === order.id}
                       onClick={async () => {
