@@ -4,9 +4,8 @@ import { Modal } from '../../../components/ui/Modal'
 import { Field, NumberInput, Segmented, SelectInput, TextInput } from '../../../components/ui/Form'
 import { EmptyBlock, Screen } from '../../../components/ui/Screen'
 import { round2 } from '../domain/engine'
-import { deleteProduct, saveProduct, saveRoute, saveCatalogSettings } from '../data/distributionRepository'
+import { deleteProduct, saveProduct, saveCatalogSettings } from '../data/distributionRepository'
 import { prepareProductPhoto } from '../data/productPhoto'
-import { PACHAX_ROUTES } from '../seed/pachaxSeed'
 import { PrimaryButton, SecondaryButton, formatBs } from './shared'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistProduct, UnitType } from '../types'
@@ -157,16 +156,10 @@ export function ProductsView({ data }: DistributionViewProps) {
   const seedCatalog = async () => {
     setIsSeeding(true)
     try {
-      const existingRoutes = new Set(data.routes.map((route) => route.id))
-
       let index = data.products.length
       for (const sample of demoProductsForProfile(data.catalogSettings.industryProfile)) {
         if (data.products.some(product => product.id === sample.id)) continue
         await saveProduct({ ...sample, productionCost: 0, minimumStock: 0, active: true, sortOrder: index++ })
-      }
-      for (const route of PACHAX_ROUTES) {
-        if (existingRoutes.has(route.id)) continue
-        await saveRoute({ ...route, active: true })
       }
     } finally {
       setIsSeeding(false)
@@ -203,7 +196,7 @@ export function ProductsView({ data }: DistributionViewProps) {
             </p>
             <div className="mt-3">
               <SecondaryButton disabled={isSeeding} onClick={() => void seedCatalog()}>
-                <Sparkles size={16} /> {isSeeding ? 'Cargando...' : 'Cargar productos y rutas de ejemplo'}
+                <Sparkles size={16} /> {isSeeding ? 'Cargando...' : 'Cargar productos de ejemplo'}
               </SecondaryButton>
             </div>
           </div>

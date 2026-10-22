@@ -278,7 +278,10 @@ async function manageMember(db, auth, request) {
     const branchIds = input.branchIds || ['main'], routeIds = input.routeIds || (input.routeId ? [input.routeId] : []);
     if (!Array.isArray(branchIds) || !branchIds.length || !Array.isArray(routeIds) || branchIds.length > 20 || routeIds.length > 20) throw new HttpsError('invalid-argument', 'Asignación inválida.');
     for (const branch of branchIds) if (!(await actor.root.collection('branches').doc(id(branch)).get()).exists) throw new HttpsError('invalid-argument', 'Sucursal desconocida.');
-    for (const route of routeIds) if (!(await actor.root.collection('distRoutes').doc(id(route)).get()).exists) throw new HttpsError('invalid-argument', 'Ruta desconocida.');
+    for (const route of routeIds) {
+      const routeDoc = await actor.root.collection('distRoutes').doc(id(route)).get();
+      if (!routeDoc.exists || routeDoc.data()?.active === false) throw new HttpsError('invalid-argument', 'La ruta no existe o está inactiva.');
+    }
     if (assignedCashboxIds !== undefined) await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, branchIds);
     if (roleId === 'distributor' && routeIds.length !== 1) throw new HttpsError('invalid-argument', 'Asigna una ruta al distribuidor.');
     let authUserCreated = false;
@@ -292,6 +295,10 @@ async function manageMember(db, auth, request) {
       if (assignedCashboxIds !== undefined) {
         if (tenant.data().businessType !== 'nightclub_lounge' || !['owner', 'admin'].includes(fresh.data()?.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
         await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, branchIds, tx);
+      }
+      for (const route of routeIds) {
+        const routeDoc = await tx.get(actor.root.collection('distRoutes').doc(route));
+        if (!routeDoc.exists || routeDoc.data()?.active === false) throw new HttpsError('invalid-argument', 'La ruta no existe o está inactiva.');
       }
       const now = new Date().toISOString();
       const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions !== undefined ? { nightclubPermissions } : {}), ...(assignedCashboxIds !== undefined ? { cashboxIds: assignedCashboxIds } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
@@ -341,6 +348,16 @@ async function manageMember(db, auth, request) {
     if (roleId) {
       if (!getTemplate(tenant.data().businessType).roles.some(role => role.id === roleId && role.id !== 'owner')) throw new HttpsError('invalid-argument', 'Rol inválido.');
       patch.roleId = roleId;
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'routeId')) {
+      const targetRole = patch.roleId || current.data().roleId;
+      if (targetRole === 'distributor') {
+        const routeId = id(input.routeId);
+        const routeDoc = await tx.get(actor.root.collection('distRoutes').doc(routeId));
+        if (!routeDoc.exists || routeDoc.data()?.active === false) throw new HttpsError('invalid-argument', 'La ruta no existe o está inactiva.');
+        patch.routeIds = [routeId];
+      } else if (input.routeId === '') patch.routeIds = [];
+      else throw new HttpsError('failed-precondition', 'Solo un distribuidor puede tener una ruta asignada.');
     }
     if (input.displayName) patch.displayName = text(input.displayName, 80);
     if (tenant.data().businessType === 'nightclub_lounge' && input.nightclubPermissions !== undefined) patch.nightclubPermissions = normalizeNightclubPermissions(input.nightclubPermissions);

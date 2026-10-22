@@ -35,6 +35,7 @@ try {
  await root.collection('members').doc(passwordTarget).set({role:'distributor',active:true,routeId:route,displayName:'QA contraseña'})
  await root.collection('members').doc(seller).set({role:'distributor',active:true,routeId:route,displayName:'QA vendedor'})
  await root.collection('members').doc(warehouse).set({role:'warehouse',active:true,warehouseId:wh,displayName:'QA almacén'})
+ await root.collection('distRoutes').doc(route).set({id:route,restaurantId:'pachax',name:'QA ruta',kind:'route',active:true})
  await root.collection('distWarehouses').doc(wh).set({id:wh,restaurantId:'pachax',name:'QA interno',active:true})
  for(const [id,price,cost] of [[pid,10,5],[pid2,8,3],[pid3,6,2]])await root.collection('distProducts').doc(id).set({id,restaurantId:'pachax',name:id,unitType:'kg',active:true,referencePrice:price,productionCost:cost})
  for(const id of [cust,old])await root.collection('distCustomers').doc(id).set({id,restaurantId:'pachax',name:id,identityNumber:id===cust?'6543210':'6543211',customerCode:id===cust?'6543210':'6543211',active:true,createdAt:new Date().toISOString(),createdBy:admin})

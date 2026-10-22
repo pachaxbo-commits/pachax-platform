@@ -416,10 +416,6 @@ function commitBatch(batch: WriteBatch, operationId: string, label: string): Pro
     })
 }
 
-function commitInBackground(batch: WriteBatch, operationId: string, label: string) {
-  void commitBatch(batch, operationId, label).catch(() => {})
-}
-
 /**
  * Firestore rechaza los campos con valor undefined. Un cierre en curso tiene
  * varios datos que todavia no ocurrieron, asi que se limpian antes de escribir.
@@ -687,12 +683,13 @@ export async function saveRoute(route: Omit<DistRoute, 'tenantId' | 'createdAt'>
   if (activeRepositoryAdapter) return activeRepositoryAdapter.saveRoute(route)
   const context = await getContext()
   const batch = writeBatch(context.db)
+  const now = new Date().toISOString()
   batch.set(
     docRef(context, DIST_COLLECTIONS.routes, route.id),
-    { ...route, tenantId: context.tenantId, createdAt: route.createdAt ?? new Date().toISOString() },
+    { ...route, tenantId: context.tenantId, createdAt: route.createdAt ?? now, updatedAt: now },
     { merge: true },
   )
-  commitInBackground(batch, `route_${route.id}`, 'ruta')
+  await commitBatch(batch, `route_${route.id}_${now}`, 'ruta')
 }
 
 export interface CustomerInput {

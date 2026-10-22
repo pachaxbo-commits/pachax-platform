@@ -461,6 +461,8 @@ async function dispatch(o, p, addition = false) {
   const routeId = addition ? current.routeId : p.routeId;
   const to = location("route", routeId);
   if (!addition) {
+    const route = await o.read("distRoutes", routeId);
+    check(route && route.active !== false, "La ruta no existe o está inactiva.");
     const seller = await o.read("members", p.distributorUid);
     check(
       seller?.active &&

@@ -86,6 +86,7 @@ try {
     const ownerClient = env.authenticatedContext(ownerUid).firestore()
     const warehouseId = db.doc(`tenants/${tenantId}/members/${warehouseUid}`)
     const routeId = `route-${suffix}-${index}`
+    await setDoc(doc(ownerClient, 'tenants', tenantId, 'distRoutes', routeId), { id: routeId, tenantId, name: 'QA Ruta', kind: 'route', active: true, createdAt: new Date().toISOString() })
     await warehouseId.set({ uid: warehouseUid, tenantId, roleId: 'warehouse', status: 'active', branchIds: ['main'], routeIds: [], warehouseId: 'central', displayName: 'QA Almacén' })
     await root.collection('members').doc(distributorUid).set({ uid: distributorUid, tenantId, roleId: 'distributor', status: 'active', branchIds: ['main'], routeIds: [routeId], displayName: 'QA Ruta' })
 
