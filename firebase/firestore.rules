@@ -856,7 +856,27 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/retailSales/{saleId} {
-      allow get, list: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'sales.read','sales');
+      allow get, list: if tBranch(tenantId,resource.data.branchId) && (tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'reports.read','reports'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailCashboxStates/{stateId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId)
+        && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'sales.create','sales'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailCashSessions/{shiftId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId)
+        && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'reports.read','reports'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailCashMovements/{movementId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId)
+        && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'reports.read','reports'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailCashClosures/{shiftId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId)
+        && (tPermission(tenantId,'cash.close','cash') || tPermission(tenantId,'reports.read','reports'));
       allow write: if false;
     }
     match /tenants/{tenantId}/retailOperations/{operationId} {

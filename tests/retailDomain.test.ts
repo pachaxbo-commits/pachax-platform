@@ -4,6 +4,7 @@ import { createSaleLine, saleTotal, validatePayments } from '../src/core/sales.t
 import { isRetailProfile, RETAIL_PROFILES } from '../src/modules/retail/domain/retailProfiles.ts'
 import { addScannedProduct, calculateRetailPayment, isUncertainRetailSaleError, parseRetailMoney, resolveRetailSaleAttempt, retailReceiptQuantity } from '../src/modules/retail/domain/retailPos.ts'
 import { validateRetailImportFields } from '../src/modules/retail/domain/retailImportValidation.ts'
+import { expectedRetailCash, retailCashReconciliation, retailQuantityLabel, summarizeRetailSales } from '../src/modules/retail/domain/retailCash.ts'
 
 test('Retail accepts only the eight supported tenant profiles', () => {
   assert.equal(RETAIL_PROFILES.length, 8)
@@ -83,4 +84,33 @@ test('Excel import reports row-specific invalid values and accepts blank optiona
   assert.throws(() => validateRetailImportFields({ ...row, cost: '-2' }), /Fila 8: precio de compra debe ser un importe válido/)
   assert.throws(() => validateRetailImportFields({ ...row, initialStock: '1.5' }), /Fila 8: stock inicial debe ser un entero/)
   assert.throws(() => validateRetailImportFields({ ...row, trackStock: 'tal vez' }), /Fila 8: el valor de controlar stock debe ser Sí o No/)
+})
+
+test('cash expected uses net cash allocated to sales, manual movements and counted difference',()=>{
+  const shift={openingFloatMinor:20000,cashSalesMinor:4500,manualInflowMinor:2500,manualOutflowMinor:2000}
+  assert.equal(expectedRetailCash(shift),25000)
+  assert.deepEqual(retailCashReconciliation(shift,24800),{expectedCashMinor:25000,countedCashMinor:24800,differenceMinor:-200})
+  assert.equal(retailQuantityLabel(750,'g'),'0,75 kg')
+  assert.equal(retailQuantityLabel(3,'unit'),'3 u.')
+  assert.throws(()=>retailCashReconciliation(shift,-1),/importe válido/)
+})
+
+test('sales report separates cash and QR, groups units and grams, and leaves historical sales unattributed',()=>{
+  const sales=[
+    {saleId:'cash',tenantId:'t',branchId:'main',items:[{productId:'cheese',productNameSnapshot:'Queso',quantity:750,unit:'g',subtotalMinor:4500}],totalMinor:4500,payment:{method:'cash',cashMinor:4500,qrMinor:0,receivedMinor:5000,changeMinor:500},actorUid:'cashier',createdAt:'2026-10-22'},
+    {saleId:'mix',tenantId:'t',branchId:'main',items:[{productId:'cheese',productNameSnapshot:'Queso',quantity:250,unit:'g',subtotalMinor:1500},{productId:'water',productNameSnapshot:'Agua',quantity:2,unit:'unit',subtotalMinor:1000}],totalMinor:2500,payment:{method:'mixed',cashMinor:1000,qrMinor:1500,receivedMinor:1000,changeMinor:0},actorUid:'cashier',createdAt:'2026-10-22'},
+    {saleId:'legacy',tenantId:'t',branchId:'main',items:[{productId:'water',productNameSnapshot:'Agua',quantity:1,unit:'unit',subtotalMinor:500}],totalMinor:500,payment:{method:'qr',cashMinor:0,qrMinor:500,receivedMinor:0,changeMinor:0},createdAt:'2026-10-20'},
+  ]
+  const summary=summarizeRetailSales(sales)
+  assert.equal(summary.totalSalesMinor,7500)
+  assert.equal(summary.cashSalesMinor,5500)
+  assert.equal(summary.qrSalesMinor,2000)
+  assert.equal(summary.cashOnlySalesMinor,4500)
+  assert.equal(summary.qrOnlySalesMinor,500)
+  assert.equal(summary.mixedCashMinor,1000)
+  assert.equal(summary.mixedQrMinor,1500)
+  assert.equal(summary.changeMinor,500)
+  assert.equal(summary.mixedCount,1)
+  assert.deepEqual(summary.products.map(item=>[item.name,item.unit,item.quantity,item.subtotalMinor]),[['Queso','g',1000,6000],['Agua','unit',3,1500]])
+  assert.deepEqual(summary.operators,[{uid:'cashier',salesCount:2,totalMinor:7000}])
 })

@@ -3,7 +3,7 @@ const { HttpsError } = require('firebase-functions/v2/https')
 const { tenantActor, hasPermission, id } = require('./authorization.cjs')
 const { isRetailProfile } = require('./generated/retailProfiles.js')
 
-const permissions = { saveProduct: 'products.manage', importProducts: 'products.manage', archiveProduct: 'products.manage', recordInventoryMovement: 'inventory.manage', createSale: 'sales.create' }
+const permissions = { saveProduct: 'products.manage', importProducts: 'products.manage', archiveProduct: 'products.manage', recordInventoryMovement: 'inventory.manage', createSale: 'sales.create', openCashSession: 'cash.close', recordCashMovement: 'cash.close', closeCashSession: 'cash.close' }
 const fingerprint = value => createHash('sha256').update(JSON.stringify(sort(value))).digest('hex')
 const sort = value => Array.isArray(value) ? value.map(sort) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sort(value[key])])) : value
 const safeId = value => {
@@ -78,7 +78,7 @@ async function executeRetailCommand(db, request) {
     if (!hasPermission(tenant, member, permission) || !member.branchIds?.includes(branchId)) throw new HttpsError('permission-denied', 'Permiso revocado o sucursal no autorizada.')
     const result = await apply({ db, tx, root, actor, member, tenant, branchId, type, payload, operationId, now })
     tx.create(operationRef, { tenantId: actor.tenantId, branchId, operationId, actorUid: actor.uid, type, requestHash, status: 'confirmed', result, createdAt: now })
-    tx.create(root.collection('retailAudit').doc(), { tenantId: actor.tenantId, branchId, operationId, actorUid: actor.uid, type, resourceId: result.productId || result.saleId || result.movementId || null, createdAt: now })
+    tx.create(root.collection('retailAudit').doc(), { tenantId: actor.tenantId, branchId, operationId, actorUid: actor.uid, type, resourceId: result.productId || result.saleId || result.cashMovementId || result.shiftId || null, createdAt: now })
     return result
   })
 }
@@ -195,13 +195,71 @@ async function apply(ctx) {
     tx.create(root.collection('retailInventoryMovements').doc(movementId), { tenantId: actor.tenantId, branchId, productId, type: movementType, quantityDelta: delta, quantityAfter: next, unit: stockSnap.data().unit, note: typeof payload.note === 'string' ? payload.note.trim().slice(0, 240) : '', actorUid: actor.uid, operationId, createdAt: now })
     return { movementId, productId, quantity: next }
   }
+  if (type === 'openCashSession') {
+    const openingFloatMinor = moneyMinor(payload.openingFloatMinor)
+    const cashboxId = 'default', stateRef = root.collection('retailCashboxStates').doc(`${branchId}__${cashboxId}`)
+    const stateSnap = await tx.get(stateRef), state = stateSnap.data()
+    if (state?.activeSessionId) {
+      const activeRef = root.collection('retailCashSessions').doc(state.activeSessionId), activeSnap = await tx.get(activeRef)
+      if (!activeSnap.exists || activeSnap.data()?.status !== 'open') throw new HttpsError('failed-precondition', 'La caja tiene un estado de jornada inconsistente. Solicita revisión antes de abrir otra.')
+      throw new HttpsError('failed-precondition', 'Ya existe una jornada de caja abierta en esta sucursal.')
+    }
+    const shiftId = `shift_${operationId}`, sessionRef = root.collection('retailCashSessions').doc(shiftId)
+    const session = { shiftId, tenantId: actor.tenantId, branchId, cashboxId, status: 'open', openedBy: actor.uid, openedAt: now, openingFloatMinor, totalSalesMinor: 0, cashSalesMinor: 0, qrSalesMinor: 0, cashOnlySalesMinor: 0, qrOnlySalesMinor: 0, mixedCashMinor: 0, mixedQrMinor: 0, cashReceivedMinor: 0, changeMinor: 0, manualInflowMinor: 0, manualOutflowMinor: 0, salesCount: 0, cashSalesCount: 0, qrSalesCount: 0, mixedSalesCount: 0 }
+    tx.create(sessionRef, session)
+    tx.set(stateRef, { tenantId: actor.tenantId, branchId, cashboxId, activeSessionId: shiftId, updatedAt: now })
+    return { shiftId, cashboxId, status: 'open', openingFloatMinor }
+  }
+  if (type === 'recordCashMovement') {
+    const cashboxId = 'default', shiftId = safeId(payload.shiftId), direction = payload.direction, amountMinor = moneyMinor(payload.amountMinor)
+    const categories = ['change_float', 'expense', 'withdrawal', 'correction']
+    if (!['in', 'out'].includes(direction) || amountMinor <= 0 || !categories.includes(payload.category)) throw new HttpsError('invalid-argument', 'Revisa el importe, tipo y categoría del movimiento de caja.')
+    const description = label(payload.description, 240)
+    const stateRef = root.collection('retailCashboxStates').doc(`${branchId}__${cashboxId}`), sessionRef = root.collection('retailCashSessions').doc(shiftId)
+    const [stateSnap, sessionSnap] = await Promise.all([tx.get(stateRef), tx.get(sessionRef)])
+    const session = sessionSnap.data()
+    if (!sessionSnap.exists || session.status !== 'open' || session.branchId !== branchId || session.cashboxId !== cashboxId || stateSnap.data()?.activeSessionId !== shiftId) throw new HttpsError('failed-precondition', 'La jornada ya no está abierta en esta caja.')
+    const field = direction === 'in' ? 'manualInflowMinor' : 'manualOutflowMinor'
+    const nextAmount = (session[field] || 0) + amountMinor
+    if (!Number.isSafeInteger(nextAmount) || nextAmount > 100_000_000) throw new HttpsError('invalid-argument', 'El total de movimientos excede el rango permitido.')
+    const cashMovementId = `cash_${operationId}`
+    tx.create(root.collection('retailCashMovements').doc(cashMovementId), { cashMovementId, tenantId: actor.tenantId, branchId, cashboxId, shiftId, direction, amountMinor, category: payload.category, description, actorUid: actor.uid, createdAt: now, operationId })
+    tx.update(sessionRef, { [field]: nextAmount, updatedAt: now })
+    tx.set(stateRef, { ...stateSnap.data(), updatedAt: now, lastOperationId: operationId })
+    return { cashMovementId, shiftId, direction, amountMinor }
+  }
+  if (type === 'closeCashSession') {
+    const cashboxId = 'default', shiftId = safeId(payload.shiftId), countedCashMinor = moneyMinor(payload.countedCashMinor)
+    const stateRef = root.collection('retailCashboxStates').doc(`${branchId}__${cashboxId}`), sessionRef = root.collection('retailCashSessions').doc(shiftId), closureRef = root.collection('retailCashClosures').doc(shiftId)
+    const [stateSnap, sessionSnap, closureSnap] = await Promise.all([tx.get(stateRef), tx.get(sessionRef), tx.get(closureRef)])
+    if (!sessionSnap.exists || sessionSnap.data()?.branchId !== branchId || sessionSnap.data()?.cashboxId !== cashboxId) throw new HttpsError('not-found', 'No se encontró la jornada de esta sucursal.')
+    if (closureSnap.exists) throw new HttpsError('failed-precondition', 'La jornada ya tiene un cierre registrado.')
+    const session = sessionSnap.data()
+    if (session.status !== 'open' || stateSnap.data()?.activeSessionId !== shiftId) throw new HttpsError('failed-precondition', 'La jornada ya está cerrada o no es la caja activa.')
+    const expectedCashMinor = session.openingFloatMinor + session.cashSalesMinor + session.manualInflowMinor - session.manualOutflowMinor
+    if (!Number.isSafeInteger(expectedCashMinor) || expectedCashMinor < 0) throw new HttpsError('failed-precondition', 'El efectivo esperado no es válido; solicita revisión antes de cerrar.')
+    const differenceMinor = countedCashMinor - expectedCashMinor
+    const observation = typeof payload.observation === 'string' ? payload.observation.trim().slice(0, 500) : ''
+    if (differenceMinor !== 0 && !observation) throw new HttpsError('invalid-argument', 'Agrega una observación obligatoria para explicar la diferencia de caja.')
+    const closedAt = now, closedBy = actor.uid
+    const closure = { shiftId, tenantId: actor.tenantId, branchId, cashboxId, openedBy: session.openedBy, openedAt: session.openedAt, openingFloatMinor: session.openingFloatMinor, totalSalesMinor: session.totalSalesMinor, cashSalesMinor: session.cashSalesMinor, qrSalesMinor: session.qrSalesMinor, cashOnlySalesMinor: session.cashOnlySalesMinor || 0, qrOnlySalesMinor: session.qrOnlySalesMinor || 0, mixedCashMinor: session.mixedCashMinor || 0, mixedQrMinor: session.mixedQrMinor || 0, cashReceivedMinor: session.cashReceivedMinor, changeMinor: session.changeMinor, manualInflowMinor: session.manualInflowMinor, manualOutflowMinor: session.manualOutflowMinor, expectedCashMinor, countedCashMinor, differenceMinor, salesCount: session.salesCount, cashSalesCount: session.cashSalesCount, qrSalesCount: session.qrSalesCount, mixedSalesCount: session.mixedSalesCount, closedBy, closedAt, observation, closeOperationId: operationId }
+    tx.create(closureRef, closure)
+    tx.update(sessionRef, { status: 'closed', closedBy, closedAt, expectedCashMinor, countedCashMinor, differenceMinor, observation, updatedAt: now })
+    tx.set(stateRef, { tenantId: actor.tenantId, branchId, cashboxId, activeSessionId: null, updatedAt: now, lastClosedSessionId: shiftId })
+    return { shiftId, status: 'closed', totalSalesMinor: session.totalSalesMinor, expectedCashMinor, countedCashMinor, differenceMinor, closedAt }
+  }
   if (type === 'createSale') {
     if (!Array.isArray(payload.items) || !payload.items.length || payload.items.length > 100) throw new HttpsError('invalid-argument', 'La venta debe incluir entre 1 y 100 productos.')
     const items = payload.items.map(item => ({ productId: safeId(item.productId), quantity: whole(item.quantity, 'Cantidad', { min: 1 }) }))
     const ids = [...new Set(items.map(item => item.productId))]
     const refs = ids.map(productId => root.collection('retailProducts').doc(productId))
     const stockRefs = ids.map(productId => root.collection('retailInventory').doc(productId))
-    const [productSnaps, stockSnaps] = await Promise.all([Promise.all(refs.map(ref => tx.get(ref))), Promise.all(stockRefs.map(ref => tx.get(ref)))])
+    const cashboxId = 'default', stateRef = root.collection('retailCashboxStates').doc(`${branchId}__${cashboxId}`)
+    const [productSnaps, stockSnaps, stateSnap] = await Promise.all([Promise.all(refs.map(ref => tx.get(ref))), Promise.all(stockRefs.map(ref => tx.get(ref))), tx.get(stateRef)])
+    const shiftId = stateSnap.data()?.activeSessionId
+    if (!shiftId) throw new HttpsError('failed-precondition', 'Abre la caja de esta sucursal antes de registrar ventas.')
+    const sessionRef = root.collection('retailCashSessions').doc(shiftId), sessionSnap = await tx.get(sessionRef), session = sessionSnap.data()
+    if (!sessionSnap.exists || session.status !== 'open' || session.branchId !== branchId || session.cashboxId !== cashboxId) throw new HttpsError('failed-precondition', 'La caja activa no tiene una jornada abierta válida.')
     const products = new Map(productSnaps.map((snap, index) => [ids[index], snap.exists ? { id: snap.id, ...snap.data() } : null]))
     const stocks = new Map(stockSnaps.map((snap, index) => [ids[index], snap.exists ? { ref: stockRefs[index], ...snap.data() } : null]))
     const lineTotals = new Map(), lines = []
@@ -220,6 +278,22 @@ async function apply(ctx) {
     const receivedMinor = payment.method === 'qr' ? 0 : moneyMinor(payment.receivedMinor)
     if (receivedMinor < cashMinor) throw new HttpsError('failed-precondition', 'El efectivo recibido no cubre el monto en efectivo.')
     const changeMinor = receivedMinor - cashMinor
+    const nextTotals = {
+      totalSalesMinor: session.totalSalesMinor + totalMinor,
+      cashSalesMinor: session.cashSalesMinor + cashMinor,
+      qrSalesMinor: session.qrSalesMinor + qrMinor,
+      cashOnlySalesMinor: (session.cashOnlySalesMinor || 0) + (payment.method === 'cash' ? totalMinor : 0),
+      qrOnlySalesMinor: (session.qrOnlySalesMinor || 0) + (payment.method === 'qr' ? totalMinor : 0),
+      mixedCashMinor: (session.mixedCashMinor || 0) + (payment.method === 'mixed' ? cashMinor : 0),
+      mixedQrMinor: (session.mixedQrMinor || 0) + (payment.method === 'mixed' ? qrMinor : 0),
+      cashReceivedMinor: session.cashReceivedMinor + receivedMinor,
+      changeMinor: session.changeMinor + changeMinor,
+      salesCount: session.salesCount + 1,
+      cashSalesCount: session.cashSalesCount + (cashMinor > 0 ? 1 : 0),
+      qrSalesCount: session.qrSalesCount + (qrMinor > 0 ? 1 : 0),
+      mixedSalesCount: session.mixedSalesCount + (payment.method === 'mixed' ? 1 : 0),
+    }
+    if (Object.values(nextTotals).some(value => !Number.isSafeInteger(value) || value < 0)) throw new HttpsError('failed-precondition', 'Los totales de caja exceden el rango permitido.')
     for (const [productId, quantity] of lineTotals) {
       const product = products.get(productId), stock = stocks.get(productId)
       if (product.trackStock) {
@@ -229,7 +303,9 @@ async function apply(ctx) {
       }
     }
     const saleId = `sale_${operationId}`
-    tx.create(root.collection('retailSales').doc(saleId), { saleId, tenantId: actor.tenantId, branchId, items: lines, totalMinor, payment: { method: payment.method, cashMinor, qrMinor, receivedMinor, changeMinor }, status: 'paid', actorUid: actor.uid, createdAt: now })
+    tx.create(root.collection('retailSales').doc(saleId), { saleId, tenantId: actor.tenantId, branchId, cashboxId, shiftId, items: lines, totalMinor, payment: { method: payment.method, cashMinor, qrMinor, receivedMinor, changeMinor }, status: 'paid', actorUid: actor.uid, createdAt: now })
+    tx.update(sessionRef, { ...nextTotals, updatedAt: now })
+    tx.set(stateRef, { ...stateSnap.data(), updatedAt: now, lastOperationId: operationId })
     return { saleId, totalMinor, changeMinor }
   }
   throw new HttpsError('invalid-argument', 'Operación de Comercio no reconocida.')
