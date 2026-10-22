@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Hotfix onboarding y paletas (22/10/2026)
+
+- Rama `codex/onboarding-palette-hotfix`, creada desde el `origin/main` productivo `cfa24975c097de26d020ea972df0f1bb75bd14fc`. Se centralizaron las cuatro paletas y Esmeralda & Ámbar cambió a `#0F766E`; la vista previa elige foreground WCAG AA para primario y acento. Configuración de identidad ofrece las mismas paletas y conserva los colores históricos hasta una selección explícita.
+- Los emuladores comprobaron las cuatro paletas en onboarding inicial y `createTenant`, rechazo de la paleta antigua `#0D9488` sin tenant parcial, y reintento de la misma cuenta/requestId con `#0F766E` sin duplicados. Mensajes de error se traducen a indicaciones seguras y comprensibles.
+- Validación local: prueba de contraste, onboarding emulado (23 comprobaciones), typecheck, build, ESLint focal y `git diff --check` PASS. No se modificaron Functions ni Rules funcionales; `build:rules` solo tocó terminaciones de línea del archivo generado y se restauró. No se desplegó Firebase ni Production. Pendiente: commit/push y Preview Vercel; solicitar autorización antes de publicar Production. La cuenta QA de Distribución existente se recuperará después de la publicación aprobada.
+
 ## Distribution 5C — identidad de ejecución dedicada (21/10/2026)
 
 - En `codex/distribution-universal-5b`, los triggers `processTenantOperation`, `refreshTenantCredit` e `initializeTenantCredit` quedan configurados para usar `distribution-ops-runtime@pachax-platform.iam.gserviceaccount.com` en `southamerica-west1`. `tenantGateway`, Platform, Nightclub, Restaurante y demás plantillas conservan su identidad y configuración.

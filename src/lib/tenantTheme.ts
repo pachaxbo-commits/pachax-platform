@@ -32,6 +32,22 @@ export function readableForeground(hex: string): '#ffffff' | '#0f172a' {
   return (luminance + 0.05) / (dark + 0.05) > 1.05 / (luminance + 0.05) ? '#0f172a' : '#ffffff'
 }
 
+/** Devuelve el ratio de contraste WCAG entre dos colores hexadecimales. */
+export function contrastRatio(first: string, second: string): number {
+  const luminance = (hex: string) => {
+    const rgb = hexToRgb(hex)
+    if (!rgb) return 0
+    const channel = (value: number) => {
+      const normalized = value / 255
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b)
+  }
+  const firstLuminance = luminance(first)
+  const secondLuminance = luminance(second)
+  return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05)
+}
+
 /**
  * Genera un tono hover (ligeramente más oscuro) para un color hex.
  */

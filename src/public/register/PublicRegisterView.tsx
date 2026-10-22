@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   ArrowRight,
   ArrowLeft,
@@ -18,20 +18,9 @@ import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
 import { DISTRIBUTION_PROFILES } from '../../modules/distribution/domain/catalog'
 import type { DistributionIndustryProfile } from '../../modules/distribution/types'
-
-interface ColorPreset {
-  id: string
-  name: string
-  primary: string
-  accent: string
-}
-
-const BRAND_PALETTES: ColorPreset[] = [
-  { id: 'sapphire', name: 'Zafiro & Cian', primary: '#2563EB', accent: '#0EA5A8' },
-  { id: 'emerald', name: 'Esmeralda & Ámbar', primary: '#0D9488', accent: '#F59E0B' },
-  { id: 'slate', name: 'Carbón & Azul', primary: '#1E293B', accent: '#3B82F6' },
-  { id: 'amber', name: 'Ámbar & Café', primary: '#B45309', accent: '#D97706' },
-]
+import { BRAND_PALETTES, type BrandPalette } from '../../core/brandPalettes'
+import { onboardingErrorMessage } from '../../core/onboardingErrorMessage'
+import { readableForeground } from '../../lib/tenantTheme'
 
 const REGISTER_PRESENTATION = {
   restaurant: { icon: Utensils, badgeColor: 'text-amber-700 bg-amber-50 border-amber-200' },
@@ -71,22 +60,11 @@ export function PublicRegisterView() {
   const [industryProfile, setIndustryProfile] = useState<DistributionIndustryProfile>('mixed')
 
   // Paleta de personalización
-  const [selectedPalette, setSelectedPalette] = useState<ColorPreset>(BRAND_PALETTES[0])
+  const [selectedPalette, setSelectedPalette] = useState<BrandPalette>(BRAND_PALETTES[0])
   const [submitting, setSubmitting] = useState(false)
   const [registerError, setRegisterError] = useState<string | null>(null)
   const [onboardingRetryNeeded, setOnboardingRetryNeeded] = useState(false)
   const [requestId] = useState(() => `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`)
-
-  useEffect(() => {
-    if (templateParam) {
-      const match = PUBLIC_TEMPLATES.find(template => template.id === templateParam || template.businessType === templateParam)
-      if (match && isTemplateProvisioningAvailable(match.businessType)) {
-        setSelectedTemplate(match.businessType)
-      } else {
-        setSelectedTemplate('')
-      }
-    }
-  }, [templateParam])
 
   const handleCompleteRegistration = async () => {
     if (submitting) return
@@ -145,7 +123,7 @@ export function PublicRegisterView() {
         })
       } catch (onboardingErr: unknown) {
         setOnboardingRetryNeeded(true)
-        throw new Error('Tu cuenta fue creada, pero no pudimos terminar de activar tu empresa. Reintentar activación.')
+        throw new Error(`Tu cuenta fue creada, pero no pudimos activar la empresa. ${onboardingErrorMessage(onboardingErr)}`, { cause: onboardingErr })
       }
 
       // 3. Redirigir a la aplicación principal
@@ -455,7 +433,7 @@ export function PublicRegisterView() {
               <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
                 <div
                   className="px-4 py-3 text-white flex items-center justify-between transition-colors duration-200"
-                  style={{ backgroundColor: selectedPalette.primary }}
+                  style={{ backgroundColor: selectedPalette.primary, color: readableForeground(selectedPalette.primary) }}
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center font-bold text-xs">
@@ -466,8 +444,8 @@ export function PublicRegisterView() {
                     </span>
                   </div>
                   <span
-                    className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: selectedPalette.accent }}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: selectedPalette.accent, color: readableForeground(selectedPalette.accent) }}
                   >
                     Activo
                   </span>
