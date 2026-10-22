@@ -42,4 +42,3 @@ export const importRetailProducts = (products: SaveRetailProduct[], mode: 'creat
 export const archiveRetailProduct = (productId: string) => retailCommand('archiveProduct', { productId })
 export const recordRetailMovement = (payload: { productId: string; quantity: number; movementType: 'intake' | 'adjustment' | 'count'; direction?: 'increase' | 'decrease'; note?: string }) => retailCommand('recordInventoryMovement', payload)
 export const createRetailSale = (payload: { items: Array<{ productId: string; quantity: number }>; payment: { method: 'cash' | 'qr' | 'mixed'; cashMinor: number; qrMinor: number; receivedMinor: number } }) => retailCommand<{ saleId: string; totalMinor: number; changeMinor: number }>('createSale', payload)
-
