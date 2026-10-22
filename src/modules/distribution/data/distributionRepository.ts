@@ -3,6 +3,7 @@ import { submitOperation } from './operationQueue.ts'
 import { normalizeCI } from '../domain/customerIdentity.ts'
 import {
   collection,
+  deleteField,
   runTransaction,
   getDocs,
   getDocsFromServer,
@@ -47,6 +48,7 @@ import type {
   DistCatalogSettings,
 } from '../types.ts'
 import { DEFAULT_SUPPORT_SETTINGS, type SupportSettings } from './supportMaintenance.ts'
+import { serializeProductForSave } from '../domain/productSerialization.ts'
 
 /**
  * Repositorio de distribucion movil.
@@ -385,12 +387,12 @@ if (typeof window !== 'undefined') {
  * Envia el lote sin bloquear la interfaz. Offline la promesa no se resuelve
  * hasta reconectar, pero el cache local ya refleja el cambio.
  */
-function commitInBackground(batch: WriteBatch, operationId: string, label: string) {
+function commitBatch(batch: WriteBatch, operationId: string, label: string): Promise<void> {
   markOperationApplied(operationId)
   syncState = { ...syncState, pending: syncState.pending + 1 }
   emitSyncState()
 
-  void batch
+  return batch
     .commit()
     .then(() => {
       syncState = {
@@ -410,7 +412,12 @@ function commitInBackground(batch: WriteBatch, operationId: string, label: strin
       syncState = { ...syncState, lastError: message }
       emitSyncState()
       console.error(`[distribution] fallo al sincronizar ${label} (${operationId})`, error)
+      throw new Error(message)
     })
+}
+
+function commitInBackground(batch: WriteBatch, operationId: string, label: string) {
+  void commitBatch(batch, operationId, label).catch(() => {})
 }
 
 /**
@@ -644,23 +651,36 @@ export function subscribeClosures(
 // Catalogo, rutas y clientes
 // ---------------------------------------------------------------------------
 
-export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }) {
-  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveProduct(product)
+export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }): Promise<'synced' | 'queued'> {
+  const serialized = serializeProductForSave(product)
+  const cleanProduct = serialized.values as Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }
+  if (activeRepositoryAdapter) {
+    await activeRepositoryAdapter.saveProduct(cleanProduct)
+    return 'synced'
+  }
   const context = await getContext()
   const batch = writeBatch(context.db)
   const now = new Date().toISOString()
+  const fields: Record<string, unknown> = {
+    ...serialized.values,
+    referencePrice: round2(product.referencePrice),
+    tenantId: context.tenantId,
+    createdAt: product.createdAt ?? now,
+    updatedAt: now,
+  }
+  for (const field of serialized.deleteFields) fields[field] = deleteField()
   batch.set(
     docRef(context, DIST_COLLECTIONS.products, product.id),
-    {
-      ...product,
-      referencePrice: round2(product.referencePrice),
-      tenantId: context.tenantId,
-      createdAt: product.createdAt ?? now,
-      updatedAt: now,
-    },
+    fields,
     { merge: true },
   )
-  commitInBackground(batch, `product_${product.id}_${now}`, 'producto')
+  const commit = commitBatch(batch, `product_${product.id}_${now}`, 'producto')
+  if (!syncState.isOnline) {
+    void commit.catch(() => {})
+    return 'queued'
+  }
+  await commit
+  return 'synced'
 }
 
 export async function saveRoute(route: Omit<DistRoute, 'tenantId' | 'createdAt'> & { createdAt?: string }) {

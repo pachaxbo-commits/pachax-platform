@@ -41,6 +41,8 @@ export function ProductsView({ data }: DistributionViewProps) {
   const [isPreparingPhoto, setIsPreparingPhoto] = useState(false)
   const [active, setActive] = useState(true)
   const [isSeeding, setIsSeeding] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveNotice, setSaveNotice] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [deleteMode, setDeleteMode] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DistProduct | null>(null)
@@ -68,6 +70,7 @@ export function ProductsView({ data }: DistributionViewProps) {
     setSku(''); setSaleUnitLabel(''); setContentAmount(''); setContentUnit('unit')
     setActive(true)
     setError(null)
+    setSaveNotice('')
     setIsOpen(true)
   }
 
@@ -80,12 +83,13 @@ export function ProductsView({ data }: DistributionViewProps) {
     setPrice(String(product.referencePrice))
     setCost(String(product.productionCost || 0)); setMinimum(String(product.minimumStock || 0))
     setPhotoDataUrl(product.photoDataUrl || '')
-    setWeight(product.approximateWeightKg ? String(product.approximateWeightKg) : '')
+    setWeight(product.approximateWeightKg != null ? String(product.approximateWeightKg) : '')
     setSku(product.sku || ''); setSaleUnitLabel(product.saleUnitLabel || '')
     setContentAmount(product.presentationContent ? String(product.presentationContent.amount) : '')
     setContentUnit(product.presentationContent?.unit || 'unit')
     setActive(product.active !== false)
     setError(null)
+    setSaveNotice('')
     setIsOpen(true)
   }
 
@@ -108,26 +112,30 @@ export function ProductsView({ data }: DistributionViewProps) {
     const content = contentAmount ? { amount: Number(contentAmount), unit: contentUnit } : undefined
     const catalogError = validateCatalogProduct({ name, category, unitType, saleUnitLabel, presentationContent: content })
     if (catalogError) { setError(catalogError); return }
+    setIsSaving(true)
+    setError(null)
     try {
-    await saveProduct({
-      id,
-      name: name.trim(),
-      photoDataUrl,
-      category,
-      presentation: presentation.trim(),
-      sku: sku.trim() || undefined,
-      saleUnitLabel: saleUnitLabel.trim() || undefined,
-      presentationContent: content,
-      unitType,
-      referencePrice: round2(Number(price)),
-      productionCost: round2(Number(cost)), minimumStock: round2(Number(minimum)),
-      approximateWeightKg: weight ? round2(Number(weight)) : undefined,
-      active,
-      sortOrder: editing?.sortOrder ?? data.products.length,
-      createdAt: editing?.createdAt,
-    })
-    setIsOpen(false)
-    } catch (err) { setError((err as Error).message) }
+      const result = await saveProduct({
+        id,
+        name: name.trim(),
+        photoDataUrl,
+        category,
+        presentation: presentation.trim(),
+        sku: sku.trim() || undefined,
+        saleUnitLabel: saleUnitLabel.trim() || undefined,
+        presentationContent: content,
+        unitType,
+        referencePrice: round2(Number(price)),
+        productionCost: round2(Number(cost)), minimumStock: round2(Number(minimum)),
+        approximateWeightKg: weight ? round2(Number(weight)) : undefined,
+        active,
+        sortOrder: editing?.sortOrder ?? data.products.length,
+        createdAt: editing?.createdAt,
+      })
+      setIsOpen(false)
+      setSaveNotice(result === 'queued' ? 'Producto guardado en este dispositivo; queda pendiente de sincronización.' : '')
+    } catch (err) { setError((err as Error).message || 'No se pudo guardar el producto.') }
+    finally { setIsSaving(false) }
   }
 
   const updateCategories = async (next: typeof data.catalogSettings.categories) => {
@@ -177,6 +185,7 @@ export function ProductsView({ data }: DistributionViewProps) {
         </div>
       }
     >
+      {saveNotice && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">{saveNotice}</p>}
       <div className="grid w-full min-w-0 gap-3">
         <section className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <Field label="Rubro de la distribuidora" hint="Solo organiza sugerencias. Puedes vender cualquier producto.">
@@ -240,11 +249,11 @@ export function ProductsView({ data }: DistributionViewProps) {
 
       <Modal
         isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
+        onClose={() => { if (!isSaving) setIsOpen(false) }}
         title={editing ? 'Editar producto' : 'Nuevo producto'}
         footer={
-          <PrimaryButton full onClick={() => void submit()}>
-            Guardar producto
+          <PrimaryButton full disabled={isSaving} onClick={() => void submit()}>
+            {isSaving ? 'Guardando...' : 'Guardar producto'}
           </PrimaryButton>
         }
       >
