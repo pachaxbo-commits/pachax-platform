@@ -66,6 +66,7 @@ export function DispatchesView({ session, data }: DistributionViewProps) {
   }
 
   const selectedDistributor = distributors.find((member) => member.uid === distributorUid) ?? null
+  const selectedRoute = data.routes.find(route => route.id === routeId)
   const routeMismatch = Boolean(
     selectedDistributor?.routeId && routeId && selectedDistributor.routeId !== routeId,
   )
@@ -108,6 +109,7 @@ export function DispatchesView({ session, data }: DistributionViewProps) {
 
     const lines = buildLines()
     if (!selectedDistributor?.routeId || routeMismatch) { setError('Selecciona un distribuidor y su ruta asignada.'); return }
+    if (selectedRoute?.active === false) { setError('Esta ruta está inactiva. Actívala desde Usuarios antes de crear un despacho nuevo.'); return }
     if (data.openDispatches.some(d => d.routeId === routeId)) { setError('La ruta ya tiene un despacho abierto. Usa Aumentar.'); return }
     if (!routeId) {
       setError('Selecciona la ruta.')

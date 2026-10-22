@@ -4,11 +4,80 @@ import { Field, FormGrid, NumberInput, TextInput } from '../../../components/ui/
 import { ChoiceButton, ChoiceModal } from '../../../components/ui/ChoiceModal'
 import { Modal } from '../../../components/ui/Modal'
 import { EmptyBlock, Screen } from '../../../components/ui/Screen'
-import { buildReconciliation, computeMoneySummary, round2, toDayKey } from '../domain/engine'
-import { declareRouteReturn, reopenClosure, saveClosure, subscribeSales, subscribeCollections, subscribeExpenses } from '../data/distributionRepository'
+import { buildReconciliation, computeMoneySummary, isSaleForDispatch, round2, toDayKey } from '../domain/engine'
+import { declareRouteReturn, newOperationId, reopenClosure, saveAdministrativeCashClosure, saveClosure, subscribeSales, subscribeCollections, subscribeExpenses } from '../data/distributionRepository'
 import { KpiCard, PrimaryButton, SecondaryButton, SectionCard, VarianceBadge, formatBs, formatQty } from './shared'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistSale, DistCollection, DistExpense, DistClosure, DistPhysicalReturnBreakdown } from '../types'
+
+function AdministrativeCashClose({ session, data }: DistributionViewProps) {
+  const isAdministration = session.role === 'admin' || session.role === 'owner'
+  const canUseAdminClose = isAdministration && session.can('dist.closure.money')
+  const dayKey = toDayKey()
+  const [sales, setSales] = useState<DistSale[]>([])
+  const [collections, setCollections] = useState<DistCollection[]>([])
+  const [expenses, setExpenses] = useState<DistExpense[]>([])
+  const [declared, setDeclared] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!canUseAdminClose) return
+    const fail = (value: Error) => setError(value.message)
+    const stops = [
+      subscribeSales([dayKey], null, rows => setSales(rows), fail),
+      subscribeCollections([dayKey], null, rows => setCollections(rows), fail),
+      subscribeExpenses([dayKey], null, rows => setExpenses(rows), fail),
+    ]
+    return () => stops.forEach(stop => stop())
+  }, [dayKey, canUseAdminClose])
+  if (!canUseAdminClose) return null
+  const close = data.closures.find(row => row.id === `admin_close_${dayKey}`)
+  const adminSales = sales.filter(row => row.sourceLocation === 'centralWarehouse' && !row.pendingConfirmation && row.saleKind !== 'courtesy')
+  const adminCollections = collections.filter(row => row.collectionOrigin === 'administration' && !row.pendingConfirmation)
+  const adminExpenses = expenses.filter(row => row.expenseOrigin === 'administration' && !row.pendingConfirmation && !row.voided)
+  const adminClaims = data.claims.filter(row => row.dayKey === dayKey)
+  const unknownOriginCount = collections.filter(row => !row.pendingConfirmation && !row.collectionOrigin).length + expenses.filter(row => !row.pendingConfirmation && !row.voided && !row.expenseOrigin).length
+  const cashSales = round2(adminSales.reduce((sum, row) => sum + (row.cashAmount || 0), 0))
+  const qrSales = round2(adminSales.reduce((sum, row) => sum + (row.qrAmount || 0), 0))
+  const creditSales = round2(adminSales.reduce((sum, row) => sum + (row.creditAmount || 0), 0))
+  const cashCollections = round2(adminCollections.reduce((sum, row) => sum + (row.cashAmount || 0), 0))
+  const qrCollections = round2(adminCollections.reduce((sum, row) => sum + (row.qrAmount || 0), 0))
+  const expensesTotal = round2(adminExpenses.reduce((sum, row) => sum + row.amount, 0))
+  const claimCashIn = round2(adminClaims.reduce((sum, row) => sum + (row.cashIn || 0), 0))
+  const claimCashOut = round2(adminClaims.reduce((sum, row) => sum + (row.cashOut || 0), 0))
+  const claimQrIn = round2(adminClaims.reduce((sum, row) => sum + (row.qrIn || 0), 0))
+  const claimQrOut = round2(adminClaims.reduce((sum, row) => sum + (row.qrOut || 0), 0))
+  const expectedCash = round2(cashSales + cashCollections + claimCashIn - claimCashOut - expensesTotal)
+  const history = data.closures.filter(row => row.closeType === 'administrative').sort((a, b) => b.dayKey.localeCompare(a.dayKey))
+  return <SectionCard title="Caja administrativa">
+    <p className="mb-3 text-xs text-slate-500">Ventas, cobranzas, reclamos y gastos de Administración · {dayKey}</p>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <KpiCard label="Efectivo de ventas" value={formatBs(cashSales)} />
+      <KpiCard label="QR de ventas" value={formatBs(qrSales)} />
+      <KpiCard label="Crédito generado" value={formatBs(creditSales)} />
+      <KpiCard label="Efectivo cobrado" value={formatBs(cashCollections)} />
+      <KpiCard label="QR cobrado" value={formatBs(qrCollections)} />
+      <KpiCard label="Reembolsos efectivos" value={formatBs(claimCashOut)} />
+      <KpiCard label="Otros ingresos en efectivo" value={formatBs(claimCashIn)} />
+      <KpiCard label="Reembolsos QR" value={formatBs(claimQrOut)} />
+      <KpiCard label="Otros ingresos QR" value={formatBs(claimQrIn)} />
+      <KpiCard label="Gastos administrativos" value={formatBs(expensesTotal)} />
+    </div>
+    {unknownOriginCount > 0 && <p className="mt-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Hay {unknownOriginCount} cobro(s) o gasto(s) históricos del día sin origen verificable. No se suman automáticamente; revisa el efectivo contado antes de cerrar.</p>}
+    <p className="mt-3 flex justify-between rounded-xl bg-slate-50 p-3 text-sm"><span>Efectivo esperado</span><strong>{formatBs(close?.expectedCash ?? expectedCash)}</strong></p>
+    {close ? <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs"><strong>Cierre del día guardado</strong><p>Declarado {formatBs(close.declaredCash || 0)} · diferencia {formatBs(close.cashDifference || 0)}</p><p>{close.responsibleName} · {close.closedAt ? new Date(close.closedAt).toLocaleString('es-BO') : close.createdAt}</p></div> : <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+      <Field label="Efectivo contado y declarado (Bs)"><NumberInput min={0} value={declared} onChange={event => setDeclared(event.target.value)} placeholder="0.00" /></Field>
+      <PrimaryButton disabled={busy || declared === '' || sales.some(row => row.pendingConfirmation) || collections.some(row => row.pendingConfirmation) || expenses.some(row => row.pendingConfirmation)} onClick={async () => {
+        setBusy(true); setError('')
+        try { await saveAdministrativeCashClosure(dayKey, Number(declared), newOperationId(`admin-close-${dayKey}`)) }
+        catch (closeError) { setError((closeError as Error).message || 'No se pudo cerrar la caja administrativa.') }
+        finally { setBusy(false) }
+      }}>{busy ? 'Guardando…' : 'Cerrar caja administrativa'}</PrimaryButton>
+    </div>}
+    {error && <p role="alert" className="mt-2 text-xs font-bold text-rose-700">{error}</p>}
+    {history.length > 0 && <div className="mt-3"><p className="mb-2 text-xs font-extrabold">Cierres anteriores</p><div className="grid gap-2">{history.map(row => <div key={row.id} className="flex justify-between gap-3 rounded-xl border p-2 text-xs"><span>{row.dayKey} · {row.responsibleName}</span><span className="text-right">Esperado {formatBs(row.expectedCash || 0)} · declarado {formatBs(row.declaredCash || 0)} · diferencia {formatBs(row.cashDifference || 0)}</span></div>)}</div></div>}
+  </SectionCard>
+}
 
 const CLOSURE_STATUS: Record<DistClosure['status'], string> = {
   draft: 'Devolución declarada; espera confirmación de almacén',
@@ -186,7 +255,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
     const mark = (key: string) => { ready.add(key); if (ready.size >= expected) setReadyDispatch(dispatchKey) }
     const fail = (e: Error) => setError(e.message)
     const ownerUid = session.role === 'distributor' ? session.uid : undefined
-    const stop = [subscribeSales(days, dispatchRoute, rows => { setRouteSales(rows.filter(s => s.sourceLocation !== 'centralWarehouse' && (s.dispatchId === dispatchKey || (!s.dispatchId && s.createdAt >= dispatchCreated)))); mark('sales') }, fail, ownerUid)]
+    const stop = [subscribeSales(days, dispatchRoute, rows => { setRouteSales(rows.filter(s => isSaleForDispatch(s, dispatchRoute) && (s.dispatchId === dispatchKey || (!s.dispatchId && s.createdAt >= dispatchCreated)))); mark('sales') }, fail, ownerUid)]
     if (session.role !== 'warehouse') {
       stop.push(subscribeCollections(days, dispatchRoute, rows => { setRouteCollections(rows.filter(c => c.createdAt >= dispatchCreated)); mark('collections') }, fail, ownerUid))
       stop.push(subscribeExpenses(days, dispatchRoute, rows => { setRouteExpenses(rows.filter(e => e.createdAt >= dispatchCreated)); mark('expenses') }, fail, ownerUid))
@@ -382,6 +451,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
   }
 
   const historicalClosures = data.closures
+    .filter(closure => closure.closeType !== 'administrative')
     .filter(closure => session.role !== 'distributor' || closure.distributorUid === session.uid || closure.returnDeclaredBy === session.uid)
     .filter(closure => session.role !== 'warehouse' || (closure.warehouseId || 'central') === (session.warehouseId || 'central'))
     .slice()
@@ -461,6 +531,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
   if (!dispatch) {
     return (
       <Screen title="Cierre de ruta">
+        <AdministrativeCashClose session={session} data={data} />
         {isDistributor && (
           <p className="rounded-2xl bg-amber-50 p-3 text-xs font-semibold leading-relaxed text-amber-900">
             Para cerrar tu ruta, primero declaras cuánto producto devuelves. Almacén cuenta y confirma físicamente esa devolución; después se habilita el cierre final del efectivo.
@@ -479,6 +550,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
   return (
     <Screen title="Cierre de ruta" subtitle={`${dispatch.routeName} · ${dispatch.distributorName}`}>
       <div className="grid w-full min-w-0 gap-3">
+        <AdministrativeCashClose session={session} data={data} />
         {availableDispatches.length > 1 && (
           <Field label="Ruta a cerrar">
             <ChoiceButton label={`${dispatch.routeName} · ${dispatch.distributorName}`} placeholder="Selecciona despacho" onClick={() => setIsDispatchOpen(true)} />

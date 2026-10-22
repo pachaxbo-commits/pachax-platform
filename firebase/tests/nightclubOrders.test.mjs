@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
+import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) {
@@ -13,6 +16,7 @@ const { getAuth } = require('firebase-admin/auth')
 const { getTemplate } = require('./generated/templates.js')
 const { executeNightclubCommand } = require('./nightclub.cjs')
 const { manageMember } = require('./tenants.cjs')
+const rulesEnv = await initializeTestEnvironment({ projectId, firestore: { host: '127.0.0.1', port: 8185, rules: fs.readFileSync('firebase/firestore.rules', 'utf8') } })
 
 const suffix = Date.now().toString(36)
 const tenantId = `orders_${suffix}`
@@ -36,6 +40,8 @@ try {
 
   // Setup main tenant
   await root.set({ tenantId, businessType: 'nightclub_lounge', configuration: template.defaults })
+  await root.collection('branches').doc('main').set({ id: 'main', tenantId, active: true })
+  await root.update({ name: 'Nightclub orders QA' })
   for (const role of template.roles) {
     await root.collection('roles').doc(role.id).set({ ...role, tenantId })
   }
@@ -2093,6 +2099,96 @@ try {
   assert.equal((await data('nightclubOperationalState/main')).activeShiftId, null)
   console.log('PASS: Test 14 (cierre legacy sin caja compatible) completado.')
 
+  // ==================================================================
+  console.log('=== TEST 15: ASIGNACIÓN DE CAJAS Y AUTORIZACIÓN ACTUALIZADA ===')
+  for (const [cashboxId, locationId, name] of [['cashbox-1', 'loc-bar-1', 'Caja 1'], ['cashbox-2', 'loc-bar-2', 'Caja 2']]) {
+    await root.collection('nightclubCashboxes').doc(cashboxId).set({ id: cashboxId, tenantId, branchId: 'main', locationId, name, active: true })
+    await root.collection('nightclubLocations').doc(locationId).set({ id: locationId, tenantId, branchId: 'main', type: 'cashbox', linkedCashboxId: cashboxId, name, active: true })
+  }
+  const manage = (uid, data, tId = tenantId) => manageMember(db, auth, { auth: { uid }, data: { tenantId: tId, ...data } })
+  const assigned = await manage('admin', {
+    action: 'createMember', operationId: `assigned-${suffix}`, email: `assigned-${suffix}@example.test`,
+    password: 'EmulatorOnly123!', displayName: 'Cashier assigned', roleId: 'cashier', branchIds: ['main'], cashboxIds: ['cashbox-1'],
+  })
+  let assignedMember = await root.collection('members').doc(assigned.uid).get()
+  assert.deepEqual(assignedMember.data().cashboxIds, ['cashbox-1'])
+  console.log('PASS: createMember persiste la asignación de Caja 1.')
+
+  await manage('admin', { action: 'updateMember', uid: assigned.uid, displayName: 'Cashier assignment retained' })
+  assignedMember = await root.collection('members').doc(assigned.uid).get()
+  assert.deepEqual(assignedMember.data().cashboxIds, ['cashbox-1'])
+  await manage('admin', { action: 'updateMember', uid: assigned.uid, cashboxIds: ['cashbox-2'] })
+  assignedMember = await root.collection('members').doc(assigned.uid).get()
+  assert.deepEqual(assignedMember.data().cashboxIds, ['cashbox-2'])
+  await manage('admin', { action: 'updateMember', uid: assigned.uid, cashboxIds: [] })
+  assignedMember = await root.collection('members').doc(assigned.uid).get()
+  assert.deepEqual(assignedMember.data().cashboxIds, [])
+  await manage('admin', { action: 'updateMember', uid: assigned.uid, cashboxIds: null })
+  assignedMember = await root.collection('members').doc(assigned.uid).get()
+  assert.equal(Object.hasOwn(assignedMember.data(), 'cashboxIds'), false)
+  console.log('PASS: updateMember cambia, restringe a ninguna caja y elimina explícitamente la restricción.')
+
+  await assert.rejects(() => manage('admin', {
+    action: 'createMember', operationId: `invalid-box-${suffix}`, email: `invalid-box-${suffix}@example.test`,
+    password: 'EmulatorOnly123!', displayName: 'Invalid assignment', roleId: 'cashier', branchIds: ['main'], cashboxIds: ['missing-box'],
+  }), error => error.code === 'invalid-argument')
+  await assert.rejects(() => auth.getUserByEmail(`invalid-box-${suffix}@example.test`), error => error.code === 'auth/user-not-found')
+  await assert.rejects(() => manage('admin', {
+    action: 'createMember', operationId: `duplicate-box-${suffix}`, email: `duplicate-box-${suffix}@example.test`,
+    password: 'EmulatorOnly123!', displayName: 'Duplicate assignment', roleId: 'cashier', branchIds: ['main'], cashboxIds: ['cashbox-1', 'cashbox-1'],
+  }), error => error.code === 'invalid-argument')
+  await assert.rejects(() => manage('waiter', { action: 'updateMember', uid: assigned.uid, cashboxIds: ['cashbox-2'] }), error => error.code === 'permission-denied')
+  await assert.rejects(() => manage('cashier', { action: 'updateMember', uid: 'cashier', cashboxIds: ['cashbox-2'] }), error => error.code === 'permission-denied')
+  await assert.rejects(() => manage('intruder', { action: 'updateMember', uid: assigned.uid, cashboxIds: ['cashbox-2'] }), error => error.code === 'permission-denied')
+  await root.collection('nightclubCashboxes').doc('inactive-box').set({ id: 'inactive-box', tenantId, branchId: 'main', locationId: 'loc-inactive', active: false })
+  await assert.rejects(() => manage('admin', { action: 'updateMember', uid: assigned.uid, cashboxIds: ['inactive-box'] }), error => error.code === 'invalid-argument')
+  await root.collection('nightclubCashboxes').doc('foreign-box').set({ id: 'foreign-box', tenantId: otherTenantId, branchId: 'main', locationId: 'foreign-location', active: true })
+  await assert.rejects(() => manage('admin', { action: 'updateMember', uid: assigned.uid, cashboxIds: ['foreign-box'] }), error => error.code === 'invalid-argument')
+  await root.collection('branches').doc('other-branch').set({ id: 'other-branch', tenantId, active: true })
+  await root.collection('nightclubCashboxes').doc('other-branch-box').set({ id: 'other-branch-box', tenantId, branchId: 'other-branch', locationId: 'loc-other', active: true })
+  await assert.rejects(() => manage('admin', { action: 'updateMember', uid: assigned.uid, cashboxIds: ['other-branch-box'] }), error => error.code === 'invalid-argument')
+  await root.collection('members').doc('partialSupervisor').set({ uid: 'partialSupervisor', tenantId, roleId: 'supervisor', status: 'active', branchIds: ['main'], nightclubPermissions: ['special.manageUsers'] })
+  await assert.rejects(() => manage('partialSupervisor', { action: 'updateMember', uid: assigned.uid, cashboxIds: null }), error => error.code === 'permission-denied')
+  await root.collection('members').doc('waiter').update({ status: 'disabled' })
+  await assert.rejects(() => manage('waiter', { action: 'updateMember', uid: assigned.uid, cashboxIds: [] }), error => error.code === 'permission-denied')
+  await root.collection('members').doc('waiter').update({ status: 'active' })
+  console.log('PASS: asignaciones inválidas, caja inactiva, sucursal no autorizada, waiter y tenant ajeno son rechazados; Auth no crea usuarios huérfanos.')
+
+  // A stale Caja 2 operatorContext cannot authorize payment after membership is reduced to Caja 1.
+  await root.collection('members').doc('cashier').update({ cashboxIds: ['cashbox-1'] })
+  await root.collection('nightclubAccounts').doc('assignment-cross-account').set({
+    id: 'assignment-cross-account', tenantId, branchId: 'main', status: 'bill_requested', cashboxId: 'cashbox-2',
+    locationId: 'loc-bar-2', shiftId: 'shift-2', subtotal: 30, paidTotal: 0, balance: 30,
+  })
+  await assert.rejects(() => call('cashier', 'recordPayment', 'assignment-cross-payment', { accountId: 'assignment-cross-account', amount: 30, method: 'cash' }), error => error.code === 'permission-denied')
+  assert.equal((await data('nightclubAccounts/assignment-cross-account')).balance, 30)
+  assert.equal((await root.collection('nightclubPayments').doc('payment_assignment-cross-payment').get()).exists, false)
+  assert.equal((await root.collection('nightclubCashMovements').doc('cash_assignment-cross-payment').get()).exists, false)
+  await assert.rejects(() => call('cashier', 'selectCashbox', 'assignment-select-box2', { cashboxId: 'cashbox-2' }), error => error.code === 'permission-denied')
+  await assert.rejects(() => call('cashier', 'openCashboxShift', 'assignment-open-box2', { cashboxId: 'cashbox-2', openingFloat: 50 }), error => error.code === 'permission-denied')
+  await root.collection('nightclubOperatorContexts').doc('cashier').set({ uid: 'cashier', tenantId, branchId: 'main', cashboxId: 'cashbox-1', locationId: 'loc-bar-1', activeShiftId: 'shift-1' })
+  await root.collection('nightclubAccounts').doc('assignment-authorized-account').set({
+    id: 'assignment-authorized-account', tenantId, branchId: 'main', status: 'bill_requested', cashboxId: 'cashbox-1',
+    locationId: 'loc-bar-1', shiftId: 'shift-1', subtotal: 20, paidTotal: 0, balance: 20,
+  })
+  const allowedAssignedPayment = await call('cashier', 'recordPayment', 'assignment-authorized-payment', { accountId: 'assignment-authorized-account', amount: 20, method: 'cash' })
+  assert.ok(allowedAssignedPayment.paymentId)
+  assert.equal((await data(`nightclubAccounts/${'assignment-authorized-account'}`)).balance, 0)
+  console.log('PASS: operatorContext Caja 2 obsoleto no autoriza selección, apertura ni cobro; cobro en Caja 1 sí funciona y el intento rechazado no genera escrituras.')
+
+  // Firestore Rules now enforce the same assigned-cashbox scope as the gateway.
+  const restricted = root.collection('members').doc('cashier')
+  await restricted.update({ cashboxIds: ['cashbox-1'] })
+  const readDb = rulesEnv.authenticatedContext('cashier').firestore()
+  await assertFails(getDoc(doc(readDb, `tenants/${tenantId}/nightclubAccounts/assignment-cross-account`)))
+  await assertFails(getDoc(doc(readDb, `tenants/${tenantId}/nightclubPayments/${payCrossOk.paymentId}`)))
+  await assertFails(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubAccounts`), where('branchId', '==', 'main'))))
+  await assertFails(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubPayments`), where('branchId', '==', 'main'))))
+  await assertSucceeds(getDoc(doc(readDb, `tenants/${tenantId}/nightclubAccounts/assignment-authorized-account`)))
+  await assertSucceeds(getDocs(query(collection(readDb, `tenants/${tenantId}/nightclubAccounts`), where('branchId', '==', 'main'), where('cashboxId', '==', 'cashbox-1'))))
+  console.log('READ SCOPE: cashier Caja 1 no lee Caja 2 ni la sucursal completa; sí lee sus documentos filtrados por Caja 1.')
+
 } finally {
+  await rulesEnv.cleanup()
   await deleteApp(app)
 }

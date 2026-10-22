@@ -4,6 +4,7 @@ const now = '2026-09-08T14:45:00.000Z'
 const photo = `data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#fee2e2"/><stop offset="1" stop-color="#fecaca"/></linearGradient></defs><rect width="640" height="360" fill="url(#g)"/><ellipse cx="320" cy="185" rx="210" ry="82" fill="#b91c1c"/><ellipse cx="320" cy="185" rx="175" ry="55" fill="#fca5a5"/><text x="320" y="315" text-anchor="middle" font-family="sans-serif" font-size="30" font-weight="700" fill="#7f1d1d">PACHAX</text></svg>')}`
 
 export const previewData: DistributionData = {
+  catalogSettings: { id: 'catalog', tenantId: 'preview', industryProfile: 'food', categories: [{ id: 'packaged', name: 'Paquetes', active: true }, { id: 'bulk', name: 'Granel', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: now },
   supportSettings: {
     companyName: 'PACHAX', taxId: '', address: '', phone: '',
     receiptHeader: 'PACHAX', receiptFooter: 'Gracias por su preferencia',

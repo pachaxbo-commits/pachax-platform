@@ -13,7 +13,14 @@ const { executeRestaurantCommand } = require('./restaurant.cjs');
 const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
 const { getTemplate } = require('./generated/templates.js');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
-const ONBOARDING_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding']);
+const distributionEventOptions = {
+  region: PACHAX_FUNCTIONS_REGION,
+  serviceAccount: 'distribution-ops-runtime@pachax-platform.iam.gserviceaccount.com',
+  retry: true,
+  maxInstances: 3,
+  concurrency: 1,
+};
+const ONBOARDING_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding', 'industryProfile']);
 function assertProvisionableTemplate(businessType) {
   try { getTemplate(businessType); }
   catch { throw new HttpsError('invalid-argument', 'Plantilla de negocio no reconocida.'); }
@@ -51,14 +58,14 @@ exports.tenantGateway = onCall(options, async request => {
   }
 });
 exports.platformGateway = onCall(options, request => platform.platformGateway(getFirestore(), request));
-exports.processTenantOperation = onDocumentCreated({ document: 'tenants/{tenantId}/distOperations/{operationId}', region: PACHAX_FUNCTIONS_REGION, retry: true }, event => event.data && processCommand(getFirestore(), event.data.ref));
-exports.refreshTenantCredit = onDocumentWritten({ document: 'tenants/{tenantId}/distReceivables/{id}', region: PACHAX_FUNCTIONS_REGION, retry: true }, async event => {
+exports.processTenantOperation = onDocumentCreated({ ...distributionEventOptions, document: 'tenants/{tenantId}/distOperations/{operationId}' }, event => event.data && processCommand(getFirestore(), event.data.ref));
+exports.refreshTenantCredit = onDocumentWritten({ ...distributionEventOptions, document: 'tenants/{tenantId}/distReceivables/{id}' }, async event => {
   const root = getFirestore().doc(`tenants/${event.params.tenantId}`);
   if ((await root.collection('maintenanceState').doc('reset').get()).data()?.active) return;
   const value = event.data?.after.exists ? event.data.after.data() : event.data?.before.data();
   if (value?.customerId) await refreshCreditStatus(getFirestore(), root, value.customerId);
 });
-exports.initializeTenantCredit = onDocumentCreated({ document: 'tenants/{tenantId}/distCustomers/{id}', region: PACHAX_FUNCTIONS_REGION, retry: true }, async event => {
+exports.initializeTenantCredit = onDocumentCreated({ ...distributionEventOptions, document: 'tenants/{tenantId}/distCustomers/{id}' }, async event => {
   const root = getFirestore().doc(`tenants/${event.params.tenantId}`);
   if ((await root.collection('maintenanceState').doc('reset').get()).data()?.active) return;
   if (event.data) await refreshCreditStatus(getFirestore(), root, event.params.id);

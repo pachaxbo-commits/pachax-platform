@@ -8,6 +8,7 @@ import { toDayKey } from "../domain/engine";
 import type { DistributionViewProps } from "./DistributionApp";
 import type { DistLot } from "../types";
 import { visiblePersonName } from "./displayText";
+import { originalLotQuantity, summarizeLotsByProductLocation } from "../domain/lotSummary.ts";
 
 const MOVEMENT_LABELS: Record<string, string> = {
   intake: "Ingreso de stock",
@@ -99,9 +100,16 @@ export function LotsAndHistory({ data, session }: DistributionViewProps) {
   const lots = data.lots.filter((l) =>
     [l.productName, l.lotCode].join(" ").toLowerCase().includes(term),
   );
+  const lotSummary = summarizeLotsByProductLocation(data.lots).filter(row => [row.productName, row.locationId].join(' ').toLowerCase().includes(term));
   return (
     <div className="mt-4 grid gap-3">
       <StockAlerts data={data} />
+      <SectionCard title="Resumen de lotes por producto y ubicación">
+        {!lotSummary.length ? <p className="text-xs text-slate-500">No hay existencias positivas por lote.</p> : <div className="grid gap-2">{lotSummary.map(row => {
+          const locationName = row.locationId === 'central' ? 'Almacén central' : row.locationId.startsWith('route__') ? data.routes.find(route => route.id === row.locationId.slice(7))?.name || 'Ruta anterior' : data.warehouses.find(warehouse => warehouse.id === row.locationId.replace(/^warehouse__/, ''))?.name || 'Almacén registrado';
+          return <div key={row.productId + ':' + row.locationId} className="flex min-w-0 items-start justify-between gap-3 rounded-xl border p-3 text-xs"><div className="min-w-0"><p className="break-words font-extrabold">{row.productName}</p><p className="text-slate-500">{locationName} · {row.lotCount} lote(s)</p></div><div className="shrink-0 text-right"><strong>{formatQty(row.quantity, row.unitType)}</strong><p className="text-slate-500">{row.estimatedValue === null ? 'Costo incompleto' : 'Valor disponible ' + row.estimatedValue.toFixed(2) + ' Bs'}</p></div></div>;
+        })}</div>}
+      </SectionCard>
       <SectionCard title="Existencias por lote">
         <TextInput
           value={search}
@@ -118,6 +126,7 @@ export function LotsAndHistory({ data, session }: DistributionViewProps) {
                 Elaboración: {l.manufacturedOn || "Sin registrar"} · Vence:{" "}
                 {l.expiresOn || "Sin registrar"}
               </p>
+              <p>Cantidad de ingreso registrada: {originalLotQuantity(l, data.movements) === null ? 'Sin historial de ingreso' : formatQty(originalLotQuantity(l, data.movements)!, l.unitType)} · costo: {l.productionCost === null ? 'Sin costo registrado' : l.productionCost.toFixed(2) + ' Bs por unidad de venta'}</p>
               {l.quarantined && (
                 <p className="font-bold text-rose-700">
                   Separado: no disponible para venta

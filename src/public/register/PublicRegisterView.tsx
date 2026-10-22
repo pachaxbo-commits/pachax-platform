@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   ArrowRight,
   ArrowLeft,
@@ -16,20 +16,11 @@ import { getPublicTemplate, PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } 
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
-
-interface ColorPreset {
-  id: string
-  name: string
-  primary: string
-  accent: string
-}
-
-const BRAND_PALETTES: ColorPreset[] = [
-  { id: 'sapphire', name: 'Zafiro & Cian', primary: '#2563EB', accent: '#0EA5A8' },
-  { id: 'emerald', name: 'Esmeralda & Ámbar', primary: '#0D9488', accent: '#F59E0B' },
-  { id: 'slate', name: 'Carbón & Azul', primary: '#1E293B', accent: '#3B82F6' },
-  { id: 'amber', name: 'Ámbar & Café', primary: '#B45309', accent: '#D97706' },
-]
+import { DISTRIBUTION_PROFILES } from '../../modules/distribution/domain/catalog'
+import type { DistributionIndustryProfile } from '../../modules/distribution/types'
+import { BRAND_PALETTES, type BrandPalette } from '../../core/brandPalettes'
+import { onboardingErrorMessage } from '../../core/onboardingErrorMessage'
+import { readableForeground } from '../../lib/tenantTheme'
 
 const REGISTER_PRESENTATION = {
   restaurant: { icon: Utensils, badgeColor: 'text-amber-700 bg-amber-50 border-amber-200' },
@@ -66,24 +57,14 @@ export function PublicRegisterView() {
     if (match && isTemplateProvisioningAvailable(match.businessType)) return match.businessType
     return '' // No hacer fallback silencioso a otra plantilla si el query param solicitó una no disponible
   })
+  const [industryProfile, setIndustryProfile] = useState<DistributionIndustryProfile>('mixed')
 
   // Paleta de personalización
-  const [selectedPalette, setSelectedPalette] = useState<ColorPreset>(BRAND_PALETTES[0])
+  const [selectedPalette, setSelectedPalette] = useState<BrandPalette>(BRAND_PALETTES[0])
   const [submitting, setSubmitting] = useState(false)
   const [registerError, setRegisterError] = useState<string | null>(null)
   const [onboardingRetryNeeded, setOnboardingRetryNeeded] = useState(false)
   const [requestId] = useState(() => `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`)
-
-  useEffect(() => {
-    if (templateParam) {
-      const match = PUBLIC_TEMPLATES.find(template => template.id === templateParam || template.businessType === templateParam)
-      if (match && isTemplateProvisioningAvailable(match.businessType)) {
-        setSelectedTemplate(match.businessType)
-      } else {
-        setSelectedTemplate('')
-      }
-    }
-  }, [templateParam])
 
   const handleCompleteRegistration = async () => {
     if (submitting) return
@@ -134,6 +115,7 @@ export function PublicRegisterView() {
           requestId,
           companyName: companyName.trim(),
           businessType: selectedTemplate,
+          ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -141,7 +123,7 @@ export function PublicRegisterView() {
         })
       } catch (onboardingErr: unknown) {
         setOnboardingRetryNeeded(true)
-        throw new Error('Tu cuenta fue creada, pero no pudimos terminar de activar tu empresa. Reintentar activación.')
+        throw new Error(`Tu cuenta fue creada, pero no pudimos activar la empresa. ${onboardingErrorMessage(onboardingErr)}`, { cause: onboardingErr })
       }
 
       // 3. Redirigir a la aplicación principal
@@ -451,7 +433,7 @@ export function PublicRegisterView() {
               <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
                 <div
                   className="px-4 py-3 text-white flex items-center justify-between transition-colors duration-200"
-                  style={{ backgroundColor: selectedPalette.primary }}
+                  style={{ backgroundColor: selectedPalette.primary, color: readableForeground(selectedPalette.primary) }}
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center font-bold text-xs">
@@ -462,8 +444,8 @@ export function PublicRegisterView() {
                     </span>
                   </div>
                   <span
-                    className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: selectedPalette.accent }}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: selectedPalette.accent, color: readableForeground(selectedPalette.accent) }}
                   >
                     Activo
                   </span>
@@ -473,6 +455,24 @@ export function PublicRegisterView() {
                   <span>Plantilla: {getPublicTemplate(selectedTemplate).title}</span>
                 </div>
               </div>
+
+              {/* Perfil de rubro para empresas de Distribución */}
+              {selectedTemplate === 'route_distribution' && (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                  <label htmlFor="public-distribution-industry-profile" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    ¿Qué tipo de productos distribuye tu empresa?
+                  </label>
+                  <select
+                    id="public-distribution-industry-profile"
+                    value={industryProfile}
+                    onChange={event => setIndustryProfile(event.target.value as DistributionIndustryProfile)}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  >
+                    {DISTRIBUTION_PROFILES.map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-600">Solo prepara categorías sugeridas. Puedes vender otros productos y cambiar el rubro después.</p>
+                </div>
+              )}
 
               {/* Paletas */}
               <div className="space-y-2">
@@ -543,6 +543,12 @@ export function PublicRegisterView() {
                   <span className="text-slate-500">Cuenta administradora:</span>
                   <span className="font-bold text-slate-900">{fullName} ({email})</span>
                 </div>
+                {selectedTemplate === 'route_distribution' && (
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Rubro:</span>
+                    <span className="font-bold text-slate-900">{DISTRIBUTION_PROFILES.find(profile => profile.id === industryProfile)?.label}</span>
+                  </div>
+                )}
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Empresa:</span>
                   <span className="font-bold text-slate-900">{companyName}</span>

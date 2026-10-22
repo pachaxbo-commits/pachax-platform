@@ -8,6 +8,18 @@
 /** kg = granel por peso, unit = pieza suelta, package = paquete/sachet cerrado */
 export type UnitType = 'kg' | 'unit' | 'package'
 
+/** A presentation is a separately stocked SKU. Contents are descriptive unless
+ * an explicit transactional conversion is implemented; they never change stock. */
+export type DistributionIndustryProfile = 'food' | 'beverages' | 'cleaning' | 'hardware' | 'pharmacy' | 'pets' | 'stationery' | 'spare_parts' | 'mixed'
+export type PresentationContentUnit = 'unit' | 'g' | 'kg' | 'ml' | 'l'
+export interface DistCatalogSettings {
+  id: 'catalog'
+  tenantId: string
+  industryProfile: DistributionIndustryProfile
+  categories: Array<{ id: string; name: string; active: boolean }>
+  updatedAt: string
+}
+
 export type PaymentKind = 'cash' | 'qr' | 'credit' | 'mixed'
 
 export type SourceLocation = 'route' | 'centralWarehouse'
@@ -54,6 +66,12 @@ export interface DistProduct {
   referencePrice: number
   /** Peso aproximado por paquete/unidad. NO se usa para convertir reportes. */
   approximateWeightKg?: number
+  /** Unique shop SKU/code. */
+  sku?: string
+  /** Display label for one stock/sale unit. */
+  saleUnitLabel?: string
+  /** Exact content of one SKU, informational; never used to convert stock. */
+  presentationContent?: { amount: number; unit: PresentationContentUnit }
   active: boolean
   sortOrder: number
   tenantId: string
@@ -122,6 +140,7 @@ export interface DistStockMovement extends DistBaseDoc {
   fromLocation?: string
   toLocation?: string
   routeId?: string
+  lotId?: string
   /** Documento que origino el movimiento (dispatchId, saleId, closureId) */
   refType?: 'dispatch' | 'sale' | 'closure' | 'manual'
   refId?: string
@@ -177,6 +196,8 @@ export interface DistSaleLine {
   productNameSnapshot: string
   quantity: number
   unitType: UnitType
+  /** Snapshot of the commercial name for one stocked SKU. */
+  unitLabel?: string
   /** Precio realmente aplicado, congelado historicamente */
   actualUnitPrice: number
   subtotal: number
@@ -242,6 +263,7 @@ export interface DistCollectionAllocation {
 }
 
 export interface DistCollection extends DistBaseDoc {
+  collectionOrigin?: 'route' | 'administration'
   saleLines?: DistSaleLine[]
   customerCode?: string
   operationId: string
@@ -263,6 +285,7 @@ export interface DistCollection extends DistBaseDoc {
 }
 
 export interface DistExpense extends DistBaseDoc {
+  expenseOrigin?: 'route' | 'administration'
   voided?: boolean
   voidedAt?: string
   voidedBy?: string
@@ -331,6 +354,22 @@ export interface DistClosureProductRow {
 export type ClosureStatus = 'draft' | 'warehouse_done' | 'closed' | 'reopened'
 
 export interface DistClosure extends DistBaseDoc {
+  closeType?: 'route' | 'administrative'
+  responsibleUid?: string
+  responsibleName?: string
+  creditSales?: number
+  expensesTotal?: number
+  totalSales?: number
+  totalCollections?: number
+  salesCount?: number
+  collectionsCount?: number
+  expensesCount?: number
+  claimsCount?: number
+  claimCashIn?: number
+  claimCashOut?: number
+  claimQrIn?: number
+  claimQrOut?: number
+  declaredCash?: number
   warehouseId?: string
   declaredReturns?: Record<string, number>
   declaredReturnMermas?: Record<string, number>
@@ -401,7 +440,7 @@ export interface DistLot {
  quantities: Record<string, number>; quarantined?: boolean; legacy?: boolean; createdAt: string; createdBy: string;
 }
 export interface DistTransfer { id: string; fromWarehouseId: string; toWarehouseId: string; line: DistDispatchLine; createdAt: string; createdBy: string; responsibleName?: string; note?: string }
-export interface DistClaim { id: string; kind: 'exchange'|'return'; saleId: string; customerId: string; customerName: string; productId: string; productName: string; quantity: number; unitType: UnitType; reason: string; routeId: string; createdAt: string; dayKey: string; revenueDelta: number; additionalCost: number | null; debtReduction: number; cashIn: number; cashOut: number; qrIn: number; qrOut: number; replacement: {productId: string;productName: string;quantity: number;unitType: UnitType;total: number} | null }
+export interface DistClaim { id: string; kind: 'exchange'|'return'; saleId: string; customerId: string; customerName: string; productId: string; productName: string; quantity: number; unitType: UnitType; reason: string; routeId: string; createdAt: string; dayKey: string; revenueDelta: number; additionalCost: number | null; debtReduction: number; cashIn: number; cashOut: number; qrIn: number; qrOut: number; method?: 'cash' | 'qr' | 'none'; replacement: {productId: string;productName:string;quantity:number;unitType:UnitType;total:number} | null }
 export interface DistCreditStatus {
   id: string
   oldestPendingAt: string | null

@@ -18,6 +18,11 @@ import { BrandMark } from '../public/components/BrandMark'
 import { gateway } from '../services/gateway'
 import type { BusinessType } from '../core/platform'
 import { isTemplateProvisioningAvailable } from '../core/publicTemplates'
+import { DISTRIBUTION_PROFILES } from '../modules/distribution/domain/catalog'
+import type { DistributionIndustryProfile } from '../modules/distribution/types'
+import { BRAND_PALETTES, type BrandPalette } from '../core/brandPalettes'
+import { onboardingErrorMessage } from '../core/onboardingErrorMessage'
+import { readableForeground } from '../lib/tenantTheme'
 
 interface OnboardingWizardProps {
   userEmail: string | null
@@ -27,20 +32,6 @@ interface OnboardingWizardProps {
   onCancel?: () => void
   onSignOut: () => Promise<void>
 }
-
-interface ColorPreset {
-  id: string
-  name: string
-  primary: string
-  accent: string
-}
-
-const BRAND_PALETTES: ColorPreset[] = [
-  { id: 'sapphire', name: 'Zafiro & Cian', primary: '#2563EB', accent: '#0EA5A8' },
-  { id: 'emerald', name: 'Esmeralda & Ámbar', primary: '#0D9488', accent: '#F59E0B' },
-  { id: 'slate', name: 'Carbón & Azul', primary: '#1E293B', accent: '#3B82F6' },
-  { id: 'amber', name: 'Ámbar & Café', primary: '#B45309', accent: '#D97706' },
-]
 
 interface TemplateOption {
   type: BusinessType
@@ -110,7 +101,8 @@ export function OnboardingWizard({
   const [phone, setPhone] = useState('')
   const [city, setCity] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<BusinessType>('route_distribution')
-  const [selectedPalette, setSelectedPalette] = useState<ColorPreset>(BRAND_PALETTES[0])
+  const [industryProfile, setIndustryProfile] = useState<DistributionIndustryProfile>('mixed')
+  const [selectedPalette, setSelectedPalette] = useState<BrandPalette>(BRAND_PALETTES[0])
 
   // Submission & Idempotency
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -164,6 +156,7 @@ export function OnboardingWizard({
           requestId,
           companyName: trimmedName,
           businessType: selectedTemplate,
+          ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -177,6 +170,7 @@ export function OnboardingWizard({
           operationId: requestId,
           name: trimmedName,
           businessType: selectedTemplate,
+          ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -194,11 +188,7 @@ export function OnboardingWizard({
       await onSuccess(createdTenantId)
     } catch (err: unknown) {
       setIsSubmitting(false)
-      const errObj = err as { message?: string }
-      setError(
-        errObj?.message ||
-          'No se pudo completar la creación de la empresa. Verifica los datos e intenta nuevamente.'
-      )
+      setError(onboardingErrorMessage(err))
     }
   }
 
@@ -454,6 +444,22 @@ export function OnboardingWizard({
             </p>
 
             <div className="mt-6 space-y-6">
+              {selectedTemplate === 'route_distribution' && (
+                <div>
+                  <label htmlFor="distribution-industry-profile" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                    ¿Qué tipo de productos distribuye tu empresa?
+                  </label>
+                  <select
+                    id="distribution-industry-profile"
+                    value={industryProfile}
+                    onChange={event => setIndustryProfile(event.target.value as DistributionIndustryProfile)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  >
+                    {DISTRIBUTION_PROFILES.map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">Esto sugiere categorías iniciales; puedes vender otros productos y cambiar el rubro luego.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
                   Paleta de color de marca
@@ -462,7 +468,9 @@ export function OnboardingWizard({
                   {BRAND_PALETTES.map((palette) => {
                     const isSelected = selectedPalette.id === palette.id
                     return (
-                      <div
+                      <button
+                        type="button"
+                        aria-pressed={isSelected}
                         key={palette.id}
                         onClick={() => setSelectedPalette(palette)}
                         className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
@@ -488,7 +496,7 @@ export function OnboardingWizard({
                         </div>
 
                         {isSelected && <Check className="w-4 h-4 text-[#0066FF]" />}
-                      </div>
+                      </button>
                     )
                   })}
                 </div>
@@ -546,6 +554,13 @@ export function OnboardingWizard({
                 <span className="text-sm font-bold text-slate-900">{companyName}</span>
               </div>
 
+              {selectedTemplate === 'route_distribution' && (
+                <div className="flex items-center justify-between py-1 border-b border-slate-200/80">
+                  <span className="text-xs font-medium text-slate-500">Rubro de distribución:</span>
+                  <span className="text-sm font-semibold text-slate-900">{DISTRIBUTION_PROFILES.find(profile => profile.id === industryProfile)?.label}</span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between py-1 border-b border-slate-200/80">
                 <span className="text-xs font-medium text-slate-500">Modelo de negocio:</span>
                 <span className="text-sm font-semibold text-slate-900">
@@ -558,10 +573,16 @@ export function OnboardingWizard({
                 <div className="flex items-center gap-2">
                   <span
                     className="w-4 h-4 rounded-full border border-slate-300"
-                    style={{ backgroundColor: selectedPalette.primary }}
+                    style={{ backgroundColor: selectedPalette.primary, color: readableForeground(selectedPalette.primary) }}
                   />
                   <span className="text-xs font-medium text-slate-700">
                     {selectedPalette.name}
+                  </span>
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    style={{ backgroundColor: selectedPalette.accent, color: readableForeground(selectedPalette.accent) }}
+                  >
+                    Vista previa
                   </span>
                 </div>
               </div>

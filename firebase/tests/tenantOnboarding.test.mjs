@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { BRAND_PALETTES } from '../../src/core/brandPalettes.ts'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) throw new Error('Proyecto no autorizado para QA onboarding.')
@@ -19,10 +20,14 @@ const suffix = Date.now().toString(36)
 const ids = {
   ownerA: `onboarding-a-${suffix}`,
   ownerB: `onboarding-b-${suffix}`,
+  ownerDistribution: `onboarding-distribution-${suffix}`,
+  ownerInvalid: `onboarding-invalid-${suffix}`,
   ownerNightclub: `onboarding-nightclub-${suffix}`,
+  ownerPaletteRecovery: `onboarding-palette-recovery-${suffix}`,
   partial: `onboarding-partial-${suffix}`,
   platform: `onboarding-platform-${suffix}`,
 }
+const paletteOwners = Object.fromEntries(BRAND_PALETTES.map(palette => [palette.id, `onboarding-palette-${palette.id}-${suffix}`]))
 const env = await initializeTestEnvironment({
   projectId,
   firestore: { host: '127.0.0.1', port: 8185, rules: fs.readFileSync('firebase/firestore.rules', 'utf8') },
@@ -52,7 +57,7 @@ async function callOnboarding(token, data) {
 }
 
 try {
-  for (const uid of Object.values(ids)) {
+  for (const uid of [...Object.values(ids), ...Object.values(paletteOwners)]) {
     await auth.createUser({ uid, email: `${uid}@example.test`, password: 'Emulator123!', displayName: `QA ${uid}` })
   }
 
@@ -118,6 +123,20 @@ try {
   assert(!(await db.doc(`users/${ids.ownerB}/onboarding/initialTenant`).get()).exists)
   pass('template inválido no deja onboarding parcial')
 
+  const invalidIndustry = await callOnboarding(await signIn(ids.ownerInvalid), {
+    requestId: `invalid-industry-${suffix}`, companyName: 'Rubro inválido', businessType: 'route_distribution', industryProfile: 'autos',
+  })
+  assert.equal(invalidIndustry.body.error.status, 'INVALID_ARGUMENT')
+  assert(!(await db.doc(`tenants/${initialTenantId(ids.ownerInvalid)}`).get()).exists)
+  pass('onboarding rechaza rubros desconocidos antes de escribir documentos')
+
+  const wrongTemplateProfile = await callOnboarding(await signIn(ids.ownerInvalid), {
+    requestId: `wrong-template-profile-${suffix}`, companyName: 'Perfil fuera de plantilla', businessType: 'restaurant_pos', industryProfile: 'food',
+  })
+  assert.equal(wrongTemplateProfile.body.error.status, 'INVALID_ARGUMENT')
+  assert(!(await db.doc(`tenants/${initialTenantId(ids.ownerInvalid)}`).get()).exists)
+  pass('onboarding rechaza industryProfile en plantillas distintas de Distribución')
+
   const forgedPlatform = await callOnboarding(tokenB, { requestId: `forged-platform-${suffix}`, companyName: 'Empresa B', businessType: 'gelateria_weight_cafe', platformRole: 'platform_owner' })
   assert.equal(forgedPlatform.body.error.status, 'INVALID_ARGUMENT')
   assert(!(await db.doc(`platformOperators/${ids.ownerB}`).get()).exists)
@@ -146,6 +165,90 @@ try {
   assert.equal((await db.doc(`tenants/${nightclubTenant}`).get()).data().businessType, 'nightclub_lounge')
   pass('Nightclub completa onboarding con tenant, owner y roles del template canónico')
 
+  const distributionRequestId = `distribution-${suffix}`
+  const distributionResult = await callOnboarding(await signIn(ids.ownerDistribution), {
+    requestId: distributionRequestId, companyName: 'Bebidas QA', businessType: 'route_distribution', industryProfile: 'beverages',
+  })
+  assert(distributionResult.response.ok, JSON.stringify(distributionResult.body))
+  const distributionTenant = distributionResult.result.tenantId
+  const catalogRef = db.doc(`tenants/${distributionTenant}/distSettings/catalog`)
+  const initialCatalog = await catalogRef.get()
+  assert.equal(initialCatalog.data()?.industryProfile, 'beverages')
+  assert.deepEqual(initialCatalog.data()?.categories.map(category => category.name), ['Agua', 'Gaseosas', 'Jugos', 'Otros'])
+  assert.equal((await db.collection(`tenants/${distributionTenant}/distProducts`).get()).size, 0)
+  const distributionRetry = await callOnboarding(await signIn(ids.ownerDistribution), {
+    requestId: distributionRequestId, companyName: 'Bebidas QA', businessType: 'route_distribution', industryProfile: 'beverages',
+  })
+  assert(distributionRetry.response.ok)
+  assert.equal((await catalogRef.get()).data()?.categories.length, 4)
+  pass('onboarding Distribution persiste perfil/categorías dentro del alta sin sembrar productos y reintenta sin duplicar')
+
+  const paletteRecoveryRequestId = `palette-recovery-${suffix}`
+  const rejectedPalette = await callOnboarding(await signIn(ids.ownerPaletteRecovery), {
+    requestId: paletteRecoveryRequestId, companyName: 'Recuperación paleta QA', businessType: 'route_distribution',
+    industryProfile: 'beverages', branding: { primary: '#0D9488', accent: '#F59E0B' },
+  })
+  assert.equal(rejectedPalette.body.error.status, 'INVALID_ARGUMENT')
+  assert(!(await db.doc(`tenants/${initialTenantId(ids.ownerPaletteRecovery)}`).get()).exists)
+  const recoveredPalette = await callOnboarding(await signIn(ids.ownerPaletteRecovery), {
+    requestId: paletteRecoveryRequestId, companyName: 'Recuperación paleta QA', businessType: 'route_distribution',
+    industryProfile: 'beverages', branding: { primary: '#0F766E', accent: '#F59E0B' },
+  })
+  assert(recoveredPalette.response.ok, JSON.stringify(recoveredPalette.body))
+  const recoveredRetry = await callOnboarding(await signIn(ids.ownerPaletteRecovery), {
+    requestId: paletteRecoveryRequestId, companyName: 'Recuperación paleta QA', businessType: 'route_distribution',
+    industryProfile: 'beverages', branding: { primary: '#0F766E', accent: '#F59E0B' },
+  })
+  assert(recoveredRetry.response.ok)
+  assert.equal(recoveredRetry.result.tenantId, recoveredPalette.result.tenantId)
+  assert.equal((await db.collection('tenants').where('ownerUid', '==', ids.ownerPaletteRecovery).get()).size, 1)
+  pass('cuenta Auth conserva requestId: rechazo de paleta no crea tenant y el reintento corregido es idempotente')
+
+  for (const palette of BRAND_PALETTES) {
+    const result = await callOnboarding(await signIn(paletteOwners[palette.id]), {
+      requestId: `palette-${palette.id}-${suffix}`, companyName: `Paleta ${palette.id} QA`,
+      businessType: 'route_distribution', industryProfile: 'beverages',
+      branding: { primary: palette.primary, accent: palette.accent },
+    })
+    assert(result.response.ok, `${palette.name}: ${JSON.stringify(result.body)}`)
+    const paletteTenant = await db.doc(`tenants/${result.result.tenantId}`).get()
+    assert.equal(paletteTenant.data()?.branding.primary, palette.primary.toLowerCase())
+    assert.equal(paletteTenant.data()?.branding.accent, palette.accent.toLowerCase())
+  }
+  pass('primera empresa acepta las cuatro paletas ofrecidas en el registro')
+
+  const createTenantResponse = await callOnboarding(await signIn(ids.ownerA), {
+    action: 'createTenant', operationId: `create-distribution-${suffix}`, name: 'Mascotas QA', businessType: 'route_distribution', industryProfile: 'pets',
+  })
+  assert(createTenantResponse.response.ok, JSON.stringify(createTenantResponse.body))
+  const extraTenant = createTenantResponse.result.tenantId
+  const extraCatalogRef = db.doc(`tenants/${extraTenant}/distSettings/catalog`)
+  const extraCatalog = await extraCatalogRef.get()
+  assert.equal(extraCatalog.data()?.industryProfile, 'pets')
+  assert.deepEqual(extraCatalog.data()?.categories.map(category => category.name), ['Alimento', 'Higiene', 'Accesorios', 'Otros'])
+  const createTenantRetry = await callOnboarding(await signIn(ids.ownerA), {
+    action: 'createTenant', operationId: `create-distribution-${suffix}`, name: 'Mascotas QA', businessType: 'route_distribution', industryProfile: 'pets',
+  })
+  assert(createTenantRetry.response.ok)
+  assert.equal(createTenantRetry.result.tenantId, extraTenant)
+  assert.equal((await db.collection(`tenants/${extraTenant}/distSettings`).get()).size, 1)
+  pass('createTenant Distribution persiste el rubro y reintenta idempotentemente')
+
+  for (const palette of BRAND_PALETTES) {
+    const operationId = `extra-palette-${palette.id}-${suffix}`
+    const result = await callOnboarding(await signIn(ids.ownerA), {
+      action: 'createTenant', operationId, name: `Paleta extra ${palette.id}`,
+      businessType: 'route_distribution', industryProfile: 'beverages',
+      branding: { primary: palette.primary, accent: palette.accent },
+      businessIdentity: { tradeName: `Paleta extra ${palette.id}` },
+    })
+    assert(result.response.ok, `${palette.name}: ${JSON.stringify(result.body)}`)
+    const extraPaletteTenant = await db.doc(`tenants/${result.result.tenantId}`).get()
+    assert.equal(extraPaletteTenant.data()?.branding.primary?.toLowerCase(), palette.primary.toLowerCase())
+    assert.equal(extraPaletteTenant.data()?.branding.accent?.toLowerCase(), palette.accent.toLowerCase())
+  }
+  pass('empresa adicional desde Platform acepta las cuatro paletas ofrecidas')
+
   const clientA = env.authenticatedContext(ids.ownerA).firestore()
   await assertSucceeds(getDoc(doc(clientA, 'tenants', tenantA)))
   await assertFails(getDoc(doc(clientA, 'tenants', tenantB)))
@@ -172,7 +275,7 @@ try {
   assert(!(await db.doc(`tenants/${initialTenantId(ids.platform)}`).get()).exists)
   pass('operador Platform activo no usa onboarding tenant como acceso lateral')
 
-  assert.equal(checks, 16)
+  assert.equal(checks, 23)
   console.log(`${checks} comprobaciones de onboarding seguro aprobadas`)
 } finally {
   await env.cleanup()

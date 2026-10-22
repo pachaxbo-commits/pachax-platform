@@ -10,6 +10,9 @@ const roundAt = (n, precision = 2) => {
   return Math.round((Number(n) + Number.EPSILON) * factor) / factor;
 };
 
+const isSaleForDispatch = (sale, routeId) =>
+  (!sale.routeId || sale.routeId === routeId) && sale.sourceLocation !== "centralWarehouse";
+
 function splitAllocationsByAmounts(allocations, amounts) {
   const groups = amounts.map(() => []);
   let groupIndex = 0;
@@ -350,6 +353,25 @@ class Operation {
     for (const w of this.writes.values()) this.tx.set(w.ref, w.data);
   }
 }
+
+// All administrative cash operations and the daily close read/write this
+// tenant/day document in their transaction. Firestore transaction conflicts
+// serialize a sale against a simultaneous close; a retry then either sees the
+// sale in the close totals or sees the closed marker and is rejected.
+async function assertAdministrativeDayOpen(o) {
+  if (o.member.role !== "admin") return;
+  const day = await o.read("distAdministrativeDays", o.today);
+  check(day?.status !== "closed", "La caja administrativa de hoy ya fue cerrada. No se permiten nuevas operaciones financieras.");
+  o.put("distAdministrativeDays", o.today, {
+    ...(day || {}),
+    id: o.today,
+    ...o.base(),
+    status: "open",
+    lastOperationAt: o.now,
+    lastOperationId: o.id,
+  });
+}
+
 async function intake(o, p) {
   o.owns("central");
   check(Array.isArray(p.lines) && p.lines.length, "Agrega productos.");
@@ -439,6 +461,8 @@ async function dispatch(o, p, addition = false) {
   const routeId = addition ? current.routeId : p.routeId;
   const to = location("route", routeId);
   if (!addition) {
+    const route = await o.read("distRoutes", routeId);
+    check(route && route.active !== false, "La ruta no existe o está inactiva.");
     const seller = await o.read("members", p.distributorUid);
     check(
       seller?.active &&
@@ -559,6 +583,7 @@ async function sale(o, p) {
       (o.member.role === "distributor" ? "route" : "centralWarehouse"),
     "Origen de venta no autorizado.",
   );
+  await assertAdministrativeDayOpen(o);
   const isCourtesy = p.saleKind === "courtesy";
   if (isCourtesy) {
     check(
@@ -642,6 +667,7 @@ async function sale(o, p) {
       productId: l.productId,
       productNameSnapshot: product.name,
       unitType: product.unitType,
+      unitLabel: product.saleUnitLabel || (product.unitType === 'kg' ? 'kg' : product.unitType === 'package' ? 'paquete' : 'unidad'),
       quantity: l.quantity,
       actualUnitPrice,
       subtotal,
@@ -683,11 +709,15 @@ async function sale(o, p) {
     ...o.base(),
     operationId: o.id,
     sourceLocation: p.sourceLocation,
-    routeId: p.routeId,
-    routeName: p.routeName,
+    // Admin sales always belong to the central administrative till; stale UI
+    // route selections must never leak into a route close.
+    routeId: o.member.role === "distributor" ? o.member.routeId : "central",
+    routeName: o.member.role === "distributor" ? (o.member.routeName || p.routeName || "Ruta") : "Administración",
     sellerUid: o.actor,
     sellerName: o.member.displayName || o.actor,
-    dispatchId: p.dispatchId || "",
+    // Solo una venta de distribuidor pertenece a un despacho. No confiar en
+    // el dispatchId que pueda conservar la pantalla administrativa.
+    dispatchId: o.member.role === "distributor" ? p.dispatchId || "" : "",
     customerId: p.customerId || "",
     customerName: p.customerName || "",
     customerCode: p.customerCode || "",
@@ -724,7 +754,7 @@ async function sale(o, p) {
       customerId: p.customerId,
       customerName: p.customerName,
       customerCode: p.customerCode,
-      routeId: p.routeId,
+      routeId: o.member.role === "distributor" ? o.member.routeId : "central",
       distributorUid: o.actor,
       distributorName: s.sellerName,
       originalAmount: p.creditAmount,
@@ -739,6 +769,7 @@ async function collection(o, p) {
     ["admin", "distributor"].includes(o.member.role),
     "No puedes cobrar esta deuda.",
   );
+  await assertAdministrativeDayOpen(o);
   check(["cash", "qr", "mixed"].includes(p.method), "Método de pago inválido.");
   check(Number.isFinite(p.amount) && p.amount > 0, "Monto inválido.");
   const amount = round(p.amount);
@@ -815,8 +846,7 @@ async function collection(o, p) {
   }
 
   const portfolioBalanceAfter = round(portfolioBalanceBefore - amount);
-  const collectionRouteId =
-    o.member.role === "distributor" ? o.member.routeId : p.routeId || sortedDebts[0]?.routeId || "central";
+  const collectionRouteId = o.member.role === "distributor" ? o.member.routeId : "central";
   check(collectionRouteId, "El cobrador no tiene una ruta asignada.");
 
   const c = {
@@ -832,6 +862,7 @@ async function collection(o, p) {
     customerCode: customerCode || "",
     saleLines: sortedDebts[0]?.saleLines || [],
     routeId: collectionRouteId || "",
+    collectionOrigin: o.member.role === "distributor" ? "route" : "administration",
     originRouteId: sortedDebts[0]?.routeId || collectionRouteId || "",
     collectedByUid: o.actor || "",
     collectedByName: o.member.displayName || o.actor || "",
@@ -1034,6 +1065,7 @@ module.exports = {
   dayKey,
   round,
   handlers,
+  isSaleForDispatch,
 };
 async function adjustment(o, p) {
   o.admin();
@@ -1064,6 +1096,7 @@ async function expense(o, p) {
       (o.member.role === "distributor" && p.routeId === o.member.routeId),
     "No puedes registrar gastos en esta ruta.",
   );
+  await assertAdministrativeDayOpen(o);
   check(
     Number.isFinite(p.amount) && p.amount > 0 && p.concept?.trim(),
     "Revisa concepto y monto.",
@@ -1074,8 +1107,9 @@ async function expense(o, p) {
     operationId: o.id,
     concept: p.concept.trim(),
     amount: round(p.amount),
-    routeId: p.routeId,
-    routeName: p.routeName,
+    routeId: o.member.role === "distributor" ? o.member.routeId : "central",
+    routeName: o.member.role === "distributor" ? (o.member.routeName || p.routeName || "Ruta") : "Administración",
+    expenseOrigin: o.member.role === "distributor" ? "route" : "administration",
     registeredByUid: o.actor,
     registeredByName: o.member.displayName || o.actor,
     note: p.note || "",
@@ -1088,6 +1122,11 @@ async function deleteExpense(o, p) {
   o.admin();
   const expense = await o.read("distExpenses", p.expenseId);
   check(expense && !expense.voided, "El gasto ya no está activo.");
+  if (expense.expenseOrigin === "administration" && expense.dayKey) {
+    const financialDay = await o.read("distAdministrativeDays", expense.dayKey);
+    const legacyClose = await o.read("distClosures", `admin_close_${expense.dayKey}`);
+    check(financialDay?.status !== "closed" && !legacyClose, "No se puede modificar un gasto administrativo de una jornada cerrada.");
+  }
   o.put("distExpenses", expense.id, {
     ...expense,
     voided: true,
@@ -1126,6 +1165,64 @@ async function deleteProduct(o, p) {
   return { id: product.id, deleted: true };
 }
 async function closure(o, p) {
+  if (p.mode === "administrative") {
+    check(o.member.role === "admin", "Solo Administración puede cerrar la caja administrativa.");
+    check(validDate(p.dayKey) && p.dayKey === o.today, "Solo se puede cerrar la caja administrativa del día actual.");
+    check(Number.isFinite(p.declaredCash) && p.declaredCash >= 0, "El efectivo declarado debe ser válido.");
+    const id = `admin_close_${p.dayKey}`;
+    const existing = await o.read("distClosures", id);
+    check(!existing, "La caja administrativa de este día ya fue cerrada.");
+    const financialDay = await o.read("distAdministrativeDays", p.dayKey);
+    check(financialDay?.status !== "closed", "La caja administrativa de este día ya fue cerrada.");
+    const [sales, collections, expenses, claims] = await Promise.all([
+      o.query("distSales", "dayKey", p.dayKey),
+      o.query("distCollections", "dayKey", p.dayKey),
+      o.query("distExpenses", "dayKey", p.dayKey),
+      o.query("distClaims", "dayKey", p.dayKey),
+    ]);
+    const adminSales = sales.filter(s => s.sourceLocation === "centralWarehouse" && !s.pendingConfirmation && s.saleKind !== "courtesy");
+    const adminCollections = collections.filter(c => c.collectionOrigin === "administration" && !c.pendingConfirmation);
+    const adminExpenses = expenses.filter(e => e.expenseOrigin === "administration" && !e.voided && !e.pendingConfirmation);
+    const adminClaims = claims.filter(c => !c.pendingConfirmation);
+    const cashSales = round(adminSales.reduce((sum, sale) => sum + (Number(sale.cashAmount) || 0), 0));
+    const qrSales = round(adminSales.reduce((sum, sale) => sum + (Number(sale.qrAmount) || 0), 0));
+    const creditSales = round(adminSales.reduce((sum, sale) => sum + (Number(sale.creditAmount) || 0), 0));
+    const cashCollections = round(adminCollections.reduce((sum, row) => sum + (Number(row.cashAmount) || 0), 0));
+    const qrCollections = round(adminCollections.reduce((sum, row) => sum + (Number(row.qrAmount) || 0), 0));
+    const expensesTotal = round(adminExpenses.reduce((sum, row) => sum + row.amount, 0));
+    const claimCashIn = round(adminClaims.reduce((sum, row) => sum + (Number(row.cashIn) || 0), 0));
+    const claimCashOut = round(adminClaims.reduce((sum, row) => sum + (Number(row.cashOut) || 0), 0));
+    const claimQrIn = round(adminClaims.reduce((sum, row) => sum + (Number(row.qrIn) || 0), 0));
+    const claimQrOut = round(adminClaims.reduce((sum, row) => sum + (Number(row.qrOut) || 0), 0));
+    const expectedCash = round(cashSales + cashCollections + claimCashIn - claimCashOut - expensesTotal);
+    const close = {
+      id, ...o.base(), closeType: "administrative", status: "closed", dayKey: p.dayKey,
+      routeId: "central", routeName: "Administración", dispatchId: "", responsibleUid: o.actor,
+      responsibleName: o.member.displayName || o.actor,
+      distributorUid: "", distributorName: "Administración", products: [],
+      salesCount: adminSales.length, collectionsCount: adminCollections.length, expensesCount: adminExpenses.length, claimsCount: adminClaims.length,
+      cashSales, qrSales, creditSales, cashCollections, qrCollections, expensesTotal,
+      claimCashIn, claimCashOut, claimQrIn, claimQrOut,
+      creditGenerated: creditSales, cashExpenses: expensesTotal,
+      totalSales: round(adminSales.reduce((sum, sale) => sum + sale.total, 0)),
+      totalCollections: round(adminCollections.reduce((sum, row) => sum + row.amount, 0)),
+      expectedCash, declaredCash: round(p.declaredCash), physicalCashDeclared: round(p.declaredCash), cashDifference: round(p.declaredCash - expectedCash),
+      closedAt: o.now,
+    };
+    o.put("distClosures", id, close);
+    o.put("distAdministrativeDays", p.dayKey, {
+      ...(financialDay || {}),
+      id: p.dayKey,
+      ...o.base(),
+      status: "closed",
+      closedAt: o.now,
+      closeId: id,
+      closedBy: o.actor,
+      lastOperationAt: o.now,
+      lastOperationId: o.id,
+    });
+    return close;
+  }
   if (p.mode === "declaration") {
     const d = await o.read("distDispatches", p.dispatchId);
     check(d?.status === "open", "La ruta ya no está abierta para declarar el retorno.");
@@ -1288,7 +1385,9 @@ async function closure(o, p) {
     previous = (await o.read("distClosures", id)) || {};
   const route = location("route", d.routeId),
     warehouse = location("warehouse", d.warehouseId || "central");
-  const sales = await o.query("distSales", "dispatchId", d.id);
+  const sales = (await o.query("distSales", "dispatchId", d.id))
+    .filter((sale) => isSaleForDispatch(sale, d.routeId))
+    .map((sale) => sale.effectiveSnapshot ? { ...sale, ...sale.effectiveSnapshot } : sale);
   if (p.mode === "warehouse") {
     o.owns(warehouse);
     check(!previous.warehouseClosedBy, "El retorno ya se confirmó.");
@@ -1697,6 +1796,7 @@ async function closure(o, p) {
 }
 async function claim(o, p) {
   o.admin();
+  await assertAdministrativeDayOpen(o);
   check(p.reason?.trim(), "Indica el motivo del cambio o devolución.");
   check(["exchange", "return"].includes(p.kind), "Tipo de reclamo inválido.");
   const s = await o.read("distSales", p.saleId);
@@ -1871,6 +1971,14 @@ async function updateLot(o, p) {
   return updated;
 }
 handlers.updateLot = updateLot;
+Object.assign(handlers, {
+  adjustment,
+  expense,
+  deleteExpense,
+  deleteProduct,
+  closure,
+  claim,
+});
 async function refreshCreditStatus(db, root, customerId) {
   await db.runTransaction(async (tx) => {
     const [receivablesSnap, supportSnap, overridesSnap] = await Promise.all([

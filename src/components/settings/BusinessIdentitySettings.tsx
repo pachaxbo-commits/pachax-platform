@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { Building2, Upload, Trash2, Check, AlertCircle, FileText, Image as ImageIcon } from 'lucide-react'
 import type { BusinessIdentity } from '../../core/businessIdentity'
 import { normalizeBusinessIdentity, validateBusinessIdentity } from '../../core/businessIdentity'
+import { BRAND_PALETTES, findBrandPalette } from '../../core/brandPalettes'
 
 export function BusinessIdentitySettings({
   initialIdentity,
@@ -21,9 +22,7 @@ export function BusinessIdentitySettings({
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const handleColorChange = (key: 'primaryColor' | 'accentColor', value: string) => {
-    setForm(prev => ({ ...prev, [key]: value }))
-  }
+  const selectedPalette = findBrandPalette(form.primaryColor, form.accentColor)
 
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -276,37 +275,36 @@ export function BusinessIdentitySettings({
           </div>
         </div>
 
-        {/* COLORES DE MARCA */}
+        {/* PALETA DE MARCA */}
         <div className="pt-2 border-t border-slate-100">
-          <h4 className="text-xs font-bold text-slate-800 mb-2">Colores del sistema</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-2.5 bg-slate-50/50">
-              <input
-                type="color"
-                disabled={!canManage}
-                value={form.primaryColor}
-                onChange={e => handleColorChange('primaryColor', e.target.value)}
-                className="h-8 w-10 cursor-pointer rounded border border-slate-300"
-              />
-              <div className="min-w-0 flex-1">
-                <span className="block text-[11px] font-bold text-slate-800">Color principal</span>
-                <span className="text-[10px] text-slate-500">{form.primaryColor}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-2.5 bg-slate-50/50">
-              <input
-                type="color"
-                disabled={!canManage}
-                value={form.accentColor}
-                onChange={e => handleColorChange('accentColor', e.target.value)}
-                className="h-8 w-10 cursor-pointer rounded border border-slate-300"
-              />
-              <div className="min-w-0 flex-1">
-                <span className="block text-[11px] font-bold text-slate-800">Color de acento</span>
-                <span className="text-[10px] text-slate-500">{form.accentColor}</span>
-              </div>
-            </div>
+          <h4 className="text-xs font-bold text-slate-800 mb-1">Paleta de marca</h4>
+          <p className="text-[11px] text-slate-500 mb-3">Elige una combinación con texto legible. Tus colores actuales se conservan hasta que selecciones otra paleta.</p>
+          {!selectedPalette && (
+            <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+              Colores actuales conservados: principal {form.primaryColor} · acento {form.accentColor}
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {BRAND_PALETTES.map(palette => {
+              const selected = selectedPalette?.id === palette.id
+              return (
+                <button
+                  key={palette.id}
+                  type="button"
+                  disabled={!canManage}
+                  aria-pressed={selected}
+                  onClick={() => setForm(prev => ({ ...prev, primaryColor: palette.primary, accentColor: palette.accent }))}
+                  className={`flex min-h-12 items-center gap-3 rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${selected ? 'border-slate-800 bg-slate-50 ring-1 ring-slate-800' : 'border-slate-200 hover:border-slate-400'}`}
+                >
+                  <span className="flex -space-x-1.5" aria-hidden="true">
+                    <span className="h-5 w-5 rounded-full border-2 border-white" style={{ backgroundColor: palette.primary }} />
+                    <span className="h-5 w-5 rounded-full border-2 border-white" style={{ backgroundColor: palette.accent }} />
+                  </span>
+                  <span className="text-xs font-semibold text-slate-800">{palette.name}</span>
+                  {selected && <Check size={15} className="ml-auto text-emerald-700" aria-hidden="true" />}
+                </button>
+              )
+            })}
           </div>
         </div>
       </section>

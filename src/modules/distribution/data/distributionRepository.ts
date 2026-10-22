@@ -3,10 +3,16 @@ import { submitOperation } from './operationQueue.ts'
 import { normalizeCI } from '../domain/customerIdentity.ts'
 import {
   collection,
+  deleteField,
   runTransaction,
   getDocs,
+  getDocsFromServer,
+  documentId,
+  limit,
+  startAfter,
   doc,
   onSnapshot,
+  orderBy,
   query,
   where,
   writeBatch,
@@ -16,6 +22,7 @@ import {
   type Unsubscribe,
   type WriteBatch,
 } from 'firebase/firestore'
+import { fetchCompleteStatementPages } from './statementPaging.ts'
 import { getFirebaseContext } from '../../../lib/firebase.ts'
 import { centralBalanceId, round2, toDayKey, collectionQrAmount } from '../domain/engine.ts'
 import type {
@@ -38,8 +45,10 @@ import type {
   DistLot, DistTransfer, DistClaim, DistCreditStatus, DistCreditOverride,
   PaymentKind,
   SourceLocation,
+  DistCatalogSettings,
 } from '../types.ts'
 import { DEFAULT_SUPPORT_SETTINGS, type SupportSettings } from './supportMaintenance.ts'
+import { serializeProductForSave } from '../domain/productSerialization.ts'
 
 /**
  * Repositorio de distribucion movil.
@@ -89,6 +98,8 @@ export interface DistributionRepositoryAdapter {
     declaredReturnNonSellableReasons?: Record<string, string>,
   ): Promise<void>
   subscribeProducts(onData: (rows: DistProduct[]) => void, onError?: (error: Error) => void): () => void
+  subscribeCatalogSettings(onData: (settings: DistCatalogSettings) => void, onError?: (error: Error) => void): () => void
+  saveCatalogSettings(settings: Pick<DistCatalogSettings, 'industryProfile' | 'categories'>): Promise<void>
   subscribeRoutes(onData: (rows: DistRoute[]) => void, onError?: (error: Error) => void): () => void
   subscribeCustomers(onData: (rows: DistCustomer[]) => void, onError?: (error: Error) => void): () => void
   subscribeBalances(onData: (rows: DistBalance[]) => void, onError?: (error: Error) => void): () => void
@@ -122,6 +133,13 @@ export interface DistributionRepositoryAdapter {
   subscribeCreditOverrides(onData: (rows: DistCreditOverride[]) => void, onError?: (error: Error) => void): () => void
   submitCreditOverride(input: { customerId?: string; reason?: string; days?: number; validUntil?: string; revoke?: boolean; overrideId?: string }): Promise<void>
   registerClaim(payload: Record<string, unknown>, operationId: string): Promise<void>
+  getCustomerStatementHistory?(customerId: string): Promise<{
+    receivables: DistReceivable[]
+    collections: DistCollection[]
+    claims: DistClaim[]
+    sales: DistSale[]
+    complete: true
+  }>
 }
 
 let activeRepositoryAdapter: DistributionRepositoryAdapter | null = null
@@ -369,12 +387,12 @@ if (typeof window !== 'undefined') {
  * Envia el lote sin bloquear la interfaz. Offline la promesa no se resuelve
  * hasta reconectar, pero el cache local ya refleja el cambio.
  */
-function commitInBackground(batch: WriteBatch, operationId: string, label: string) {
+function commitBatch(batch: WriteBatch, operationId: string, label: string): Promise<void> {
   markOperationApplied(operationId)
   syncState = { ...syncState, pending: syncState.pending + 1 }
   emitSyncState()
 
-  void batch
+  return batch
     .commit()
     .then(() => {
       syncState = {
@@ -394,6 +412,7 @@ function commitInBackground(batch: WriteBatch, operationId: string, label: strin
       syncState = { ...syncState, lastError: message }
       emitSyncState()
       console.error(`[distribution] fallo al sincronizar ${label} (${operationId})`, error)
+      throw new Error(message)
     })
 }
 
@@ -458,6 +477,36 @@ function subscribeQuery<T>(
 export function subscribeProducts(onData: (rows: DistProduct[]) => void, onError?: (error: Error) => void) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeProducts(onData, onError)
   return subscribeQuery<DistProduct>((context) => collectionRef(context, DIST_COLLECTIONS.products), rows => onData(rows.filter(product => !product.deleted)), onError)
+}
+
+export const DEFAULT_DIST_CATALOG_SETTINGS: Omit<DistCatalogSettings, 'tenantId' | 'updatedAt'> = {
+  id: 'catalog', industryProfile: 'mixed', categories: [
+    { id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true },
+  ],
+}
+
+export function subscribeCatalogSettings(onData: (settings: DistCatalogSettings) => void, onError?: (error: Error) => void) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeCatalogSettings(onData, onError)
+  return subscribeQuery<DistCatalogSettings>(ctx => query(collectionRef(ctx, 'distSettings'), where(documentId(), '==', 'catalog')), rows => {
+    onData(rows[0] ?? { ...DEFAULT_DIST_CATALOG_SETTINGS, tenantId: '', updatedAt: '' })
+  }, onError)
+}
+
+export async function saveCatalogSettings(settings: Pick<DistCatalogSettings, 'industryProfile' | 'categories'>) {
+  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveCatalogSettings(settings)
+  const ctx = await getContext()
+  const allowedProfiles = ['food', 'beverages', 'cleaning', 'hardware', 'pharmacy', 'pets', 'stationery', 'spare_parts', 'mixed']
+  if (!allowedProfiles.includes(settings.industryProfile) || settings.categories.length > 80) throw new Error('Configuración de catálogo inválida.')
+  const seen = new Set<string>()
+  for (const category of settings.categories) {
+    const key = category.id.trim()
+    if (!key || key.length > 48 || !category.name.trim() || category.name.trim().length > 60 || seen.has(key)) throw new Error('Revisa los nombres de las categorías.')
+    seen.add(key)
+  }
+  const ref = docRef(ctx, 'distSettings', 'catalog')
+  await runTransaction(ctx.db, async tx => {
+    tx.set(ref, { id: 'catalog', ...settings, tenantId: ctx.tenantId, updatedAt: new Date().toISOString() }, { merge: true })
+  })
 }
 
 export function subscribeRoutes(onData: (rows: DistRoute[]) => void, onError?: (error: Error) => void) {
@@ -598,35 +647,49 @@ export function subscribeClosures(
 // Catalogo, rutas y clientes
 // ---------------------------------------------------------------------------
 
-export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }) {
-  if (activeRepositoryAdapter) return activeRepositoryAdapter.saveProduct(product)
+export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }): Promise<'synced' | 'queued'> {
+  const serialized = serializeProductForSave(product)
+  const cleanProduct = serialized.values as Omit<DistProduct, 'tenantId' | 'createdAt'> & { createdAt?: string }
+  if (activeRepositoryAdapter) {
+    await activeRepositoryAdapter.saveProduct(cleanProduct)
+    return 'synced'
+  }
   const context = await getContext()
   const batch = writeBatch(context.db)
   const now = new Date().toISOString()
+  const fields: Record<string, unknown> = {
+    ...serialized.values,
+    referencePrice: round2(product.referencePrice),
+    tenantId: context.tenantId,
+    createdAt: product.createdAt ?? now,
+    updatedAt: now,
+  }
+  for (const field of serialized.deleteFields) fields[field] = deleteField()
   batch.set(
     docRef(context, DIST_COLLECTIONS.products, product.id),
-    {
-      ...product,
-      referencePrice: round2(product.referencePrice),
-      tenantId: context.tenantId,
-      createdAt: product.createdAt ?? now,
-      updatedAt: now,
-    },
+    fields,
     { merge: true },
   )
-  commitInBackground(batch, `product_${product.id}_${now}`, 'producto')
+  const commit = commitBatch(batch, `product_${product.id}_${now}`, 'producto')
+  if (!syncState.isOnline) {
+    void commit.catch(() => {})
+    return 'queued'
+  }
+  await commit
+  return 'synced'
 }
 
 export async function saveRoute(route: Omit<DistRoute, 'tenantId' | 'createdAt'> & { createdAt?: string }) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.saveRoute(route)
   const context = await getContext()
   const batch = writeBatch(context.db)
+  const now = new Date().toISOString()
   batch.set(
     docRef(context, DIST_COLLECTIONS.routes, route.id),
-    { ...route, tenantId: context.tenantId, createdAt: route.createdAt ?? new Date().toISOString() },
+    { ...route, tenantId: context.tenantId, createdAt: route.createdAt ?? now, updatedAt: now },
     { merge: true },
   )
-  commitInBackground(batch, `route_${route.id}`, 'ruta')
+  await commitBatch(batch, `route_${route.id}_${now}`, 'ruta')
 }
 
 export interface CustomerInput {
@@ -904,6 +967,10 @@ export async function saveClosure(input: SaveClosureInput): Promise<string> {
   return input.closure.id
 }
 
+export async function saveAdministrativeCashClosure(dayKey: string, declaredCash: number, operationId: string) {
+  await submitOperation('closure', { mode: 'administrative', dayKey, declaredCash }, operationId)
+}
+
 /** Reapertura administrativa de una ruta cerrada */
 export async function reopenClosure(closure: DistClosure, reason?: string): Promise<void> {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.reopenClosure(closure, reason)
@@ -913,6 +980,46 @@ export async function reopenClosure(closure: DistClosure, reason?: string): Prom
 export function subscribeLots(onData: (rows: DistLot[]) => void, onError?: (error: Error) => void) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeLots(onData, onError)
   return subscribeQuery<DistLot>(ctx => collectionRef(ctx, 'distLots'), onData, onError)
+}
+
+/** Fetches the complete, tenant-scoped financial history for an admin statement.
+ * Each source is paginated so older debt/payment rows are not silently omitted. */
+export async function getCustomerStatementHistory(customerId: string) {
+  if (!customerId.trim()) throw new Error('Selecciona un cliente.');
+  if (activeRepositoryAdapter) {
+    const history = await activeRepositoryAdapter.getCustomerStatementHistory?.(customerId)
+    if (!history) throw new Error('El historial completo no está disponible en este entorno de demostración.')
+    return history
+  }
+  const context = await getContext();
+  const fetchAll = async <T,>(name: string): Promise<T[]> => {
+    const base = query(collectionRef(context, name), where('customerId', '==', customerId), orderBy(documentId()), limit(250));
+    return fetchCompleteStatementPages(async cursor => {
+      const pageQuery = cursor ? query(base, startAfter(cursor)) : base;
+      const page = await getDocsFromServer(pageQuery);
+      return {
+        rows: page.docs.map(doc => ({ id: doc.id, ...doc.data() }) as T),
+        nextCursor: page.docs.at(-1),
+        hasMore: page.size === 250,
+      };
+    });
+  };
+  try {
+    const [receivables, collections, claims, sales] = await Promise.all([
+      fetchAll<DistReceivable>('distReceivables'),
+      fetchAll<DistCollection>('distCollections'),
+      fetchAll<DistClaim>('distClaims'),
+      fetchAll<DistSale>('distSales'),
+    ]);
+    return { receivables, collections, claims, sales, complete: true as const };
+  } catch (error) {
+    const code = (error as { code?: string })?.code || '';
+    if (code.includes('permission-denied')) throw new Error('No tienes permiso para consultar el estado de cuenta de este cliente.', { cause: error });
+    if (['unavailable', 'deadline-exceeded', 'failed-precondition'].some(value => code.includes(value))) {
+      throw new Error('No hay conexión confirmada con el servidor. El historial completo no está disponible; inténtalo de nuevo con conexión.', { cause: error });
+    }
+    throw new Error(`No se pudo confirmar el historial completo desde el servidor: ${(error as Error)?.message || 'error de lectura'}`, { cause: error });
+  }
 }
 export function subscribeOperations(onData: (rows: PendingOperation[]) => void, onError?: (error: Error) => void) {
   if (activeRepositoryAdapter) return activeRepositoryAdapter.subscribeOperations(onData, onError)

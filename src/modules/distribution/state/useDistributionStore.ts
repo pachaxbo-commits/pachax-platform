@@ -17,6 +17,7 @@ import {
   subscribeRoutes,
   subscribeSales,
   subscribeSupportSettings,
+  subscribeCatalogSettings,
   subscribeSyncState,
 } from '../data/distributionRepository'
 import { centralBalanceId, routeBalanceId, toDayKey } from '../domain/engine'
@@ -34,6 +35,7 @@ import type {
   DistReceivable,
   DistRoute,
   DistSale,
+  DistCatalogSettings,
 } from '../types'
 import { DEFAULT_SUPPORT_SETTINGS, type SupportSettings } from '../data/supportMaintenance'
 
@@ -81,6 +83,7 @@ export function buildDayRange(from: Date, to: Date): string[] {
 
 export interface DistributionData {
   supportSettings: SupportSettings
+  catalogSettings: DistCatalogSettings
   lots: DistLot[]; operations: PendingOperation[]; movements: DistStockMovement[]; transfers: DistTransfer[]; claims: DistClaim[]; creditStatus: DistCreditStatus[]; creditOverrides: DistCreditOverride[];
   warehouses: DistWarehouse[]
   qrVerifications: DistQrVerification[]
@@ -100,6 +103,7 @@ export interface DistributionData {
 
 export function useDistributionData(scope: DistributionScope): DistributionData {
   const [supportSettings, setSupportSettings] = useState<SupportSettings>(DEFAULT_SUPPORT_SETTINGS)
+  const [catalogSettings, setCatalogSettings] = useState<DistCatalogSettings>({ id: 'catalog', tenantId: scope.tenantId || '', industryProfile: 'mixed', categories: [{ id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: '' })
   const [lots, setLots] = useState<DistLot[]>([])
   const [operations, setOperations] = useState<PendingOperation[]>([])
   const [movements, setMovements] = useState<DistStockMovement[]>([])
@@ -142,6 +146,7 @@ export function useDistributionData(scope: DistributionScope): DistributionData 
     const unsubscribers = [
       subscribeLots(setLots, onError), subscribeOperations(setOperations, onError), subscribeCreditStatus(setCreditStatus, onError),
       subscribeSupportSettings(setSupportSettings, onError),
+      subscribeCatalogSettings(setCatalogSettings, onError),
       ...(routeId === null ? [subscribeMovements(setMovements, onError), subscribeTransfers(setTransfers, onError)] : []),
       ...(routeId === null && canReadFinance ? [subscribeCreditOverrides(setCreditOverrides, onError)] : []),
       ...(canReadFinance ? [subscribeClaims(routeId, setClaims, onError)] : []),
@@ -286,6 +291,7 @@ export function useDistributionData(scope: DistributionScope): DistributionData 
   })
   return {
     supportSettings,
+    catalogSettings,
     lots, operations, movements, transfers, claims, creditStatus, creditOverrides,
     warehouses,
     qrVerifications,

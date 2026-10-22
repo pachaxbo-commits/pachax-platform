@@ -27,8 +27,9 @@ async function settlePendingRound({ tx, root, actor, branchId, operationId, acco
   const roundSnap = await tx.get(roundRef)
   if (!roundSnap.exists || roundSnap.data().tenantId !== actor.tenantId || roundSnap.data().branchId !== branchId || roundSnap.data().accountId !== account.id) fail('Ronda pendiente no encontrada.')
   const round = roundSnap.data()
-  if (round.status !== 'pending' || round.authorization !== 'account_charge' || round.paymentId || round.inventoryConsumptionStatus === 'consumed') fail('La ronda ya fue liquidada o no está pendiente.')
+  if (!['pending', 'preparing', 'ready', 'delivered'].includes(round.status) || round.authorization !== 'account_charge' || round.paymentId || round.inventoryConsumptionStatus !== 'not_consumed') fail('La ronda ya fue liquidada o no está pendiente.')
   if (round.cashboxId !== account.cashboxId || round.locationId !== account.locationId || round.shiftId !== account.shiftId) fail('La ronda no conserva el contexto histórico de la cuenta.')
+  if (!Number.isFinite(account.balance) || cents(account.balance) < cents(round.total)) fail('El saldo de la cuenta ya no cubre esta ronda pendiente.')
   if (!Array.isArray(round.items) || !round.items.length) throw new HttpsError('invalid-argument', 'La ronda no contiene productos.')
   const productIds = [...new Set(round.items.map(item => id(item.productId)))]
   const productSnaps = await Promise.all(productIds.map(productId => tx.get(root.collection('nightclubProducts').doc(productId))))
@@ -44,6 +45,10 @@ async function settlePendingRound({ tx, root, actor, branchId, operationId, acco
   })
   if (!Number.isFinite(round.total) || cents(round.total) !== cents(total)) fail('El total histórico de la ronda no coincide con sus líneas.')
   const payment = paymentBreakdown(total, payload.payment)
+  const accountPayments = await tx.get(root.collection('nightclubPayments').where('accountId', '==', account.id))
+  if (accountPayments.docs.some(doc => doc.data().branchId === branchId && doc.data().status === 'confirmed' && !doc.data().roundId)) {
+    fail('La cuenta ya tiene pagos generales sin asociar a una ronda. No se puede cobrar esta ronda nuevamente.')
+  }
   const paymentId = `payment_${operationId}`
   const locationConsumption = await consumeNightclubLocationStock({ tx, root, actor, branchId, operationId, account: { ...account, id: account.id }, roundId, products, drafts, now })
   const items = round.items.map(item => {
@@ -126,13 +131,13 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
     const hasBar = items.some(item => item.preparationArea !== 'Directo')
     const locationConsumption = account.locationId ? await consumeNightclubLocationStock({ tx, root, actor, branchId, operationId, account, roundId, products, drafts, now }) : null
     tx.create(root.collection('nightclubRounds').doc(roundId), { id: roundId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, cashboxId: account.cashboxId || null, locationId: account.locationId || null, accountId, tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null, sequence: (account.roundCount || 0) + 1, items: items.map(item => { const fifoAllocations = locationConsumption?.lineAllocations.filter(allocation => allocation.itemId === item.id) || []; const product = products.get(item.productId); return { ...item, ...(locationConsumption ? { costAtSale: fifoAllocations.reduce((sum, allocation) => sum + allocation.costTotal, 0), fifoAllocations, physicalReturnEligible: fifoAllocations.length > 0 && fifoAllocations.every(allocation => allocation.unit === 'unit') && !product?.bottlePresentation && fifoAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0) === item.quantity } : {}) } }), total, status: hasBar ? 'pending' : 'ready', authorization: 'payment', paymentId, createdAt: now, paidAt: now, sentAt: now, readyAt: hasBar ? null : now, createdBy: actor.uid, paidBy: actor.uid })
-    tx.create(root.collection('nightclubPayments').doc(paymentId), { id: paymentId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, status: 'confirmed', method: payment.method, amount: total, cashAmount, qrAmount, cardAmount, received, change: money(received - cashAmount), createdAt: now, actorUid: actor.uid })
+    tx.create(root.collection('nightclubPayments').doc(paymentId), { id: paymentId, operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, cashboxId: account.cashboxId || null, locationId: account.locationId || null, accountId, roundId, status: 'confirmed', method: payment.method, amount: total, cashAmount, qrAmount, cardAmount, received, change: money(received - cashAmount), createdAt: now, actorUid: actor.uid })
     stocks.forEach((snap, index) => {
       const inventoryId = inventoryIds[index], quantity = requirements.get(inventoryId), previous = snap.data().current
       tx.update(inventoryRefs[index], { current: money(previous - quantity), updatedAt: now })
       tx.create(root.collection('nightclubInventoryMovements').doc(`${operationId}_${inventoryId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, inventoryId, quantity: -quantity, previous, current: money(previous - quantity), type: 'sale', actorUid: actor.uid, createdAt: now })
     })
-    if (cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`cash_${operationId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, type: 'sale', amount: cashAmount, actorUid: actor.uid, createdAt: now })
+    if (cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`cash_${operationId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, cashboxId: account.cashboxId || null, locationId: account.locationId || null, accountId, roundId, type: 'sale', amount: cashAmount, actorUid: actor.uid, createdAt: now })
     tx.update(accountRef, { subtotal: money((account.subtotal || 0) + total), paidTotal: money((account.paidTotal || 0) + total), balance: 0, roundCount: (account.roundCount || 0) + 1, updatedAt: now })
     return { accountId, roundId, paymentId, total, status: hasBar ? 'pending' : 'ready' }
   }
@@ -207,7 +212,7 @@ async function applyPaidRoundCommand({ tx, root, actor, branchId, activeShiftId,
   })
   tx.update(paymentRef, { status: 'refunded', refundedAt: now, refundedBy: actor.uid, refundReason: payload.reason.trim() })
   tx.update(roundRef, { status: 'cancelled', cancelledAt: now, cancelledBy: actor.uid, cancellationReason: payload.reason.trim() })
-  if (payment.data().cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`refund_${roundId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, accountId, roundId, type: 'refund', amount: -payment.data().cashAmount, actorUid: actor.uid, createdAt: now })
+  if (payment.data().cashAmount > 0) tx.create(root.collection('nightclubCashMovements').doc(`refund_${roundId}`), { operationId, tenantId: actor.tenantId, branchId, shiftId: account.shiftId, cashboxId: account.cashboxId || null, locationId: account.locationId || null, accountId, roundId, type: 'refund', amount: -payment.data().cashAmount, actorUid: actor.uid, createdAt: now })
   tx.update(accountRef, { subtotal: money((account.subtotal || 0) - round.total), paidTotal: money((account.paidTotal || 0) - round.total), balance: 0, updatedAt: now })
   return { accountId, roundId, status: 'refunded', amount: round.total }
 }

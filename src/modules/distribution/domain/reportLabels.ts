@@ -40,12 +40,14 @@ const MOVEMENT_LABELS: Record<string, string> = {
   customer_return: 'Devolución del cliente',
 }
 
-export function reportUnitLabel(unit: UnitType): string {
-  return UNIT_LABELS[unit] || 'unidad'
+export function reportUnitLabel(unit: UnitType, customLabel?: string): string {
+  if (unit === 'kg') return 'kg'
+  return customLabel?.trim() || UNIT_LABELS[unit] || 'unidad'
 }
 
-export function reportQuantity(quantity: number, unit: UnitType): string {
+export function reportQuantity(quantity: number, unit: UnitType, customLabel?: string): string {
   if (unit === 'kg') return `${quantity} kg`
+  if (customLabel?.trim()) return `${quantity} ${customLabel.trim()}${quantity === 1 || customLabel.trim().endsWith('s') ? '' : 's'}`
   const singular = quantity === 1
   return `${quantity} ${unit === 'package' ? (singular ? 'paquete' : 'paquetes') : (singular ? 'unidad' : 'unidades')}`
 }

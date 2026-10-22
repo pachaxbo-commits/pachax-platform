@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { getFirebaseContext } from '../../../lib/firebase'
 import type {
@@ -34,6 +34,8 @@ import type {
   NightclubFloorSnapshot,
   NightclubInventorySnapshot,
 } from '../data/nightclubRepository'
+import type { NightclubFinancialReadScope } from '../data/nightclubFinancialSubscriptions'
+import { canStartNightclubFinancialRead, resolveNightclubFinancialReadScope, sameNightclubFinancialReadScope } from '../data/nightclubFinancialSubscriptions'
 import { gateway } from '../../../services/gateway'
 import { createTenantNightclubActions } from './tenantNightclubActions'
 
@@ -69,8 +71,8 @@ export function useTenantNightclubController({
   const [inventorySnap, setInventorySnap] = useState<NightclubInventorySnapshot>({ inventory: [], recentMovements: [] })
   const [shift, setShift] = useState<NightclubShift | null>(null)
   const [cashMovements, setCashMovements] = useState<NightclubCashMovement[]>([])
-  const [customers, setCustomers] = useState<NightclubCustomer[]>([])
-  const [staff, setStaff] = useState<NightclubStaff[]>([])
+  const [customersState, setCustomersState] = useState<{ key: string; rows: NightclubCustomer[] }>({ key: '', rows: [] })
+  const [staffState, setStaffState] = useState<{ key: string; rows: NightclubStaff[] }>({ key: '', rows: [] })
   const [promoters, setPromoters] = useState<NightclubPromoter[]>([])
   const [promoterEvents, setPromoterEvents] = useState<NightclubPromoterEvent[]>([])
   const [promoterTicketSales, setPromoterTicketSales] = useState<NightclubTicketSale[]>([])
@@ -91,21 +93,45 @@ export function useTenantNightclubController({
   const [openBottles, setOpenBottles] = useState<NightclubOpenBottle[]>([])
   const [transfers, setTransfers] = useState<NightclubTransfer[]>([])
   const [cashboxShifts, setCashboxShifts] = useState<NightclubShift[]>([])
-  const [authorizedCashboxIds, setAuthorizedCashboxIds] = useState<string[] | null>(null)
+  const permissionKey = permissions ? [...permissions].sort().join(',') : 'template'
+  const contextKey = `${tenantId}:${branchId}:${uid}:${role}:${permissionKey}`
+  const customers = useMemo(() => customersState.key === contextKey ? customersState.rows : [], [customersState, contextKey])
+  const staff = useMemo(() => staffState.key === contextKey ? staffState.rows : [], [staffState, contextKey])
+  const [cashboxScopeState, setCashboxScopeState] = useState<{ key: string; scope: NightclubFinancialReadScope }>({ key: '', scope: { kind: 'unresolved' } })
+  const cashboxScopeRef = useRef<{ key: string; scope: NightclubFinancialReadScope }>({ key: '', scope: { kind: 'unresolved' } })
+  const memberScope = useMemo(() => cashboxScopeState.key === contextKey ? cashboxScopeState.scope : { kind: 'unresolved' as const }, [cashboxScopeState, contextKey])
+  const financialReadScope = memberScope
+  const financialScopeReady = cashboxScopeState.key === contextKey && financialReadScope.kind !== 'unresolved'
 
   useEffect(() => {
     let active = true
     let unsub: (() => void) | null = null
+    const updateScope = (scope: NightclubFinancialReadScope) => {
+      const previous = cashboxScopeRef.current
+      if (previous.key === contextKey && sameNightclubFinancialReadScope(previous.scope, scope)) return
+      cashboxScopeRef.current = { key: contextKey, scope }
+      setAccounts([]); setCashboxShifts([]); setCashMovements([]); setCommissionPayments([]); setCommissions([]); setShift(null); setOperatorContext(null)
+      if (previous.key !== contextKey) {
+        setFloor({ zones: [], tables: [], reservations: [] }); setCatalog({ products: [] }); setInventorySnap({ inventory: [], recentMovements: [] })
+        setRawCashboxes([]); setLocations([]); setInventoryBalances([]); setInventoryLots([]); setOpenBottles([]); setTransfers([])
+        setCustomersState({ key: contextKey, rows: [] }); setStaffState({ key: contextKey, rows: [] })
+        setPromoters([]); setPromoterEvents([]); setPromoterTicketSales([]); setPromoterLoungeSales([]); setPromoterConsumptions([])
+        setMembers([]); setCourtesies([]); setCustomerIncidents([])
+      }
+      setSyncError(null)
+      setCashboxScopeState({ key: contextKey, scope })
+    }
     void getFirebaseContext().then(ctx => {
       if (!ctx || !active || !uid) return
       const memberDoc = doc(ctx.db, 'tenants', tenantId, 'members', uid)
       unsub = onSnapshot(memberDoc, snap => {
         if (!active) return
-        const raw = snap.data()?.cashboxIds
-        if (Array.isArray(raw)) {
-          setAuthorizedCashboxIds(raw.filter((x): x is string => typeof x === 'string'))
-        } else {
-          setAuthorizedCashboxIds(null)
+        if (!snap.exists()) { updateScope({ kind: 'unresolved' }); return }
+        updateScope(resolveNightclubFinancialReadScope(snap.data()))
+      }, error => {
+        if (active) {
+          updateScope({ kind: 'unresolved' })
+          setSyncError(`No se pudo verificar el alcance de cajas: ${error.message}`)
         }
       })
     })
@@ -113,17 +139,13 @@ export function useTenantNightclubController({
       active = false
       if (unsub) unsub()
     }
-  }, [tenantId, uid])
+  }, [contextKey, tenantId, uid])
 
   const authorizedCashboxes = useMemo(() => {
-    if (role === 'owner' || role === 'admin') return rawCashboxes
-    const activeTenant = getActiveTenant()
-    const memberCashboxIds = authorizedCashboxIds ?? (activeTenant?.membership as { cashboxIds?: string[] } | undefined)?.cashboxIds
-    if (Array.isArray(memberCashboxIds)) {
-      return rawCashboxes.filter(c => memberCashboxIds.includes(c.id))
-    }
-    return rawCashboxes
-  }, [role, rawCashboxes, authorizedCashboxIds])
+    if (financialReadScope.kind === 'unresolved') return []
+    if (financialReadScope.kind === 'unrestricted') return rawCashboxes
+    return rawCashboxes.filter(c => financialReadScope.cashboxIds.includes(c.id))
+  }, [rawCashboxes, financialReadScope])
 
   const can = useCallback((perm: string) => {
     if (permissions) return permissions.has(perm)
@@ -135,7 +157,7 @@ export function useTenantNightclubController({
   }, [permissions, role])
 
   // Subscriptions with permission gating and error handling
-  useEffect(() => {
+  useLayoutEffect(() => {
     const handleSyncError = (colName: string) => (err: Error) => {
       console.warn(`[NightclubApp] Error de sincronización en ${colName}:`, err.message)
       if (err.message.includes('permission-denied') || (err as { code?: string }).code === 'permission-denied') {
@@ -156,20 +178,21 @@ export function useTenantNightclubController({
     const canReadAccounts = can('orders.read') || can('cash.close') || can('sales.read')
     const canReadRounds = can('orders.read') || can('cash.close')
     const canReadPayments = can('cash.close') || can('sales.read')
-    if (canReadAccounts) {
+    if (canReadAccounts && canStartNightclubFinancialRead(financialReadScope)) {
       unsubs.push(repository.subscribeOperationalAccounts(
         setAccounts,
         handleSyncError('cuentas operativas'),
         {
           includeRounds: canReadRounds,
           includePayments: canReadPayments,
+          financialReadScope,
         }
       ))
     }
 
     // 3. Turno activo: cash.close o settings.manage
-    if (can('cash.close') || can('settings.manage')) {
-      unsubs.push(repository.subscribeActiveShift(setShift, handleSyncError('turno activo')))
+    if ((can('cash.close') || can('settings.manage')) && financialReadScope.kind === 'unrestricted') {
+      unsubs.push(repository.subscribeActiveShift(setShift, handleSyncError('turno activo'), financialReadScope))
     }
 
     // 4. Catálogo: sales.create, orders.read o products.manage
@@ -207,12 +230,12 @@ export function useTenantNightclubController({
 
     // 10. Comisiones: sales.read, orders.read o cash.close
     if (can('sales.read') || can('orders.read') || can('cash.close')) {
-      if (repository.subscribeCommissions) unsubs.push(repository.subscribeCommissions(setCommissions, handleSyncError('comisiones')))
+      if (repository.subscribeCommissions && canStartNightclubFinancialRead(financialReadScope)) unsubs.push(repository.subscribeCommissions(setCommissions, handleSyncError('comisiones'), financialReadScope))
     }
 
     // 11. Pagos de comisiones: cash.close o settings.manage
     if (can('cash.close') || can('settings.manage')) {
-      if (repository.subscribeCommissionPayments) unsubs.push(repository.subscribeCommissionPayments(setCommissionPayments, handleSyncError('pagos de comisiones')))
+      if (repository.subscribeCommissionPayments && canStartNightclubFinancialRead(financialReadScope)) unsubs.push(repository.subscribeCommissionPayments(setCommissionPayments, handleSyncError('pagos de comisiones'), financialReadScope))
     }
 
     // 12. Incidentes de convivencia: solo admin/owner
@@ -233,7 +256,7 @@ export function useTenantNightclubController({
 
     // 14b. Turnos de caja: cash.close o settings.manage (Rules: cash.close || settings.manage)
     if (can('cash.close') || can('settings.manage')) {
-      if (repository.subscribeCashboxShifts) unsubs.push(repository.subscribeCashboxShifts(setCashboxShifts, handleSyncError('turnos de caja')))
+      if (repository.subscribeCashboxShifts && canStartNightclubFinancialRead(financialReadScope)) unsubs.push(repository.subscribeCashboxShifts(setCashboxShifts, handleSyncError('turnos de caja'), financialReadScope))
     }
 
     // 15. Ubicaciones: SOLO inventory.read (Rules: inventory.read)
@@ -252,9 +275,10 @@ export function useTenantNightclubController({
     return () => {
       unsubs.forEach(unsub => unsub?.())
     }
-  }, [repository, role, can, uid])
+  }, [repository, role, can, uid, tenantId, branchId, financialReadScope])
 
   const effectiveShift = useMemo(() => {
+    if (!financialScopeReady) return null
     if (operatorContext?.cashboxId) {
       if (operatorContext.activeShiftId) {
         return cashboxShifts.find(s => s.id === operatorContext.activeShiftId) || null
@@ -262,12 +286,12 @@ export function useTenantNightclubController({
       return null
     }
     return shift
-  }, [operatorContext, cashboxShifts, shift])
+  }, [financialScopeReady, operatorContext, cashboxShifts, shift])
 
   // Shift-dependent cash movements (only if cash.close or settings.manage)
   useEffect(() => {
     const shiftIdToTrack = effectiveShift?.id
-    if (!shiftIdToTrack || (!can('cash.close') && !can('settings.manage'))) {
+    if (!shiftIdToTrack || financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length) || (!can('cash.close') && !can('settings.manage'))) {
       return
     }
     const unsubCash = repository.subscribeCashMovements(
@@ -275,71 +299,80 @@ export function useTenantNightclubController({
       setCashMovements,
       (err: Error) => {
         console.warn('[NightclubApp] Error al consultar movimientos de caja:', err.message)
-      }
+      },
+      financialReadScope
     )
     return () => {
       unsubCash()
       setCashMovements([])
     }
-  }, [repository, effectiveShift?.id, can])
+  }, [repository, effectiveShift?.id, can, financialReadScope])
 
   // Periodic / Initial fetch for customers & staff
   const reloadStaff = useCallback(async () => {
     if (!can('users.manage')) return
     try {
       const list = await repository.getStaff()
-      setStaff(list)
+      setStaffState({ key: contextKey, rows: list })
     } catch {
       // Ignored in non-permission scopes
     }
-  }, [repository, can])
+  }, [repository, can, contextKey])
 
   const reloadCustomers = useCallback(async () => {
     if (!can('customers.read') && !can('settings.manage')) return
     try {
       const list = await repository.getCustomers()
-      setCustomers(list)
+      setCustomersState({ key: contextKey, rows: list })
     } catch {
       // Ignored
     }
-  }, [repository, can])
+  }, [repository, can, contextKey])
 
   useEffect(() => {
     void reloadStaff()
     void reloadCustomers()
   }, [reloadStaff, reloadCustomers])
 
+  const visibleAccounts = useMemo(() => financialScopeReady ? accounts : [], [financialScopeReady, accounts])
+  const visibleCashboxShifts = useMemo(() => financialScopeReady ? cashboxShifts : [], [financialScopeReady, cashboxShifts])
+  const visibleCashMovements = useMemo(() => financialScopeReady ? cashMovements : [], [financialScopeReady, cashMovements])
+  const visibleCommissions = useMemo(() => financialScopeReady ? commissions : [], [financialScopeReady, commissions])
+  const visibleCommissionPayments = useMemo(() => financialScopeReady ? commissionPayments : [], [financialScopeReady, commissionPayments])
+  const visibleOperatorContext = financialScopeReady ? operatorContext : null
+  const visibleShift = financialScopeReady ? shift : null
+
   const assembledData: NightclubDataset = useMemo(() => ({
-    zones: floor.zones,
-    tables: floor.tables,
-    reservations: floor.reservations,
-    accounts,
-    products: catalog.products,
-    inventory: inventorySnap.inventory,
-    inventoryMovements: inventorySnap.recentMovements,
-    locations,
+    zones: financialScopeReady ? floor.zones : [],
+    tables: financialScopeReady ? floor.tables : [],
+    reservations: financialScopeReady ? floor.reservations : [],
+    accounts: visibleAccounts,
+    products: financialScopeReady ? catalog.products : [],
+    inventory: financialScopeReady ? inventorySnap.inventory : [],
+    inventoryMovements: financialScopeReady ? inventorySnap.recentMovements : [],
+    locations: financialScopeReady ? locations : [],
     cashboxes: authorizedCashboxes,
-    inventoryBalances,
-    inventoryLots,
-    openBottles,
-    transfers,
-    operatorContexts: operatorContext ? [operatorContext] : [],
-    cashboxShifts,
-    customers,
+    inventoryBalances: financialScopeReady ? inventoryBalances : [],
+    inventoryLots: financialScopeReady ? inventoryLots : [],
+    openBottles: financialScopeReady ? openBottles : [],
+    transfers: financialScopeReady ? transfers : [],
+    operatorContexts: visibleOperatorContext ? [visibleOperatorContext] : [],
+    cashboxShifts: visibleCashboxShifts,
+    customers: financialScopeReady ? customers : [],
     shift: effectiveShift,
-    shiftHistory: effectiveShift?.status === 'closed' ? [effectiveShift] : (shift?.status === 'closed' ? [shift] : []),
-    cashMovements,
-    staff,
-    promoters,
-    promoterEvents,
-    promoterTicketSales,
-    promoterLoungeSales,
-    promoterConsumptions,
-    members,
-    courtesies,
-    commissions,
-    commissionPayments,
-    customerIncidents,
+    shiftHistory: effectiveShift?.status === 'closed' ? [effectiveShift] : (visibleShift?.status === 'closed' ? [visibleShift] : []),
+    cashMovements: visibleCashMovements,
+    staff: financialScopeReady ? staff : [],
+    promoters: financialScopeReady ? promoters : [],
+    promoterEvents: financialScopeReady ? promoterEvents : [],
+    promoterTicketSales: financialScopeReady ? promoterTicketSales : [],
+    promoterLoungeSales: financialScopeReady ? promoterLoungeSales : [],
+    promoterConsumptions: financialScopeReady ? promoterConsumptions : [],
+    members: financialScopeReady ? members : [],
+    courtesies: financialScopeReady ? courtesies : [],
+    commissions: visibleCommissions,
+    commissionPayments: visibleCommissionPayments,
+    customerIncidents: financialScopeReady ? customerIncidents : [],
     audit: [],
     branding: {
       businessName: companyName,
@@ -350,7 +383,7 @@ export function useTenantNightclubController({
       surfaceColor: '#0d1720',
       theme: 'dark',
     },
-  }), [floor, accounts, catalog, inventorySnap, locations, authorizedCashboxes, inventoryBalances, inventoryLots, openBottles, transfers, operatorContext, cashboxShifts, customers, effectiveShift, shift, cashMovements, staff, promoters, promoterEvents, promoterTicketSales, promoterLoungeSales, promoterConsumptions, members, courtesies, commissions, commissionPayments, customerIncidents, companyName, logoUrl])
+  }), [financialScopeReady, floor, visibleAccounts, catalog, inventorySnap, locations, authorizedCashboxes, inventoryBalances, inventoryLots, openBottles, transfers, visibleOperatorContext, visibleCashboxShifts, customers, effectiveShift, visibleShift, visibleCashMovements, staff, promoters, promoterEvents, promoterTicketSales, promoterLoungeSales, promoterConsumptions, members, courtesies, visibleCommissions, visibleCommissionPayments, customerIncidents, companyName, logoUrl])
 
   const actions = useMemo(() => createTenantNightclubActions({
     tenantId,
@@ -360,20 +393,20 @@ export function useTenantNightclubController({
     role,
     staff,
     shift: effectiveShift,
-    cashboxShifts,
+    cashboxShifts: visibleCashboxShifts,
     reloadStaff,
     reloadCustomers,
     repository,
     gatewayFn: gateway,
-  }), [tenantId, branchId, uid, userName, role, staff, effectiveShift, cashboxShifts, reloadStaff, reloadCustomers, repository])
+  }), [tenantId, branchId, uid, userName, role, staff, effectiveShift, visibleCashboxShifts, reloadStaff, reloadCustomers, repository])
 
   return {
     data: assembledData,
     incidentResponsibleLabel: userName,
-    syncError,
+    syncError: cashboxScopeState.key === contextKey ? syncError : null,
     setSyncError,
-    activeCashboxId: operatorContext?.cashboxId || null,
-    activeLocationId: operatorContext?.locationId || null,
+    activeCashboxId: visibleOperatorContext?.cashboxId || null,
+    activeLocationId: visibleOperatorContext?.locationId || null,
     ...actions,
   }
 }

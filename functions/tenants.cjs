@@ -1,9 +1,11 @@
 const { createHash } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
+const { FieldValue } = require('firebase-admin/firestore');
 const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id, tenantActor, audit, hasPermission } = require('./authorization.cjs');
 const { normalizeNightclubPermissions } = require('./nightclubUsers.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
+const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 36);
 function text(value, max = 100) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.');
@@ -130,17 +132,24 @@ function businessIdentity(input = {}, existing = {}, tenantName = '', tenantBran
 async function createTenant(db, auth, request) {
   const uid = authenticated(request), input = request.data || {};
   const operationId = id(input.operationId), name = text(input.name), template = getTemplate(input.businessType);
+  let industryProfile;
+  try { industryProfile = distributionProfile(template.businessType, input.industryProfile); }
+  catch (error) { throw new HttpsError('invalid-argument', error.message); }
   const tenantId = `t_${hash(`${uid}:${operationId}`)}`, root = db.doc(`tenants/${tenantId}`);
   const user = await auth.getUser(uid);
   const now = new Date().toISOString();
   const brand = branding(input.branding);
+  const catalogRef = root.collection('distSettings').doc('catalog');
   const ident = businessIdentity(input.businessIdentity, {}, name, brand);
   const tenant = { tenantId, name, nameKey: name.toLowerCase(), businessType: template.businessType, ownerUid: uid,
     ownerEmail: user.email || '', status: 'active', branding: brand, businessIdentity: ident, configuration: configuration(input, template.defaults),
     entitlements: {}, planKey: null, subscriptionStatus: 'trial', schemaVersion: 1, templateVersion: template.version,
     createdAt: now, updatedAt: now, userCount: 1, branchCount: 1 };
   await db.runTransaction(async tx => {
-    const [current, profile, op] = await Promise.all([tx.get(root), tx.get(db.doc(`users/${uid}`)), tx.get(db.doc(`platformOperators/${uid}`))]);
+    const [current, profile, op, catalog] = await Promise.all([
+      tx.get(root), tx.get(db.doc(`users/${uid}`)), tx.get(db.doc(`platformOperators/${uid}`)),
+      industryProfile ? tx.get(catalogRef) : Promise.resolve(null),
+    ]);
     const infrastructure = template.businessType === 'nightclub_lounge'
       ? await readNightclubBaseInfrastructure(tx, root)
       : null;
@@ -149,6 +158,9 @@ async function createTenant(db, auth, request) {
       if (current.data().ownerUid !== uid) throw new HttpsError('permission-denied', 'Operación no autorizada.');
       if (current.data().businessType !== template.businessType || current.data().name !== name) {
         throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con datos distintos.');
+      }
+      if (input.industryProfile !== undefined && catalog?.exists && catalog.data()?.industryProfile !== industryProfile) {
+        throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con otro rubro de Distribución.');
       }
       if (infrastructure) assertNightclubBaseInfrastructureState(infrastructure, tenantId);
       return;
@@ -160,9 +172,10 @@ async function createTenant(db, auth, request) {
     tx.create(root.collection('branches').doc('main'), { tenantId, id: 'main', name: 'Sucursal principal', active: true, createdAt: now });
     for (const role of template.roles) tx.create(root.collection('roles').doc(role.id), { ...role, tenantId });
     if (infrastructure) createNightclubBaseInfrastructure(tx, root, tenantId, now);
+    if (industryProfile) tx.create(catalogRef, catalogForTenant(tenantId, industryProfile, now));
     tx.set(db.doc(`users/${uid}`), { uid, displayName: user.displayName || '', email: user.email || '', defaultTenantId: profile.data()?.defaultTenantId || tenantId, createdAt: profile.data()?.createdAt || now, updatedAt: now }, { merge: true });
     tx.create(db.doc(`users/${uid}/tenantLinks/${tenantId}`), { tenantId, name, businessType: template.businessType });
-    audit(db, tx, { uid, tenantId, actorType: 'tenant' }, 'tenant.created', tenantId, null, { name, businessType: template.businessType });
+    audit(db, tx, { uid, tenantId, actorType: 'tenant' }, 'tenant.created', tenantId, null, { name, businessType: template.businessType, ...(industryProfile ? { industryProfile } : {}) });
   });
   return { tenantId };
 }
@@ -225,10 +238,36 @@ async function updateSettings(db, request) {
   });
   return { changed: true };
 }
+const cashboxIdsInput = value => {
+  if (!Array.isArray(value) || value.length > 50) throw new HttpsError('invalid-argument', 'La asignación de cajas no es válida.');
+  const seen = new Set();
+  for (const cashboxId of value) {
+    if (typeof cashboxId !== 'string' || !/^[A-Za-z0-9:_-]{1,160}$/.test(cashboxId) || seen.has(cashboxId)) {
+      throw new HttpsError('invalid-argument', 'La asignación contiene una caja inválida o duplicada.');
+    }
+    seen.add(cashboxId);
+  }
+  return [...seen];
+};
+async function validateCashboxIds(root, tenantId, cashboxIds, branchIds, tx) {
+  const refs = cashboxIds.map(cashboxId => root.collection('nightclubCashboxes').doc(cashboxId));
+  const snapshots = await Promise.all(refs.map(ref => tx ? tx.get(ref) : ref.get()));
+  for (let index = 0; index < snapshots.length; index += 1) {
+    const cashbox = snapshots[index].data();
+    if (!snapshots[index].exists || cashbox.tenantId !== tenantId || cashbox.active !== true || !branchIds.includes(cashbox.branchId)) {
+      throw new HttpsError('invalid-argument', 'Una o más cajas no existen, están inactivas o no pertenecen a una sucursal autorizada.');
+    }
+  }
+}
 async function manageMember(db, auth, request) {
   const actor = await tenantActor(db, request, 'users.manage'), input = request.data;
   const roleId = input.roleId || input.role;
   if (input.action === 'createMember') {
+    const hasCashboxAssignment = Object.prototype.hasOwnProperty.call(input, 'cashboxIds');
+    if (hasCashboxAssignment && actor.tenant.businessType !== 'nightclub_lounge') throw new HttpsError('failed-precondition', 'La asignación de cajas solo aplica a Nocturna.');
+    if (hasCashboxAssignment && !['owner', 'admin'].includes(actor.membership.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
+    if (hasCashboxAssignment && input.cashboxIds === null) throw new HttpsError('invalid-argument', 'Para quitar la restricción omite cashboxIds al crear el usuario.');
+    const assignedCashboxIds = hasCashboxAssignment ? cashboxIdsInput(input.cashboxIds) : undefined;
     const nightclubPermissions = (actor.tenant.businessType === 'nightclub_lounge' && input.nightclubPermissions !== undefined) ? normalizeNightclubPermissions(input.nightclubPermissions) : undefined;
     if (actor.tenant.businessType === 'nightclub_lounge' && roleId === 'admin' && nightclubPermissions && !nightclubPermissions.includes('special.manageUsers')) throw new HttpsError('invalid-argument', 'Administración debe conservar la gestión de usuarios.');
     if (actor.tenant.businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(actor.membership.roleId) && (roleId === 'admin' || nightclubPermissions?.includes('special.manageUsers'))) throw new HttpsError('permission-denied', 'No puedes crear otro administrador.');
@@ -239,23 +278,41 @@ async function manageMember(db, auth, request) {
     const branchIds = input.branchIds || ['main'], routeIds = input.routeIds || (input.routeId ? [input.routeId] : []);
     if (!Array.isArray(branchIds) || !branchIds.length || !Array.isArray(routeIds) || branchIds.length > 20 || routeIds.length > 20) throw new HttpsError('invalid-argument', 'Asignación inválida.');
     for (const branch of branchIds) if (!(await actor.root.collection('branches').doc(id(branch)).get()).exists) throw new HttpsError('invalid-argument', 'Sucursal desconocida.');
-    for (const route of routeIds) if (!(await actor.root.collection('distRoutes').doc(id(route)).get()).exists) throw new HttpsError('invalid-argument', 'Ruta desconocida.');
+    for (const route of routeIds) {
+      const routeDoc = await actor.root.collection('distRoutes').doc(id(route)).get();
+      if (!routeDoc.exists || routeDoc.data()?.active === false) throw new HttpsError('invalid-argument', 'La ruta no existe o está inactiva.');
+    }
+    if (assignedCashboxIds !== undefined) await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, branchIds);
     if (roleId === 'distributor' && routeIds.length !== 1) throw new HttpsError('invalid-argument', 'Asigna una ruta al distribuidor.');
-    try { await auth.createUser({ uid, email, password: input.password, displayName }); }
+    let authUserCreated = false;
+    try { await auth.createUser({ uid, email, password: input.password, displayName }); authUserCreated = true; }
     catch (error) { if (error.code !== 'auth/uid-already-exists') throw error; }
-    await db.runTransaction(async tx => {
+    try { await db.runTransaction(async tx => {
       const ref = actor.root.collection('members').doc(uid);
       const [tenant, fresh, current] = await Promise.all([tx.get(actor.root), tx.get(actor.root.collection('members').doc(actor.uid)), tx.get(ref)]);
       if (!hasPermission(tenant.data(), fresh.data(), 'users.manage')) throw new HttpsError('permission-denied', 'Permiso revocado.');
       if (current.exists) return;
+      if (assignedCashboxIds !== undefined) {
+        if (tenant.data().businessType !== 'nightclub_lounge' || !['owner', 'admin'].includes(fresh.data()?.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
+        await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, branchIds, tx);
+      }
+      for (const route of routeIds) {
+        const routeDoc = await tx.get(actor.root.collection('distRoutes').doc(route));
+        if (!routeDoc.exists || routeDoc.data()?.active === false) throw new HttpsError('invalid-argument', 'La ruta no existe o está inactiva.');
+      }
       const now = new Date().toISOString();
-      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions !== undefined ? { nightclubPermissions } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
+      const member = { uid, tenantId: actor.tenantId, email, displayName, roleId, status: 'active', ...(nightclubPermissions !== undefined ? { nightclubPermissions } : {}), ...(assignedCashboxIds !== undefined ? { cashboxIds: assignedCashboxIds } : {}), branchIds, routeIds, warehouseId: input.warehouseId ? id(input.warehouseId) : 'central', createdAt: now, createdBy: actor.uid };
       tx.create(ref, member);
       tx.create(db.doc(`users/${uid}`), { uid, email, displayName, defaultTenantId: actor.tenantId, managedByTenantId: actor.tenantId, createdAt: now, updatedAt: now });
       tx.create(db.doc(`users/${uid}/tenantLinks/${actor.tenantId}`), { tenantId: actor.tenantId, name: actor.tenant.name, businessType: actor.tenant.businessType });
       tx.update(actor.root, { userCount: (tenant.data().userCount || 0) + 1 });
       audit(db, tx, actor, 'member.created', uid, null, member);
-    });
+    }); } catch (error) {
+      // Auth is external to the Firestore transaction. Remove only a user this call created.
+      // This prevents an invalidated assignment or a transaction failure leaving an orphan.
+      if (authUserCreated) await auth.deleteUser(uid).catch(() => {});
+      throw error;
+    }
     return { uid };
   }
   const uid = id(input.uid), ref = actor.root.collection('members').doc(uid);
@@ -275,11 +332,32 @@ async function manageMember(db, auth, request) {
     if (tenant.data().businessType === 'nightclub_lounge' && !['owner', 'admin'].includes(fresh.data().roleId) && current.data().roleId === 'admin') throw new HttpsError('permission-denied', 'No puedes modificar a Administración.');
     if (!['updateMember', 'deleteMember'].includes(input.action)) throw new HttpsError('invalid-argument', 'Acción inválida.');
     const patch = { updatedAt: new Date().toISOString() };
+    const hasCashboxAssignment = Object.prototype.hasOwnProperty.call(input, 'cashboxIds');
+    if (hasCashboxAssignment && tenant.data().businessType !== 'nightclub_lounge') throw new HttpsError('failed-precondition', 'La asignación de cajas solo aplica a Nocturna.');
+    if (hasCashboxAssignment && !['owner', 'admin'].includes(fresh.data()?.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
+    if (hasCashboxAssignment) {
+      if (input.cashboxIds === null) patch.cashboxIds = FieldValue.delete();
+      else {
+        const assignedCashboxIds = cashboxIdsInput(input.cashboxIds);
+        await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, current.data().branchIds || ['main'], tx);
+        patch.cashboxIds = assignedCashboxIds;
+      }
+    }
     if (input.action === 'deleteMember' || input.active === false) patch.status = 'disabled';
     else if (input.active === true) patch.status = 'active';
     if (roleId) {
       if (!getTemplate(tenant.data().businessType).roles.some(role => role.id === roleId && role.id !== 'owner')) throw new HttpsError('invalid-argument', 'Rol inválido.');
       patch.roleId = roleId;
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'routeId')) {
+      const targetRole = patch.roleId || current.data().roleId;
+      if (targetRole === 'distributor') {
+        const routeId = id(input.routeId);
+        const routeDoc = await tx.get(actor.root.collection('distRoutes').doc(routeId));
+        if (!routeDoc.exists || routeDoc.data()?.active === false) throw new HttpsError('invalid-argument', 'La ruta no existe o está inactiva.');
+        patch.routeIds = [routeId];
+      } else if (input.routeId === '') patch.routeIds = [];
+      else throw new HttpsError('failed-precondition', 'Solo un distribuidor puede tener una ruta asignada.');
     }
     if (input.displayName) patch.displayName = text(input.displayName, 80);
     if (tenant.data().businessType === 'nightclub_lounge' && input.nightclubPermissions !== undefined) patch.nightclubPermissions = normalizeNightclubPermissions(input.nightclubPermissions);
@@ -293,7 +371,10 @@ async function manageMember(db, auth, request) {
     }
     // Auth email/disabled are global: never change them when modifying one membership.
     if (input.email && input.email !== current.data().email) throw new HttpsError('failed-precondition', 'El correo global se cambia desde el perfil del usuario.');
-    tx.update(ref, patch); audit(db, tx, actor, 'member.updated', uid, current.data(), { ...current.data(), ...patch });
+    tx.update(ref, patch);
+    const after = { ...current.data(), ...patch };
+    if (hasCashboxAssignment && input.cashboxIds === null) delete after.cashboxIds;
+    audit(db, tx, actor, 'member.updated', uid, current.data(), after);
   });
   return { changed: true, deleted: input.action === 'deleteMember' };
 }

@@ -14,6 +14,8 @@ import {
   reportUnitLabel,
 } from "../domain/reportLabels";
 import { saveReport } from "./reportFiles";
+import { analyzeCustomerStatement } from "../domain/customerStatement.ts";
+import { assertCompleteStatementHistory } from "./statementPaging.ts";
 type Cell = string | number | null;
 export interface ReportSheet {
   name: string;
@@ -168,7 +170,7 @@ export function reportSheets(
         reportReceiptNumber(l.sale.id),
         l.productNameSnapshot,
         l.quantity,
-        reportUnitLabel(l.unitType),
+        reportUnitLabel(l.unitType, l.unitLabel),
         l.actualUnitPrice,
         l.subtotal,
         l.costTotal ?? null,
@@ -194,7 +196,7 @@ export function reportSheets(
         r.customerName,
         r.customerCode || "",
         r.saleLines
-          ?.map((l) => `${l.productNameSnapshot} (${reportQuantity(l.quantity, l.unitType)})`)
+          ?.map((l) => `${l.productNameSnapshot} (${reportQuantity(l.quantity, l.unitType, l.unitLabel)})`)
           .join("; ") || "",
         r.originalAmount,
         r.paidAmount,
@@ -473,55 +475,26 @@ export async function exportPdf(
   );
 }
 export async function exportCustomerStatement(
-  data: DistributionData,
   customer: DistCustomer,
+  history: { receivables: DistributionData["receivables"]; collections: DistributionData["collections"]; claims: DistributionData["claims"]; sales: DistributionData["sales"]; complete?: boolean },
+  format: "PDF" | "Excel",
 ) {
-  if (data.receivables.some(r => r.customerId === customer.id && r.pendingConfirmation)) throw new Error('Espera la confirmación del cobro pendiente antes de imprimir el estado de cuenta.')
-  const debts = data.receivables.filter((r) => r.customerId === customer.id);
-  await exportPdf(
-    [
-      {
-        name: "Estado de cuenta",
-        headers: [
-          "Fecha",
-          "Venta",
-          "Productos",
-          "Original (Bs)",
-          "Abonos (Bs)",
-          "Compensación (Bs)",
-          "Saldo (Bs)",
-        ],
-        rows: [
-          ...debts.map(
-            (r) =>
-              [
-                reportDate(r.dayKey),
-                reportReceiptNumber(r.saleId),
-                r.saleLines
-                  ?.map(
-                    (l) =>
-                      `${l.productNameSnapshot}: ${reportQuantity(l.quantity, l.unitType)}`,
-                  )
-                  .join("; ") || "Consultar venta original",
-                r.originalAmount,
-                r.paidAmount,
-                r.creditedAmount || 0,
-                r.balance,
-              ] as Cell[],
-          ),
-          [
-            "TOTAL PENDIENTE",
-            "",
-            "",
-            null,
-            null,
-            null,
-            round2(debts.reduce((n, r) => n + r.balance, 0)),
-          ],
-        ],
-      },
+  assertCompleteStatementHistory(history)
+  if (history.receivables.some(r => r.pendingConfirmation) || history.collections.some(c => c.pendingConfirmation)) throw new Error('Espera la confirmación de las operaciones pendientes antes de exportar el estado de cuenta.')
+  const analysis = analyzeCustomerStatement(history.receivables, history.collections, history.claims, history.sales)
+  const reconciliationNote = analysis.reconciled
+    ? 'Historial conciliado con la cartera actual'
+    : `REVISAR: progresivo Bs ${analysis.ledgerBalance.toFixed(2)}; cartera actual Bs ${analysis.currentBalance.toFixed(2)}`
+  const sheets: ReportSheet[] = [{
+    name: "Estado de cuenta",
+    headers: ["Fecha y hora", "Movimiento", "Referencia", "Ruta", "Detalle", "Método", "Debe (Bs)", "Haber (Bs)", "Saldo progresivo (Bs)", "Observaciones"],
+    rows: [
+      ...analysis.movements.map(row => [reportDateTime(row.at), row.kind === 'credit' ? 'Venta a crédito' : row.kind === 'payment' ? 'Cobranza' : 'Ajuste', row.reference, row.route, row.detail, row.method, row.debit, row.credit, row.balance, [row.warning, row.note].filter(Boolean).join(' · ')] as Cell[]),
+      ...analysis.warnings.map(warning => ["ALERTA DE INTEGRIDAD", "", "", "", "", "", null, null, null, warning] as Cell[]),
+      ["SALDO PENDIENTE ACTUAL", "", "", "", "", "", null, null, analysis.currentBalance, reconciliationNote],
     ],
-    `${customer.name} · CI ${customer.identityNumber || "pendiente"} · ${customer.phone || ""} · ${customer.address || ""} · emitido ${new Date().toLocaleDateString("es-BO")}`,
-    "Pachax-estado-cuenta.pdf",
-  );
+  }]
+  const description = `${customer.name} · CI ${customer.identityNumber || "pendiente"} · ${customer.phone || ""} · ${customer.address || ""} · emitido ${new Date().toLocaleDateString("es-BO")}`
+  if (format === 'Excel') await exportExcel(sheets, description)
+  else await exportPdf(sheets, description, "Pachax-estado-cuenta.pdf")
 }

@@ -1,4 +1,5 @@
 import { exportCustomerStatement } from '../data/reportExports'
+import { getCustomerStatementHistory } from '../data/distributionRepository'
 import { prepareCustomerPhoto } from '../data/customerPhoto'
 import { useMemo, useState } from 'react'
 import { ArrowDownUp, Plus, Search } from 'lucide-react'
@@ -33,6 +34,21 @@ export function CustomersView({ session, data }: DistributionViewProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isRouteOpen, setIsRouteOpen] = useState(false)
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
+  const [statementLoading, setStatementLoading] = useState(false)
+
+  const downloadStatement = async (format: 'PDF' | 'Excel') => {
+    if (!editing || statementLoading) return
+    setStatementLoading(true)
+    setError(null)
+    try {
+      const history = await getCustomerStatementHistory(editing.id)
+      await exportCustomerStatement(editing, history, format)
+    } catch (statementError) {
+      setError((statementError as Error).message || 'No se pudo preparar el estado de cuenta.')
+    } finally {
+      setStatementLoading(false)
+    }
+  }
 
   const balanceByCustomer = useMemo(() => {
     const map = new Map<string, number>()
@@ -161,7 +177,7 @@ export function CustomersView({ session, data }: DistributionViewProps) {
         }
       >
         <div className="grid gap-3">
-          {editing && session.role==='admin' && <button type="button" className="rounded-xl border p-3 text-sm font-bold" onClick={async()=>{try{await exportCustomerStatement(data,editing)}catch(e){setError((e as Error).message)}}}>Estado de cuenta PDF / imprimir</button>}
+          {editing && (session.role === 'admin' || session.role === 'owner') && <div className="grid grid-cols-2 gap-2"><button type="button" disabled={statementLoading} className="min-h-11 rounded-xl border p-3 text-sm font-bold disabled:opacity-50" onClick={() => void downloadStatement('PDF')}>{statementLoading ? 'Preparando…' : 'Estado de cuenta PDF'}</button><button type="button" disabled={statementLoading} className="min-h-11 rounded-xl border p-3 text-sm font-bold disabled:opacity-50" onClick={() => void downloadStatement('Excel')}>Estado de cuenta Excel</button></div>}
           <Field label="Nombre" required>
             <TextInput value={name} onChange={(event) => setName(event.target.value)} />
           </Field>

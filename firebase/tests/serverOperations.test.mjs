@@ -18,15 +18,16 @@ const prefix=`q${Date.now().toString(36)}`,pid=`${prefix}-p`,pid2=`${prefix}-p2`
 let checks=0
 const ok=(v,msg)=>{assert(v,msg);checks++;console.log('PASS',msg)}
 const read=async(col,id)=>(await root.collection(col).doc(id).get()).data()
-async function command(actor,type,payload,expect='confirmed'){
- const id=`${prefix}-${type}-${Math.random().toString(36).slice(2)}`
+async function command(actor,type,payload,expect='confirmed',operationId){
+ const id=operationId||`${prefix}-${type}-${Math.random().toString(36).slice(2)}`
  await setDoc(doc(env.authenticatedContext(actor).firestore(),'restaurants','pachax','distOperations',id),{id,restaurantId:'pachax',createdBy:actor,createdAt:new Date().toISOString(),type,payload,status:'queued'})
  // The emulator trigger is the production entrypoint. Poll only the resulting record.
  const until=Date.now()+60000;let op
  while(Date.now()<until){op=await read('distOperations',id);if(op.status!=='queued')break;await new Promise(r=>setTimeout(r,100))}
- assert.equal(op.status,expect,`${type}: ${op.error||'sin procesar'}`);return {...op,id}
+ if(expect!=='any')assert.equal(op.status,expect,`${type}: ${op.error||'sin procesar'}`);return {...op,id}
 }
 try {
+ ok(dayKey(new Date('2026-10-21T03:59:59.000Z'))==='2026-10-20'&&dayKey(new Date('2026-10-21T04:00:00.000Z'))==='2026-10-21','la caja administrativa cambia de jornada en medianoche de Bolivia')
  await adminAuth.createUser({uid:admin,email:`${prefix}-admin@example.test`,password:'Inicial123'})
  const passwordTarget=`${prefix}-password-target`
  await adminAuth.createUser({uid:passwordTarget,email:`${prefix}-target@example.test`,password:'Inicial123'})
@@ -34,6 +35,7 @@ try {
  await root.collection('members').doc(passwordTarget).set({role:'distributor',active:true,routeId:route,displayName:'QA contraseña'})
  await root.collection('members').doc(seller).set({role:'distributor',active:true,routeId:route,displayName:'QA vendedor'})
  await root.collection('members').doc(warehouse).set({role:'warehouse',active:true,warehouseId:wh,displayName:'QA almacén'})
+ await root.collection('distRoutes').doc(route).set({id:route,restaurantId:'pachax',name:'QA ruta',kind:'route',active:true})
  await root.collection('distWarehouses').doc(wh).set({id:wh,restaurantId:'pachax',name:'QA interno',active:true})
  for(const [id,price,cost] of [[pid,10,5],[pid2,8,3],[pid3,6,2]])await root.collection('distProducts').doc(id).set({id,restaurantId:'pachax',name:id,unitType:'kg',active:true,referencePrice:price,productionCost:cost})
  for(const id of [cust,old])await root.collection('distCustomers').doc(id).set({id,restaurantId:'pachax',name:id,identityNumber:id===cust?'6543210':'6543211',customerCode:id===cust?'6543210':'6543211',active:true,createdAt:new Date().toISOString(),createdBy:admin})
@@ -58,6 +60,19 @@ try {
  const transfer=await command(admin,'transfer',{from:'central',to:wh,line:{productId:pid,quantity:4},note:'QA'})
  ok(transfer.result.allocations[0].lotCode==='PRIMERO','FEFO prioriza el vencimiento más próximo')
  const dispatch=await command(warehouse,'dispatch',{warehouseId:wh,routeId:route,routeName:'QA ruta',distributorUid:seller,distributorName:'QA vendedor',lines:[{productId:pid,quantity:3}]})
+ const adminSaleDuringRoute=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:10,qrAmount:0,creditAmount:0,paymentKind:'cash'})
+ ok(adminSaleDuringRoute.result.dispatchId===''&&adminSaleDuringRoute.result.sourceLocation==='centralWarehouse','venta administrativa no hereda el despacho abierto aunque llegue en el payload')
+ ok(adminSaleDuringRoute.result.routeId==='central'&&adminSaleDuringRoute.result.routeName==='Administración','venta administrativa ignora ruta obsoleta y queda atribuida a Administración')
+ const centralAfterAdminSale=(await read('distBalances',`central__${pid}`)).quantity,routeAfterAdminSale=(await read('distBalances',`route__${route}__${pid}`)).quantity
+ ok(centralAfterAdminSale===10&&routeAfterAdminSale===3,`venta administrativa descuenta almacén central sin tocar inventario de ruta (${centralAfterAdminSale}/${routeAfterAdminSale})`)
+ const adminCredit=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:route,routeName:'Ruta obsoleta',customerId:cust,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:10,paymentKind:'credit'})
+ const adminPayment=await command(admin,'collection',{receivableId:adminCredit.id,routeId:route,amount:2,method:'cash',cashAmount:2})
+ const adminExpense=await command(admin,'expense',{concept:'Gasto de administración',amount:1,routeId:route,routeName:'Ruta obsoleta'})
+ ok(adminPayment.result.collectionOrigin==='administration'&&adminPayment.result.routeId==='central'&&(await read('distExpenses',adminExpense.id)).expenseOrigin==='administration','cobro y gasto administrativos quedan marcados con origen propio, ignorando ruta obsoleta')
+ await root.collection('distSales').doc(`${prefix}-route-close-isolation`).set({id:`${prefix}-route-close-isolation`,restaurantId:'pachax',sourceLocation:'route',routeId:`${prefix}-other-route`,dispatchId:`${prefix}-other-dispatch`,cashAmount:75,qrAmount:0,creditAmount:0,total:75,dayKey:dayKey(),createdAt:new Date().toISOString()})
+ await root.collection('distCollections').doc(`${prefix}-route-collection-isolation`).set({id:`${prefix}-route-collection-isolation`,restaurantId:'pachax',collectionOrigin:'route',routeId:`${prefix}-other-route`,amount:30,cashAmount:30,qrAmount:0,dayKey:dayKey(),createdAt:new Date().toISOString()})
+ await root.collection('distExpenses').doc(`${prefix}-route-expense-isolation`).set({id:`${prefix}-route-expense-isolation`,restaurantId:'pachax',expenseOrigin:'route',routeId:`${prefix}-other-route`,amount:20,dayKey:dayKey(),createdAt:new Date().toISOString()})
+ await root.collection('distSales').doc(`${prefix}-legacy-central-sale`).set({id:`${prefix}-legacy-central-sale`,restaurantId:'pachax',sourceLocation:'centralWarehouse',routeId:route,dispatchId:dispatch.id,lines:[{productId:pid,quantity:9}],cashAmount:90,qrAmount:0,creditAmount:0,total:90,createdAt:new Date().toISOString()})
  const base={sourceLocation:'route',routeId:route,routeName:'QA ruta',dispatchId:dispatch.id,customerId:cust,lines:[{productId:pid,quantity:2,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:20,paymentKind:'credit'}
  await command(seller,'sale',{...base,lines:[{productId:pid,quantity:2,actualUnitPrice:9}],creditAmount:18},'rejected');checks++
  await command(seller,'sale',{...base,customerId:old,creditAmount:20,cashAmount:0,paymentKind:'credit'},'rejected');checks++
@@ -79,6 +94,8 @@ try {
  ok((await read('distBalances',`warehouse__${wh}__${pid}`)).quantity===2,'retorno vuelve al almacén de origen y conserva lote')
  const closed=await command(seller,'closure',{...closeInput,mode:'money'})
  ok(closed.result.expectedCash===5&&closed.result.cashDifference===0,'cierre calcula efectivo en servidor')
+ ok(closed.result.cashSales===0&&closed.result.expectedCash===5,'cierre de ruta excluye venta administrativa histórica con dispatchId obsoleto')
+ ok(closed.result.products.find(row=>row.productId===pid)?.sold===2,'conciliación física de ruta excluye unidades de ventas centrales')
  const client=env.authenticatedContext(seller).firestore()
  const adminClient=env.authenticatedContext(admin).firestore()
  await assertFails(setDoc(doc(client,'restaurants','pachax','distSales',`${prefix}-forged`),{restaurantId:'pachax',routeId:route}));checks++
@@ -130,6 +147,32 @@ try {
  ok(override.result.active===true,'excepción de crédito creada por administración')
  const creditSaleOverride=await command(admin,'sale',{sourceLocation:'centralWarehouse',routeId:'route-directa',routeName:'Directa',customerId:old,lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:0,qrAmount:0,creditAmount:10,paymentKind:'credit'})
  ok(creditSaleOverride.status==='confirmed'&&creditSaleOverride.result.creditOverrideId===override.result.id,'venta a crédito permitida con excepción activa')
+ const [closeAttempts,racingSale]=await Promise.all([
+  Promise.all([
+   command(admin,'closure',{mode:'administrative',dayKey:dayKey(),declaredCash:45},'any'),
+   command(admin,'closure',{mode:'administrative',dayKey:dayKey(),declaredCash:45},'any'),
+  ]),
+  command(admin,'sale',{sourceLocation:'centralWarehouse',lines:[{productId:pid2,quantity:1,actualUnitPrice:8}],cashAmount:8,qrAmount:0,creditAmount:0,paymentKind:'cash'},'any'),
+ ])
+ const adminClose=closeAttempts.find(row=>row.status==='confirmed')
+ ok(closeAttempts.filter(row=>row.status==='confirmed').length===1&&closeAttempts.filter(row=>row.status==='rejected').length===1,'cierres administrativos concurrentes crean un único cierre sin estados contradictorios')
+ const expectedCashForClose=37+(racingSale.status==='confirmed'?8:0)
+ ok(adminClose.result.cashSales===36+(racingSale.status==='confirmed'?8:0)&&adminClose.result.creditSales===20&&adminClose.result.cashCollections===2&&adminClose.result.expensesTotal===1&&adminClose.result.expectedCash===expectedCashForClose&&adminClose.result.cashDifference===45-expectedCashForClose,'cierre y venta concurrentes se serializan: la venta entra al cierre o se rechaza íntegramente')
+ await processCommand(db,root.collection('distOperations').doc(adminClose.id))
+ ok((await root.collection('distClosures').where('closeType','==','administrative').get()).size===1,'reintento del mismo operationId no duplica cierre administrativo')
+ const adminClosePath=['restaurants','pachax','distClosures',`admin_close_${dayKey()}`]
+ const adminCloseBefore=(await read('distClosures',`admin_close_${dayKey()}`))
+ ok((await getDoc(doc(env.authenticatedContext(admin).firestore(),...adminClosePath))).exists(),'administración puede consultar el cierre administrativo persistido')
+ await assertFails(getDoc(doc(env.authenticatedContext(seller).firestore(),...adminClosePath)));checks++
+ ok(true,'distribuidor no puede leer el cierre administrativo de la empresa')
+ const lateSale=await command(admin,'sale',{sourceLocation:'centralWarehouse',lines:[{productId:pid,quantity:1,actualUnitPrice:10}],cashAmount:10,qrAmount:0,creditAmount:0,paymentKind:'cash'},'rejected')
+ const lateCollection=await command(admin,'collection',{receivableId:adminCredit.id,amount:1,method:'cash'},'rejected')
+ const lateExpense=await command(admin,'expense',{concept:'Gasto tardío QA',amount:1},'rejected')
+ const lateClaim=await command(admin,'claim',{kind:'return'},'rejected')
+ const lateDeleteExpense=await command(admin,'deleteExpense',{expenseId:adminExpense.id},'rejected')
+ ok([lateSale,lateCollection,lateExpense,lateClaim,lateDeleteExpense].every(row=>row.error.includes('cerrada')),'ventas, cobros, gastos, ajustes y anulaciones financieras tardías se rechazan')
+ ok((await read('distClosures',`admin_close_${dayKey()}`)).expectedCash===adminCloseBefore.expectedCash&&(await read('distAdministrativeDays',dayKey())).status==='closed','operaciones tardías conservan íntegro el cierre y el bloqueo del día')
+ await command(seller,'closure',{mode:'administrative',dayKey:dayKey(),declaredCash:0},'rejected');checks++
  const mixedCollection=await command(seller,'collection',{customerId:old,amount:10,method:'mixed',cashAmount:6,qrAmount:4,routeId:route})
  ok(mixedCollection.result.allocations?.length===2,'cobro mixto aplica FIFO sobre deudas abiertas del cliente')
  ok(mixedCollection.result.cashAmount===6&&mixedCollection.result.qrAmount===4,'cobro mixto registra desglose exacto')
@@ -221,6 +264,18 @@ try {
   const settingsQuery=await getDocs(collection(roleClient,'restaurants','pachax','supportConfig'))
   ok(settingsQuery.docs.some(entry=>entry.id==='main'),`${role} puede suscribirse a la configuración operativa`)
  }
+ const ownerTenantId=`${prefix}-owner-tenant`,ownerUid=`${prefix}-tenant-owner`,ownerRoot=db.doc(`tenants/${ownerTenantId}`)
+ await ownerRoot.set({tenantId:ownerTenantId,businessType:'route_distribution',configuration:{features:{sales:true,credits:true,routes:true,dispatch:true,inventory:true,customers:true,reports:true,settings:true,users:true}}})
+ await ownerRoot.collection('members').doc(ownerUid).set({tenantId:ownerTenantId,status:'active',roleId:'owner',branchIds:['main']})
+ const ownerCloseRef=ownerRoot.collection('distOperations').doc(`${prefix}-owner-close`)
+ await ownerCloseRef.set({id:ownerCloseRef.id,tenantId:ownerTenantId,branchId:'main',createdBy:ownerUid,createdAt:new Date().toISOString(),type:'closure',payload:{mode:'administrative',dayKey:dayKey(),declaredCash:0},status:'queued'})
+ await processCommand(db,ownerCloseRef)
+ const ownerClose=(await ownerCloseRef.get()).data()
+ ok(ownerClose.status==='confirmed'&&ownerClose.result.closeType==='administrative','tenant owner con permiso canónico puede cerrar la caja administrativa')
+ const ownerLateSaleRef=ownerRoot.collection('distOperations').doc(`${prefix}-owner-late-sale`)
+ await ownerLateSaleRef.set({id:ownerLateSaleRef.id,tenantId:ownerTenantId,branchId:'main',createdBy:ownerUid,createdAt:new Date().toISOString(),type:'sale',payload:{sourceLocation:'centralWarehouse',lines:[],cashAmount:0,qrAmount:0,creditAmount:0,paymentKind:'cash'},status:'queued'})
+ await processCommand(db,ownerLateSaleRef)
+ ok((await ownerLateSaleRef.get()).data().status==='rejected','venta del tenant owner también respeta el bloqueo de jornada cerrada')
  const supportRequest={auth:{uid:support,token:{auth_time:Math.floor(Date.now()/1000)}},data:{}}
  const preview=await prepareCleanDelivery(db,supportRequest)
  ok(preview.totalDocuments>0&&preview.counts.distSales>0,'entrega limpia muestra conteo sin devolver datos comerciales')

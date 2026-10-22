@@ -15,6 +15,7 @@ import { visiblePersonName, visibleRecordText } from './displayText'
 import { RangePicker, describeRange } from './RangePicker'
 import { exportPdf } from '../data/reportExports'
 import { reportDateTime, reportMovementLabel, reportPersonName, reportUnitLabel } from '../domain/reportLabels'
+import { getInventoryCapabilities } from '../domain/inventoryPermissions'
 
 const MOVEMENT_LABELS: Record<string, string> = {
   intake: 'Ingreso de stock', transfer: 'Transferencia', dispatch: 'Despacho a ruta',
@@ -30,12 +31,14 @@ const MOVEMENT_LABELS: Record<string, string> = {
  */
 export function InventoryView({ session, data }: DistributionViewProps) {
   const [selectedWarehouse, setSelectedWarehouse] = useState('central')
-  const warehouseId = session.role === 'admin' ? selectedWarehouse : session.warehouseId || 'central'
+  const { warehouseId, canSelectWarehouse, canIntake, canAdjust, isDistributor } = getInventoryCapabilities(
+    session.can,
+    session.role,
+    selectedWarehouse,
+    session.warehouseId,
+  )
   const lotLocation = warehouseId === 'central' ? 'central' : `warehouse__${warehouseId}`
-  const canIntake = ['admin','warehouse'].includes(session.role) && warehouseId === 'central'
   const operation = useRef<string | null>(null)
-  const canAdjust = session.role === 'admin'
-  const isDistributor = session.role === 'distributor'
 
   const [tab, setTab] = useState<'central' | 'route'>(isDistributor ? 'route' : 'central')
   const [search, setSearch] = useState('')
@@ -158,7 +161,7 @@ export function InventoryView({ session, data }: DistributionViewProps) {
   return (
     <Screen title="Inventario" subtitle={isDistributor ? 'Lo que llevas cargado hoy' : `${warehouseName} y stock en ruta`}>
       <div className="flex w-full min-w-0 flex-col gap-3">
-        {session.role === 'admin' && <Field label="Almacén"><ChoiceButton label={warehouseName} placeholder="Selecciona almacén" onClick={() => setChoice('warehouse')} /></Field>}
+        {canSelectWarehouse && <Field label="Almacén"><ChoiceButton label={warehouseName} placeholder="Selecciona almacén" onClick={() => setChoice('warehouse')} /></Field>}
         {!isDistributor && (
           <Segmented
             value={tab}

@@ -192,8 +192,11 @@ async function executeNightclubCommand(db, request) {
     if (type === 'addRound' && !nightclubOperationAllowed(memberData, ['pos.create', 'accounts.edit'], ['owner', 'admin', 'waiter', 'service', 'cashier'])) {
       throw new HttpsError('permission-denied', 'No tienes permiso para agregar pedidos.')
     }
-    if (['settleRound', 'settlePendingRound'].includes(type) && !nightclubOperationAllowed(memberData, ['pos.create', 'cash.create', 'bar.create'], ['owner', 'admin', 'cashier', 'waiter', 'service', 'bar'])) {
+    if (type === 'settleRound' && !nightclubOperationAllowed(memberData, ['pos.create', 'cash.create', 'bar.create'], ['owner', 'admin', 'cashier', 'waiter', 'service', 'bar'])) {
       throw new HttpsError('permission-denied', 'No tienes permiso para cobrar rondas.')
+    }
+    if (type === 'settlePendingRound' && !nightclubOperationAllowed(memberData, 'cash.create', ['owner', 'admin', 'cashier'])) {
+      throw new HttpsError('permission-denied', 'Solo Caja o Administración pueden liquidar rondas pendientes.')
     }
     if (type === 'advanceRound' && !nightclubOperationAllowed(memberData, 'bar.edit', ['owner', 'admin', 'bar'])) {
       throw new HttpsError('permission-denied', 'Solo Barra puede preparar pedidos.')
@@ -1513,6 +1516,7 @@ async function applyCommand(context) {
           tenantId: actor.tenantId,
           branchId,
           accountId,
+          cashboxId: account.cashboxId || null,
           roundId,
           itemId: comm.itemId,
           productId: comm.productId,
@@ -1586,6 +1590,7 @@ async function applyCommand(context) {
         tenantId: actor.tenantId,
         branchId,
         accountId,
+        cashboxId: account.cashboxId || null,
         roundId,
         itemId: comm.itemId,
         productId: comm.productId,
@@ -1680,6 +1685,10 @@ async function applyCommand(context) {
     if (snap.data().status !== 'bill_requested') throw new HttpsError('aborted', 'La cuenta no está por cobrar.')
     const balance = amount(snap.data().balance)
     if (balance <= 0) throw new HttpsError('failed-precondition', 'La cuenta no tiene saldo pendiente.')
+    const pendingRounds = await tx.get(root.collection('nightclubRounds').where('accountId', '==', accountId))
+    if (pendingRounds.docs.some(doc => doc.data().branchId === branchId && doc.data().authorization === 'account_charge' && !doc.data().paymentId && doc.data().inventoryConsumptionStatus === 'not_consumed')) {
+      throw new HttpsError('failed-precondition', 'Liquida las rondas pendientes desde Cuentas antes de registrar el pago total.')
+    }
     const paid = amount(payload.amount)
     const method = text(payload.method, 20)
     if (paid <= 0 || paid > balance || !['cash', 'qr', 'card', 'mixed'].includes(method)) {

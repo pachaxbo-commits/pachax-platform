@@ -25,6 +25,7 @@ import type {
   DistClaim,
   DistCreditStatus,
   DistCreditOverride,
+  DistCatalogSettings,
 } from '../../modules/distribution/types.ts'
 import type {
   CustomerInput,
@@ -62,6 +63,7 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
       try {
         const parsed = JSON.parse(raw) as DistributionData
         if (parsed && Array.isArray(parsed.products) && Array.isArray(parsed.customers)) {
+          if (!parsed.catalogSettings) parsed.catalogSettings = { id: 'catalog', tenantId: 'preview-distribution', industryProfile: 'mixed', categories: [{ id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: new Date().toISOString() }
           return parsed
         }
       } catch {
@@ -240,6 +242,16 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
 
   subscribeProducts(onData: (rows: DistProduct[]) => void): () => void {
     return this.addListener('products', onData)
+  }
+
+  subscribeCatalogSettings(onData: (settings: DistCatalogSettings) => void): () => void {
+    return this.addListener('catalogSettings', onData)
+  }
+
+  async saveCatalogSettings(settings: Pick<DistCatalogSettings, 'industryProfile' | 'categories'>): Promise<void> {
+    const next = { ...this.data.catalogSettings, ...settings, updatedAt: new Date().toISOString() }
+    this.persist({ ...this.data, catalogSettings: next })
+    this.notify('catalogSettings')
   }
 
   subscribeRoutes(onData: (rows: DistRoute[]) => void): () => void {
@@ -964,5 +976,15 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
     }
     this.persist({ ...this.data, claims: [claim, ...this.data.claims] })
     this.notify('claims')
+  }
+
+  async getCustomerStatementHistory(customerId: string) {
+    return {
+      receivables: this.data.receivables.filter(row => row.customerId === customerId),
+      collections: this.data.collections.filter(row => row.customerId === customerId),
+      claims: this.data.claims.filter(row => row.customerId === customerId),
+      sales: this.data.sales.filter(row => row.customerId === customerId),
+      complete: true as const,
+    }
   }
 }
