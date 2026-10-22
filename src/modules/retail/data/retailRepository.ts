@@ -2,6 +2,7 @@ import { collection, getDocs, limit, onSnapshot, orderBy, query, where, type Uns
 import { getFirebaseContext } from '../../../lib/firebase'
 import { gateway } from '../../../services/gateway'
 import { getActiveTenant } from '../../../store/activeTenant'
+import { retailRangeMax, retailRangeWindow } from '../domain/retailReport'
 
 export interface RetailProduct {
   id: string; tenantId: string; branchId: string; name: string; description: string; barcode: string; sku: string
@@ -12,7 +13,7 @@ export interface RetailInventory { productId: string; tenantId: string; branchId
 export interface RetailSale { saleId: string; tenantId: string; branchId: string; shiftId?: string; cashboxId?: string; items: Array<{ productId: string; productNameSnapshot: string; soldBy?: 'unit'|'weight'; quantity: number; unit: string; unitPriceMinor?: number; subtotalMinor: number }>; totalMinor: number; payment: { method: string; cashMinor: number; qrMinor: number; changeMinor: number; receivedMinor?: number }; actorUid?: string; createdAt: string }
 export interface RetailMovement { movementId: string; productId: string; type: string; quantityDelta: number; quantityAfter: number; unit: string; actorUid: string; createdAt: string; note?: string }
 export interface RetailCashSession { shiftId: string; tenantId: string; branchId: string; cashboxId: string; status: 'open'|'closed'; openedBy: string; openedAt: string; openingFloatMinor: number; totalSalesMinor: number; cashSalesMinor: number; qrSalesMinor: number; cashOnlySalesMinor?: number; qrOnlySalesMinor?: number; mixedCashMinor?: number; mixedQrMinor?: number; cashReceivedMinor: number; changeMinor: number; manualInflowMinor: number; manualOutflowMinor: number; salesCount: number; cashSalesCount: number; qrSalesCount: number; mixedSalesCount: number; closedBy?: string; closedAt?: string; expectedCashMinor?: number; countedCashMinor?: number; differenceMinor?: number; observation?: string }
-export interface RetailCashMovement { cashMovementId: string; tenantId: string; branchId: string; cashboxId: string; shiftId: string; direction: 'in'|'out'; amountMinor: number; category: string; description: string; actorUid: string; createdAt: string }
+export interface RetailCashMovement { cashMovementId: string; tenantId: string; branchId: string; cashboxId: string; shiftId: string; direction: 'in'|'out'; amountMinor: number; category: string; description: string; actorUid: string; operationId?:string; createdAt: string }
 export interface RetailCashClosure extends Omit<RetailCashSession, 'status'> { expectedCashMinor: number; countedCashMinor: number; differenceMinor: number; closedBy: string; closedAt: string; observation: string }
 export interface RetailCashboxState { branchId:string; cashboxId:string; activeSessionId:string|null }
 
@@ -60,18 +61,18 @@ export const subscribeRetailCashClosures = (branchId:string,onData:(rows:RetailC
 
 export async function getRetailSalesRange(branchId:string,startISO:string,endExclusiveISO:string,maxRows=500) {
   const {active,firebase}=await context(),col=collection(firebase.db,'tenants',active.tenantId,'retailSales')
-  const result=await getDocs(query(col,where('branchId','==',branchId),where('createdAt','>=',startISO),where('createdAt','<',endExclusiveISO),orderBy('createdAt','desc'),limit(maxRows)))
-  return {rows:result.docs.map(item=>({...item.data(),saleId:item.id} as RetailSale)),reachedLimit:result.size===maxRows}
+  const safeMax=retailRangeMax(maxRows),result=await getDocs(query(col,where('branchId','==',branchId),where('createdAt','>=',startISO),where('createdAt','<',endExclusiveISO),orderBy('createdAt','desc'),limit(safeMax+1)))
+  return retailRangeWindow(result.docs.map(item=>({...item.data(),saleId:item.id} as RetailSale)),safeMax)
 }
 export async function getRetailCashClosuresRange(branchId:string,startISO:string,endExclusiveISO:string,maxRows=500) {
   const {active,firebase}=await context(),col=collection(firebase.db,'tenants',active.tenantId,'retailCashClosures')
-  const result=await getDocs(query(col,where('branchId','==',branchId),where('closedAt','>=',startISO),where('closedAt','<',endExclusiveISO),orderBy('closedAt','desc'),limit(maxRows)))
-  return {rows:result.docs.map(item=>({...item.data(),shiftId:item.id} as RetailCashClosure)),reachedLimit:result.size===maxRows}
+  const safeMax=retailRangeMax(maxRows),result=await getDocs(query(col,where('branchId','==',branchId),where('closedAt','>=',startISO),where('closedAt','<',endExclusiveISO),orderBy('closedAt','desc'),limit(safeMax+1)))
+  return retailRangeWindow(result.docs.map(item=>({...item.data(),shiftId:item.id} as RetailCashClosure)),safeMax)
 }
 export async function getRetailCashMovementsRange(branchId:string,startISO:string,endExclusiveISO:string,maxRows=500) {
   const {active,firebase}=await context(),col=collection(firebase.db,'tenants',active.tenantId,'retailCashMovements')
-  const result=await getDocs(query(col,where('branchId','==',branchId),where('createdAt','>=',startISO),where('createdAt','<',endExclusiveISO),orderBy('createdAt','desc'),limit(maxRows)))
-  return {rows:result.docs.map(item=>({...item.data(),cashMovementId:item.id} as RetailCashMovement)),reachedLimit:result.size===maxRows}
+  const safeMax=retailRangeMax(maxRows),result=await getDocs(query(col,where('branchId','==',branchId),where('createdAt','>=',startISO),where('createdAt','<',endExclusiveISO),orderBy('createdAt','desc'),limit(safeMax+1)))
+  return retailRangeWindow(result.docs.map(item=>({...item.data(),cashMovementId:item.id} as RetailCashMovement)),safeMax)
 }
 
 export async function retailCommand<T>(commandType: string, payload: Record<string, unknown>, operationId: string = crypto.randomUUID()): Promise<T> {
@@ -85,6 +86,6 @@ export const importRetailProducts = (products: SaveRetailProduct[], mode: 'creat
 export const archiveRetailProduct = (productId: string) => retailCommand('archiveProduct', { productId })
 export const recordRetailMovement = (payload: { productId: string; quantity: number; movementType: 'intake' | 'adjustment' | 'count'; direction?: 'increase' | 'decrease'; note?: string }) => retailCommand('recordInventoryMovement', payload)
 export const createRetailSale = (payload: { items: Array<{ productId: string; quantity: number }>; payment: { method: 'cash' | 'qr' | 'mixed'; cashMinor: number; qrMinor: number; receivedMinor: number } }, operationId?: string) => retailCommand<{ saleId: string; totalMinor: number; changeMinor: number }>('createSale', payload, operationId)
-export const openRetailCashSession = (openingFloatMinor:number) => retailCommand<{shiftId:string;cashboxId:string;status:'open';openingFloatMinor:number}>('openCashSession',{openingFloatMinor})
-export const recordRetailCashMovement = (payload:{shiftId:string;direction:'in'|'out';amountMinor:number;category:'change_float'|'expense'|'withdrawal'|'correction';description:string}) => retailCommand<{cashMovementId:string;shiftId:string;direction:'in'|'out';amountMinor:number}>('recordCashMovement',payload)
-export const closeRetailCashSession = (payload:{shiftId:string;countedCashMinor:number;observation?:string}) => retailCommand<{shiftId:string;status:'closed';totalSalesMinor:number;expectedCashMinor:number;countedCashMinor:number;differenceMinor:number;closedAt:string}>('closeCashSession',payload)
+export const openRetailCashSession = (openingFloatMinor:number,operationId?:string) => retailCommand<{shiftId:string;cashboxId:string;status:'open';openingFloatMinor:number}>('openCashSession',{openingFloatMinor},operationId)
+export const recordRetailCashMovement = (payload:{shiftId:string;direction:'in'|'out';amountMinor:number;category:'change_float'|'expense'|'withdrawal'|'correction';description:string},operationId?:string) => retailCommand<{cashMovementId:string;shiftId:string;direction:'in'|'out';amountMinor:number}>('recordCashMovement',payload,operationId)
+export const closeRetailCashSession = (payload:{shiftId:string;countedCashMinor:number;observation?:string},operationId?:string) => retailCommand<{shiftId:string;status:'closed';totalSalesMinor:number;expectedCashMinor:number;countedCashMinor:number;differenceMinor:number;closedAt:string}>('closeCashSession',payload,operationId)

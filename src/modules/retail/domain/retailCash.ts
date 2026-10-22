@@ -1,9 +1,22 @@
 import type { RetailCashClosure, RetailCashMovement, RetailCashSession, RetailSale } from '../data/retailRepository'
 
 export function expectedRetailCash(session: Pick<RetailCashSession,'openingFloatMinor'|'cashSalesMinor'|'manualInflowMinor'|'manualOutflowMinor'>) {
+  const components=[session.openingFloatMinor,session.cashSalesMinor,session.manualInflowMinor,session.manualOutflowMinor]
+  if(components.some(value=>!Number.isSafeInteger(value)||value<0)) throw new Error('El efectivo esperado no es válido.')
   const expected = session.openingFloatMinor + session.cashSalesMinor + session.manualInflowMinor - session.manualOutflowMinor
   if (!Number.isSafeInteger(expected) || expected < 0) throw new Error('El efectivo esperado no es válido.')
   return expected
+}
+
+export interface RetailCashCommandAttempt<T> { operationId:string; payload:T }
+export function resolveRetailCashAttempt<T>(payload:T,previous:RetailCashCommandAttempt<T>|null,createId:()=>string=()=>crypto.randomUUID()):RetailCashCommandAttempt<T>{
+  return previous??{operationId:createId(),payload:structuredClone(payload)}
+}
+export function isUncertainRetailCommandError(error:unknown):boolean{
+  if(!error||typeof error!=='object')return true
+  const code='code' in error&&typeof error.code==='string'?error.code.replace(/^functions\//,''):''
+  if(!code)return true
+  return ['unavailable','deadline-exceeded','unknown','cancelled','internal','aborted'].includes(code)
 }
 
 export function retailCashReconciliation(session: RetailCashSession, countedCashMinor: number) {

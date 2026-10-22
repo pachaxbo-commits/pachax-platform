@@ -21,6 +21,12 @@ const whole = (value, name, { min = 0, max = 1_000_000_000 } = {}) => {
   return value
 }
 const moneyMinor = value => whole(value, 'Importe', { max: 100_000_000 })
+const cashSessionExpected = session => {
+  const fields = ['openingFloatMinor', 'cashSalesMinor', 'manualInflowMinor', 'manualOutflowMinor']
+  if (!session || fields.some(field => !Number.isSafeInteger(session[field]) || session[field] < 0)) return null
+  const expected = session.openingFloatMinor + session.cashSalesMinor + session.manualInflowMinor - session.manualOutflowMinor
+  return Number.isSafeInteger(expected) && expected >= 0 ? expected : null
+}
 const barcode = value => {
   if (value === undefined || value === null || value === '') return ''
   if (typeof value !== 'string' || value.length > 80 || !/^[\x20-\x7E]+$/.test(value.trim())) throw new HttpsError('invalid-argument', 'Código de barras inválido; guárdalo como texto.')
@@ -219,6 +225,9 @@ async function apply(ctx) {
     const [stateSnap, sessionSnap] = await Promise.all([tx.get(stateRef), tx.get(sessionRef)])
     const session = sessionSnap.data()
     if (!sessionSnap.exists || session.status !== 'open' || session.branchId !== branchId || session.cashboxId !== cashboxId || stateSnap.data()?.activeSessionId !== shiftId) throw new HttpsError('failed-precondition', 'La jornada ya no está abierta en esta caja.')
+    const expectedBeforeMovement = cashSessionExpected(session)
+    if (expectedBeforeMovement === null) throw new HttpsError('failed-precondition', 'El efectivo registrado en la jornada es inconsistente; solicita revisión antes de continuar.')
+    if (direction === 'out' && amountMinor > expectedBeforeMovement) throw new HttpsError('failed-precondition', 'La salida supera el efectivo disponible en caja.')
     const field = direction === 'in' ? 'manualInflowMinor' : 'manualOutflowMinor'
     const nextAmount = (session[field] || 0) + amountMinor
     if (!Number.isSafeInteger(nextAmount) || nextAmount > 100_000_000) throw new HttpsError('invalid-argument', 'El total de movimientos excede el rango permitido.')
@@ -236,8 +245,8 @@ async function apply(ctx) {
     if (closureSnap.exists) throw new HttpsError('failed-precondition', 'La jornada ya tiene un cierre registrado.')
     const session = sessionSnap.data()
     if (session.status !== 'open' || stateSnap.data()?.activeSessionId !== shiftId) throw new HttpsError('failed-precondition', 'La jornada ya está cerrada o no es la caja activa.')
-    const expectedCashMinor = session.openingFloatMinor + session.cashSalesMinor + session.manualInflowMinor - session.manualOutflowMinor
-    if (!Number.isSafeInteger(expectedCashMinor) || expectedCashMinor < 0) throw new HttpsError('failed-precondition', 'El efectivo esperado no es válido; solicita revisión antes de cerrar.')
+    const expectedCashMinor = cashSessionExpected(session)
+    if (expectedCashMinor === null) throw new HttpsError('failed-precondition', 'El efectivo esperado no es válido; solicita revisión antes de cerrar.')
     const differenceMinor = countedCashMinor - expectedCashMinor
     const observation = typeof payload.observation === 'string' ? payload.observation.trim().slice(0, 500) : ''
     if (differenceMinor !== 0 && !observation) throw new HttpsError('invalid-argument', 'Agrega una observación obligatoria para explicar la diferencia de caja.')

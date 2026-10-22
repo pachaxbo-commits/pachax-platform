@@ -5,6 +5,8 @@ import { isRetailProfile, RETAIL_PROFILES } from '../src/modules/retail/domain/r
 import { addScannedProduct, calculateRetailPayment, isUncertainRetailSaleError, parseRetailMoney, resolveRetailSaleAttempt, retailReceiptQuantity } from '../src/modules/retail/domain/retailPos.ts'
 import { validateRetailImportFields } from '../src/modules/retail/domain/retailImportValidation.ts'
 import { expectedRetailCash, retailCashReconciliation, retailQuantityLabel, summarizeRetailSales } from '../src/modules/retail/domain/retailCash.ts'
+import { isUncertainRetailCommandError, resolveRetailCashAttempt } from '../src/modules/retail/domain/retailCash.ts'
+import { createEmptyRetailReportState, failRetailReport, finishRetailReport, startRetailReport, updateRetailReportRange, retailCashClosureExportRow, RETAIL_CASH_CLOSURE_EXPORT_HEADERS, retailRangeMax, retailRangeWindow } from '../src/modules/retail/domain/retailReport.ts'
 
 test('Retail accepts only the eight supported tenant profiles', () => {
   assert.equal(RETAIL_PROFILES.length, 8)
@@ -93,6 +95,56 @@ test('cash expected uses net cash allocated to sales, manual movements and count
   assert.equal(retailQuantityLabel(750,'g'),'0,75 kg')
   assert.equal(retailQuantityLabel(3,'unit'),'3 u.')
   assert.throws(()=>retailCashReconciliation(shift,-1),/importe válido/)
+})
+
+test('cash outflow never creates a negative expected balance, including inconsistent historical registers',()=>{
+  assert.throws(()=>expectedRetailCash({openingFloatMinor:1000,cashSalesMinor:0,manualInflowMinor:0,manualOutflowMinor:1001}),/no es válido/)
+  assert.throws(()=>expectedRetailCash({openingFloatMinor:1000,cashSalesMinor:-1,manualInflowMinor:0,manualOutflowMinor:0}),/no es válido/)
+  assert.throws(()=>expectedRetailCash({openingFloatMinor:Number.MAX_SAFE_INTEGER,cashSalesMinor:1,manualInflowMinor:0,manualOutflowMinor:0}),/no es válido/)
+})
+
+test('cash command retries preserve the operation id and exact payload after an uncertain response',()=>{
+  let sequence=0
+  const payload={shiftId:'shift-1',direction:'out',amountMinor:400,category:'expense',description:'Insumos'}
+  const first=resolveRetailCashAttempt(payload,null,()=>`cash-${++sequence}`)
+  const retry=resolveRetailCashAttempt({...payload,amountMinor:900},first,()=>`cash-${++sequence}`)
+  assert.equal(retry.operationId,first.operationId)
+  assert.deepEqual(retry.payload,payload)
+  assert.equal(isUncertainRetailCommandError({code:'functions/unavailable'}),true)
+  assert.equal(isUncertainRetailCommandError({code:'functions/permission-denied'}),false)
+})
+
+test('cash closure Excel export maps every amount to its declared column',()=>{
+  const closure={shiftId:'s',tenantId:'t',branchId:'main',cashboxId:'default',status:'closed',openedBy:'owner',openedAt:'2026-10-22T09:00:00.000Z',openingFloatMinor:10000,totalSalesMinor:12000,cashSalesMinor:8000,qrSalesMinor:4000,cashOnlySalesMinor:6000,qrOnlySalesMinor:3000,mixedCashMinor:2000,mixedQrMinor:1000,cashReceivedMinor:8500,changeMinor:500,manualInflowMinor:500,manualOutflowMinor:1000,salesCount:2,cashSalesCount:1,qrSalesCount:1,mixedSalesCount:0,expectedCashMinor:17500,countedCashMinor:17000,differenceMinor:-500,closedBy:'owner',closedAt:'2026-10-22T10:00:00.000Z',observation:'Revisado'}
+  const row=retailCashClosureExportRow(closure)
+  assert.equal(row.length,RETAIL_CASH_CLOSURE_EXPORT_HEADERS.length)
+  assert.deepEqual(row.slice(2,12),[120,80,40,60,30,20,10,175,170,-5])
+  assert.equal(row[12],'Revisado')
+})
+
+test('retail report state clears old period data on range change, request and failure',()=>{
+  const initial=createEmptyRetailReportState()
+  const complete=finishRetailReport(startRetailReport(initial),{sales:[{saleId:'old'}],closures:[],movements:[],reachedLimit:false})
+  assert.equal(complete.loaded,true)
+  assert.equal(updateRetailReportRange(complete).sales.length,0)
+  const pending=startRetailReport(complete)
+  assert.equal(pending.sales.length,0)
+  const failed=failRetailReport(pending,'No se pudo consultar')
+  assert.equal(failed.loaded,false)
+  assert.equal(failed.sales.length,0)
+  assert.equal(failed.error,'No se pudo consultar')
+})
+
+test('retail reports detect only rows beyond the capped query window and refuse partial results',()=>{
+  const rows=Array.from({length:501},(_,index)=>index)
+  assert.deepEqual(retailRangeWindow(rows.slice(0,500),500),{rows:rows.slice(0,500),reachedLimit:false})
+  assert.deepEqual(retailRangeWindow(rows,500),{rows:rows.slice(0,500),reachedLimit:true})
+  assert.equal(retailRangeMax(10000),500)
+  assert.equal(retailRangeMax(Number.NaN),500)
+  const partial=finishRetailReport(startRetailReport(createEmptyRetailReportState()),{sales:rows.slice(0,500),closures:[],movements:[],reachedLimit:true})
+  assert.equal(partial.loaded,false)
+  assert.equal(partial.sales.length,0)
+  assert.equal(partial.reachedLimit,true)
 })
 
 test('sales report separates cash and QR, groups units and grams, and leaves historical sales unattributed',()=>{

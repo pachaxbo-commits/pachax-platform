@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { collection, doc, getDoc, getDocs, setDoc, query, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, setDoc, query, where, orderBy, limit } from 'firebase/firestore'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) throw new Error('Retail QA solo se permite en demo-pachax-platform.')
@@ -29,8 +29,9 @@ try {
   await root.set({ tenantId, name: 'Comercio QA', businessType: 'gelateria_weight_cafe', ownerUid: ids.owner, configuration: template.defaults })
   await root.collection('branches').doc('main').set({ tenantId, id: 'main', active: true })
   await root.collection('branches').doc('branch2').set({ tenantId, id: 'branch2', active: true })
+  await root.collection('branches').doc('branch3').set({ tenantId, id: 'branch3', active: true })
   for (const role of template.roles) await root.collection('roles').doc(role.id).set({ ...role, tenantId })
-  for (const [uid, roleId] of [[ids.owner,'owner'],[ids.cashier,'cashier'],[ids.sales,'sales'],[ids.inventory,'inventory']]) await root.collection('members').doc(uid).set({ uid, tenantId, roleId, status:'active', branchIds:['main','branch2'] })
+  for (const [uid, roleId] of [[ids.owner,'owner'],[ids.cashier,'cashier'],[ids.sales,'sales'],[ids.inventory,'inventory']]) await root.collection('members').doc(uid).set({ uid, tenantId, roleId, status:'active', branchIds:['main','branch2','branch3'] })
   await root.collection('members').doc(ids.branchCashier).set({uid:ids.branchCashier,tenantId,roleId:'cashier',status:'active',branchIds:['main']})
   await otherRoot.set({ tenantId: otherTenant, businessType:'gelateria_weight_cafe', configuration:template.defaults })
   await otherRoot.collection('members').doc(ids.foreign).set({ uid:ids.foreign, tenantId:otherTenant, roleId:'owner', status:'active', branchIds:['main'] })
@@ -187,6 +188,52 @@ try {
   assert.equal((await root.collection('retailCashboxStates').doc('branch2__default').get()).data().activeSessionId,null)
   pass('venta concurrente con cierre se serializa y sucursales mantienen cajas independientes')
 
+  const movementShift=await call(ids.owner,'openCashSession','branch2-outflow-open',{openingFloatMinor:1000},tenantId,'branch2')
+  await assert.rejects(call(ids.cashier,'recordCashMovement','branch2-outflow-over-available',{shiftId:movementShift.shiftId,direction:'out',amountMinor:1001,category:'expense',description:'Excede efectivo disponible'},tenantId,'branch2'),error=>error.code==='failed-precondition')
+  assert.equal((await root.collection('retailCashMovements').where('shiftId','==',movementShift.shiftId).get()).size,0)
+  const outflowAttempts=['branch2-outflow-a','branch2-outflow-b'].map(operationId=>call(ids.cashier,'recordCashMovement',operationId,{shiftId:movementShift.shiftId,direction:'out',amountMinor:700,category:'expense',description:'Gasto concurrente QA'},tenantId,'branch2'))
+  const outflowResults=await Promise.allSettled(outflowAttempts)
+  assert.equal(outflowResults.filter(result=>result.status==='fulfilled').length,1)
+  assert.equal(outflowResults.filter(result=>result.status==='rejected'&&result.reason.code==='failed-precondition').length,1)
+  const outflowWinner=outflowResults.findIndex(result=>result.status==='fulfilled'),outflowOperationId=['branch2-outflow-a','branch2-outflow-b'][outflowWinner]
+  const outflowRetry=await call(ids.cashier,'recordCashMovement',outflowOperationId,{shiftId:movementShift.shiftId,direction:'out',amountMinor:700,category:'expense',description:'Gasto concurrente QA'},tenantId,'branch2')
+  assert.deepEqual(outflowRetry,outflowResults[outflowWinner].value)
+  assert.equal((await root.collection('retailCashMovements').where('shiftId','==',movementShift.shiftId).get()).size,1)
+  const movementSessionRef=root.collection('retailCashSessions').doc(movementShift.shiftId)
+  assert.equal((await movementSessionRef.get()).data().openingFloatMinor+(await movementSessionRef.get()).data().cashSalesMinor+(await movementSessionRef.get()).data().manualInflowMinor-(await movementSessionRef.get()).data().manualOutflowMinor,300)
+  await movementSessionRef.update({manualOutflowMinor:2000})
+  const movementCountBeforeInvalid=(await root.collection('retailCashMovements').where('shiftId','==',movementShift.shiftId).get()).size
+  await assert.rejects(call(ids.cashier,'recordCashMovement','branch2-inconsistent-outflow',{shiftId:movementShift.shiftId,direction:'out',amountMinor:1,category:'expense',description:'Registro histórico inconsistente'},tenantId,'branch2'),error=>error.code==='failed-precondition')
+  assert.equal((await root.collection('retailCashMovements').where('shiftId','==',movementShift.shiftId).get()).size,movementCountBeforeInvalid)
+  pass('salidas concurrentes serializan el efectivo, reintentos no duplican y registros históricos inconsistentes no reciben nuevas escrituras')
+
+  const concurrentProduct=await call(ids.owner,'saveProduct','branch3-race-product',{product:{...product,name:'Producto carrera caja',barcode:'',sku:'BR3-RACE',soldBy:'unit',stockUnit:'unit',priceMinor:1000,initialStock:2}},tenantId,'branch3')
+  const concurrentShift=await call(ids.owner,'openCashSession','branch3-race-open',{openingFloatMinor:1000},tenantId,'branch3')
+  const cashRace=await Promise.allSettled([
+    call(ids.cashier,'createSale','branch3-race-sale',{items:[{productId:concurrentProduct.productId,quantity:1}],payment:{method:'cash',cashMinor:1000,qrMinor:0,receivedMinor:1000}},tenantId,'branch3'),
+    call(ids.cashier,'recordCashMovement','branch3-race-out',{shiftId:concurrentShift.shiftId,direction:'out',amountMinor:700,category:'expense',description:'Salida concurrente QA'},tenantId,'branch3'),
+  ])
+  assert.equal(cashRace.filter(result=>result.status==='fulfilled').length,2)
+  const concurrentSession=(await root.collection('retailCashSessions').doc(concurrentShift.shiftId).get()).data()
+  const concurrentExpected=concurrentSession.openingFloatMinor+concurrentSession.cashSalesMinor+concurrentSession.manualInflowMinor-concurrentSession.manualOutflowMinor
+  assert.equal(concurrentExpected,1300)
+  const closeRace=await Promise.allSettled([
+    call(ids.owner,'closeCashSession','branch3-race-close',{shiftId:concurrentShift.shiftId,countedCashMinor:1300},tenantId,'branch3'),
+    call(ids.cashier,'recordCashMovement','branch3-after-close-race',{shiftId:concurrentShift.shiftId,direction:'out',amountMinor:1,category:'expense',description:'Debe quedar fuera del cierre'},tenantId,'branch3'),
+  ])
+  let finalClosure
+  if(closeRace[0].status==='fulfilled')finalClosure=closeRace[0].value
+  else{
+    assert.equal(closeRace[0].reason?.code,'invalid-argument')
+    const afterRace=(await root.collection('retailCashSessions').doc(concurrentShift.shiftId).get()).data()
+    const expectedAfterRace=afterRace.openingFloatMinor+afterRace.cashSalesMinor+afterRace.manualInflowMinor-afterRace.manualOutflowMinor
+    finalClosure=await call(ids.owner,'closeCashSession','branch3-race-close',{shiftId:concurrentShift.shiftId,countedCashMinor:expectedAfterRace},tenantId,'branch3')
+  }
+  assert.ok(closeRace[1].status==='fulfilled'||closeRace[1].reason?.code==='failed-precondition')
+  assert.equal((await root.collection('retailCashClosures').doc(concurrentShift.shiftId).get()).data().expectedCashMinor,finalClosure.expectedCashMinor)
+  assert.equal((await root.collection('retailCashSessions').doc(concurrentShift.shiftId).get()).data().status,'closed')
+  pass('venta y salida simultáneas concilian; el cierre concurrente fija una instantánea y rechaza movimientos posteriores')
+
   const ownerClient = env.authenticatedContext(ids.owner).firestore(), cashierClient = env.authenticatedContext(ids.cashier).firestore(), branchCashierClient=env.authenticatedContext(ids.branchCashier).firestore(), inventoryClient = env.authenticatedContext(ids.inventory).firestore(), foreignClient = env.authenticatedContext(ids.foreign).firestore()
   await assertSucceeds(getDoc(doc(cashierClient,`tenants/${tenantId}/retailProducts/${productId}`)))
   await assertFails(getDoc(doc(cashierClient,`tenants/${tenantId}/retailProductCosts/${productId}`)))
@@ -201,6 +248,11 @@ try {
   await assertFails(getDoc(doc(inventoryClient,`tenants/${tenantId}/retailCashClosures/${shiftId}`)))
   await assertFails(getDoc(doc(foreignClient,`tenants/${tenantId}/retailCashClosures/${shiftId}`)))
   await assertSucceeds(getDocs(query(collection(cashierClient,`tenants/${tenantId}/retailCashClosures`),where('branchId','==','main'))))
+  const bulkSalesCollection=root.collection('retailSales'),bulkBatchSize=400,bulkCount=501
+  for(let offset=0;offset<bulkCount;offset+=bulkBatchSize){const batch=db.batch();for(let index=offset;index<Math.min(offset+bulkBatchSize,bulkCount);index++)batch.set(bulkSalesCollection.doc(`bulk-${index}`),{tenantId,branchId:'main',saleId:`bulk-${index}`,totalMinor:100,payment:{method:'cash',cashMinor:100,qrMinor:0,changeMinor:0},items:[],createdAt:`2026-10-22T12:${String(Math.floor(index/60)).padStart(2,'0')}:${String(index%60).padStart(2,'0')}.000Z`});await batch.commit()}
+  const oversizedReport=await getDocs(query(collection(cashierClient,`tenants/${tenantId}/retailSales`),where('branchId','==','main'),where('createdAt','>=','2026-10-22T00:00:00.000Z'),where('createdAt','<','2026-10-23T00:00:00.000Z'),orderBy('createdAt','desc'),limit(501)))
+  assert.equal(oversizedReport.size,501)
+  pass('consulta financiera recupera el registro centinela 501 para bloquear cualquier exportación parcial')
   const salesClient=env.authenticatedContext(ids.sales).firestore()
   await assertFails(getDoc(doc(salesClient,`tenants/${tenantId}/retailCashSessions/${shiftId}`)))
   await assertSucceeds(getDocs(query(collection(salesClient,`tenants/${tenantId}/retailCashboxStates`),where('branchId','==','main'),where('cashboxId','==','default'))))
@@ -210,7 +262,7 @@ try {
   assert.equal((await root.collection('retailSales').doc('legacy-sale').get()).data().shiftId,undefined)
   assert.equal((await root.collection('retailSales').get()).docs.find(doc=>doc.data().saleId==='sale_weight-sale-1')?.data().shiftId,shiftId)
   pass('Rules aíslan costo de compra y tenant, permiten consultas de sucursal autorizadas y bloquean escrituras cliente')
-  console.log(`${checks}/9 comprobaciones de Retail aprobadas`)
+  console.log(`${checks}/12 comprobaciones de Retail aprobadas`)
 } finally {
   await env.cleanup()
   await auth.deleteUsers(Object.values(ids)).catch(() => undefined)
