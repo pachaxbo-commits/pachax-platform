@@ -1024,6 +1024,12 @@ service cloud.firestore {
       return tHasRole(tenantId, ['admin', 'owner', 'superadmin']);
     }
 
+    // Las rutas conservan historial operativo: solo administración del tenant
+    // puede mantenerlas y nunca se permite su borrado físico.
+    function tDistRouteAdmin(tenantId) {
+      return tHasRole(tenantId, ['admin', 'owner', 'superadmin']);
+    }
+
     function tDistWarehouse(tenantId) {
       return tHasRole(tenantId, ['warehouse']);
     }
@@ -1104,8 +1110,8 @@ service cloud.firestore {
 
     match /tenants/{tenantId}/distRoutes/{routeId} {
       allow read: if tDistWorker(tenantId);
-      allow create, update: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId);
-      allow delete: if tDistAdmin(tenantId);
+      allow create, update: if tDistRouteAdmin(tenantId) && tDistTenantMatches(tenantId);
+      allow delete: if false;
     }
 
     function tDistWarehouseOwns(tenantId, warehouseId) {

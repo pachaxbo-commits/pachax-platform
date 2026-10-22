@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) throw new Error('Proyecto no autorizado para QA Distribution.')
@@ -89,10 +89,34 @@ try {
   const now = new Date().toISOString()
   const routeData = (id, name, active = true) => ({ id, tenantId: owner.tenantId, name, kind: 'route', active, createdAt: now })
 
+  const roleClients = {}
+  for (const roleId of ['admin', 'accountant', 'superadmin']) {
+    const uid = `route-${roleId}-${suffix}`
+    await db.doc(`tenants/${owner.tenantId}/members/${uid}`).set({ uid, tenantId: owner.tenantId, roleId, status: 'active', branchIds: ['main'] })
+    roleClients[roleId] = env.authenticatedContext(uid).firestore()
+  }
+
   // Matches the saveRoute Firestore write; rules authenticate tenant ownership.
   await assertSucceeds(setDoc(doc(owner.client, 'tenants', owner.tenantId, 'distRoutes', routeId), routeData(routeId, 'Zona Norte')))
   await assertSucceeds(setDoc(doc(owner.client, 'tenants', owner.tenantId, 'distRoutes', alternateRouteId), routeData(alternateRouteId, 'Zona Sur')))
-  pass('owner crea rutas con el contrato y Rules productivos')
+  await assertSucceeds(setDoc(doc(roleClients.admin, 'tenants', owner.tenantId, 'distRoutes', `route-admin-${suffix}`), routeData(`route-admin-${suffix}`, 'Ruta Admin')))
+  await assertSucceeds(setDoc(doc(roleClients.superadmin, 'tenants', owner.tenantId, 'distRoutes', `route-superadmin-${suffix}`), routeData(`route-superadmin-${suffix}`, 'Ruta Superadmin')))
+  await assertSucceeds(setDoc(doc(roleClients.admin, 'tenants', owner.tenantId, 'distRoutes', alternateRouteId), { name: 'Zona Sur Renombrada', active: false }, { merge: true }))
+  await assertSucceeds(setDoc(doc(roleClients.superadmin, 'tenants', owner.tenantId, 'distRoutes', alternateRouteId), { active: true }, { merge: true }))
+  pass('owner/admin/superadmin activo crean rutas; reglas de tenant autentican el rol')
+
+  for (const action of ['create', 'rename', 'deactivate', 'delete']) {
+    const target = `tenants/${owner.tenantId}/distRoutes/${routeId}`
+    const request = action === 'create'
+      ? setDoc(doc(roleClients.accountant, 'tenants', owner.tenantId, 'distRoutes', `accountant-route-${suffix}`), routeData(`accountant-route-${suffix}`, 'No permitida'))
+      : action === 'rename'
+        ? setDoc(doc(roleClients.accountant, target), { name: 'Renombre no permitido' }, { merge: true })
+        : action === 'deactivate'
+          ? setDoc(doc(roleClients.accountant, target), { active: false }, { merge: true })
+          : deleteDoc(doc(roleClients.accountant, target))
+    await assertFails(request)
+  }
+  pass('accountant no crea, renombra, desactiva ni elimina rutas')
 
   await assertSucceeds(setDoc(doc(owner.client, 'tenants', owner.tenantId, 'distRoutes', routeId), { ...routeData(routeId, 'Zona Norte Renombrada'), updatedAt: new Date().toISOString() }, { merge: true }))
   const renamed = (await getDoc(doc(owner.client, 'tenants', owner.tenantId, 'distRoutes', routeId))).data()
@@ -143,15 +167,22 @@ try {
   }, 'route-close')
   assert.equal(close.result.status, 'closed')
   assert.equal(close.result.expectedCash, 30)
+  const closureRef = doc(owner.client, 'tenants', owner.tenantId, 'distClosures', `closure_${dispatch.result.id}`)
+  assert.equal((await getDoc(closureRef)).data().status, 'closed')
   assert.equal((await getDoc(doc(owner.client, 'tenants', owner.tenantId, 'distBalances', `route__${routeId}__${productId}`))).data().quantity, 0)
   assert.equal((await getDoc(doc(owner.client, 'tenants', owner.tenantId, 'distBalances', `central__${productId}`))).data().quantity, 7)
   assert.equal((await getDoc(doc(owner.client, 'tenants', owner.tenantId, 'distSales', `${suffix}-sale`))).data().total, 30)
+  await assertFails(deleteDoc(doc(owner.client, 'tenants', owner.tenantId, 'distRoutes', routeId)))
+  await assertFails(deleteDoc(doc(roleClients.admin, 'tenants', owner.tenantId, 'distRoutes', routeId)))
+  assert.equal((await getDoc(doc(owner.client, 'tenants', owner.tenantId, 'distRoutes', routeId))).exists(), true)
+  assert.equal((await getDoc(closureRef)).data().status, 'closed')
   pass('venta, retorno y cierre concilian caja y existencias')
 
   await assertFails(getDoc(doc(other.client, 'tenants', owner.tenantId, 'distRoutes', routeId)))
   pass('un owner de otro tenant no puede leer la ruta')
 
   await assertSucceeds(setDoc(doc(owner.client, 'tenants', owner.tenantId, 'distRoutes', routeId), { ...routeData(routeId, 'Zona Norte Renombrada', false), updatedAt: new Date().toISOString() }, { merge: true }))
+  await assertFails(setDoc(doc(roleClients.accountant, 'tenants', owner.tenantId, 'distRoutes', routeId), { active: true }, { merge: true }))
   await gateway(owner.token, { action: 'createMember', tenantId: owner.tenantId, operationId: `${suffix}-inactive-route-member`, email: `${suffix}-inactive@example.test`, password: 'Inactive-Route-QA-2026!', displayName: 'Ruta inactiva QA', roleId: 'distributor', routeId }, false)
   const deniedDispatch = await enqueue(env.authenticatedContext(warehouse.uid).firestore(), owner.tenantId, warehouse.uid, 'dispatch', {
     warehouseId: 'central', routeId, routeName: 'Zona Norte Renombrada', distributorUid: seller.uid, distributorName: 'Distribuidor QA', lines: [{ productId, quantity: 1 }],
