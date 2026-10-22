@@ -30,6 +30,7 @@ export interface BusinessTemplate {
     features: Partial<Record<Capability, boolean>>
     trackStock: boolean; allowNegativeStock: boolean
     ticketWidth: 58 | 80; paymentMethods: readonly ('cash' | 'qr' | 'mixed')[]
+    retailProfile?: string
   }
   pos: 'orders' | 'route' | 'mixed-weight'
   inventory: 'commercial' | 'lots-and-routes'

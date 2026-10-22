@@ -8,6 +8,13 @@ for (const name of ['platform', 'templates', 'sales', 'finance', 'publicTemplate
   }, fileName: `${name}.ts` })
   fs.writeFileSync(`functions/generated/${name}.js`, result.outputText)
 }
+{
+  const source = fs.readFileSync('src/modules/retail/domain/retailProfiles.ts', 'utf8')
+  const result = ts.transpileModule(source, { compilerOptions: {
+    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, rewriteRelativeImportExtensions: true,
+  }, fileName: 'retailProfiles.ts' })
+  fs.writeFileSync('functions/generated/retailProfiles.js', result.outputText)
+}
 for (const name of ['nightclubAccounts', 'nightclubCourtesies']) {
   const source = fs.readFileSync(`src/modules/nightclub/domain/${name}.ts`, 'utf8')
   const result = ts.transpileModule(source, { compilerOptions: {

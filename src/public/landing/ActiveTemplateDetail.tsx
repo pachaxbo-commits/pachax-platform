@@ -1,6 +1,6 @@
 import { ArrowRight, Eye } from 'lucide-react'
 import type { CommercialTemplateItem } from '../../admin/types'
-import { canLaunchCommercialDemo, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, isTemplateCommerciallyAvailable } from '../../core/publicTemplates'
 import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 
@@ -18,7 +18,7 @@ export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateD
       return
     }
     const targetId = template.canonicalTemplateId || template.templateId || template.id
-    if (!isTemplateProvisioningAvailable(targetId)) return
+    if (!isTemplateCommerciallyAvailable(targetId)) return
     navigate(`/register?template=${targetId}`)
   }
 
@@ -119,7 +119,7 @@ export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateD
               <span>Cotizar a medida</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
-          ) : isTemplateProvisioningAvailable(template.canonicalTemplateId || template.templateId || template.id) ? (
+          ) : isTemplateCommerciallyAvailable(template.canonicalTemplateId || template.templateId || template.id) ? (
             <button
               type="button"
               onClick={handleUseTemplate}

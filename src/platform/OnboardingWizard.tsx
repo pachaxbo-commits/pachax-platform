@@ -23,6 +23,7 @@ import type { DistributionIndustryProfile } from '../modules/distribution/types'
 import { BRAND_PALETTES, type BrandPalette } from '../core/brandPalettes'
 import { onboardingErrorMessage } from '../core/onboardingErrorMessage'
 import { readableForeground } from '../lib/tenantTheme'
+import { RETAIL_PROFILES, type RetailProfileId } from '../modules/retail/domain/retailProfiles'
 
 interface OnboardingWizardProps {
   userEmail: string | null
@@ -102,6 +103,7 @@ export function OnboardingWizard({
   const [city, setCity] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<BusinessType>('route_distribution')
   const [industryProfile, setIndustryProfile] = useState<DistributionIndustryProfile>('mixed')
+  const [retailProfile, setRetailProfile] = useState<RetailProfileId>('general_store')
   const [selectedPalette, setSelectedPalette] = useState<BrandPalette>(BRAND_PALETTES[0])
 
   // Submission & Idempotency
@@ -157,6 +159,7 @@ export function OnboardingWizard({
           companyName: trimmedName,
           businessType: selectedTemplate,
           ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
+          ...(selectedTemplate === 'gelateria_weight_cafe' ? { retailProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -171,6 +174,7 @@ export function OnboardingWizard({
           name: trimmedName,
           businessType: selectedTemplate,
           ...(selectedTemplate === 'route_distribution' ? { industryProfile } : {}),
+          ...(selectedTemplate === 'gelateria_weight_cafe' ? { retailProfile } : {}),
           branding: {
             primary: selectedPalette.primary,
             accent: selectedPalette.accent,
@@ -460,6 +464,15 @@ export function OnboardingWizard({
                   <p className="mt-1 text-xs text-slate-500">Esto sugiere categorías iniciales; puedes vender otros productos y cambiar el rubro luego.</p>
                 </div>
               )}
+              {selectedTemplate === 'gelateria_weight_cafe' && (
+                <div>
+                  <label htmlFor="retail-profile" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Tipo de comercio</label>
+                  <select id="retail-profile" value={retailProfile} onChange={event => setRetailProfile(event.target.value as RetailProfileId)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    {RETAIL_PROFILES.map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">Sugiere categorías iniciales. Puedes cambiarlo después sin afectar productos ni ventas.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
                   Paleta de color de marca
@@ -559,6 +572,9 @@ export function OnboardingWizard({
                   <span className="text-xs font-medium text-slate-500">Rubro de distribución:</span>
                   <span className="text-sm font-semibold text-slate-900">{DISTRIBUTION_PROFILES.find(profile => profile.id === industryProfile)?.label}</span>
                 </div>
+              )}
+              {selectedTemplate === 'gelateria_weight_cafe' && (
+                <div className="flex items-center justify-between py-1 border-b border-slate-200/80"><span className="text-xs font-medium text-slate-500">Perfil de comercio:</span><span className="text-sm font-semibold text-slate-900">{RETAIL_PROFILES.find(profile => profile.id === retailProfile)?.label}</span></div>
               )}
 
               <div className="flex items-center justify-between py-1 border-b border-slate-200/80">

@@ -5,8 +5,9 @@ const { getTemplate } = require('./generated/templates.js');
 const { authenticated, id } = require('./authorization.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
+const { isRetailProfile } = require('./generated/retailProfiles.js');
 
-const ALLOWED_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding', 'industryProfile']);
+const ALLOWED_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding', 'industryProfile', 'retailProfile']);
 
 function initialTenantId(uid) {
   const digest = createHash('sha256').update(`initial-tenant:${uid}`).digest('hex').slice(0, 36);
@@ -66,6 +67,10 @@ async function completeOnboarding(db, auth, request) {
   let industryProfile;
   try { industryProfile = distributionProfile(template.businessType, input.industryProfile); }
   catch (error) { throw new HttpsError('invalid-argument', error.message); }
+  const retailProfile = template.businessType === 'gelateria_weight_cafe'
+    ? (input.retailProfile ?? 'general_store') : undefined;
+  if (template.businessType === 'gelateria_weight_cafe' && !isRetailProfile(retailProfile)) throw new HttpsError('invalid-argument', 'Perfil de comercio no válido.');
+  if (template.businessType !== 'gelateria_weight_cafe' && input.retailProfile !== undefined) throw new HttpsError('invalid-argument', 'El perfil comercial solo aplica a Comercio / Venta rápida.');
   const branding = initialBranding(input.branding);
   const user = await auth.getUser(uid);
   const tenantId = initialTenantId(uid);
@@ -106,6 +111,7 @@ async function completeOnboarding(db, auth, request) {
       if (industryProfile && marker.data()?.industryProfile && marker.data().industryProfile !== industryProfile) {
         throw new HttpsError('failed-precondition', 'El onboarding ya existe con otro rubro de Distribución.');
       }
+      if (retailProfile && tenant.data()?.configuration?.retailProfile !== retailProfile) throw new HttpsError('failed-precondition', 'El onboarding ya existe con otro perfil de comercio.');
       return response(tenantId, savedTemplate);
     }
 
@@ -140,7 +146,7 @@ async function completeOnboarding(db, auth, request) {
         showTaxId: true,
         showManagedBy: true,
       },
-      configuration: structuredClone(template.defaults), entitlements: {}, planKey: null,
+      configuration: { ...structuredClone(template.defaults), ...(retailProfile ? { retailProfile } : {}) }, entitlements: {}, planKey: null,
       subscriptionStatus: 'trial', schemaVersion: 1, templateVersion: template.version,
       createdAt: now, updatedAt: now, userCount: 1, branchCount: 1,
     };
@@ -161,7 +167,7 @@ async function completeOnboarding(db, auth, request) {
       createdAt: profile.data()?.createdAt || now, updatedAt: now,
     }, { merge: true });
     tx.create(linkRef, { tenantId, name, businessType: template.businessType, roleId: 'owner', status: 'active', createdAt: now });
-    tx.create(onboardingRef, { status: 'complete', tenantId, businessType: template.businessType, ...(industryProfile ? { industryProfile } : {}), requestId, createdAt: now, completedAt: now });
+    tx.create(onboardingRef, { status: 'complete', tenantId, businessType: template.businessType, ...(industryProfile ? { industryProfile } : {}), ...(retailProfile ? { retailProfile } : {}), requestId, createdAt: now, completedAt: now });
     tx.create(root.collection('auditLogs').doc(), {
       actorUid: uid, actorType: 'tenant', tenantId, action: 'onboarding.completed',
       resource: 'tenant', resourceId: tenantId, before: null,

@@ -10,6 +10,7 @@ const platform = require('./platform.cjs');
 const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
 const { executeRestaurantCommand } = require('./restaurant.cjs');
+const { executeRetailCommand } = require('./retail.cjs');
 const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
 const { getTemplate } = require('./generated/templates.js');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
@@ -20,7 +21,7 @@ const distributionEventOptions = {
   maxInstances: 3,
   concurrency: 1,
 };
-const ONBOARDING_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding', 'industryProfile']);
+const ONBOARDING_FIELDS = new Set(['action', 'requestId', 'companyName', 'businessType', 'branding', 'industryProfile', 'retailProfile']);
 function assertProvisionableTemplate(businessType) {
   try { getTemplate(businessType); }
   catch { throw new HttpsError('invalid-argument', 'Plantilla de negocio no reconocida.'); }
@@ -32,6 +33,7 @@ exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
+    case 'retailCommand': return executeRetailCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);
     case 'completeOnboarding': {
       if (Object.keys(request.data || {}).some(key => !ONBOARDING_FIELDS.has(key))) {

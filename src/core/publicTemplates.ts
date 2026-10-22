@@ -57,7 +57,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/retail',
     studioTemplateId: 'retail',
     status: 'coming_soon',
-    provisioningStatus: 'coming_soon',
+    provisioningStatus: 'available',
     demoStatus: 'coming_soon',
   },
   {
@@ -90,6 +90,12 @@ export function isTechnicalDemoAvailable(idOrBusinessType: string): boolean {
 export function isTemplateProvisioningAvailable(idOrBusinessType: string): boolean {
   const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
   return (template?.provisioningStatus ?? template?.status) === 'available'
+}
+
+/** Public marketing availability is independent from internal tenant provisioning. */
+export function isTemplateCommerciallyAvailable(idOrBusinessType: string): boolean {
+  const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
+  return template?.status === 'available'
 }
 
 export function canLaunchCommercialDemo(template: {

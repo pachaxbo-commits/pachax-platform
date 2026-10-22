@@ -23,6 +23,7 @@ const ids = {
   ownerDistribution: `onboarding-distribution-${suffix}`,
   ownerInvalid: `onboarding-invalid-${suffix}`,
   ownerNightclub: `onboarding-nightclub-${suffix}`,
+  ownerRetail: `onboarding-retail-${suffix}`,
   ownerPaletteRecovery: `onboarding-palette-recovery-${suffix}`,
   partial: `onboarding-partial-${suffix}`,
   platform: `onboarding-platform-${suffix}`,
@@ -217,6 +218,19 @@ try {
   }
   pass('primera empresa acepta las cuatro paletas ofrecidas en el registro')
 
+  const retailRequestId = `retail-onboarding-${suffix}`
+  const retail = await callOnboarding(await signIn(ids.ownerRetail), { requestId: retailRequestId, companyName: 'Comercio QA', businessType: 'gelateria_weight_cafe', retailProfile: 'bakery' })
+  const retailRetry = await callOnboarding(await signIn(ids.ownerRetail), { requestId: retailRequestId, companyName: 'Comercio QA', businessType: 'gelateria_weight_cafe', retailProfile: 'bakery' })
+  assert(retail.response.ok && retailRetry.response.ok, `Retail onboarding: ${JSON.stringify(retail.body)}; retry: ${JSON.stringify(retailRetry.body)}`)
+  assert.equal(retail.result.tenantId, retailRetry.result.tenantId)
+  assert.equal((await db.doc(`tenants/${retail.result.tenantId}`).get()).data()?.configuration?.retailProfile, 'bakery')
+  assert.equal((await db.collection(`tenants/${retail.result.tenantId}/roles`).get()).size, 5)
+  const invalidRetail = await callOnboarding(await signIn(ids.ownerB), { requestId: `bad-retail-${suffix}`, companyName: 'Perfil inválido', businessType: 'gelateria_weight_cafe', retailProfile: 'restaurant' })
+  assert.equal(invalidRetail.body.error.status, 'INVALID_ARGUMENT')
+  assert.equal((await db.doc(`tenants/${tenantB}`).get()).data()?.businessType, 'restaurant_pos')
+  assert.equal((await db.collection('tenants').where('ownerUid', '==', ids.ownerB).get()).size, 1)
+  pass('Comercio se aprovisiona con perfil permitido e idempotente; perfil inválido no crea tenant')
+
   const createTenantResponse = await callOnboarding(await signIn(ids.ownerA), {
     action: 'createTenant', operationId: `create-distribution-${suffix}`, name: 'Mascotas QA', businessType: 'route_distribution', industryProfile: 'pets',
   })
@@ -233,6 +247,13 @@ try {
   assert.equal(createTenantRetry.result.tenantId, extraTenant)
   assert.equal((await db.collection(`tenants/${extraTenant}/distSettings`).get()).size, 1)
   pass('createTenant Distribution persiste el rubro y reintenta idempotentemente')
+
+  const retailAdditional = await callOnboarding(await signIn(ids.ownerA), { action: 'createTenant', operationId: `create-retail-${suffix}`, name: 'Panadería QA', businessType: 'gelateria_weight_cafe', retailProfile: 'bakery' })
+  const retailAdditionalRetry = await callOnboarding(await signIn(ids.ownerA), { action: 'createTenant', operationId: `create-retail-${suffix}`, name: 'Panadería QA', businessType: 'gelateria_weight_cafe', retailProfile: 'bakery' })
+  assert(retailAdditional.response.ok && retailAdditionalRetry.response.ok)
+  assert.equal(retailAdditional.result.tenantId, retailAdditionalRetry.result.tenantId)
+  assert.equal((await db.doc(`tenants/${retailAdditional.result.tenantId}`).get()).data()?.configuration?.retailProfile, 'bakery')
+  pass('createTenant de Comercio persiste el perfil y converge por operationId')
 
   for (const palette of BRAND_PALETTES) {
     const operationId = `extra-palette-${palette.id}-${suffix}`
@@ -275,7 +296,7 @@ try {
   assert(!(await db.doc(`tenants/${initialTenantId(ids.platform)}`).get()).exists)
   pass('operador Platform activo no usa onboarding tenant como acceso lateral')
 
-  assert.equal(checks, 23)
+  assert.equal(checks, 25)
   console.log(`${checks} comprobaciones de onboarding seguro aprobadas`)
 } finally {
   await env.cleanup()

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowRight, Eye, CheckCircle2 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../admin/types'
-import { canLaunchCommercialDemo, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, isTemplateCommerciallyAvailable } from '../../core/publicTemplates'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 
@@ -49,7 +49,7 @@ export function FeaturedTemplatesCatalog() {
       return
     }
     const targetId = tpl.canonicalTemplateId || tpl.templateId || tpl.id
-    if (!isTemplateProvisioningAvailable(targetId)) return
+    if (!isTemplateCommerciallyAvailable(targetId)) return
     navigate(`/register?template=${targetId}`)
   }
 
@@ -212,7 +212,7 @@ export function FeaturedTemplatesCatalog() {
                       <span>Cotizar a medida</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
-                  ) : isTemplateProvisioningAvailable(template.canonicalTemplateId || template.templateId || template.id) ? (
+                  ) : isTemplateCommerciallyAvailable(template.canonicalTemplateId || template.templateId || template.id) ? (
                     <button
                       type="button"
                       onClick={() => handleSelectTemplate(template)}

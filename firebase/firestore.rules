@@ -834,6 +834,39 @@ service cloud.firestore {
       allow read: if tPermission(tenantId,'sales.read','sales') && tBranch(tenantId,resource.data.branchId);
       allow write: if false;
     }
+    // Comercio / Venta rápida stores operational products separately from purchase costs.
+    match /tenants/{tenantId}/retailProducts/{productId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId)
+        && (tPermission(tenantId,'sales.create','sales') || tPermission(tenantId,'sales.read','sales') || tPermission(tenantId,'products.manage','inventory'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailProductCosts/{productId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId)
+        && (tHasRole(tenantId,['owner','admin']) || tPermission(tenantId,'reports.read','reports'));
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailBarcodeIndex/{barcodeHash} { allow read, write: if false; }
+    match /tenants/{tenantId}/retailSkuIndex/{skuHash} { allow read, write: if false; }
+    match /tenants/{tenantId}/retailInventory/{productId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailInventoryMovements/{movementId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'inventory.read','inventory');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailSales/{saleId} {
+      allow get, list: if tBranch(tenantId,resource.data.branchId) && tPermission(tenantId,'sales.read','sales');
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/retailOperations/{operationId} {
+      allow get: if tIsActiveMember(tenantId) && resource.data.actorUid == request.auth.uid;
+      allow list, write: if false;
+    }
+    match /tenants/{tenantId}/retailAudit/{eventId} {
+      allow get, list: if tPermission(tenantId,'settings.manage','settings');
+      allow write: if false;
+    }
     match /tenants/{tenantId}/cashSessions/{cashId} {
       allow read: if tPermission(tenantId,'cash.close','cash') && tBranch(tenantId,resource.data.branchId);
       allow write: if false;

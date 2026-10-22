@@ -221,16 +221,20 @@ try {
   assert(onbHamb.body.error?.message?.includes('todavía no está disponible para crear empresas'))
   pass('tenantGateway completeOnboarding con hamburger_shop es DENEGADO (failed-precondition)')
 
-  // 2. completeOnboarding con gelateria_weight_cafe -> DENIED / failed-precondition
-  const onbGel = await callTenantGateway(ordinaryUid, {
+  // 2. Retail can be provisioned internally while public marketing/demo remain blocked.
+  const retailUid = `user_retail_${suffix}`
+  await auth.createUser({ uid: retailUid, email: `${retailUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Comercio' })
+  const onbGel = await callTenantGateway(retailUid, {
     action: 'completeOnboarding',
     requestId: `onb_gel_${suffix}`,
     companyName: 'Retail Bypass',
     businessType: 'gelateria_weight_cafe',
+    retailProfile: 'general_store',
   })
-  assert.equal(onbGel.body.error?.status, 'FAILED_PRECONDITION')
-  assert(onbGel.body.error?.message?.includes('todavía no está disponible para crear empresas'))
-  pass('tenantGateway completeOnboarding con gelateria_weight_cafe es DENEGADO (failed-precondition)')
+  assert.equal(onbGel.response.status, 200)
+  assert.equal(onbGel.body.result?.template?.businessType, 'gelateria_weight_cafe')
+  assert.equal((await db.doc(`tenants/${onbGel.body.result.tenantId}`).get()).data()?.configuration?.retailProfile, 'general_store')
+  pass('tenantGateway aprovisiona Comercio internamente y persiste un perfil validado')
 
   // 3. createTenant con coming-soon BusinessType -> DENIED / failed-precondition
   const createComingSoon = await callTenantGateway(ordinaryUid, {

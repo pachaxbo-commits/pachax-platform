@@ -4,6 +4,7 @@ import { DistributionApp } from './modules/distribution/views/DistributionApp'
 import { DistributionPrinterModal } from './modules/distribution/views/DistributionPrinterModal'
 import { RestaurantApp } from './modules/restaurant/views/RestaurantApp'
 import { NightclubApp } from './modules/nightclub/views/NightclubApp'
+import { RetailApp } from './modules/retail/views/RetailApp'
 import { PublicLanding } from './public/landing/PublicLanding'
 import { PublicLoginView } from './public/auth/PublicLoginView'
 import { PublicRegisterView } from './public/register/PublicRegisterView'
@@ -315,6 +316,10 @@ function App() {
         </div>
       </div>
     )
+  }
+
+  if (canonicalBusinessType === 'gelateria_weight_cafe') {
+    return <div className="min-h-screen flex flex-col w-full bg-[#FAF9F6]">{headerBar}<div className="flex-1 w-full"><RetailApp key={`${auth.tenantId}:${auth.member.uid}`} tenantId={auth.tenantId} uid={auth.member.uid} userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'} role={activeTenant?.role || auth.member.role} onSignOut={auth.signOut}/></div></div>
   }
 
   // Template no soportada / pendiente de consolidación productiva

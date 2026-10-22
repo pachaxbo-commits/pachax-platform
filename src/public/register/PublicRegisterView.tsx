@@ -12,7 +12,7 @@ import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import '../publicExperience.css'
 import type { BusinessType } from '../../core/platform'
-import { getPublicTemplate, PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { getPublicTemplate, PUBLIC_TEMPLATES, isTemplateCommerciallyAvailable } from '../../core/publicTemplates'
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
@@ -54,7 +54,7 @@ export function PublicRegisterView() {
   const [selectedTemplate, setSelectedTemplate] = useState<BusinessType | ''>(() => {
     if (!templateParam) return 'route_distribution'
     const match = PUBLIC_TEMPLATES.find(template => template.id === templateParam || template.businessType === templateParam)
-    if (match && isTemplateProvisioningAvailable(match.businessType)) return match.businessType
+    if (match && isTemplateCommerciallyAvailable(match.businessType)) return match.businessType
     return '' // No hacer fallback silencioso a otra plantilla si el query param solicitó una no disponible
   })
   const [industryProfile, setIndustryProfile] = useState<DistributionIndustryProfile>('mixed')
@@ -68,7 +68,7 @@ export function PublicRegisterView() {
 
   const handleCompleteRegistration = async () => {
     if (submitting) return
-    if (!selectedTemplate || !isTemplateProvisioningAvailable(selectedTemplate)) {
+    if (!selectedTemplate || !isTemplateCommerciallyAvailable(selectedTemplate)) {
       setRegisterError('Por favor selecciona una plantilla disponible para creación de empresas.')
       return
     }
@@ -145,7 +145,7 @@ export function PublicRegisterView() {
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault()
-    if (currentStep === 3 && (!selectedTemplate || !isTemplateProvisioningAvailable(selectedTemplate))) {
+    if (currentStep === 3 && (!selectedTemplate || !isTemplateCommerciallyAvailable(selectedTemplate))) {
       setRegisterError('Por favor selecciona una plantilla disponible para creación de empresas.')
       return
     }
@@ -347,7 +347,7 @@ export function PublicRegisterView() {
 
               {(() => {
                 const requestedMatch = templateParam ? PUBLIC_TEMPLATES.find(t => t.id === templateParam || t.businessType === templateParam) : null
-                if (requestedMatch && !isTemplateProvisioningAvailable(requestedMatch.businessType)) {
+                if (requestedMatch && !isTemplateCommerciallyAvailable(requestedMatch.businessType)) {
                   return (
                     <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs flex items-start gap-2.5">
                       <span className="font-bold shrink-0 text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider">Aviso</span>
@@ -364,7 +364,7 @@ export function PublicRegisterView() {
                 {REGISTER_TEMPLATES.map((item) => {
                   const Icon = item.icon
                   const isSelected = selectedTemplate === item.id
-                  const isAvailable = isTemplateProvisioningAvailable(item.id)
+                  const isAvailable = isTemplateCommerciallyAvailable(item.id)
                   return (
                     <div
                       key={item.id}
@@ -405,7 +405,7 @@ export function PublicRegisterView() {
 
               <button
                 type="submit"
-                disabled={!selectedTemplate || !isTemplateProvisioningAvailable(selectedTemplate)}
+                disabled={!selectedTemplate || !isTemplateCommerciallyAvailable(selectedTemplate)}
                 className="w-full py-3.5 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-2 mt-4"
               >
                 <span>Continuar a personalización visual</span>

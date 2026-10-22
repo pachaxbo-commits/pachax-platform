@@ -1,5 +1,21 @@
 # Continuidad del proyecto PACHAX
 
+## Bloque 6A — Comercio / Venta rápida (22/10/2026, rama local de implementación)
+
+- Rama `feat/retail-6a-commerce-core`, basada en `origin/main` `039290690f579ecaac1861abf3dca580f21674d6`. El identificador técnico sigue siendo `gelateria_weight_cafe`; el nombre de producto es Comercio / Venta rápida. El onboarding guarda uno de ocho perfiles comerciales validados por servidor. Se permite provisioning interno, manteniendo el estado de landing y demo pública en `coming_soon`.
+- Implementación inicial productiva en `src/modules/retail/`: catálogo tenant, códigos/SKU únicos con transacción, costos separados y protegidos, inventario por unidad/gramos, venta autoritativa atómica con pagos, historial, recibo por el sistema canónico, lector USB/Bluetooth, escaneo con cámara/manual y plantilla/importador XLSX con modos crear/actualizar e idempotencia. No incluye créditos, promociones, offline, FIFO, balanzas físicas ni facturación fiscal.
+- En esta rama se añadieron Rules tenant, consultas e índices focales; no se han desplegado Firebase Rules/Functions, IAM ni Production. No se alteraron Embutidos San José ni el motor de Distribución.
+- Validación local: Retail dominio 3/3 y emulador 5/5; paletas onboarding 4/4; onboarding emulado 25 comprobaciones; seguridad Platform 40/40; `test:platform` 198/198; ESLint de fuentes Retail/onboarding/publicación PASS; typecheck y build PASS; `git diff --check` PASS. ESLint del test compartido `adminPlatformSecurity.test.ts` mantiene 11 errores `no-explicit-any` en líneas preexistentes, sin nuevos errores del cambio. Vite advierte que el chunk dinámico ExcelJS pesa 930 kB (256 kB gzip); la importación solo se carga al abrir acciones Excel.
+- Roadmap de planes, sin implementación de billing o límites: **Esencial** (POS, catálogo, inventario básico, lector y comprobante); **Negocio** (importación Excel, reportes detallados y más control operativo); **Avanzado** (múltiples cajas, más usuarios, control avanzado y futuras sucursales). Mantener costo de implementación fijo por plantilla y mensualidad diferenciada por plan, sin fijar montos hasta definirlos con negocio.
+- Pendiente para 6B/certificación: decisión de precios y facturación; revisión operativa de importación/cámara en dispositivos objetivo; requisitos de deployment de `tenantGateway`, Rules e índices; certificación controlada con tenant QA. No activar comercialmente antes de esa revisión.
+
+## Cierre de certificación de Distribución y limpieza QA (22/10/2026)
+
+- Distribución queda certificada tras la validación funcional productiva aprobada por el responsable. No se repitieron pruebas funcionales.
+- Se limpió exclusivamente en Firebase `pachax-platform` el tenant QA `t_9c0223985b9868d568b0d4b7fa29acd23ab5`: eliminación recursiva del documento tenant y sus subcolecciones; eliminación recursiva de los perfiles globales y subcolecciones de Owner `Zg24rIG6s6NW1Z9MIrXwZBLo0Qk2`, Almacén `u_0d3b3cd064295c9f339d92c4aa4b7682bdc7` y Distribuidor `u_bdf17d7687fa25ff0a2b97c812dfd1da1c52`; y eliminación de las tres cuentas Auth correspondientes. Los perfiles confirmaban únicamente vínculos con este tenant. La lista final de Authentication muestra 7 cuentas restantes y ninguna de las tres cuentas QA; el tenant tampoco aparece en la colección raíz. Storage no estaba inicializado y no había archivos QA que retirar.
+- No se modificaron empresas reales, Embutidos San José, Functions, Rules ni IAM. No se alteró `main` ni se publicó este checkpoint.
+- Próximo desarrollo del roadmap: Comercio / Venta rápida. No abrir más mejoras de Distribución.
+
 ## Hotfix onboarding y paletas (22/10/2026)
 
 - Rama `codex/onboarding-palette-hotfix`, creada desde el `origin/main` productivo `cfa24975c097de26d020ea972df0f1bb75bd14fc`. Se centralizaron las cuatro paletas y Esmeralda & Ámbar cambió a `#0F766E`; la vista previa elige foreground WCAG AA para primario y acento. Configuración de identidad ofrece las mismas paletas y conserva los colores históricos hasta una selección explícita.

@@ -6,6 +6,7 @@ const { authenticated, id, tenantActor, audit, hasPermission } = require('./auth
 const { normalizeNightclubPermissions } = require('./nightclubUsers.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
+const { isRetailProfile } = require('./generated/retailProfiles.js');
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 36);
 function text(value, max = 100) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.');
@@ -21,6 +22,10 @@ function configuration(input, existing) {
   if (input.timezone !== undefined) {
     try { new Intl.DateTimeFormat('es', { timeZone: input.timezone }).format(); } catch { throw new HttpsError('invalid-argument', 'Zona horaria inválida.'); }
     result.timezone = input.timezone;
+  }
+  if (input.retailProfile !== undefined) {
+    if (existing.retailProfile === undefined || !isRetailProfile(input.retailProfile)) throw new HttpsError('invalid-argument', 'Perfil de comercio no válido.');
+    result.retailProfile = input.retailProfile;
   }
   return result;
 }
@@ -135,6 +140,9 @@ async function createTenant(db, auth, request) {
   let industryProfile;
   try { industryProfile = distributionProfile(template.businessType, input.industryProfile); }
   catch (error) { throw new HttpsError('invalid-argument', error.message); }
+  const retailProfile = template.businessType === 'gelateria_weight_cafe' ? (input.retailProfile ?? 'general_store') : undefined;
+  if (template.businessType === 'gelateria_weight_cafe' && !isRetailProfile(retailProfile)) throw new HttpsError('invalid-argument', 'Perfil de comercio no válido.');
+  if (template.businessType !== 'gelateria_weight_cafe' && input.retailProfile !== undefined) throw new HttpsError('invalid-argument', 'El perfil comercial solo aplica a Comercio / Venta rápida.');
   const tenantId = `t_${hash(`${uid}:${operationId}`)}`, root = db.doc(`tenants/${tenantId}`);
   const user = await auth.getUser(uid);
   const now = new Date().toISOString();
@@ -142,7 +150,7 @@ async function createTenant(db, auth, request) {
   const catalogRef = root.collection('distSettings').doc('catalog');
   const ident = businessIdentity(input.businessIdentity, {}, name, brand);
   const tenant = { tenantId, name, nameKey: name.toLowerCase(), businessType: template.businessType, ownerUid: uid,
-    ownerEmail: user.email || '', status: 'active', branding: brand, businessIdentity: ident, configuration: configuration(input, template.defaults),
+    ownerEmail: user.email || '', status: 'active', branding: brand, businessIdentity: ident, configuration: { ...configuration(input, template.defaults), ...(retailProfile ? { retailProfile } : {}) },
     entitlements: {}, planKey: null, subscriptionStatus: 'trial', schemaVersion: 1, templateVersion: template.version,
     createdAt: now, updatedAt: now, userCount: 1, branchCount: 1 };
   await db.runTransaction(async tx => {
@@ -159,6 +167,7 @@ async function createTenant(db, auth, request) {
       if (current.data().businessType !== template.businessType || current.data().name !== name) {
         throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con datos distintos.');
       }
+      if (retailProfile && current.data().configuration?.retailProfile !== retailProfile) throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con otro perfil de comercio.');
       if (input.industryProfile !== undefined && catalog?.exists && catalog.data()?.industryProfile !== industryProfile) {
         throw new HttpsError('already-exists', 'operationId ya pertenece a una empresa con otro rubro de Distribución.');
       }

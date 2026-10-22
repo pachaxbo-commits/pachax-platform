@@ -38,6 +38,9 @@ const restaurantCapabilities: Capability[] = [...commonCapabilities, 'orders', '
 const hamburgerCapabilities: Capability[] = [...commonCapabilities, 'orders', 'cash', 'kitchen', 'unitSales']
 const distributionCapabilities: Capability[] = [...commonCapabilities, 'credits', 'dispatch', 'routes']
 const gelateriaCapabilities: Capability[] = [...commonCapabilities, 'cash', 'weightSales', 'unitSales']
+const retailCashier: RolePreset = { id: 'cashier', name: 'Caja', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read', 'cash.close'] }
+const retailSales: RolePreset = { id: 'sales', name: 'Atención y ventas', permissions: ['sales.read', 'sales.create', 'inventory.read', 'customers.read'] }
+const retailInventory: RolePreset = { id: 'inventory', name: 'Inventario', permissions: ['inventory.read', 'inventory.manage'] }
 const nightclubCapabilities: Capability[] = [...commonCapabilities, 'orders', 'cash', 'kitchen', 'tables', 'unitSales']
 
 export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTemplate>> = {
@@ -75,8 +78,8 @@ export const BusinessTemplateRegistry: Readonly<Record<BusinessType, BusinessTem
     businessType: 'gelateria_weight_cafe', name: 'Comercio / Venta rápida',
     description: 'Venta por peso y unidad, caja e inventario. Útil para heladerías, cafeterías de mostrador, panaderías, reposterías, tiendas a granel, dulcerías y negocios que vendan por peso y/o unidad.',
     icon: 'ice-cream', version: 1,
-    capabilities: gelateriaCapabilities, defaults: defaults(gelateriaCapabilities), modules: [...common, cash],
-    roles: [owner, admin, cashier, { id: 'sales', name: 'Atención y ventas', permissions: ['sales.read', 'sales.create', 'customers.read'] }, inventory],
+    capabilities: gelateriaCapabilities, defaults: { ...defaults(gelateriaCapabilities), retailProfile: 'general_store' }, modules: [...common, cash],
+    roles: [owner, admin, retailCashier, retailSales, retailInventory],
     units: ['kg', 'g', 'unit'], pos: 'mixed-weight', inventory: 'commercial', offlineOperations: [], reports: ['sales', 'weight', 'cash'],
   },
   nightclub_lounge: {

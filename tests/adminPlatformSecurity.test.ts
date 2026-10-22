@@ -11,10 +11,10 @@ import { PLANS_BY_TEMPLATE, COMMERCIAL_EXTRAS } from '../src/public/config/prici
 import {
   canLaunchCommercialDemo,
   isTechnicalDemoAvailable,
+  isTemplateCommerciallyAvailable,
   isTemplateProvisioningAvailable,
   PLAN_ELIGIBLE_TEMPLATE_IDS,
   PUBLIC_TEMPLATES,
-  OFFICIAL_COMMERCIAL_TEMPLATES,
 } from '../src/core/publicTemplates.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
@@ -509,8 +509,8 @@ test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica est
   // Plantillas no consolidadas para creación de empresas
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
-  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
-  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), true)
+  assert.equal(isTemplateProvisioningAvailable('retail'), true)
   assert.equal(isTemplateProvisioningAvailable('custom'), false)
   assert.equal(isTemplateProvisioningAvailable('arbitrary_type'), false)
 })
@@ -564,11 +564,13 @@ test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y R
   assert.equal(isTechnicalDemoAvailable('nightclub'), false)
   assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), false)
 
-  // Coming-soon bloqueados para creación de empresas
+  // Retail is provisionable only through the authenticated onboarding wizard; public marketing stays unpublished.
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
-  assert.equal(isTemplateProvisioningAvailable('retail'), false)
-  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
+  assert.equal(isTemplateCommerciallyAvailable('retail'), false)
+  assert.equal(isTechnicalDemoAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('retail'), true)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), true)
 
   // Custom preserva flujo a medida (WhatsApp/contacto), no aprovisiona tenant directo
   assert.equal(isTemplateProvisioningAvailable('custom'), false)
@@ -576,18 +578,18 @@ test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y R
   // Lógica de PublicRegisterView: cuando se recibe un templateParam en la URL
   function resolveInitialRegisterTemplate(templateParam: string | null): string {
     const param = templateParam || ''
-    return param ? (isTemplateProvisioningAvailable(param) ? param : '') : 'route_distribution'
+    return param ? (isTemplateCommerciallyAvailable(param) ? param : '') : 'route_distribution'
   }
 
   // Sin parámetro: default a 'route_distribution'
   assert.equal(resolveInitialRegisterTemplate(null), 'route_distribution')
   assert.equal(resolveInitialRegisterTemplate(''), 'route_distribution')
 
-  // Parámetro válido disponible: se selecciona directamente
+  // PublicRegister solo acepta opciones publicadas comercialmente.
   assert.equal(resolveInitialRegisterTemplate('route_distribution'), 'route_distribution')
-  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), 'restaurant_pos')
-  assert.equal(resolveInitialRegisterTemplate('nightclub_lounge'), 'nightclub_lounge')
-  assert.equal(resolveInitialRegisterTemplate('nightclub'), 'nightclub')
+  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), '')
+  assert.equal(resolveInitialRegisterTemplate('nightclub_lounge'), '')
+  assert.equal(resolveInitialRegisterTemplate('nightclub'), '')
 
   // Parámetro no disponible / coming-soon: NO debe haber fallback silencioso a Distribution
   assert.equal(resolveInitialRegisterTemplate('hamburger'), '')
