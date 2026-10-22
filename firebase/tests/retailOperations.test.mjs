@@ -49,11 +49,16 @@ try {
 
   const stockRead = await call(ids.inventory,'recordInventoryMovement','stock-intake-1',{productId,quantity:500,movementType:'intake',note:'Ingreso QA'})
   assert.equal(stockRead.quantity,1500)
-  const sale = await call(ids.cashier,'createSale','weight-sale-1',{items:[{productId,quantity:750}],payment:{method:'cash',cashMinor:4500,qrMinor:0,receivedMinor:5000}})
+  const salePayload = {items:[{productId,quantity:750,unitPriceMinor:1,subtotalMinor:1,productNameSnapshot:'Precio manipulado'}],payment:{method:'cash',cashMinor:4500,qrMinor:0,receivedMinor:5000}}
+  const sale = await call(ids.cashier,'createSale','weight-sale-1',salePayload)
   assert.equal(sale.totalMinor,4500)
   assert.equal(sale.changeMinor,500)
+  const savedWeightSale = (await root.collection('retailSales').doc(sale.saleId).get()).data()
+  assert.equal(savedWeightSale.items[0].unitPriceMinor,6000)
+  assert.equal(savedWeightSale.items[0].subtotalMinor,4500)
+  assert.equal(savedWeightSale.items[0].productNameSnapshot,'Queso por peso')
   assert.equal((await root.collection('retailInventory').doc(productId).get()).data().quantity,750)
-  const saleRetry = await call(ids.cashier,'createSale','weight-sale-1',{items:[{productId,quantity:750}],payment:{method:'cash',cashMinor:4500,qrMinor:0,receivedMinor:5000}})
+  const saleRetry = await call(ids.cashier,'createSale','weight-sale-1',salePayload)
   assert.deepEqual(saleRetry,sale)
   assert.equal((await root.collection('retailSales').get()).size,1)
   assert.equal((await root.collection('retailInventory').doc(productId).get()).data().quantity,750)
@@ -82,7 +87,25 @@ try {
   const createOnly = await call(ids.owner,'importProducts','bulk-import-create-only',{mode:'create_new',products:[{...importRows[0],priceMinor:9000}]})
   assert.equal(createOnly.skipped,1)
   assert.equal((await root.collection('retailProducts').doc(productId).get()).data().priceMinor,6500)
+  const productCountBeforeInvalidImport = (await root.collection('retailProducts').get()).size
+  await assert.rejects(call(ids.owner,'importProducts','invalid-import-duplicate-sku',{mode:'update_existing',products:[
+    { ...importRows[0], barcode:'', sku:'DUPLICADO' },
+    { ...importRows[1], barcode:'', sku:'duplicado' },
+  ]}), error => error.code === 'invalid-argument')
+  assert.equal((await root.collection('retailProducts').get()).size, productCountBeforeInvalidImport)
+  assert.equal((await root.collection('retailInventory').doc(imported.productIds[1]).get()).data().quantity,7)
   pass('importación Excel en lote omite/actualiza con confirmación, conserva stock y costo existentes e idempotencia')
+
+  const raceProduct = await call(ids.owner,'saveProduct','race-product-1',{product:{...product,name:'Producto de concurrencia',barcode:'',sku:'RACE-1',soldBy:'unit',stockUnit:'unit',priceMinor:1000,costMinor:500,initialStock:5,minStock:0}})
+  const racedSales = await Promise.allSettled([
+    call(ids.cashier,'createSale','race-sale-a',{items:[{productId:raceProduct.productId,quantity:4}],payment:{method:'cash',cashMinor:4000,qrMinor:0,receivedMinor:4000}}),
+    call(ids.cashier,'createSale','race-sale-b',{items:[{productId:raceProduct.productId,quantity:4}],payment:{method:'cash',cashMinor:4000,qrMinor:0,receivedMinor:4000}}),
+  ])
+  assert.equal(racedSales.filter(result=>result.status==='fulfilled').length,1)
+  assert.equal(racedSales.filter(result=>result.status==='rejected'&&result.reason.code==='failed-precondition').length,1)
+  assert.equal((await root.collection('retailInventory').doc(raceProduct.productId).get()).data().quantity,1)
+  assert.equal((await root.collection('retailInventoryMovements').where('productId','==',raceProduct.productId).where('type','==','sale').get()).size,1)
+  pass('dos ventas concurrentes con stock insuficiente producen una sola venta y un solo movimiento')
 
   const ownerClient = env.authenticatedContext(ids.owner).firestore(), cashierClient = env.authenticatedContext(ids.cashier).firestore(), inventoryClient = env.authenticatedContext(ids.inventory).firestore(), foreignClient = env.authenticatedContext(ids.foreign).firestore()
   await assertSucceeds(getDoc(doc(cashierClient,`tenants/${tenantId}/retailProducts/${productId}`)))
@@ -94,7 +117,7 @@ try {
   await assertFails(setDoc(doc(cashierClient,`tenants/${tenantId}/retailProducts/client-write`),{tenantId,branchId:'main'}))
   await assert.rejects(call(ids.foreign,'createSale','cross-tenant-sale',{items:[{productId,quantity:1}],payment:{method:'cash',cashMinor:600,qrMinor:0,receivedMinor:600}}), error => error.code === 'permission-denied')
   pass('Rules aíslan costo de compra y tenant, permiten consultas de sucursal autorizadas y bloquean escrituras cliente')
-  console.log(`${checks}/5 comprobaciones de Retail aprobadas`)
+  console.log(`${checks}/6 comprobaciones de Retail aprobadas`)
 } finally {
   await env.cleanup()
   await auth.deleteUsers(Object.values(ids)).catch(() => undefined)

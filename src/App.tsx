@@ -319,7 +319,7 @@ function App() {
   }
 
   if (canonicalBusinessType === 'gelateria_weight_cafe') {
-    return <div className="min-h-screen flex flex-col w-full bg-[#FAF9F6]">{headerBar}<div className="flex-1 w-full"><RetailApp key={`${auth.tenantId}:${auth.member.uid}`} tenantId={auth.tenantId} uid={auth.member.uid} userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'} role={activeTenant?.role || auth.member.role} onSignOut={auth.signOut}/></div></div>
+    return <div className="min-h-screen flex flex-col w-full bg-[#FAF9F6]">{headerBar}<div className="flex-1 w-full"><RetailApp key={`${auth.tenantId}:${auth.member.uid}:${activeTenant?.branchId || 'main'}`} tenantId={auth.tenantId} uid={auth.member.uid} userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'} role={activeTenant?.role || auth.member.role} onSignOut={auth.signOut}/></div></div>
   }
 
   // Template no soportada / pendiente de consolidación productiva

@@ -31,7 +31,7 @@ export const subscribeInventory = (branchId: string, onData: (rows: RetailInvent
 export const subscribeSales = (branchId: string, onData: (rows: RetailSale[]) => void, onError?: (error: Error) => void) => listen<RetailSale>('retailSales', branchId, onData, onError, 'createdAt')
 export const subscribeMovements = (branchId: string, onData: (rows: RetailMovement[]) => void, onError?: (error: Error) => void) => listen<RetailMovement>('retailInventoryMovements', branchId, onData, onError, 'createdAt')
 
-export async function retailCommand<T>(commandType: string, payload: Record<string, unknown>, operationId = crypto.randomUUID()): Promise<T> {
+export async function retailCommand<T>(commandType: string, payload: Record<string, unknown>, operationId: string = crypto.randomUUID()): Promise<T> {
   const { active } = await context()
   return gateway<T>('tenantGateway', { action: 'retailCommand', commandType, tenantId: active.tenantId, branchId: active.branchId, operationId, payload })
 }
@@ -41,4 +41,4 @@ export const saveRetailProduct = (product: SaveRetailProduct) => retailCommand<{
 export const importRetailProducts = (products: SaveRetailProduct[], mode: 'create_new'|'update_existing') => retailCommand<{ created: number; updated: number; skipped: number }>('importProducts', { products, mode })
 export const archiveRetailProduct = (productId: string) => retailCommand('archiveProduct', { productId })
 export const recordRetailMovement = (payload: { productId: string; quantity: number; movementType: 'intake' | 'adjustment' | 'count'; direction?: 'increase' | 'decrease'; note?: string }) => retailCommand('recordInventoryMovement', payload)
-export const createRetailSale = (payload: { items: Array<{ productId: string; quantity: number }>; payment: { method: 'cash' | 'qr' | 'mixed'; cashMinor: number; qrMinor: number; receivedMinor: number } }) => retailCommand<{ saleId: string; totalMinor: number; changeMinor: number }>('createSale', payload)
+export const createRetailSale = (payload: { items: Array<{ productId: string; quantity: number }>; payment: { method: 'cash' | 'qr' | 'mixed'; cashMinor: number; qrMinor: number; receivedMinor: number } }, operationId?: string) => retailCommand<{ saleId: string; totalMinor: number; changeMinor: number }>('createSale', payload, operationId)

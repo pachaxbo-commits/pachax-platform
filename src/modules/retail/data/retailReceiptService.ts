@@ -3,6 +3,7 @@ import type { RetailSale } from './retailRepository'
 import { PrintEngineService, classifyPrintJobOutcome } from '../../../services/printing/printEngineService'
 import { getActiveReceiptPrinter } from '../../../services/printing/printerProfiles'
 import type { PrintJobPayload } from '../../../types/printing'
+import { retailReceiptQuantity } from '../domain/retailPos'
 
 export async function printRetailReceipt(sale: RetailSale, tenantId: string, branchId: string, document: BusinessDocumentContext) {
   const printer = getActiveReceiptPrinter(tenantId, branchId)
@@ -19,7 +20,7 @@ export async function printRetailReceipt(sale: RetailSale, tenantId: string, bra
     orderId: sale.saleId,
     displayNumber: receiptNumber,
     customerName: 'Cliente ocasional',
-    items: sale.items.map(item => ({ name: item.productNameSnapshot, basePrice: (item.unitPriceMinor ?? item.subtotalMinor) / 100, quantity: item.quantity, unitLabel: item.unit === 'g' ? 'g' : 'unidad', lineTotal: item.subtotalMinor / 100 })),
+    items: sale.items.map(item => ({ name: item.productNameSnapshot, basePrice: (item.unitPriceMinor ?? item.subtotalMinor) / 100, ...retailReceiptQuantity(item.quantity, item.unit), lineTotal: item.subtotalMinor / 100 })),
     subtotal: sale.totalMinor / 100,
     discountTotal: 0,
     taxTotal: 0,
