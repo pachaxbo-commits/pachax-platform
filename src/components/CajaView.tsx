@@ -940,7 +940,7 @@ export function CajaView({
                 })}
               </div>
 
-              <label className="restaurant-product-search"><Search size={18} aria-hidden="true" /><span className="sr-only">Buscar productos</span><input type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Buscar productos..." /></label>
+              <label data-tour="pos-catalog" className="restaurant-product-search"><Search size={18} aria-hidden="true" /><span className="sr-only">Buscar productos</span><input type="search" value={productSearch} onChange={event => setProductSearch(event.target.value)} placeholder="Buscar productos..." /></label>
               <div className="restaurant-product-grid">
                 {visibleProducts.map((product) => (
                   <KioskProductCard key={product.id} product={product} disabled={operationsDisabled} onAdd={addCatalogProduct} />
@@ -1608,7 +1608,7 @@ export function CajaView({
 
       {viewMode === 'new_order' && (
         <div className={`restaurant-cart-layer ${showCheckoutModal ? 'is-open' : ''}`}>
-          <Panel className="restaurant-cart-panel w-full overflow-hidden flex flex-col border border-line">
+          <Panel data-tour="pos-cart" className="restaurant-cart-panel w-full overflow-hidden flex flex-col border border-line">
 
             {/* Header Premium */}
             <div className="border-b border-border/80 px-4 py-3 flex items-center justify-between bg-white/80 shrink-0">
@@ -1911,7 +1911,7 @@ export function CajaView({
                 ) : null}
 
                 {/* Entrega */}
-                <div className="space-y-1 pt-1.5 border-t border-border/50">
+                <div data-tour="pos-fulfillment" className="space-y-1 pt-1.5 border-t border-border/50">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Entrega</div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {(() => {
@@ -2276,6 +2276,7 @@ export function CajaView({
 
               <button
                 type="button"
+                data-tour="pos-submit"
                 className="w-full h-12 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] font-extrabold text-sm flex items-center justify-center gap-2 shadow-md shadow-[var(--primary)]/20 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
                 disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && !counterServiceMode && restaurantTables.length > 0 && !tableId) || (fulfillmentType === 'table' && counterServiceMode && restaurantTables.length > 0 && !tableId && !tableInfo.trim()) || submitOrderRef.current}
                 onClick={async () => {
