@@ -1,11 +1,12 @@
 # Continuidad del proyecto PACHAX
 
-## Bloque 6B — Comercio / Venta rápida (22/10/2026, validación local y Preview pendiente)
+## Bloque 6B — Comercio / Venta rápida (22/10/2026, Preview publicado)
 
 - Trabajo sobre la rama personal obligatoria `cambios-dario`, con base del Bloque 6A `2556bbf474d235b3a0a772a75f67998b0aa796b7`; `origin/main` `958cbac52f6394467e75106fb6605eb4c84b674e` está integrado como ancestro. No se modificó `main` ni se desplegó Firebase.
 - Se corrigieron validación del cobro y cambio, repetición intencional de lecturas de lector físico, recuperación de reintentos de venta inciertos conservando el mismo `operationId`, cantidades en gramos representadas en kg en el comprobante, importaciones con errores concretos por fila, aislamiento del estado Retail al cambiar usuario/tenant/sucursal y accesibilidad responsive del carrito y controles táctiles.
 - Validación local: Retail dominio 7/7; Retail con Firebase Emulators 6/6 (incluye idempotencia, precio autoritativo, venta por peso, pagos QR/mixto, importación atómica, concurrencia de stock y Rules/tenant); Platform security 40/40; onboarding 25 comprobaciones; tenant core 72/72; Platform 202/202; ESLint focal, typecheck, build y `git diff --check` PASS. Los builders de Rules generan `firebase/firestore.rules`; no se introdujeron cambios funcionales de Rules/Functions.
-- Cámara y lectores USB/Bluetooth no se validaron en dispositivos físicos. No se hizo una prueba de navegador con sesión comercial autenticada; no se usaron usuarios ni tenants de producción. Preview de Vercel pendiente de publicar la rama y verificar su build. No certificar aún como listo para producción; el Bloque 6C conserva su alcance de caja/cierre/conciliación.
+- Commit `11ac3aec136b1fff836dcd7f323ad1f26e4f5103` publicado en `origin/cambios-dario`; Vercel `pachax-app` generó Preview `https://pachax-52adu3laj-pachaxbo-8256s-projects.vercel.app`, `READY` para ese mismo SHA; HTML raíz servido por `vercel curl`. No es Production.
+- Cámara y lectores USB/Bluetooth no se validaron en dispositivos físicos. No se hizo una prueba de navegador con sesión comercial autenticada; no se usaron usuarios ni tenants de producción. No certificar aún como listo para producción; el Bloque 6C conserva su alcance de caja/cierre/conciliación.
 
 ## Bloque 6A — Comercio / Venta rápida (22/10/2026, rama de revisión)
 
