@@ -478,3 +478,260 @@ export const COMMERCIAL_EXTRAS: readonly CommercialExtraService[] = Object.freez
     order: 5,
   },
 ])
+
+
+export interface SpecializedModelInfo {
+  id: 'distribution' | 'restaurant' | 'nightclub'
+  title: string
+  subtitle: string
+  businessType: 'route_distribution' | 'restaurant_pos' | 'nightclub_lounge'
+  badge: string
+  tagline: string
+  accentColor: string
+  diagnostic: {
+    title: string
+    detail: string
+    badge: string
+  }
+  implementation: {
+    title: string
+    detail: string
+    badge: string
+  }
+  cloudMaintenance: {
+    monthlyPriceUSD: number
+    annualPriceUSD: number
+    currency: string
+    detail: string
+  }
+  customWork: {
+    title: string
+    detail: string
+  }
+  includedHighlights: string[]
+  demoRoute: string
+  demoPath: string
+  whatsAppPrompt: string
+}
+
+export const SPECIALIZED_IMPLEMENTATION_MODELS: readonly SpecializedModelInfo[] = Object.freeze([
+  {
+    id: 'distribution',
+    title: 'Producción & Distribución',
+    subtitle: 'Rutas móviles, flota de camiones y liquidación física',
+    businessType: 'route_distribution',
+    badge: 'Logística Mayorista',
+    tagline: 'Operativa crítica de carretera, depósitos y cobranza',
+    accentColor: '#0284C7',
+    diagnostic: {
+      title: 'Diagnóstico Operacional Logístico',
+      detail: 'Mapeo de rutas de preventa y autoventa, vehículos de reparto, pesaje por lotes y auditoría de choferes.',
+      badge: 'Sin costo inicial',
+    },
+    implementation: {
+      title: 'Puesta en Marcha Especializada',
+      detail: 'Configuración de catálogo por kilos/unidades, carga de clientes, dispositivos móviles y parámetros de liquidación ciega.',
+      badge: 'Acompañamiento directo',
+    },
+    cloudMaintenance: {
+      monthlyPriceUSD: 69,
+      annualPriceUSD: 58,
+      currency: 'USD',
+      detail: 'Infraestructura cloud multitenant aislada, sincronización offline en ruta, respaldos diarios y soporte técnico.',
+    },
+    customWork: {
+      title: 'Adaptaciones e Integración API',
+      detail: 'Conexión con ERPs contables, trazabilidad de balanzas industriales o reglas de comisión a medida cotizadas por separado.',
+    },
+    includedHighlights: [
+      'Despacho y carga con control de kilos y precintos',
+      'Ventas y cobranzas de créditos en ruta',
+      'Liquidación ciega contra retorno físico (sobrantes/faltantes)',
+      'Trazabilidad estricta por lotes y vencimientos',
+      'Control de gastos de combustible y ruta por camión',
+    ],
+    demoRoute: '/demo/distribution',
+    demoPath: '/demo/distribution',
+    whatsAppPrompt: 'Hola PACHAX, quiero solicitar un diagnóstico operacional gratuito para mi empresa de Producción y Distribución.',
+  },
+  {
+    id: 'restaurant',
+    title: 'Restaurante con Salón',
+    subtitle: 'Salón, comandas móviles de mozos y pantalla KDS de cocina',
+    businessType: 'restaurant_pos',
+    badge: 'Gastronomía Integral',
+    tagline: 'Sincronización milimétrica entre sala, cocina y caja',
+    accentColor: '#0066FF',
+    diagnostic: {
+      title: 'Diagnóstico de Flujo Gastronómico',
+      detail: 'Evaluación de distribución de mesas, tiempos de pase de cocina, terminales de mozos y puntos de despacho.',
+      badge: 'Sin costo inicial',
+    },
+    implementation: {
+      title: 'Puesta en Marcha & Capacitación',
+      detail: 'Levantamiento de planos de salón, configuración de impresoras de comandas, monitores KDS, escandallo de recetas y menú digital.',
+      badge: 'Acompañamiento directo',
+    },
+    cloudMaintenance: {
+      monthlyPriceUSD: 59,
+      annualPriceUSD: 49,
+      currency: 'USD',
+      detail: 'Plataforma en la nube de alta disponibilidad, sincronización multiestación en tiempo real y asistencia técnica en turnos pico.',
+    },
+    customWork: {
+      title: 'Módulos y Personalizaciones',
+      detail: 'Facturación electrónica fiscal, menú QR con pedidos a mesa o pasarelas de pago integradas cotizadas aparte.',
+    },
+    includedHighlights: [
+      'Mapa interactivo de mesas con estados en tiempo real',
+      'Comandas móviles para meseros con notas y modificadores',
+      'Monitor KDS de cocina con semáforo de tiempos',
+      'Cuentas divididas, propinas y cobros multimétodo',
+      'Arqueo y cierre de caja ciego por turno de personal',
+    ],
+    demoRoute: '/demo/restaurant',
+    demoPath: '/demo/restaurant',
+    whatsAppPrompt: 'Hola PACHAX, quiero solicitar un diagnóstico operacional para mi Restaurante con Salón.',
+  },
+  {
+    id: 'nightclub',
+    title: 'Nightclub & Lounge',
+    subtitle: 'Múltiples barras, cuentas por pulsera/mesa y control de licores',
+    businessType: 'nightclub_lounge',
+    badge: 'Alta Concurrencia Nocturna',
+    tagline: 'Velocidad de despacho en menos de 15s y auditoría ciega',
+    accentColor: '#7C3AED',
+    diagnostic: {
+      title: 'Diagnóstico de Operativa Nocturna',
+      detail: 'Análisis de terminales de barra, zonas VIP, política de descorches, cortesías autorizadas y arqueo de turnos.',
+      badge: 'Sin costo inicial',
+    },
+    implementation: {
+      title: 'Despliegue y Blindaje de Barras',
+      detail: 'Configuración de catálogo por tragos y botellas, terminales rápidas para bartenders, pulseras NFC/#tag y contingencia offline.',
+      badge: 'Acompañamiento directo',
+    },
+    cloudMaintenance: {
+      monthlyPriceUSD: 69,
+      annualPriceUSD: 58,
+      currency: 'USD',
+      detail: 'Infraestructura cloud reforzada para picos de alta concurrencia nocturna, auditoría continua y soporte técnico nocturno.',
+    },
+    customWork: {
+      title: 'Desarrollos a Medida de Club',
+      detail: 'Sistemas de boletería digital, pulseras RFID de saldo prepago o integración con control de accesos cotizados aparte.',
+    },
+    includedHighlights: [
+      'Cobro express de barra en menos de 15 segundos',
+      'Cuentas abiertas por pulsera o mesa VIP sincronizadas',
+      'Control de botellas abiertas y consumo por mililitros (ml)',
+      'Auditoría ciega contra inventario físico de licores',
+      'Comisiones automáticas de bartenders y relaciones públicas',
+    ],
+    demoRoute: '/demo/nightclub',
+    demoPath: '/demo/nightclub',
+    whatsAppPrompt: 'Hola PACHAX, quiero solicitar un diagnóstico operacional para mi Discoteca / Club Lounge.',
+  },
+])
+
+export interface QuickServiceSubcategory {
+  id: 'hamburger' | 'retail'
+  label: string
+  commercialTitle: string
+  description: string
+  templateParam: string
+  plans: readonly TemplateTierPlan[]
+}
+
+export const QUICK_SERVICE_CATALOG: readonly QuickServiceSubcategory[] = Object.freeze([
+  {
+    id: 'hamburger',
+    label: 'Restaurante Rápido',
+    commercialTitle: 'Servicio Rápido & Fast Food',
+    description: 'Mostrador ágil, comandas rápidas de cocina, para llevar y delivery.',
+    templateParam: 'hamburger_shop',
+    plans: ([
+      {
+        id: 'fast_plan_1',
+        templateId: 'restaurant',
+        name: 'Mostrador Inicial',
+        tierLevel: 1,
+        monthlyPriceUSD: 19,
+        annualPriceUSD: 16,
+        currency: 'USD',
+        billingPeriod: 'monthly',
+        clientProfile: 'Puestos de comida al paso, cafeterías o locales con 1 caja.',
+        limitsLabel: '1 punto de venta · Mostrador',
+        includedFeatures: [
+          'Punto de venta táctil rápido para mostrador',
+          'Cobro con efectivo, QR y emisión de tickets',
+          'Gestión de productos y modificadores básicos',
+          'Cierre de caja diario con arqueo',
+          'Control de turnos y reporte de ventas del día',
+        ],
+        technicalEntitlements: ['fast_counter_pos', 'cash_close_blind'],
+        ctaLabel: 'Elegir Mostrador Inicial',
+        status: 'draft',
+        order: 1,
+      },
+      {
+        id: 'fast_plan_2',
+        templateId: 'restaurant',
+        name: 'Fast Food Pro',
+        tierLevel: 2,
+        monthlyPriceUSD: 39,
+        annualPriceUSD: 33,
+        currency: 'USD',
+        billingPeriod: 'monthly',
+        badge: 'Más popular',
+        isPopular: true,
+        clientProfile: 'Hamburgueserías, pizzerías y locales con cocina y delivery.',
+        limitsLabel: 'Cajas ilimitadas · KDS Cocina',
+        includedFeatures: [
+          'Todas las funciones de Mostrador Inicial',
+          'Monitor KDS de cocina con alertas sonoras',
+          'Separación de pedidos: salón, para llevar y delivery',
+          'Control de combos, ingredientes y salsas extra',
+          'Integración con comandas en múltiples pantallas',
+          'Soporte técnico prioritario por WhatsApp',
+        ],
+        technicalEntitlements: ['fast_counter_pos', 'fast_kitchen_kds', 'delivery_tabs'],
+        ctaLabel: 'Elegir Fast Food Pro',
+        status: 'draft',
+        order: 2,
+      },
+      {
+        id: 'fast_plan_3',
+        templateId: 'restaurant',
+        name: 'Cadena Fast Food',
+        tierLevel: 3,
+        monthlyPriceUSD: 69,
+        annualPriceUSD: 58,
+        currency: 'USD',
+        billingPeriod: 'monthly',
+        clientProfile: 'Cadenas de comida rápida, franquicias y sucursales con almacén.',
+        limitsLabel: 'Multisucursal · Menú Central',
+        includedFeatures: [
+          'Todas las funciones de Fast Food Pro',
+          'Gestión centralizada de precios y productos',
+          'Transferencias de insumos y mermas entre locales',
+          'Reportes analíticos de rentabilidad por producto',
+          'Control de roles, permisos y cajeros por sucursal',
+          'Acompañamiento y soporte técnico especializado',
+        ],
+        technicalEntitlements: ['fast_multibranch', 'central_menu', 'inventory_transfers'],
+        ctaLabel: 'Elegir Cadena Fast Food',
+        status: 'draft',
+        order: 3,
+      },
+    ] as readonly TemplateTierPlan[]),
+  },
+  {
+    id: 'retail',
+    label: 'Comercio & Balanza',
+    commercialTitle: 'Ventas de Mostrador & Balanza',
+    description: 'Heladerías, panaderías, minimarkets y tiendas con pesaje o unidad.',
+    templateParam: 'gelateria_weight_cafe',
+    plans: PLANS_BY_TEMPLATE.retail,
+  },
+])

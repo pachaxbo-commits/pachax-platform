@@ -6,46 +6,49 @@ interface PachaxBrandBackgroundProps {
  * PachaxBrandBackground
  * 
  * Fondo arquitectónico de identidad visual para PACHAX Platform.
- * Inspirado directamente en el lenguaje geométrico del isotipo PACHAX:
- * - Retícula técnica de precisión extremadamente tenue.
+ * Inspirado directamente en el lenguaje geométrico del isotipo PACHAX y atmósfera portal:
+ * - Retícula técnica blueprint de precisión extremadamente tenue.
  * - Grandes trazos angulares y chevrons diagonales abstractos a 55 grados.
- * - Luz ambiental sutil que acompaña con suavidad la vitrina central.
- * - Totalmente sobrio: paleta white/off-white, navy, PACHAX blue y slate suave.
- * - Sin blobs genéricos, sin efectos de arcoíris, respetando prefers-reduced-motion.
+ * - Portal atmosférico con volumetría azul profunda (navy #030C1A, PACHAX blue #0066FF, celeste #0284C7).
+ * - Totalmente sobrio, elegante, sin blobs genéricos de IA, respetando prefers-reduced-motion.
  */
 export function PachaxBrandBackground({ activeIndex = 0 }: PachaxBrandBackgroundProps) {
   // Desplazamiento sutil del gradiente ambiental según el índice activo (-10px a +10px)
-  const shiftX = (activeIndex - 2) * 8
+  const shiftX = (activeIndex - 2) * 12
 
   return (
     <div
       aria-hidden="true"
       className="fixed inset-0 pointer-events-none overflow-hidden z-0 select-none bg-[#FAF9F6]"
     >
-      {/* 1. Resplandores ambientales técnicos muy suaves */}
+      {/* 1. Portal Volumétrico Superior Central (Profundidad azul tecnológica) */}
       <div
-        className="absolute -top-[15%] left-1/2 w-[900px] h-[550px] -translate-x-1/2 rounded-full blur-[140px] opacity-40 transition-transform duration-700 ease-out motion-reduce:transition-none"
+        className="absolute -top-[20%] left-1/2 w-[1100px] h-[680px] -translate-x-1/2 rounded-full blur-[150px] opacity-45 transition-transform duration-700 ease-out motion-reduce:transition-none"
         style={{
-          background: 'radial-gradient(ellipse at center, rgba(0, 102, 255, 0.18) 0%, rgba(9, 23, 40, 0.04) 65%, transparent 80%)',
+          background: 'radial-gradient(ellipse at center, rgba(0, 102, 255, 0.22) 0%, rgba(2, 132, 199, 0.12) 40%, rgba(9, 23, 40, 0.05) 70%, transparent 85%)',
           transform: `translateX(calc(-50% + ${shiftX}px))`,
         }}
       />
+
+      {/* Resplandor lateral derecho para balance compositivo */}
       <div
-        className="absolute top-[40%] -right-[10%] w-[600px] h-[600px] rounded-full blur-[160px] opacity-25"
+        className="absolute top-[35%] -right-[12%] w-[700px] h-[700px] rounded-full blur-[170px] opacity-30"
         style={{
-          background: 'radial-gradient(circle, rgba(2, 132, 199, 0.15) 0%, transparent 70%)',
-        }}
-      />
-      <div
-        className="absolute bottom-[10%] -left-[10%] w-[700px] h-[700px] rounded-full blur-[180px] opacity-20"
-        style={{
-          background: 'radial-gradient(circle, rgba(0, 102, 255, 0.12) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(2, 132, 199, 0.18) 0%, rgba(0, 102, 255, 0.08) 50%, transparent 75%)',
         }}
       />
 
-      {/* 2. Retícula técnica de precisión geométrica (Blueprint tenue) */}
+      {/* Resplandor inferior izquierdo para fluidez en scroll */}
+      <div
+        className="absolute bottom-[8%] -left-[12%] w-[800px] h-[800px] rounded-full blur-[190px] opacity-25"
+        style={{
+          background: 'radial-gradient(circle, rgba(0, 102, 255, 0.15) 0%, rgba(9, 23, 40, 0.04) 60%, transparent 80%)',
+        }}
+      />
+
+      {/* 2. Retícula técnica blueprint de precisión geométrica */}
       <svg
-        className="absolute inset-0 w-full h-full opacity-[0.035]"
+        className="absolute inset-0 w-full h-full opacity-[0.038]"
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
@@ -61,7 +64,7 @@ export function PachaxBrandBackground({ activeIndex = 0 }: PachaxBrandBackground
               stroke="#091728"
               strokeWidth="0.75"
             />
-            {/* Pequeña cruz de intersección */}
+            {/* Pequeña cruz de intersección técnica */}
             <circle cx="0" cy="0" r="1.5" fill="#0066FF" opacity="0.6" />
           </pattern>
         </defs>
@@ -78,14 +81,14 @@ export function PachaxBrandBackground({ activeIndex = 0 }: PachaxBrandBackground
         <defs>
           <linearGradient id="pachax-chevron-line-grad" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#0066FF" stopOpacity="0.0" />
-            <stop offset="35%" stopColor="#0066FF" stopOpacity="0.12" />
-            <stop offset="70%" stopColor="#091728" stopOpacity="0.06" />
+            <stop offset="35%" stopColor="#0066FF" stopOpacity="0.14" />
+            <stop offset="70%" stopColor="#091728" stopOpacity="0.07" />
             <stop offset="100%" stopColor="#091728" stopOpacity="0.0" />
           </linearGradient>
 
           <linearGradient id="pachax-chevron-solid-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#0066FF" stopOpacity="0.02" />
-            <stop offset="50%" stopColor="#0284C7" stopOpacity="0.04" />
+            <stop offset="0%" stopColor="#0066FF" stopOpacity="0.025" />
+            <stop offset="50%" stopColor="#0284C7" stopOpacity="0.045" />
             <stop offset="100%" stopColor="#091728" stopOpacity="0.01" />
           </linearGradient>
         </defs>
@@ -138,7 +141,7 @@ export function PachaxBrandBackground({ activeIndex = 0 }: PachaxBrandBackground
         <path
           d="M -60 840 L 280 600"
           stroke="#0066FF"
-          strokeOpacity="0.09"
+          strokeOpacity="0.1"
           strokeWidth="1"
         />
       </svg>

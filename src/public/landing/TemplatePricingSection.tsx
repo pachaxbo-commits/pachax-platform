@@ -1,285 +1,465 @@
 import { useState } from 'react'
-import { Check, ArrowRight, HelpCircle } from 'lucide-react'
 import {
-  CUSTOM_DEVELOPMENT_CONFIG,
-  type TemplateKey,
+  Check,
+  ArrowRight,
+  MessageSquare,
+  Play,
+  Sparkles,
+  Layers,
+} from 'lucide-react'
+import {
+  OFFICIAL_WHATSAPP,
+  SPECIALIZED_IMPLEMENTATION_MODELS,
+  QUICK_SERVICE_CATALOG,
+  type SpecializedModelInfo,
+  type QuickServiceSubcategory,
   type TemplateTierPlan,
+  CUSTOM_DEVELOPMENT_CONFIG,
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
-import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 
 export function TemplatePricingSection() {
   const { navigate } = usePublicRouter()
-  const { landingContent, publishedPlansByTemplate, publishedTemplates } = useCommercialConfig()
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>(
-    (publishedTemplates[0]?.templateId as TemplateKey) || 'restaurant'
-  )
+
+  // Estado del Bloque A: Implementación Especializada
+  const [selectedSpecializedId, setSelectedSpecializedId] = useState<'distribution' | 'restaurant' | 'nightclub'>('distribution')
+  const activeSpecialized: SpecializedModelInfo =
+    SPECIALIZED_IMPLEMENTATION_MODELS.find((m) => m.id === selectedSpecializedId) ||
+    SPECIALIZED_IMPLEMENTATION_MODELS[0]
+
+  // Estado del Bloque B: Autoservicio con Planes Directos
+  const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<'hamburger' | 'retail'>('hamburger')
+  const activeQuickCatalog: QuickServiceSubcategory =
+    QUICK_SERVICE_CATALOG.find((q) => q.id === selectedQuickServiceId) ||
+    QUICK_SERVICE_CATALOG[0]
+
+  const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2) // Nivel 2 (Más popular) por defecto
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
 
-  const templateTabs = publishedTemplates.map((t) => ({
-    id: t.templateId,
-    label: t.commercialName,
-  }))
+  const activePlan: TemplateTierPlan =
+    activeQuickCatalog.plans.find((p) => p.tierLevel === selectedTierLevel) ||
+    activeQuickCatalog.plans[1] ||
+    activeQuickCatalog.plans[0]
 
-  const activePlans = publishedPlansByTemplate(selectedTemplate)
+  const calculatedPrice = billingCycle === 'annual' ? activePlan.annualPriceUSD : activePlan.monthlyPriceUSD
 
-  const handleSelectPlan = (plan: TemplateTierPlan) => {
-    navigate(`/register?plan=${plan.id}&template=${selectedTemplate}&cycle=${billingCycle}`)
+  const handleLaunchSpecializedDemo = (route: string) => {
+    if (route.startsWith('/demo/')) {
+      window.location.assign(route)
+    } else {
+      navigate(route)
+    }
   }
 
-  const whatsAppLink = `https://wa.me/${landingContent.officialWhatsAppNumber}?text=${encodeURIComponent(landingContent.defaultCustomDevMessage)}`
+  const handleSpecializedWhatsApp = (model: SpecializedModelInfo) => {
+    const url = OFFICIAL_WHATSAPP.buildUrl(model.whatsAppPrompt)
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  const handleSelectQuickPlan = (plan: TemplateTierPlan) => {
+    navigate(`/register?template=${activeQuickCatalog.templateParam}&plan=${plan.id}&cycle=${billingCycle}`)
+  }
+
+  const handleCustomDevWhatsApp = () => {
+    const url = OFFICIAL_WHATSAPP.buildUrl(CUSTOM_DEVELOPMENT_CONFIG.whatsAppMessage)
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   return (
-    <section id="planes" className="w-full py-20 bg-white border-t border-slate-200/80 relative">
+    <section id="planes" className="w-full py-20 bg-slate-50/70 border-t border-slate-200/80 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Cabecera Editorial */}
-        <div className="text-center max-w-3xl mx-auto mb-12">
-          <div className="text-xs font-bold uppercase tracking-wider text-[#0066FF] mb-2">
-            PLANES COMERCIALES TRANSPARENTES
+        {/* Cabecera Editorial Principal */}
+        <div className="text-center max-w-3xl mx-auto mb-16">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
+            <Layers className="w-3.5 h-3.5" />
+            <span>MODELOS COMERCIALES TRANSPARENTES</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
-            Planes adaptados a la escala real de tu empresa
+            Elige la ruta adaptada a la complejidad real de tu negocio
           </h2>
-          <p className="text-sm sm:text-base text-slate-600 mt-2.5 leading-relaxed">
-            Sin comisiones ocultas por venta ni cargos sorpresa. Cada rubro cuenta con niveles operativos diseñados para acompañar tu crecimiento desde la apertura hasta la gestión multisucursal.
+          <p className="text-sm sm:text-base text-slate-600 mt-3 leading-relaxed">
+            Sin comisiones ocultas por venta ni letra chica. Separamos el autoservicio de despliegue rápido para negocios de mostrador, de la implementación especializada para operaciones complejas con logística, salón o alta concurrencia.
           </p>
-
-          {/* Selector de Plantilla por Pestañas */}
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
-            <span className="text-xs font-bold text-slate-400 mr-1 uppercase tracking-wider">Rubro:</span>
-            {templateTabs.map((tab) => {
-              const isActive = selectedTemplate === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setSelectedTemplate(tab.id)}
-                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-[#0066FF] text-white shadow-sm ring-2 ring-blue-500/20'
-                      : 'bg-slate-100 text-slate-600 hover:text-slate-950 hover:bg-slate-200/80'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Selector de ciclo de facturación (Mensual / Anual) */}
-          <div className="mt-6 inline-flex items-center gap-2 p-1.5 rounded-xl bg-slate-100 border border-slate-200/80">
-            <button
-              type="button"
-              onClick={() => setBillingCycle('monthly')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                billingCycle === 'monthly'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Pago mensual
-            </button>
-            <button
-              type="button"
-              onClick={() => setBillingCycle('annual')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
-                billingCycle === 'annual'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span>Pago anual</span>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                -15% dto.
-              </span>
-            </button>
-          </div>
         </div>
 
-        {/* Grilla de 3 Planes Estándar por Plantilla */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 items-stretch mb-12">
-          {activePlans.map((plan) => {
-            const isPopular = plan.isPopular
-            const price = billingCycle === 'annual' ? plan.annualPriceUSD : plan.monthlyPriceUSD
+        {/* Dos Bloques Paralelos en Desktop, Apilados en Mobile */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch mb-14">
+          {/* ========================================================================= */}
+          {/* BLOQUE 1: IMPLEMENTACIÓN ESPECIALIZADA (Gris/Azul Noche Premium) */}
+          {/* ========================================================================= */}
+          <div className="bg-[#071322] text-white rounded-3xl p-6 sm:p-8 border border-blue-500/25 shadow-2xl relative overflow-hidden flex flex-col justify-between">
+            {/* Efecto de luz volumétrica nocturna */}
+            <div
+              aria-hidden="true"
+              className="absolute -top-24 -right-24 w-80 h-80 bg-blue-600/15 rounded-full blur-3xl pointer-events-none"
+            />
+            <div
+              aria-hidden="true"
+              className="absolute -bottom-24 -left-24 w-80 h-80 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"
+            />
 
-            return (
-              <div
-                key={plan.id}
-                className={`rounded-2xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 relative ${
-                  isPopular
-                    ? 'bg-white border-2 border-[#0066FF] shadow-xl ring-4 ring-blue-500/10 md:-translate-y-2'
-                    : 'bg-white border border-slate-200 shadow-xs hover:shadow-md'
-                }`}
+            <div className="relative z-10">
+              {/* Encabezado del Bloque Especializado */}
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                  Alta Complejidad & Flota
+                </span>
+                <span className="text-xs text-slate-400 font-medium">
+                  Ruta Guiada
+                </span>
+              </div>
+
+              <h3 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                Implementación Especializada
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                Diseñado para operaciones que requieren auditoría de procesos, configuración de hardware y acompañamiento técnico directo.
+              </p>
+
+              {/* Selector de Plantilla Especializada (Tabs) */}
+              <div className="mt-6 p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-wrap sm:flex-nowrap gap-1">
+                {SPECIALIZED_IMPLEMENTATION_MODELS.map((model) => {
+                  const isSelected = selectedSpecializedId === model.id
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => setSelectedSpecializedId(model.id)}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                        isSelected
+                          ? 'bg-[#0066FF] text-white shadow-md'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      }`}
+                    >
+                      {model.title}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Ficha Activa de la Plantilla Especializada */}
+              <div className="mt-6 p-5 rounded-2xl bg-[#0b1c31] border border-blue-500/20 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-sky-400">
+                      {activeSpecialized.badge}
+                    </span>
+                    <h4 className="text-base sm:text-lg font-bold text-white tracking-tight mt-0.5">
+                      {activeSpecialized.subtitle}
+                    </h4>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Base Cloud
+                    </span>
+                    <span className="text-lg sm:text-xl font-black text-white">
+                      ${activeSpecialized.cloudMaintenance.monthlyPriceUSD}
+                    </span>
+                    <span className="text-[11px] text-slate-400 ml-1">USD/mes</span>
+                  </div>
+                </div>
+
+                {/* 3 Etapas Claras del Proceso Especializado */}
+                <div className="space-y-2.5 pt-3 border-t border-white/10 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-400/30 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                      1
+                    </div>
+                    <div>
+                      <div className="font-bold text-white flex items-center gap-1.5">
+                        <span>{activeSpecialized.diagnostic.title}</span>
+                        <span className="text-[10px] text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/80">
+                          {activeSpecialized.diagnostic.badge}
+                        </span>
+                      </div>
+                      <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
+                        {activeSpecialized.diagnostic.detail}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-400/30 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                      2
+                    </div>
+                    <div>
+                      <div className="font-bold text-white flex items-center gap-1.5">
+                        <span>{activeSpecialized.implementation.title}</span>
+                        <span className="text-[10px] text-sky-400 bg-sky-950/80 px-1.5 py-0.2 rounded border border-sky-800/80">
+                          {activeSpecialized.implementation.badge}
+                        </span>
+                      </div>
+                      <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
+                        {activeSpecialized.implementation.detail}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-400/30 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                      3
+                    </div>
+                    <div>
+                      <div className="font-bold text-white">
+                        Mantenimiento Cloud, Respaldos y Soporte Continuo
+                      </div>
+                      <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
+                        {activeSpecialized.cloudMaintenance.detail}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Funcionalidades Clave Incluidas */}
+                <div className="pt-3 border-t border-white/10">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    Capacidades del motor canónico:
+                  </div>
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300">
+                    {activeSpecialized.includedHighlights.map((feat, idx) => (
+                      <li key={idx} className="flex items-start gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+                        <span>{feat}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* Acciones del Bloque Especializado */}
+            <div className="relative z-10 pt-6 mt-6 border-t border-white/10 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => handleSpecializedWhatsApp(activeSpecialized)}
+                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-lg inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
-                {/* Badge "Más popular" */}
-                {isPopular && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="px-3.5 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-[#0066FF] text-white shadow-sm">
-                      {plan.badge || 'Recomendado'}
+                <MessageSquare className="w-4 h-4" />
+                <span>Solicitar diagnóstico gratuito</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLaunchSpecializedDemo(activeSpecialized.demoRoute)}
+                className="py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/15 inline-flex items-center justify-center gap-2"
+              >
+                <Play className="w-3.5 h-3.5 text-blue-400 fill-blue-400" />
+                <span>Ver demo en vivo</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* BLOQUE 2: AUTOSERVICIO CON PLANES DIRECTOS (Limpio / Comercial) */}
+          {/* ========================================================================= */}
+          <div className="bg-white text-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200/90 shadow-xl flex flex-col justify-between relative">
+            <div>
+              {/* Encabezado del Bloque Autoservicio */}
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  Despliegue Inmediato
+                </span>
+                <span className="text-xs text-slate-500 font-medium">
+                  Sin Esperas
+                </span>
+              </div>
+
+              <h3 className="text-xl sm:text-2xl font-extrabold text-slate-950 tracking-tight">
+                Autoservicio con Planes Directos
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
+                Elige tu rubro y plan estándar. Comienza a operar hoy mismo registrando tu empresa en 4 sencillos pasos.
+              </p>
+
+              {/* Selector de Subcategoría (Restaurante Rápido vs Comercio & Balanza) */}
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex">
+                  {QUICK_SERVICE_CATALOG.map((cat) => {
+                    const isSelected = selectedQuickServiceId === cat.id
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setSelectedQuickServiceId(cat.id)}
+                        className={`flex-1 sm:flex-initial py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-white text-slate-950 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-950'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Toggle de Ciclo de Facturación (Mensual / Anual) */}
+                <div className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex items-center justify-between sm:justify-start gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setBillingCycle('monthly')}
+                    className={`py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      billingCycle === 'monthly'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    Mensual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBillingCycle('annual')}
+                    className={`py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer inline-flex items-center gap-1 ${
+                      billingCycle === 'annual'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>Anual</span>
+                    <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded">
+                      -15%
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Selector de Nivel de Plan (Tabs de 3 Niveles) */}
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                {activeQuickCatalog.plans.map((p) => {
+                  const isSelected = p.tierLevel === selectedTierLevel
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedTierLevel(p.tierLevel || 1)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-[#0066FF] bg-blue-50/50 text-[#0066FF] font-bold shadow-xs'
+                          : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:bg-slate-100 font-semibold'
+                      }`}
+                    >
+                      <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                        Nivel {p.tierLevel}
+                      </div>
+                      <div className="text-xs truncate font-bold mt-0.5">
+                        {p.name}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Ficha Visual del Plan Activo Seleccionado */}
+              <div className="mt-6 p-6 rounded-2xl border-2 border-[#0066FF] bg-gradient-to-b from-blue-50/30 to-white relative">
+                {activePlan.isPopular && (
+                  <div className="absolute -top-3 left-6">
+                    <span className="px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-[#0066FF] text-white shadow-xs">
+                      {activePlan.badge || 'Más popular'}
                     </span>
                   </div>
                 )}
 
-                <div>
-                  {/* Encabezado del Plan */}
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <h3 className="text-xl sm:text-2xl font-extrabold text-slate-950 tracking-tight">
-                      {plan.name}
-                    </h3>
-                    {plan.limitsLabel && (
-                      <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200/80">
-                        {plan.limitsLabel}
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 min-h-[40px]">
-                    {plan.clientProfile}
-                  </p>
-
-                  {/* Precio */}
-                  <div className="mb-6 pb-6 border-b border-slate-100">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Desde</span>
-                      <span className="text-4xl sm:text-5xl font-black text-slate-950 tracking-tight">
-                        ${price}
-                      </span>
-                      <span className="text-xs sm:text-sm font-semibold text-slate-500">
-                        USD / mes
-                      </span>
-                    </div>
-                    {billingCycle === 'annual' && (
-                      <p className="text-[11px] font-medium text-emerald-600 mt-1">
-                        Facturado anualmente (ahorro de ${(plan.monthlyPriceUSD - plan.annualPriceUSD) * 12} USD al año)
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Lista de Capacidades Técnicas Incluidas */}
-                  <div className="space-y-3 mb-8">
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Capacidades operativas incluidas:
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h4 className="text-xl font-extrabold text-slate-950 tracking-tight">
+                      {activePlan.name}
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-1 leading-snug">
+                      {activePlan.clientProfile}
                     </p>
-                    <ul className="space-y-2.5">
-                      {plan.includedFeatures.map((feat, fIdx) => (
-                        <li key={fIdx} className="flex items-start gap-2.5 text-xs sm:text-sm leading-snug text-slate-700">
-                          <Check className={`w-4 h-4 shrink-0 mt-0.5 ${isPopular ? 'text-[#0066FF]' : 'text-emerald-600'}`} />
-                          <span>{feat}</span>
-                        </li>
-                      ))}
-                    </ul>
                   </div>
+                  {activePlan.limitsLabel && (
+                    <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg shrink-0">
+                      {activePlan.limitsLabel}
+                    </span>
+                  )}
                 </div>
 
-                {/* Botón CTA de Selección */}
-                <div className="pt-4 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPlan(plan)}
-                    className={`w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 inline-flex items-center justify-center gap-2 cursor-pointer active:scale-98 ${
-                      isPopular
-                        ? 'bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md hover:shadow-lg'
-                        : 'bg-slate-900 hover:bg-slate-800 text-white shadow-sm'
-                    }`}
-                  >
-                    <span>{plan.ctaLabel}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                {/* Precio */}
+                <div className="pb-4 mb-4 border-b border-slate-100 flex items-baseline gap-1.5">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Desde
+                  </span>
+                  <span className="text-4xl font-black text-slate-950 tracking-tight">
+                    ${calculatedPrice}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">
+                    USD / mes
+                  </span>
+                  {billingCycle === 'annual' && (
+                    <span className="ml-2 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
+                      Ahorras ${(activePlan.monthlyPriceUSD - activePlan.annualPriceUSD) * 12} USD al año
+                    </span>
+                  )}
                 </div>
-              </div>
-            )
-          })}
-        </div>
 
-        {/* Bloque Destacado de Desarrollo a Medida */}
-        <div className="rounded-3xl bg-slate-950 text-white p-8 sm:p-10 lg:p-12 border border-slate-800 shadow-2xl relative overflow-hidden">
-          {/* Acento arquitectónico sutil */}
-          <div
-            aria-hidden="true"
-            className="absolute -right-20 -top-20 w-80 h-80 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"
-          />
-
-          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-            <div className="lg:col-span-7 space-y-4">
-              <div className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-1">
-                SOLUCIÓN EXCLUSIVA DE INGENIERÍA
-              </div>
-              <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                {CUSTOM_DEVELOPMENT_CONFIG.title}
-              </h3>
-              <p className="text-sm sm:text-base font-semibold text-blue-300">
-                {CUSTOM_DEVELOPMENT_CONFIG.subtitle}
-              </p>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-                {CUSTOM_DEVELOPMENT_CONFIG.description}
-              </p>
-
-              <div className="pt-2">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">
-                  Alcance incluido del servicio:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
-                  {CUSTOM_DEVELOPMENT_CONFIG.highlights.map((item, idx) => (
-                    <div key={idx} className="flex items-start gap-2">
-                      <Check className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                      <span>{item}</span>
-                    </div>
-                  ))}
+                {/* Lista de Capacidades Técnicas Incluidas */}
+                <div className="space-y-2.5 mb-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Capacidades incluidas:
+                  </div>
+                  <ul className="space-y-2 text-xs text-slate-700">
+                    {activePlan.includedFeatures.map((feat, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <span>{feat}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             </div>
 
-            <div className="lg:col-span-5 flex flex-col justify-center items-start lg:items-end gap-4 p-6 sm:p-8 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
-              <div className="text-left lg:text-right w-full">
-                <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Cotización</span>
-                <div className="text-2xl sm:text-3xl font-black text-white mt-1">
-                  A medida
-                </div>
-                <p className="text-xs text-slate-300 mt-1">
-                  {CUSTOM_DEVELOPMENT_CONFIG.tagline}
-                </p>
-              </div>
-
-              <div className="w-full flex flex-col sm:flex-row lg:flex-col gap-3 pt-2">
-                <a
-                  href={whatsAppLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 px-5 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white transition-all text-center inline-flex items-center justify-center gap-2 shadow-md cursor-pointer"
-                >
-                  <span>Solicitar asesoría técnica</span>
-                  <ArrowRight className="w-4 h-4" />
-                </a>
-                <button
-                  type="button"
-                  onClick={() => navigate('/register?intent=custom')}
-                  className="w-full py-3 px-5 rounded-xl text-xs sm:text-sm font-bold bg-white/10 hover:bg-white/20 text-white transition-all text-center cursor-pointer border border-white/15"
-                >
-                  Registrar solicitud
-                </button>
-              </div>
+            {/* CTA del Bloque Autoservicio */}
+            <div className="pt-6 mt-6 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => handleSelectQuickPlan(activePlan)}
+                className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <span>{activePlan.ctaLabel}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <p className="text-[11px] text-center text-slate-400 mt-2">
+                Sin tarjeta de crédito obligatoria para comenzar. Aprovisionamiento seguro en 4 pasos.
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Nota al pie de Pricing y Aclaración de Arquitectura */}
-        <div className="mt-10 p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600">
-          <div className="flex items-center gap-2">
-            <HelpCircle className="w-4 h-4 text-slate-400 shrink-0" />
-            <span>
-              Precios referenciales en dólares (USD) o su equivalente en bolivianos (BOB). Todos los planes incluyen actualizaciones continuas de seguridad y respaldo en la nube.
-            </span>
+        {/* ========================================================================= */}
+        {/* BANNER DE CIERRE: INGENIERÍA Y DESARROLLO A MEDIDA */}
+        {/* ========================================================================= */}
+        <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="space-y-1.5 text-center md:text-left max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-blue-400">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{CUSTOM_DEVELOPMENT_CONFIG.title}</span>
+            </div>
+            <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+              {CUSTOM_DEVELOPMENT_CONFIG.subtitle}
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              {CUSTOM_DEVELOPMENT_CONFIG.description}
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              const extrasEl = document.getElementById('extras')
-              if (extrasEl) extrasEl.scrollIntoView({ behavior: 'smooth' })
-            }}
-            className="text-[#0066FF] hover:underline font-semibold shrink-0 cursor-pointer"
-          >
-            Ver servicios adicionales y extras &rarr;
-          </button>
+
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={handleCustomDevWhatsApp}
+              className="w-full sm:w-auto py-3 px-5 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>Hablar con ingeniería</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/register?intent=custom')}
+              className="w-full sm:w-auto py-3 px-5 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all cursor-pointer text-center"
+            >
+              Crear cuenta corporativa
+            </button>
+          </div>
         </div>
       </div>
     </section>

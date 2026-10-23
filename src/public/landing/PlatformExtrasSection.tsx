@@ -1,4 +1,15 @@
-import { Megaphone, Palette, Headphones, Zap, Code2, Cpu, ArrowRight, MessageSquare, Check } from 'lucide-react'
+import {
+  Megaphone,
+  Palette,
+  Headphones,
+  Zap,
+  Code2,
+  Cpu,
+  ArrowRight,
+  MessageSquare,
+  Check,
+  Sparkles,
+} from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialExtraService } from '../../admin/types'
@@ -35,11 +46,11 @@ export function PlatformExtrasSection() {
 
   const handleInquireWhatsApp = (extra?: CommercialExtraService) => {
     const text = extra
-      ? `Hola PACHAX, me interesa consultar sobre el servicio estratégico: ${extra.title} (${extra.referencePriceLabel}) para mi empresa.`
+      ? `Hola PACHAX, me interesa consultar sobre el servicio especializado: ${extra.title} (${extra.referencePriceLabel}) para mi empresa.`
       : landingContent.defaultCustomDevMessage
 
     const url = `https://wa.me/${landingContent.officialWhatsAppNumber}?text=${encodeURIComponent(text)}`
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const handleRegisterAddon = (extra: CommercialExtraService) => {
@@ -47,34 +58,35 @@ export function PlatformExtrasSection() {
   }
 
   return (
-    <section id="extras" className="w-full py-20 bg-slate-50 border-t border-slate-200/80 relative">
+    <section id="extras" className="w-full py-20 bg-slate-50 border-t border-slate-200/80 relative overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Encabezado Editorial */}
-        <div className="max-w-3xl mb-12">
-          <div className="text-xs font-bold uppercase tracking-wider text-[#0066FF] mb-2">
-            SERVICIOS ESTRATÉGICOS Y EXTENSIONES
+        <div className="max-w-3xl mb-14">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>SERVICIOS ESTRATÉGICOS Y EXTENSIONES</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
             Potencia tu operación con módulos y servicios especializados
           </h2>
           <p className="text-sm sm:text-base text-slate-600 mt-2.5 leading-relaxed">
-            Separa el software operativo de los servicios de aceleración de negocio. Incorpora ingeniería a medida, marketing enfocado en ventas, identidad visual y soporte prioritario cuando tu escala lo requiera.
+            Separa el software operativo central de los servicios de aceleración de negocio. Incorpora ingeniería a medida, marketing enfocado en ventas, identidad visual y soporte prioritario cuando tu escala lo requiera.
           </p>
         </div>
 
         {/* Portafolio Asimétrico: Columna izquierda destacada (Ingeniería a Medida) + Columna derecha (Franjas de servicios) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 mb-12 items-stretch">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 mb-14 items-stretch">
           {/* Card Heroica: Solución de Software e Integración a Medida (5 columnas en desktop) */}
           {featuredCustom && (
-            <div className="lg:col-span-5 bg-slate-950 text-white rounded-2xl border border-slate-800 p-7 sm:p-8 flex flex-col justify-between shadow-xl relative overflow-hidden">
+            <div className="lg:col-span-5 bg-[#071322] text-white rounded-3xl border border-blue-500/30 p-7 sm:p-8 flex flex-col justify-between shadow-2xl relative overflow-hidden">
               <div
                 aria-hidden="true"
-                className="absolute -right-16 -top-16 w-56 h-56 bg-blue-600/15 rounded-full blur-3xl pointer-events-none"
+                className="absolute -right-20 -top-20 w-64 h-64 bg-blue-600/20 rounded-full blur-3xl pointer-events-none"
               />
 
               <div className="relative z-10">
                 <div className="flex items-center justify-between gap-3 mb-6">
-                  <div className="w-11 h-11 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
+                  <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
                     {renderIcon(featuredCustom.iconKey, 'w-6 h-6 text-blue-400')}
                   </div>
                   <span className="text-xs font-bold tracking-wider uppercase text-blue-300 bg-blue-900/40 border border-blue-700/50 px-3 py-1 rounded-full">
@@ -176,35 +188,43 @@ export function PlatformExtrasSection() {
           </div>
         </div>
 
-        {/* Banner Comercial de Cierre */}
-        <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-[#002b66] border border-slate-800 p-8 sm:p-10 text-white shadow-xl flex flex-col lg:flex-row items-center justify-between gap-6">
-          <div className="space-y-2 text-center lg:text-left max-w-2xl">
-            <div className="text-xs font-bold uppercase tracking-wider text-blue-300">
-              ASESORÍA COMERCIAL DIRECTA
+        {/* ========================================================================= */}
+        {/* BANNER COMERCIAL HEROICO DE CIERRE (Portal Tecnológico Azul Noche) */}
+        {/* ========================================================================= */}
+        <div className="rounded-3xl bg-gradient-to-r from-[#030C1A] via-[#091728] to-[#002b66] border border-blue-500/30 p-8 sm:p-12 text-white shadow-2xl relative overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-8">
+          {/* Volumetric glow accent */}
+          <div
+            aria-hidden="true"
+            className="absolute top-0 right-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none"
+          />
+
+          <div className="space-y-3 text-center lg:text-left max-w-2xl relative z-10">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 text-[11px] font-bold uppercase tracking-wider">
+              <span>ASESORÍA Y DESPLIEGUE DIRECTO</span>
             </div>
-            <h3 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-              ¿Tu empresa necesita una solución tecnológica a medida?
+            <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              ¿Listo para ordenar la gestión operativa de tu empresa?
             </h3>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Habla directamente con nuestro equipo de ingeniería y producto. Analizamos tus procesos, básculas, almacenes o reglas de negocio sin compromiso.
+              Habla directamente con nuestro equipo de ingeniería y producto. Analizamos tus procesos de cobro, básculas, almacenes o reglas de negocio sin costo ni compromiso.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto shrink-0">
+          <div className="flex flex-col sm:flex-row items-center gap-3.5 w-full lg:w-auto shrink-0 relative z-10">
             <button
               type="button"
               onClick={() => handleInquireWhatsApp()}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs sm:text-sm font-bold shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="w-full sm:w-auto px-7 py-4 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs sm:text-sm font-bold shadow-lg inline-flex items-center justify-center gap-2.5 transition-all cursor-pointer"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>Contactar por WhatsApp</span>
+              <span>Contactar por WhatsApp (+591 77987776)</span>
             </button>
             <button
               type="button"
-              onClick={() => navigate('/register?intent=custom')}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/20 transition-all cursor-pointer text-center"
+              onClick={() => navigate('/register')}
+              className="w-full sm:w-auto px-7 py-4 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/20 transition-all cursor-pointer text-center"
             >
-              Crear cuenta ahora
+              Crear mi empresa ahora
             </button>
           </div>
         </div>
