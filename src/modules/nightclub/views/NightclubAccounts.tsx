@@ -154,6 +154,7 @@ export function NightclubAccounts({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {canDeliver && round.status === 'ready' && !!round.authorization && (
                         <button
+                          data-tutorial-target="accounts-deliver"
                           onClick={() => onDeliverRound(account.id, round.id)}
                           className="rounded-lg bg-emerald-400 px-3 py-2 font-bold text-slate-950 cursor-pointer"
                         >

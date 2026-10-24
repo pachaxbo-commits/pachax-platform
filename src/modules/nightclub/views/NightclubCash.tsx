@@ -121,7 +121,7 @@ export function NightclubCash({
       </p>
       {!selectedCashboxShift && selectedCashbox && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <input
+            <input data-tutorial-target="cash-opening-float"
             type="number"
             min="0"
             value={opening}
@@ -152,7 +152,7 @@ export function NightclubCash({
   if (needsCashboxSelection) {
     return (
       <div className="space-y-5">
-        <header>
+        <header data-tutorial-target="cash-shift-status">
           <h1 className="text-2xl font-black">Caja y turnos</h1>
           <p className="text-sm text-slate-400">Selecciona una caja de trabajo para operar.</p>
         </header>
@@ -164,7 +164,7 @@ export function NightclubCash({
   if (!shift || shift.status === 'closed') {
     return (
       <div className="space-y-5">
-        <header>
+        <header data-tutorial-target="cash-shift-status">
           <h1 className="text-2xl font-black">Caja y turnos</h1>
           <p className="text-sm text-slate-400">Cobros, resultado y arqueo de la noche.</p>
         </header>
@@ -187,7 +187,7 @@ export function NightclubCash({
 
   return (
     <div className="space-y-5">
-      <header>
+      <header data-tutorial-target="cash-shift-status">
         <h1 className="text-2xl font-black">Caja y turnos</h1>
         <p className="text-sm text-slate-400">Cobros de cuentas, cierre de caja y resultado del negocio.</p>
       </header>
@@ -201,7 +201,7 @@ export function NightclubCash({
                 <strong>{nightclubAccountLabel(account, data)}</strong>
                 <p className="text-sm text-slate-400">Total {money(account.subtotal)} · Pagado {money(nightclubPaidTotal(account))} · Saldo {money(nightclubBalance(account))}</p>
               </div>
-              <button onClick={() => setPayingId(account.id)} className="min-h-11 rounded-xl bg-emerald-400 px-4 font-bold text-slate-950">Registrar pago</button>
+              <button data-tutorial-target="cash-register-payment" onClick={() => setPayingId(account.id)} className="min-h-11 rounded-xl bg-emerald-400 px-4 font-bold text-slate-950">Registrar pago</button>
             </div>
           ))}
           {!billRequestedAccounts.length && (
@@ -235,7 +235,7 @@ export function NightclubCash({
           <span>Gastos operativos <b>−{money(profit.expenses)}</b></span>
         </div>
       </section>
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <section data-tutorial-target="cash-movements" className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
         <h2 className="font-bold">Registrar movimiento</h2>
         <div className="mt-3 grid gap-2 sm:grid-cols-5">
           <select value={type} onChange={e => setType(e.target.value as typeof type)} className="rounded-xl bg-slate-950 p-3">
@@ -270,7 +270,7 @@ export function NightclubCash({
         <h2 className="font-bold">Arqueo y cierre</h2>
         <p className="mt-1 text-sm text-slate-400">{openAccounts.length ? `${openAccounts.length} cuenta(s) abiertas.` : 'Todas las cuentas están cerradas.'}</p>
         <div className="mt-3 flex gap-2">
-          <input aria-label="Efectivo contado" type="number" min="0" step="0.01" placeholder="Efectivo contado" value={counted} onChange={e => setCounted(e.target.value)} className="rounded-xl bg-slate-950 p-3" />
+          <input data-tutorial-target="cash-counted" aria-label="Efectivo contado" type="number" min="0" step="0.01" placeholder="Efectivo contado" value={counted} onChange={e => setCounted(e.target.value)} className="rounded-xl bg-slate-950 p-3" />
           <button
             disabled={openAccounts.length > 0 || !reconciliation.canClose}
             onClick={() => {

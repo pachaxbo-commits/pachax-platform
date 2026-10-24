@@ -218,7 +218,13 @@ export function nightclubProductAvailability(product: NightclubProduct, inventor
   if (!recipe.length) return product.stockUnits
   return Math.max(0, Math.floor(Math.min(...recipe.map(line => {
     const stock = inventory.find(item => item.id === line.inventoryId)
-    return stock && line.quantity > 0 ? stock.current / line.quantity : 0
+    if (!stock || line.quantity <= 0) return 0
+    const scale = line.unit === 'l' || line.unit === 'kg' ? 1000 : 1
+    if (stock.bottleCapacityMl && (line.unit === 'ml' || line.unit === 'l')) {
+      const availableMl = (stock.openBottleMl || 0) + stock.current * stock.bottleCapacityMl
+      return availableMl / (line.quantity * scale)
+    }
+    return stock.current / (line.quantity * scale)
   }))))
 }
 

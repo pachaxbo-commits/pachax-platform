@@ -3,8 +3,8 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { StudioBranding } from '../../../studio/branding/brandingTypes'
 import { BarChart3, Bell, Boxes, ChevronRight, CircleDollarSign, ClipboardList, Clock3, GlassWater, Handshake, LayoutGrid, LogOut, Menu, Music2, ReceiptText, Settings, Star, Users, Wine } from 'lucide-react'
 import type { NightclubCommissionPaymentDraft, NightclubCourtesyDraft, NightclubCustomer, NightclubCustomerStatus, NightclubDataset, NightclubInventoryItem, NightclubInventoryMovementType, NightclubMember, NightclubModuleId, NightclubPaymentDraft, NightclubProduct, NightclubProductExchangeDraft, NightclubRoundDraft, NightclubServiceTarget, NightclubStaff } from '../domain/nightclubAccounts'
-import { nightclubCan, nightclubCashSummary, normalizeNightclubRole } from '../domain/nightclubAccounts'
-import type { NightclubUserRole } from '../domain/nightclubUsers'
+import { nightclubBalance, nightclubCan, nightclubCashSummary, normalizeNightclubRole } from '../domain/nightclubAccounts'
+import { NIGHTCLUB_ROLE_DEFAULTS, type NightclubBuiltinRole, type NightclubUserRole } from '../domain/nightclubUsers'
 import { hasNightclubPermission } from '../domain/nightclubPermissions'
 import type { ReservationDraft, TableDraft, ZoneDraft } from '../domain/nightclubFloor'
 import type { NightclubIncidentDraft } from '../domain/nightclubCustomerIncidents'
@@ -34,8 +34,41 @@ import { nightclubAccountToReceiptData, buildNightclubBarTicketPayload, nightclu
 import { PrintEngineService, classifyPrintJobOutcome, type PrintJobOutcome } from '../../../services/printing/printEngineService'
 import { getActiveBarPrinter } from '../../../services/printing/printerBootstrap'
 import type { NightclubRound, NightclubAccount } from '../domain/nightclubAccounts'
+import { NightclubTutorial } from '../tutorials/NightclubTutorial'
 
 type NightclubModule = NightclubModuleId
+
+function colorLuminance(hex: string): number | null {
+  const normalized = hex.trim().match(/^#?([\da-f]{6})$/i)?.[1]
+  if (!normalized) return null
+  const channels = [0, 2, 4].map(offset => Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255)
+  const linear = channels.map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+}
+
+function contrastRatio(first: string, second: string): number | null {
+  const firstLuminance = colorLuminance(first)
+  const secondLuminance = colorLuminance(second)
+  if (firstLuminance === null || secondLuminance === null) return null
+  const [lighter, darker] = [firstLuminance, secondLuminance].sort((a, b) => b - a)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function accessibleForeground(background: string): string {
+  const whiteRatio = contrastRatio(background, '#ffffff')
+  const darkRatio = contrastRatio(background, '#0f172a')
+  if (whiteRatio === null || darkRatio === null) return '#0f172a'
+  return whiteRatio >= darkRatio ? '#ffffff' : '#0f172a'
+}
+
+function accessibleAccent(color: string, surface: string): string {
+  if ((contrastRatio(color, surface) ?? 0) >= 4.5) return color
+  const whiteRatio = contrastRatio('#f8fafc', surface)
+  const darkRatio = contrastRatio('#0f172a', surface)
+  if (whiteRatio === null || darkRatio === null) return '#f8fafc'
+  return whiteRatio >= darkRatio ? '#f8fafc' : '#0f172a'
+}
+
 type ControllerContract = {
   data: NightclubDataset
   incidentResponsibleLabel: string
@@ -118,6 +151,7 @@ type Props = ControllerContract & {
   demoPermissions?: ReadonlySet<string> | null
   permissions?: ReadonlySet<string> | null
   demoUserId?: string
+  tutorialActorId?: string
   onSelectDemoUser?: (id: string) => void
   mode?: 'tenant' | 'demo' | 'studio'
   businessIdentity?: BusinessIdentity
@@ -294,6 +328,12 @@ export function NightclubExperience(props: Props) {
   }, [role, effectivePermissions, props.mode])
   const [activeModule, setActiveModule] = useState<NightclubModule>('dashboard')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [tutorialOpen, setTutorialOpen] = useState(false)
+  const [tutorialPracticeRound, setTutorialPracticeRound] = useState<{ accountId: string; previousRoundCount: number } | null>(null)
+  const [tutorialPracticeSaveVersion, setTutorialPracticeSaveVersion] = useState(0)
+  const [tutorialPracticeProductVersion, setTutorialPracticeProductVersion] = useState(0)
+  const [tutorialPracticeAccountVersion, setTutorialPracticeAccountVersion] = useState(0)
+  const [tutorialPracticeAccountId, setTutorialPracticeAccountId] = useState('')
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [draft, setDraft] = useState<NightclubRoundDraft[]>([])
   const [courtesyAccountId, setCourtesyAccountId] = useState<string | null>(null)
@@ -331,6 +371,38 @@ export function NightclubExperience(props: Props) {
   const mobileModules = mobilePriority.map(id => visibleModules.find(item => item.id === id)).filter((item): item is (typeof allModules)[number] => !!item)
   const moreModules = visibleModules.filter(item => !mobileModules.some(primary => primary.id === item.id))
   const currentModule = visibleModules.some(item => item.id === activeModule) ? activeModule : visibleModules[0]?.id || 'dashboard'
+  const tutorialPermissions = effectivePermissions ?? new Set<string>(
+    (role in NIGHTCLUB_ROLE_DEFAULTS
+      ? NIGHTCLUB_ROLE_DEFAULTS[role as NightclubBuiltinRole]
+      : data.customRoles?.find(item => item.id === role)?.permissions || []) as readonly string[]
+  )
+  const tutorialActorKey = `${props.mode || 'demo'}:${props.tenantId || 'local'}:${props.branchId || 'main'}:${props.tutorialActorId || props.demoUserId || (props.mode === 'tenant' ? userName : 'demo-admin')}`
+  const openTutorial = () => {
+    if (['demo', 'studio'].includes(props.mode || '')) {
+      const storedId = localStorage.getItem(`pachax:nightclub:tutorial-bar-account:${tutorialActorKey}`) || ''
+      const account = data.accounts.find(item => item.id === storedId && item.status === 'open' && item.serviceTarget?.type === 'bar')
+      if (account) {
+        setTutorialPracticeAccountId(account.id)
+        if (!selectedAccountId) setSelectedAccountId(account.id)
+      }
+    }
+    setTutorialOpen(true)
+  }
+  const practiceRound = tutorialPracticeRound
+    ? data.accounts.find(account => account.id === tutorialPracticeRound.accountId)?.rounds[tutorialPracticeRound.previousRoundCount]
+    : undefined
+  const barTutorialRound = practiceRound || barRounds[0]
+  const hasPracticeRon = data.inventory.some(item => item.id === 'demo-tutorial-ron-v1')
+  const practiceCocaItem = data.inventory.find(item => item.id === 'demo-tutorial-coca-v1')
+  const hasPracticeCoca = Boolean(practiceCocaItem)
+  const practiceCocaLegacy = Boolean(practiceCocaItem && !practiceCocaItem.bottleCapacityMl && (practiceCocaItem.unit === 'ml' || practiceCocaItem.unit === 'l'))
+  const practiceCocaBottle = data.products.find(item => item.id === 'presentation:demo-tutorial-coca-v1:bottle')
+  const practiceCocaPour = data.products.find(item => item.id === 'presentation:demo-tutorial-coca-v1:pour')
+  const practiceRonBottle = data.products.find(item => item.id === 'presentation:demo-tutorial-ron-v1:bottle')
+  const practiceRonPour = data.products.find(item => item.id === 'presentation:demo-tutorial-ron-v1:pour')
+  const hasPracticeProduct = data.products.some(item => item.id === 'demo-tutorial-ron-coca-v1' && item.name === 'Vaso de ron con Coca-Cola — Práctica')
+  const hasPracticeSale = data.accounts.some(account => account.rounds.some(round => round.items.some(item => item.productId === 'demo-tutorial-ron-coca-v1')))
+  const hasPracticeAccount = Boolean(tutorialPracticeAccountId && data.accounts.some(account => account.id === tutorialPracticeAccountId && account.status === 'open' && account.serviceTarget?.type === 'bar'))
   const savedBranding = data.branding || { businessName: effectiveCompanyName, subtitle: 'Club nocturno / Lounge', logoDataUrl: effectiveLogoUrl, primaryColor: props.businessIdentity?.primaryColor || '#d8a84e', accentColor: props.businessIdentity?.accentColor || '#35d0a0', surfaceColor: '#0d1720' }
   const branding = props.studioBranding ? { ...savedBranding, businessName: props.studioBranding.companyName, logoDataUrl: props.studioBranding.logoUrl, primaryColor: props.studioBranding.primaryColor, accentColor: props.studioBranding.accentColor, surfaceColor: props.studioBranding.surfaceColor, theme: props.studioBranding.theme || savedBranding.theme } : { ...savedBranding, businessName: effectiveCompanyName, logoDataUrl: effectiveLogoUrl, primaryColor: props.businessIdentity?.primaryColor || savedBranding.primaryColor, accentColor: props.businessIdentity?.accentColor || savedBranding.accentColor }
 
@@ -366,7 +438,11 @@ export function NightclubExperience(props: Props) {
 
   const shellStyle = (isLight ? {
     '--night-gold': '#b45309',
+    '--night-gold-text': '#b45309',
+    '--night-on-gold': '#ffffff',
     '--night-positive': '#047857',
+    '--night-positive-text': '#047857',
+    '--night-on-positive': '#ffffff',
     '--night-surface': '#ffffff',
     '--night-surface-secondary': '#f8fafc',
     '--night-background': '#f1f5f9',
@@ -378,7 +454,11 @@ export function NightclubExperience(props: Props) {
     '--night-border': '#cbd5e1',
   } : {
     '--night-gold': branding.primaryColor,
+    '--night-gold-text': accessibleAccent(branding.primaryColor, branding.surfaceColor),
+    '--night-on-gold': accessibleForeground(branding.primaryColor),
     '--night-positive': branding.accentColor,
+    '--night-positive-text': accessibleAccent(branding.accentColor, branding.surfaceColor),
+    '--night-on-positive': accessibleForeground(branding.accentColor),
     '--night-surface': branding.surfaceColor,
     '--night-surface-secondary': '#121b20',
     '--night-background': props.studioBranding?.backgroundColor || '#050c13',
@@ -386,7 +466,7 @@ export function NightclubExperience(props: Props) {
     '--night-header': '#07111a',
     '--night-text': '#f8fafc',
     '--night-text-secondary': '#94a3b8',
-    '--night-muted': '#64748b',
+    '--night-muted': '#94a3b8',
     '--night-border': 'rgba(255, 255, 255, 0.1)',
   }) as CSSProperties
   const go = (module: NightclubModule) => { if (!visibleModules.some(item => item.id === module)) { setNotice('No tienes acceso a esta sección.'); return }; setActiveModule(module); setMoreOpen(false) }
@@ -398,10 +478,11 @@ export function NightclubExperience(props: Props) {
 
   return <div className={`nightclub-shell min-h-screen w-full ${isLight ? 'theme-light' : 'theme-dark'}`} data-theme={isLight ? 'light' : 'dark'} style={shellStyle}>
     <div className="flex min-h-screen w-full">
-      <aside className="sticky hidden w-[232px] shrink-0 flex-col border-r border-white/10 bg-[#07111a] lg:flex" style={{ top: demoTopbarHeight, height: `calc(100dvh - ${demoTopbarHeight}px)` }}><Brand branding={branding} isLight={isLight} /><nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">{visibleModules.map(item => <button key={item.id} onClick={() => go(item.id)} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition ${currentModule === item.id ? 'border border-amber-300/35 bg-amber-300/10 font-bold text-amber-100 shadow-[inset_0_0_24px_rgba(216,168,78,.06)]' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><item.icon size={17} strokeWidth={1.7} />{item.label}</button>)}</nav><div className="border-t border-white/10 p-4 text-[10px] uppercase tracking-widest text-slate-600">PACHAX · operación segura</div></aside>
+      <aside className="sticky hidden w-[232px] shrink-0 flex-col border-r border-white/10 bg-[#07111a] lg:flex" style={{ top: demoTopbarHeight, height: `calc(100dvh - ${demoTopbarHeight}px)` }}><Brand branding={branding} isLight={isLight} /><nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">{visibleModules.map(item => <button key={item.id} data-tutorial-target={`nav-${item.id}`} onClick={() => go(item.id)} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition ${currentModule === item.id ? 'border border-amber-300/35 bg-amber-300/10 font-bold text-amber-100 shadow-[inset_0_0_24px_rgba(216,168,78,.06)]' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'}`}><item.icon size={17} strokeWidth={1.7} />{item.label}</button>)}</nav><div className="border-t border-white/10 p-4 text-[10px] uppercase tracking-widest text-slate-600">PACHAX · operación segura</div></aside>
       <div className="min-w-0 flex-1"><header className="sticky z-30 flex min-h-16 items-center justify-between border-b border-white/10 bg-[#07111a]/95 px-4 backdrop-blur md:px-6" style={{ top: demoTopbarHeight }}>
         <div className="lg:hidden"><Brand branding={branding} compact isLight={isLight} /></div>
         <div className="flex items-center gap-3">
+          <button type="button" data-tutorial-trigger onClick={openTutorial} className="min-h-9 rounded-lg border border-amber-300/30 px-2.5 text-xs font-semibold text-amber-100 hover:bg-amber-300/10">Tutorial</button>
           <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-3 py-2 text-xs lg:flex"><span className={`h-2 w-2 rounded-full ${data.shift?.status === 'open' ? 'bg-emerald-400 shadow-[0_0_10px_#35d0a0]' : 'bg-slate-500'}`} /><span className="text-slate-400">Turno</span><strong>{data.shift?.status === 'open' ? 'activo' : 'cerrado'}</strong></div>
           <div className="flex items-center gap-1 rounded-xl border border-slate-700/60 p-1 text-xs" style={{ borderColor: 'var(--night-border, rgba(255,255,255,0.15))' }}>
             <button
@@ -449,7 +530,14 @@ export function NightclubExperience(props: Props) {
             onOpenAccount={async (target: NightclubServiceTarget) => {
               try {
                 const id = await props.onOpenAccount(target)
-                if (id) setNotice('Cuenta abierta.')
+                if (id) {
+                  setNotice('Cuenta abierta.')
+                  if (tutorialOpen && target.type === 'bar' && ['demo', 'studio'].includes(props.mode || '')) {
+                    setTutorialPracticeAccountId(id)
+                    localStorage.setItem(`pachax:nightclub:tutorial-bar-account:${tutorialActorKey}`, id)
+                    setTutorialPracticeAccountVersion(version => version + 1)
+                  }
+                }
                 return id
               } catch (error) {
                 setNotice(error instanceof Error ? error.message : 'No se pudo abrir la cuenta.')
@@ -560,6 +648,7 @@ export function NightclubExperience(props: Props) {
             }}
             onCourtesy={setCourtesyAccountId}
             onSaveCustomer={customer => run(() => props.onSaveCustomer(customer), 'Cliente guardado.')}
+            onTutorialRoundSent={(accountId, previousRoundCount) => setTutorialPracticeRound({ accountId, previousRoundCount })}
           />}
           {currentModule === 'accounts' && <NightclubAccounts
             data={operationData}
@@ -583,6 +672,7 @@ export function NightclubExperience(props: Props) {
           />}
           {currentModule === 'bar' && <NightclubBar
             data={data}
+            tutorialRoundId={tutorialOpen ? barTutorialRound?.id : undefined}
             cashboxId={props.activeCashboxId || undefined}
             canPrint={canPrintComanda}
             onAdvance={(accountId, roundId) => run(() => props.onAdvanceRound(accountId, roundId), 'Estado de Barra actualizado.')}
@@ -600,13 +690,13 @@ export function NightclubExperience(props: Props) {
             />
           ) : (
             <div className="space-y-5">
-              <NightclubBottleInventory data={data} onSave={value => run(() => props.onSaveBottleInventory?.(value), bottleSavedMessage(value))} onSaveSimple={value => run(() => props.onSaveSimpleInventoryProduct?.(value), 'Producto de inventario guardado.')} onOpenBottle={id => run(() => props.onOpenBottle?.(id), 'Botella abierta.')} onExit={(id, ml, type, reason) => run(() => props.onOpenBottleExit?.(id, ml, type, reason), 'Salida registrada.')} />
+              <NightclubBottleInventory data={data} tutorialPractice={tutorialOpen && ['demo', 'studio'].includes(props.mode || '')} onSave={value => { const normalizedName = value.name.trim().toLocaleLowerCase(); const practiceId = normalizedName === 'ron' || normalizedName === 'ron de práctica' ? 'demo-tutorial-ron-v1' : normalizedName === 'coca-cola' || normalizedName === 'coca-cola de práctica' ? 'demo-tutorial-coca-v1' : null; const isolatedPractice = ['demo', 'studio'].includes(props.mode || ''); const practice = isolatedPractice && practiceId ? { ...value, id: practiceId } : value; return run(() => props.onSaveBottleInventory?.(practice), bottleSavedMessage(value)).then(saved => { if (saved && isolatedPractice && practiceId) setTutorialPracticeSaveVersion(version => version + 1); return saved }) }} onSaveSimple={value => { const isPracticeName = ['coca-cola', 'coca-cola de práctica'].includes(value.name.trim().toLocaleLowerCase()); const isolatedPractice = ['demo', 'studio'].includes(props.mode || ''); const practice = isolatedPractice && isPracticeName ? { ...value, id: 'demo-tutorial-coca-v1' } : value; return run(() => props.onSaveSimpleInventoryProduct?.(practice), 'Producto de inventario guardado.').then(saved => { if (saved && isolatedPractice && isPracticeName) setTutorialPracticeSaveVersion(version => version + 1); return saved }) }} onOpenBottle={id => run(() => props.onOpenBottle?.(id), 'Botella abierta.')} onExit={(id, ml, type, reason) => run(() => props.onOpenBottleExit?.(id, ml, type, reason), 'Salida registrada.')} />
               <NightclubInventory data={data} onMovement={(id, quantity, type, reason) => run(() => props.onAdjustInventory(id, quantity, type, reason), 'Movimiento registrado.')} />
               <NightclubInventoryCosts data={data} onSave={item => run(() => props.onSaveInventory(item), 'Costo actualizado.')} />
               <NightclubCourtesyInventoryMovements data={data} />
             </div>
           ))}
-          {currentModule === 'products' && <NightclubProducts data={data} onSave={product => run(() => props.onSaveProduct(product), 'Producto guardado.')} />}
+          {currentModule === 'products' && <NightclubProducts data={data} onSave={product => { const isPractice = ['demo', 'studio'].includes(props.mode || '') && product.name.trim() === 'Vaso de ron con Coca-Cola — Práctica'; const practice = isPractice ? { ...product, id: 'demo-tutorial-ron-coca-v1' } : product; return run(() => props.onSaveProduct(practice), 'Producto guardado.').then(saved => { if (saved && isPractice) setTutorialPracticeProductVersion(version => version + 1); return saved }) }} />}
           {currentModule === 'cash' && <NightclubCash
             data={data}
             activeCashboxId={props.activeCashboxId || undefined}
@@ -649,10 +739,11 @@ export function NightclubExperience(props: Props) {
             usersPanel={canViewUsers ? <NightclubUsers users={data.staff || []} cashboxes={data.cashboxes || []} canManageCashboxAssignments={props.mode === 'tenant' && canManageUsers && ['owner', 'admin'].includes(normalizedRole)} rolePresets={data.userRolePresets} mode={props.mode === 'tenant' ? 'tenant' : 'demo'} view="roles" customRoles={data.customRoles} allowCreate={canManageUsers && hasNightclubPermission(effectivePermissions ?? null, 'users', 'create')} allowEdit={canManageUsers && hasNightclubPermission(effectivePermissions ?? null, 'users', 'edit')} allowDelete={canManageUsers && hasNightclubPermission(effectivePermissions ?? null, 'users', 'delete')} canEditPresets={canManageUsers && ['owner', 'admin'].includes(normalizedRole)} onSave={(user, initialPassword) => run(() => props.onSaveStaff(user, initialPassword), 'Usuario guardado.')} onDelete={id => run(() => props.onDeleteStaff(id), 'Acceso retirado.')} onSavePreset={(roleId, permissions) => run(() => props.onSaveUserRolePreset(roleId, permissions), 'Plantilla guardada.')} onSaveCustomRole={draft => run(() => props.onSaveCustomRole?.(draft), 'Rol guardado.')} onDeleteCustomRole={id => run(() => props.onDeleteCustomRole?.(id), 'Rol eliminado.')} /> : undefined}
           />}
         </main>
+        <NightclubTutorial open={tutorialOpen} onClose={() => setTutorialOpen(false)} onNavigate={go} actorKey={tutorialActorKey} role={normalizedRole} modules={visibleModules.map(item => item.id)} permissions={tutorialPermissions} safePractice={props.mode === 'demo' || props.mode === 'studio'} allowRolePreview={props.mode === 'demo'} hasPracticeRon={hasPracticeRon} hasPracticeCoca={hasPracticeCoca} hasPracticeProduct={hasPracticeProduct} practiceSaleExists={hasPracticeSale} hasPracticeAccount={hasPracticeAccount} practiceRonBottleEnabled={practiceRonBottle?.active === true} practiceRonBottlePrice={practiceRonBottle?.price || 0} practiceRonPourEnabled={practiceRonPour?.active === true} practiceCocaLegacy={practiceCocaLegacy} practiceCocaBottleEnabled={practiceCocaBottle?.active === true} practiceCocaPourEnabled={practiceCocaPour?.active === true} cashShiftStatus={data.shift?.status} cashPaymentAvailable={operationData.accounts.some(account => account.status === 'bill_requested' && nightclubBalance(account) > 0)} barTutorialRoundStatus={barTutorialRound?.status} practiceSaveVersion={tutorialPracticeSaveVersion} practiceProductVersion={tutorialPracticeProductVersion} practiceAccountVersion={tutorialPracticeAccountVersion} currentModule={currentModule} moreOpen={moreOpen} hasDraft={draft.length > 0} hasPracticeDraft={draft.some(item => item.productId === 'demo-tutorial-ron-coca-v1')} hasPracticeRound={!!practiceRound} practiceRoundStatus={practiceRound?.status} />
       </div>
     </div>
-    {moreOpen && <div className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={() => setMoreOpen(false)}><section aria-label="Más módulos" className="absolute inset-x-0 bottom-[65px] grid max-h-[65vh] grid-cols-2 gap-2 overflow-y-auto rounded-t-2xl border-t border-white/10 bg-[#0d1720] p-4" onClick={event => event.stopPropagation()}>{moreModules.map(item => <button key={item.id} onClick={() => go(item.id)} className={`flex min-h-12 items-center gap-3 rounded-xl border p-3 text-left text-sm font-semibold ${currentModule === item.id ? 'border-amber-300/40 bg-amber-300/10 text-amber-100' : 'border-white/10'}`}><item.icon size={18} />{item.label}</button>)}</section></div>}
-    <nav className="fixed inset-x-0 bottom-0 z-50 grid border-t border-white/10 bg-[#07111a] p-1 pb-safe lg:hidden" style={{ gridTemplateColumns: `repeat(${mobileModules.length + (moreModules.length ? 1 : 0)}, minmax(0, 1fr))` }}>{mobileModules.map(item => <button key={item.id} onClick={() => go(item.id)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-2 text-[10px] ${currentModule === item.id ? 'bg-amber-300 text-[#07111a]' : 'text-slate-400'}`}><item.icon size={17} />{item.label}</button>)}{moreModules.length > 0 && <button onClick={() => setMoreOpen(value => !value)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-2 text-[10px] ${moreOpen || moreModules.some(item => item.id === currentModule) ? 'bg-amber-300 text-[#07111a]' : 'text-slate-400'}`}><Menu size={17} />Más</button>}</nav>
+    {moreOpen && <div className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={() => setMoreOpen(false)}><section aria-label="Más módulos" className="absolute inset-x-0 bottom-[65px] grid max-h-[65vh] grid-cols-2 gap-2 overflow-y-auto rounded-t-2xl border-t border-white/10 bg-[#0d1720] p-4" onClick={event => event.stopPropagation()}>{moreModules.map(item => <button key={item.id} data-tutorial-target={`nav-${item.id}`} onClick={() => go(item.id)} className={`flex min-h-12 items-center gap-3 rounded-xl border p-3 text-left text-sm font-semibold ${currentModule === item.id ? 'border-amber-300/40 bg-amber-300/10 text-amber-100' : 'border-white/10'}`}><item.icon size={18} />{item.label}</button>)}</section></div>}
+    <nav className="fixed inset-x-0 bottom-0 z-50 grid border-t border-white/10 bg-[#07111a] p-1 pb-safe lg:hidden" style={{ gridTemplateColumns: `repeat(${mobileModules.length + (moreModules.length ? 1 : 0)}, minmax(0, 1fr))` }}>{mobileModules.map(item => <button key={item.id} data-tutorial-target={`nav-${item.id}`} onClick={() => go(item.id)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-2 text-[10px] ${currentModule === item.id ? 'bg-amber-300 text-[#07111a]' : 'text-slate-400'}`}><item.icon size={17} />{item.label}</button>)}{moreModules.length > 0 && <button data-tutorial-target="nav-more" onClick={() => setMoreOpen(value => !value)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-2 text-[10px] ${moreOpen || moreModules.some(item => item.id === currentModule) ? 'bg-amber-300 text-[#07111a]' : 'text-slate-400'}`}><Menu size={17} />Más</button>}</nav>
     {courtesyAccountId !== null && <NightclubCourtesyDialog data={data} accountId={courtesyAccountId} onClose={() => setCourtesyAccountId(null)} onConfirm={value => props.onRegisterCourtesy ? run(() => props.onRegisterCourtesy!(value), 'Cortesía registrada.') : false} />}
     {receiptModalAccount && canAccessReceipt && (
       <CanonicalReceiptModal

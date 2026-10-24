@@ -92,6 +92,7 @@ export function NightclubApp(props: NightclubAppProps) {
         logoUrl={activeIdentity?.showLogo !== false ? (activeIdentity?.logoUrl || props.logoUrl) : undefined}
         userName={props.userName}
         role={props.role}
+        tutorialActorId={props.uid}
         onSignOut={props.onSignOut}
         mode="tenant"
         tenantId={props.tenantId}
