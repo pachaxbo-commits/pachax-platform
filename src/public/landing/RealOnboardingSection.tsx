@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   CheckCircle2,
   ArrowRight,
-  Sparkles,
   Check,
 } from 'lucide-react'
 import { BRAND_PALETTES } from '../../core/brandPalettes'
@@ -85,8 +84,7 @@ export function RealOnboardingSection() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabecera Editorial */}
         <div className="max-w-3xl mb-14">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
-            <Sparkles className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
             <span>ARQUITECTURA DE ONBOARDING EN 4 PASOS</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">

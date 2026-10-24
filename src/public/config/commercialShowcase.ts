@@ -12,12 +12,12 @@
  * orden y visibilidad ('published' | 'draft').
  */
 
-export type CommercialTemplateId = 'restaurant' | 'distribution' | 'nightclub' | 'retail' | 'custom'
+export type CommercialTemplateId = 'restaurant' | 'distribution' | 'nightclub' | 'retail' | 'hamburger' | 'custom'
 
 export interface CommercialTemplateItem {
   id: CommercialTemplateId
   templateId: CommercialTemplateId
-  canonicalTemplateId: 'restaurant' | 'distribution' | 'nightclub' | 'retail' | null
+  canonicalTemplateId: 'restaurant' | 'distribution' | 'nightclub' | 'retail' | 'hamburger' | null
   commercialName: string
   cardSubtitle: string
   thumbnailUrl: string
@@ -52,7 +52,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     id: 'restaurant',
     templateId: 'restaurant',
     canonicalTemplateId: 'restaurant',
-    commercialName: 'Restaurante',
+    commercialName: 'Restaurante con salón',
     cardSubtitle: 'Gestión contemporánea de salón, cocina y caja',
     thumbnailUrl: '/brand/showcase/restaurant-concept.webp',
     thumbnailAlt: 'Ambiente de restaurante gastronómico premium con plato gourmet y servicio en salón',
@@ -78,7 +78,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     badge: 'Más popular',
     status: 'published',
     order: 1,
-    primaryActionLabel: 'Probar demo en vivo',
+    primaryActionLabel: 'Ver demo en vivo',
     iconType: 'utensils',
     visualSlot: {
       accentColor: '#0066FF',
@@ -91,7 +91,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     id: 'distribution',
     templateId: 'distribution',
     canonicalTemplateId: 'distribution',
-    commercialName: 'Distribuidora',
+    commercialName: 'Producción y Distribución',
     cardSubtitle: 'Logística de camiones, almacén y cobranzas en ruta',
     thumbnailUrl: '/brand/showcase/distribution-concept.webp',
     thumbnailAlt: 'Centro de distribución y logística moderna con camiones de reparto y almacén organizado',
@@ -116,7 +116,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     detailAnchor: '#plantilla-distribuidora',
     status: 'published',
     order: 2,
-    primaryActionLabel: 'Probar demo en vivo',
+    primaryActionLabel: 'Ver demo en vivo',
     iconType: 'truck',
     visualSlot: {
       accentColor: '#0284C7',
@@ -154,7 +154,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     detailAnchor: '#plantilla-nightclub',
     status: 'published',
     order: 3,
-    primaryActionLabel: 'Probar demo en vivo',
+    primaryActionLabel: 'Ver demo en vivo',
     iconType: 'glass',
     visualSlot: {
       accentColor: '#6366F1',
@@ -167,7 +167,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     id: 'retail',
     templateId: 'retail',
     canonicalTemplateId: 'retail',
-    commercialName: 'Ventas Express',
+    commercialName: 'Comercio / Venta rápida',
     cardSubtitle: 'Venta rápida de mostrador y cobro por báscula o unidad',
     thumbnailUrl: '/brand/showcase/retail-concept.webp',
     thumbnailAlt: 'Mostrador ágil de comercio boutique y tienda specialty con atención rápida y cobro digital',
@@ -192,7 +192,7 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
     detailAnchor: '#plantilla-retail',
     status: 'published',
     order: 4,
-    primaryActionLabel: 'Probar demo en vivo',
+    primaryActionLabel: 'Elegir plan y comenzar',
     iconType: 'shopping-bag',
     visualSlot: {
       accentColor: '#0D9488',
@@ -239,4 +239,65 @@ export const COMMERCIAL_TEMPLATES: readonly CommercialTemplateItem[] = Object.fr
       pillBgClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
     },
   },
+])
+
+/**
+ * Plantilla especializada en servicio rápido / hamburguesería / mostrador
+ */
+export const HAMBURGER_SHOWCASE_ITEM: CommercialTemplateItem = Object.freeze({
+  id: 'hamburger',
+  templateId: 'hamburger',
+  canonicalTemplateId: 'restaurant',
+  commercialName: 'Restaurante Rápido',
+  cardSubtitle: 'Mostrador, comida rápida, para llevar y delivery',
+  thumbnailUrl: '/brand/showcase/restaurant-concept.webp',
+  thumbnailAlt: 'Restaurante de comida rápida y mostrador con pedidos ágiles para llevar',
+  thumbnailFocalPoint: '50% 50%',
+  accent: '#F59E0B',
+  description: 'Pedidos de mostrador, mesa de entrega, para llevar o delivery, con cocina rápida, caja e inventario.',
+  detailDescription: 'Punto de venta optimizado para comida rápida, hamburgueserías y locales sin servicio de mesa. Cobro veloz y pantalla de despacho.',
+  targetAudience: 'Hamburgueserías, pizzerías al paso, cafeterías express, dark kitchens y locales de comida rápida.',
+  problemSolved: 'Elimina cuellos de botella en caja y coordina la cocina con tickets de entrega numerados al instante.',
+  bullets: ['Mostrador & Takeaway', 'Pantalla de cocina', 'Cobro express', 'Control de caja', 'Recetas estándar', 'Tickets de entrega'],
+  features: [
+    'Punto de venta táctil para mostrador con selección rápida de combos y extras',
+    'Despacho de pedidos con número de ticket para llamado a cliente',
+    'Integración directa con pantalla o impresora de cocina',
+    'Cobros rápidos en efectivo, QR simple y tarjetas',
+    'Control diario de caja y arqueo ciego por cajero',
+    'Control de ingredientes e insumos por porción',
+  ],
+  demoRoute: '/demo/restaurant?mode=counter',
+  demoPath: '/demo/restaurant',
+  demoEnabled: false,
+  detailAnchor: '#plantilla-hamburger',
+  status: 'published',
+  order: 4,
+  primaryActionLabel: 'Elegir plan y comenzar',
+  iconType: 'utensils',
+  visualSlot: {
+    accentColor: '#F59E0B',
+    glowColor: 'rgba(245, 158, 11, 0.45)',
+    gradientClass: 'from-[#1a1205] via-[#261908] to-[#0d0903]',
+    pillBgClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  },
+})
+
+/**
+ * CARRUSEL A: Soluciones Especializadas (3 plantillas)
+ * Requieren diagnóstico, configuración a medida y mantenimiento mensual.
+ */
+export const SPECIALIZED_SHOWCASE_TEMPLATES: readonly CommercialTemplateItem[] = Object.freeze([
+  COMMERCIAL_TEMPLATES[0], // restaurant
+  COMMERCIAL_TEMPLATES[1], // distribution
+  COMMERCIAL_TEMPLATES[2], // nightclub
+])
+
+/**
+ * CARRUSEL B: Soluciones Autoservicio (2 plantillas)
+ * Suscripción directa autoservicio para arranque inmediato.
+ */
+export const SELF_SERVICE_SHOWCASE_TEMPLATES: readonly CommercialTemplateItem[] = Object.freeze([
+  HAMBURGER_SHOWCASE_ITEM,
+  COMMERCIAL_TEMPLATES[3], // retail
 ])

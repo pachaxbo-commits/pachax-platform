@@ -9,23 +9,29 @@ import {
   Settings,
 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
-import type { CommercialTemplateItem } from '../../admin/types'
+import type { CommercialTemplateItem } from '../config/commercialShowcase'
 
 interface TemplateCoverflowProps {
+  templates?: readonly CommercialTemplateItem[]
   activeIndex: number
   onChangeActiveIndex: (index: number) => void
   onExploreAll?: () => void
   onSelectActiveCard?: (template: CommercialTemplateItem) => void
+  compact?: boolean
+  ariaLabel?: string
 }
 
 export function TemplateCoverflow({
+  templates: templatesProp,
   activeIndex,
   onChangeActiveIndex,
   onSelectActiveCard,
+  compact = false,
+  ariaLabel = 'Carrusel interactivo de plantillas comerciales',
 }: TemplateCoverflowProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { publishedTemplates } = useCommercialConfig()
-  const templates = publishedTemplates
+  const templates = (templatesProp && templatesProp.length > 0 ? templatesProp : publishedTemplates) as readonly CommercialTemplateItem[]
 
   const [dragOffset, setDragOffset] = useState(0)
   const isPointerDownRef = useRef(false)
@@ -91,8 +97,8 @@ export function TemplateCoverflow({
     isPointerDownRef.current = false
 
     const delta = e.clientX - startXRef.current
-    // Swipe solo si supera los 40px
-    if (Math.abs(delta) > 40) {
+    // Swipe solo si supera los 35px
+    if (Math.abs(delta) > 35) {
       if (delta > 0) {
         handlePrev()
       } else {
@@ -132,15 +138,14 @@ export function TemplateCoverflow({
       ref={containerRef}
       tabIndex={0}
       role="region"
-      aria-label="Carrusel interactivo de plantillas comerciales"
+      aria-label={ariaLabel}
       onKeyDown={handleKeyDown}
       className="relative w-full max-w-full select-none outline-none focus-visible:ring-2 focus-visible:ring-[#0066FF] rounded-2xl"
       style={{
-        // Proporciones refinadas: mayor anchura y altura útil de imagen para evitar recortes
-        '--stage-height': 'clamp(350px, 45vw, 440px)',
-        '--card-width': 'clamp(215px, 25vw, 275px)',
-        '--card-height': 'clamp(310px, 36vw, 395px)',
-        '--offset-step': 'clamp(95px, 14vw, 145px)',
+        '--stage-height': compact ? 'clamp(290px, 32vw, 360px)' : 'clamp(320px, 40vw, 400px)',
+        '--card-width': compact ? 'clamp(180px, 20vw, 230px)' : 'clamp(210px, 24vw, 265px)',
+        '--card-height': compact ? 'clamp(265px, 29vw, 330px)' : 'clamp(295px, 34vw, 370px)',
+        '--offset-step': compact ? 'clamp(68px, 8vw, 98px)' : 'clamp(85px, 12vw, 130px)',
       } as React.CSSProperties}
     >
       {/* Flechas de Navegación Flotantes (Capa z-50 superior aislada) */}
@@ -149,18 +154,18 @@ export function TemplateCoverflow({
           type="button"
           onClick={handlePrev}
           aria-label="Plantilla anterior"
-          className="hidden md:flex pointer-events-auto w-10 h-10 rounded-full bg-white/95 hover:bg-white text-slate-800 items-center justify-center shadow-lg border border-slate-200 transition-all hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-xs"
+          className="flex pointer-events-auto w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/95 hover:bg-white text-slate-800 items-center justify-center shadow-md border border-slate-200 transition-all hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-xs"
         >
-          <ChevronLeft className="w-5 h-5" />
+          <ChevronLeft className="w-4 h-4" />
         </button>
 
         <button
           type="button"
           onClick={handleNext}
           aria-label="Siguiente plantilla"
-          className="hidden md:flex pointer-events-auto w-10 h-10 rounded-full bg-white/95 hover:bg-white text-slate-800 items-center justify-center shadow-lg border border-slate-200 transition-all hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-xs"
+          className="flex pointer-events-auto w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/95 hover:bg-white text-slate-800 items-center justify-center shadow-md border border-slate-200 transition-all hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-xs"
         >
-          <ChevronRight className="w-5 h-5" />
+          <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 
@@ -175,8 +180,10 @@ export function TemplateCoverflow({
       >
         {templates.map((template, index) => {
           let offset = index - visibleIndex
-          if (offset > 2) offset -= total
-          if (offset < -2) offset += total
+          if (total > 2) {
+            if (offset > Math.floor(total / 2)) offset -= total
+            if (offset < -Math.floor(total / 2)) offset += total
+          }
 
           const isActive = offset === 0
           const isImmediate = Math.abs(offset) === 1
@@ -190,25 +197,25 @@ export function TemplateCoverflow({
           let pointerEvents: 'auto' | 'none'
 
           if (isActive) {
-            transform = `translateX(${dragInfluence}px) translateZ(50px) scale(1.02) rotateY(0deg)`
+            transform = `translateX(${dragInfluence}px) translateZ(40px) scale(1.02) rotateY(0deg)`
             zIndex = 30
             opacity = 1
             pointerEvents = 'auto'
           } else if (isImmediate) {
             const direction = offset > 0 ? 1 : -1
             transform = `translateX(calc(${direction} * var(--offset-step) + ${dragInfluence * 0.5}px)) translateZ(0px) scale(0.88) rotateY(${
-              direction * -24
+              direction * -22
             }deg)`
             zIndex = 20
             opacity = 0.88
             pointerEvents = 'auto'
           } else if (isSecondary) {
             const direction = offset > 0 ? 1 : -1
-            transform = `translateX(calc(${direction} * 1.82 * var(--offset-step) + ${dragInfluence * 0.3}px)) translateZ(-35px) scale(0.74) rotateY(${
-              direction * -35
+            transform = `translateX(calc(${direction} * 1.8 * var(--offset-step) + ${dragInfluence * 0.3}px)) translateZ(-35px) scale(0.74) rotateY(${
+              direction * -32
             }deg)`
             zIndex = 10
-            opacity = 0.58
+            opacity = 0.55
             pointerEvents = 'auto'
           } else {
             const direction = offset > 0 ? 1 : -1
@@ -245,7 +252,7 @@ export function TemplateCoverflow({
                   ? 'none'
                   : 'transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 380ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 380ms cubic-bezier(0.22, 1, 0.36, 1)',
               }}
-              className="absolute w-[var(--card-width)] h-[var(--card-height)] top-1/2 left-1/2 -mt-[calc(var(--card-height)/2)] -ml-[calc(var(--card-width)/2)] rounded-2xl overflow-hidden shadow-2xl transition-all [transform-style:preserve-3d] [backface-visibility:hidden] will-change-transform cursor-pointer group"
+              className="absolute w-[var(--card-width)] h-[var(--card-height)] top-1/2 left-1/2 -mt-[calc(var(--card-height)/2)] -ml-[calc(var(--card-width)/2)] rounded-2xl overflow-hidden shadow-xl transition-all [transform-style:preserve-3d] [backface-visibility:hidden] will-change-transform cursor-pointer group"
             >
               {/* Tarjeta Visual: Contenedor con borde y ambientación */}
               <div
@@ -256,11 +263,11 @@ export function TemplateCoverflow({
                 } bg-gradient-to-b ${template.visualSlot.gradientClass} text-white shadow-2xl`}
                 style={{
                   boxShadow: isActive
-                    ? `0 24px 50px -10px ${template.visualSlot.glowColor}, 0 0 35px ${template.visualSlot.glowColor}`
-                    : '0 12px 25px -5px rgba(0,0,0,0.4)',
+                    ? `0 20px 45px -10px ${template.visualSlot.glowColor}, 0 0 30px ${template.visualSlot.glowColor}`
+                    : '0 10px 22px -5px rgba(0,0,0,0.4)',
                 }}
               >
-                {/* Ranura visual superior: Imagen Comercial Nítida del Concepto (68% de altura útil para encuadre completo) */}
+                {/* Ranura visual superior: Imagen Comercial Nítida del Concepto */}
                 <div className="relative w-full h-[68%] overflow-hidden bg-[#06101c]">
                   <picture>
                     <source srcSet={template.thumbnailUrl} type="image/webp" />
@@ -284,12 +291,12 @@ export function TemplateCoverflow({
                   )}
                 </div>
 
-                {/* Ranura visual inferior: Título, Subtítulo y Botón de Acción (32% de altura) */}
-                <div className="w-full h-[32%] p-3.5 bg-[#08101a]/95 backdrop-blur-xs border-t border-white/10 flex items-center justify-between gap-2">
+                {/* Ranura visual inferior: Título, Subtítulo y Botón de Acción */}
+                <div className="w-full h-[32%] p-3 bg-[#08101a]/95 backdrop-blur-xs border-t border-white/10 flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <span
-                        className="w-5 h-5 rounded-md flex items-center justify-center border text-xs shrink-0"
+                        className="w-4 h-4 sm:w-5 sm:h-5 rounded-md flex items-center justify-center border text-xs shrink-0"
                         style={{
                           borderColor: 'rgba(255, 255, 255, 0.2)',
                           backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -298,24 +305,24 @@ export function TemplateCoverflow({
                       >
                         {renderIcon(template.iconType, 'w-3 h-3')}
                       </span>
-                      <h3 className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
+                      <h3 className="text-xs sm:text-sm font-bold tracking-tight text-white truncate">
                         {template.commercialName}
                       </h3>
                     </div>
-                    <p className="text-[10.5px] sm:text-xs text-slate-300 line-clamp-1 leading-snug">
+                    <p className="text-[10px] sm:text-[11px] text-slate-300 line-clamp-1 leading-snug">
                       {template.cardSubtitle}
                     </p>
                   </div>
 
                   <div
-                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 border transition-transform duration-200 ${
+                    className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center shrink-0 border transition-transform duration-200 ${
                       isActive
-                        ? 'bg-white text-slate-900 border-white group-hover:scale-110 shadow-sm'
+                        ? 'bg-white text-slate-900 border-white group-hover:scale-110 shadow-xs'
                         : 'bg-white/10 text-white border-white/20 group-hover:bg-white/20'
                     }`}
                     aria-hidden="true"
                   >
-                    <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <ChevronRight className="w-3.5 h-3.5" />
                   </div>
                 </div>
               </div>
@@ -325,7 +332,7 @@ export function TemplateCoverflow({
       </div>
 
       {/* Paginador de Puntos (Dots) Inferior */}
-      <div className="mt-4 flex items-center justify-center gap-2">
+      <div className="mt-3 flex items-center justify-center gap-2">
         {templates.map((tpl, idx) => {
           const isCurrent = idx === visibleIndex
           return (
@@ -336,7 +343,7 @@ export function TemplateCoverflow({
               aria-label={`Ir a plantilla ${tpl.commercialName} (índice ${idx + 1})`}
               className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
                 isCurrent
-                  ? 'w-7 bg-[#0066FF] shadow-xs'
+                  ? 'w-6 bg-[#0066FF] shadow-xs'
                   : 'w-2 bg-slate-300 hover:bg-slate-400'
               }`}
             />

@@ -8,7 +8,6 @@ import {
   ArrowRight,
   MessageSquare,
   Check,
-  Sparkles,
 } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
@@ -58,12 +57,11 @@ export function PlatformExtrasSection() {
   }
 
   return (
-    <section id="extras" className="w-full py-20 bg-slate-50 border-t border-slate-200/80 relative overflow-hidden">
+    <section id="extras" className="w-full pt-16 pb-10 sm:pt-20 sm:pb-12 bg-slate-50 border-t border-slate-200/80 relative overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Encabezado Editorial */}
         <div className="max-w-3xl mb-14">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
-            <Sparkles className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
             <span>SERVICIOS ESTRATÉGICOS Y EXTENSIONES</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">

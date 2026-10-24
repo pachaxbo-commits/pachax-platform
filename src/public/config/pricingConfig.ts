@@ -11,7 +11,7 @@
  * - Toda la UI consume exclusivamente esta configuración sin hardcodear datos en JSX.
  */
 
-export type TemplateKey = 'restaurant' | 'distribution' | 'nightclub' | 'retail'
+export type TemplateKey = 'restaurant' | 'distribution' | 'nightclub' | 'retail' | 'hamburger'
 
 export interface PlanFeatureItem {
   id: string
@@ -386,6 +386,79 @@ export const PLANS_BY_TEMPLATE: Record<TemplateKey, readonly TemplateTierPlan[]>
       ],
       technicalEntitlements: ['retail_multibranch', 'central_catalog', 'stock_transfers'],
       ctaLabel: 'Elegir Cadena Retail',
+      status: 'draft',
+      order: 3,
+    },
+  ]),
+  hamburger: Object.freeze([
+    {
+      id: 'hamb_plan_1',
+      templateId: 'hamburger',
+      name: 'Mostrador Express',
+      tierLevel: 1,
+      monthlyPriceUSD: 24,
+      annualPriceUSD: 19,
+      currency: 'USD',
+      billingPeriod: 'monthly',
+      clientProfile: 'Hamburgueserías, pizzerías al paso y locales de mostrador con 1 punto de venta.',
+      limitsLabel: '1 caja de mostrador · pantalla de cocina',
+      includedFeatures: [
+        'Punto de venta táctil para mostrador',
+        'Pantalla KDS de cocina para despacho',
+        'Tickets numerados para llamado de clientes',
+        'Cobro con efectivo, QR simple y tarjetas',
+        'Arqueo y cierre ciego de caja',
+      ],
+      technicalEntitlements: ['restaurant_pos', 'kds_kitchen', 'cash_close_blind'],
+      ctaLabel: 'Elegir Mostrador Express',
+      status: 'draft',
+      order: 1,
+    },
+    {
+      id: 'hamb_plan_2',
+      templateId: 'hamburger',
+      name: 'Comida Rápida Pro',
+      tierLevel: 2,
+      monthlyPriceUSD: 49,
+      annualPriceUSD: 39,
+      currency: 'USD',
+      billingPeriod: 'monthly',
+      isPopular: true,
+      badge: 'Más elegido',
+      clientProfile: 'Locales de comida rápida con alto flujo, delivery propio y múltiples cajas.',
+      limitsLabel: 'Hasta 3 cajas de mostrador · KDS multiespacio',
+      includedFeatures: [
+        'Múltiples cajas de mostrador y cobro simultáneo',
+        'Pantalla KDS avanzada con tiempos de pase',
+        'Control de insumos y recetas por porción',
+        'Gestión de pedidos para llevar y delivery',
+        'Reportes de rendimiento por turno',
+      ],
+      technicalEntitlements: ['restaurant_pos', 'kds_kitchen', 'inventory_recipes', 'cash_close_blind'],
+      ctaLabel: 'Elegir Comida Rápida Pro',
+      status: 'draft',
+      order: 2,
+    },
+    {
+      id: 'hamb_plan_3',
+      templateId: 'hamburger',
+      name: 'Cadena Fast Food',
+      tierLevel: 3,
+      monthlyPriceUSD: 89,
+      annualPriceUSD: 74,
+      currency: 'USD',
+      billingPeriod: 'monthly',
+      clientProfile: 'Cadenas gastronómicas o franquicias con sucursales y gestión centralizada.',
+      limitsLabel: 'Cajas ilimitadas · Kioskos de autoservicio',
+      includedFeatures: [
+        'Cajas y pantallas KDS ilimitadas',
+        'Soporte para kioskos de autopedido táctil',
+        'Control de mermas y costos de insumos',
+        'Aislamiento multitenant y sucursales',
+        'Soporte técnico prioritario',
+      ],
+      technicalEntitlements: ['restaurant_pos', 'kds_kitchen', 'inventory_recipes', 'kiosk_pos', 'cash_close_blind'],
+      ctaLabel: 'Elegir Cadena Fast Food',
       status: 'draft',
       order: 3,
     },

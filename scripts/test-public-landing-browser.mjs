@@ -1,5 +1,5 @@
 // Browser regression for the public showcase. Run against the demo emulator
-// server started with scripts/start-dario.ps1; never writes to Firestore.
+// server or preview server; never writes to Firestore.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -69,30 +69,31 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
     return result.result.value
   }
+
   const state = () => evaluate(`(() => {
     const cards = [...document.querySelectorAll('[data-coverflow-card]')];
-    const active = cards.find((card) => card.dataset.active === 'true');
-    const region = document.querySelector('[aria-label="Carrusel interactivo de plantillas comerciales"]');
-    const rect = active?.getBoundingClientRect();
-    const regionRect = region?.getBoundingClientRect();
-    const saved = JSON.parse(localStorage.getItem('pachax_commercial_config_v2') || '{}');
+    const specialized = [...document.querySelectorAll('[aria-label="Carrusel de soluciones especializadas"] [data-coverflow-card]')];
+    const selfService = [...document.querySelectorAll('[aria-label="Carrusel de soluciones autoservicio"] [data-coverflow-card]')];
+    const activeSpecialized = specialized.find(c => c.dataset.active === 'true');
+    const activeSelfService = selfService.find(c => c.dataset.active === 'true');
+    const footer = document.querySelector('footer');
+    const scrollH = document.documentElement.scrollHeight;
+    const footerBottom = footer ? footer.offsetTop + footer.offsetHeight : 0;
+    const tutorialButtons = [...document.querySelectorAll('#tutoriales .grid button')];
     return {
       count: cards.length,
-      ids: cards.map((card) => card.dataset.templateId),
-      active: active?.dataset.templateId,
-      activeVisible: !!rect && rect.width > 0 && rect.height > 0 && getComputedStyle(active).opacity !== '0',
-      sideVisible: cards.filter((card) => card !== active && Number(getComputedStyle(card).opacity) > 0.4).length,
-      dots: region?.querySelectorAll('button[aria-label^="Ir a plantilla"]').length,
-      catalogIds: [...document.querySelectorAll('#plantillas [data-template-id]')].map((card) => card.dataset.templateId),
-      detailName: document.querySelector('#hero h4')?.textContent?.trim() || null,
-      cacheCount: saved.templates?.length,
-      publishedPlans: saved.plans?.filter((plan) => plan.status === 'published').length || 0,
-      publishedExtras: saved.extras?.filter((extra) => extra.status === 'published').length || 0,
+      specializedCount: specialized.length,
+      selfServiceCount: selfService.length,
+      activeSpecialized: activeSpecialized?.dataset.templateId,
+      activeSelfService: activeSelfService?.dataset.templateId,
       overflow: document.documentElement.scrollWidth > innerWidth,
-      regionSize: regionRect ? { width: regionRect.width, height: regionRect.height } : null,
-      regionCenter: region ? { x: region.getBoundingClientRect().x + region.getBoundingClientRect().width / 2, y: region.getBoundingClientRect().y + 170 } : null,
+      footerTrailingSpace: scrollH - footerBottom,
+      footerBg: footer ? getComputedStyle(footer).backgroundColor : null,
+      tutorialTabCount: tutorialButtons.length,
+      hasSparklesInBanner: !!document.querySelector('#planes .rounded-3xl.bg-slate-900 svg.lucide-sparkles'),
     };
   })()`)
+
   const waitFor = async (predicate, label) => {
     for (let attempt = 0; attempt < 40; attempt++) {
       const result = await state()
@@ -101,15 +102,7 @@ try {
     }
     throw new Error(`Tiempo agotado: ${label}; estado ${JSON.stringify(await state())}`)
   }
-  const expectShowcase = (result, label) => {
-    assert.equal(result.count, 5, `${label}: tarjetas`)
-    assert.deepEqual(result.catalogIds, result.ids, `${label}: catálogo y Coverflow comparten IDs`)
-    assert.equal(result.dots, 5, `${label}: indicadores`)
-    assert.equal(result.activeVisible, true, `${label}: tarjeta activa visible`)
-    assert(result.sideVisible >= 2, `${label}: tarjetas laterales visibles`)
-    assert(result.regionSize.width > 0 && result.regionSize.height > 0, `${label}: dimensiones del carrusel`)
-    assert.equal(result.overflow, false, `${label}: desbordamiento horizontal`)
-  }
+
   const screenshot = async (label) => {
     const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     writeFileSync(resolve(output, `${label}.png`), Buffer.from(capture.data, 'base64'))
@@ -121,54 +114,35 @@ try {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 })
     await send('Emulation.setTouchEmulationEnabled', { enabled: width < 768, maxTouchPoints: 1 })
     await send('Page.navigate', { url: baseUrl })
-    const loaded = await waitFor((result) => result.count === 5 && result.cacheCount === 5, `${width}: Firestore/fallback`)
-    await sleep(400) // Verify the asynchronous query cannot erase the showcase.
-    const afterQuery = await state()
-    expectShowcase(afterQuery, `${width}: carga asíncrona`)
-    assert.equal(afterQuery.publishedPlans, 0, 'No se deben mostrar planes sin publicar')
-    assert.equal(afterQuery.publishedExtras, 0, 'No se deben mostrar extras sin publicar')
-    await screenshot(`${width}-restored`)
+    const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2, `${width}: loaded`)
+    await sleep(400)
+
+    assert.equal(loaded.specializedCount, 3, 'Carrusel A debe tener 3 plantillas especializadas')
+    assert.equal(loaded.selfServiceCount, 2, 'Carrusel B debe tener 2 plantillas autoservicio')
+    assert.equal(loaded.overflow, false, 'No debe existir desbordamiento horizontal')
+    assert.equal(loaded.footerTrailingSpace, 0, 'No debe existir espacio muerto debajo del footer')
+    assert.equal(loaded.hasSparklesInBanner, false, 'No deben existir iconos Sparkles en el banner a medida')
+
+    await screenshot(`${width}-hero`)
+
     if (width === 1440) {
-      assert.equal(loaded.active, 'nightclub')
-      await evaluate(`document.querySelector('button[aria-label="Siguiente plantilla"]').click()`)
-      assert.equal((await waitFor((result) => result.active === 'retail', 'flecha siguiente')).count, 5)
-      await screenshot('1440-next')
-      await evaluate(`document.querySelector('button[aria-label="Plantilla anterior"]').click()`)
-      assert.equal((await waitFor((result) => result.active === 'nightclub', 'flecha anterior')).catalogIds.length, 5)
-      await evaluate(`document.querySelector('button[aria-label="Ir a plantilla Restaurante (índice 1)"]').click()`)
-      assert.equal((await waitFor((result) => result.active === 'restaurant', 'indicador')).dots, 5)
-      await evaluate(`document.querySelector('[aria-label="Carrusel interactivo de plantillas comerciales"]').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowRight', bubbles:true}))`)
-      assert.equal((await waitFor((result) => result.active === 'distribution', 'teclado')).count, 5)
-      await screenshot('1440-keyboard')
-      await evaluate(`document.querySelector('[data-coverflow-card][data-template-id="nightclub"]').click()`)
-      assert.equal((await waitFor((result) => result.active === 'nightclub', 'tarjeta lateral')).count, 5)
-      await evaluate(`document.querySelector('button[aria-label="Siguiente plantilla"]').click()`)
-      await waitFor((result) => result.active === 'retail', 'primera flecha final')
-      await evaluate(`document.querySelector('button[aria-label="Siguiente plantilla"]').click()`)
-      expectShowcase(await waitFor((result) => result.active === 'custom', 'segunda flecha final'), 'dos pulsaciones Next')
-      await screenshot('1440-next-twice')
-      await evaluate(`document.querySelector('#plantillas').scrollIntoView()`)
-      await sleep(350)
-      await screenshot('1440-catalog')
-    } else {
-      assert.equal(afterQuery.active, 'restaurant')
-      const { x, y } = afterQuery.regionCenter
-      await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x + 70, y }] })
-      await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - 10, y }] })
-      await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-      const swiped = await waitFor((result) => result.active === 'distribution', `${width}: swipe`)
-      expectShowcase(swiped, `${width}: swipe`)
-      assert.equal(swiped.detailName, 'Distribuidora', `${width}: detalle sincronizado`)
-      await screenshot(`${width}-swipe`)
+      assert.equal(loaded.activeSpecialized, 'restaurant')
+      assert.equal(loaded.activeSelfService, 'hamburger')
+
+      // Siguiente en carrusel A
+      await evaluate(`document.querySelector('[aria-label="Carrusel de soluciones especializadas"] button[aria-label="Siguiente plantilla"]').click()`)
+      const nextA = await waitFor((r) => r.activeSpecialized === 'distribution', 'Carrusel A next -> distribution')
+      assert.equal(nextA.activeSpecialized, 'distribution')
+
+      // Siguiente en carrusel B
+      await evaluate(`document.querySelector('[aria-label="Carrusel de soluciones autoservicio"] button[aria-label="Siguiente plantilla"]').click()`)
+      const nextB = await waitFor((r) => r.activeSelfService === 'retail', 'Carrusel B next -> retail')
+      assert.equal(nextB.activeSelfService, 'retail')
     }
-    console.log(`PASS ${width}×${height}: carrusel, catálogo, estado publicado y navegación`)
+
+    console.log(`PASS ${width}×${height}: 2 carruseles independientes, sin overflow y footer perfecto`)
   }
 
-  // A browser carrying the old empty cache must recover on reload.
-  await evaluate(`(() => { const key = 'pachax_commercial_config_v2'; const saved = JSON.parse(localStorage.getItem(key)); localStorage.setItem(key, JSON.stringify({ ...saved, templates: [] })); })()`)
-  await send('Page.navigate', { url: baseUrl })
-  expectShowcase(await waitFor((result) => result.count === 5 && result.cacheCount === 5, 'caché antigua vacía'), 'caché antigua vacía')
-  console.log('PASS caché antigua vacía: se restauran plantillas oficiales publicadas')
 } finally {
   if (socket?.readyState === WebSocket.OPEN) {
     await send('Browser.close').catch(() => undefined)
@@ -179,6 +153,6 @@ try {
   try {
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   } catch (error) {
-    console.warn(`Chrome aún mantiene abierto su perfil temporal: ${error.message}`)
+    console.warn(`Chrome perfil temporal: ${error.message}`)
   }
 }

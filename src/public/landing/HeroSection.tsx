@@ -1,40 +1,43 @@
 import { useState } from 'react'
-import { ArrowRight, MessageSquareCode } from 'lucide-react'
+import { ArrowRight, MessageSquare, Play, Check } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateCoverflow } from './TemplateCoverflow'
-import { ActiveTemplateDetail } from './ActiveTemplateDetail'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
-import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
-import type { CommercialTemplateItem } from '../../admin/types'
+import {
+  SPECIALIZED_SHOWCASE_TEMPLATES,
+  SELF_SERVICE_SHOWCASE_TEMPLATES,
+  type CommercialTemplateItem,
+} from '../config/commercialShowcase'
 import { canLaunchCommercialDemo } from '../../core/publicTemplates'
+import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 
 interface HeroSectionProps {
-  activeIndex: number
-  onChangeActiveIndex: (index: number) => void
+  activeIndex?: number
+  onChangeActiveIndex?: (index: number) => void
 }
 
-export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionProps) {
+export function HeroSection({}: HeroSectionProps) {
   const { navigate } = usePublicRouter()
-  const { publishedTemplates, landingContent } = useCommercialConfig()
 
-  const visibleIndex = publishedTemplates.length > 0
-    ? ((activeIndex % publishedTemplates.length) + publishedTemplates.length) % publishedTemplates.length
-    : 0
-  const activeTemplate = publishedTemplates[visibleIndex]
+  // Estados independientes para cada carrusel
+  const [activeIndexSpecialized, setActiveIndexSpecialized] = useState(0)
+  const [activeIndexSelfService, setActiveIndexSelfService] = useState(0)
 
-  const handleExplore = () => {
-    const el = document.getElementById('plantillas')
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' })
-    }
-  }
-
+  // Modal para selector de modos de restaurante (salón vs mostrador)
   const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
 
-  const handleSelectActiveCard = (template: CommercialTemplateItem) => {
-    if (!canLaunchCommercialDemo(template)) {
-      return
-    }
+  const activeSpecialized = SPECIALIZED_SHOWCASE_TEMPLATES[
+    ((activeIndexSpecialized % SPECIALIZED_SHOWCASE_TEMPLATES.length) + SPECIALIZED_SHOWCASE_TEMPLATES.length) %
+      SPECIALIZED_SHOWCASE_TEMPLATES.length
+  ]
+
+  const activeSelfService = SELF_SERVICE_SHOWCASE_TEMPLATES[
+    ((activeIndexSelfService % SELF_SERVICE_SHOWCASE_TEMPLATES.length) + SELF_SERVICE_SHOWCASE_TEMPLATES.length) %
+      SELF_SERVICE_SHOWCASE_TEMPLATES.length
+  ]
+
+  // Manejo de Demo para Especializadas (Carrusel A)
+  const handleLaunchSpecializedDemo = (template: CommercialTemplateItem) => {
     if (template.id === 'restaurant' || template.templateId === 'restaurant') {
       setSelectedForModal(template)
       return
@@ -48,129 +51,255 @@ export function HeroSection({ activeIndex, onChangeActiveIndex }: HeroSectionPro
     }
   }
 
-  const whatsAppUrl = `https://wa.me/${landingContent.officialWhatsAppNumber}?text=${encodeURIComponent(
-    landingContent.defaultCustomDevMessage
-  )}`
+  // Manejo de Asesoría WhatsApp para Especializadas (Carrusel A)
+  const handleConsultSpecialized = (template: CommercialTemplateItem) => {
+    const text = encodeURIComponent(
+      `Hola PACHAX, solicito diagnóstico y propuesta para la plantilla especializada "${template.commercialName}".`
+    )
+    window.open(`https://wa.me/${OFFICIAL_WHATSAPP.phoneNumber}?text=${text}`, '_blank', 'noopener,noreferrer')
+  }
+
+  // Manejo de Demo para Autoservicio (Carrusel B)
+  const handleLaunchSelfServiceDemo = (template: CommercialTemplateItem) => {
+    if (canLaunchCommercialDemo(template)) {
+      if (template.demoRoute.startsWith('/demo/')) {
+        window.location.assign(template.demoRoute)
+      } else {
+        navigate(template.demoRoute)
+      }
+    } else {
+      // Demo técnica en desarrollo o modo mostrador
+      if (template.id === 'hamburger') {
+        window.location.assign('/demo/restaurant?mode=counter')
+      } else {
+        window.location.assign('/demo/retail')
+      }
+    }
+  }
+
+  // Manejo de Registro / Suscripción para Autoservicio (Carrusel B)
+  const handleSubscribeSelfService = (template: CommercialTemplateItem) => {
+    const templateQuery = template.id === 'hamburger' ? 'hamburger_shop' : 'gelateria_weight_cafe'
+    navigate(`/register?template=${templateQuery}`)
+  }
 
   return (
-    <section id="hero" className="relative w-full pt-4 pb-8 sm:pt-10 sm:pb-14 overflow-hidden z-10">
+    <section id="hero" className="relative w-full pt-4 pb-10 sm:pt-8 sm:pb-16 overflow-hidden z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Layout Desktop: Split 2 Columnas / Layout Mobile: Stacked */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
-          {/* Columna Izquierda: Mensajes, Titular, CTAs y Acceso a Sesión */}
-          <div className="lg:col-span-5 text-center lg:text-left flex flex-col items-center lg:items-start">
-            {/* Eyebrow Editorial Limpio con Acento Sutil */}
-            <div className="flex items-center gap-2.5 mb-2.5 sm:mb-4">
-              <span className="h-px w-5 bg-[#0066FF] hidden sm:inline-block" />
-              <span className="text-[10px] sm:text-xs font-bold tracking-[0.2em] uppercase text-slate-500">
-                {landingContent.heroTagline}
-              </span>
-            </div>
-
-            {/* Titular Principal Dinámico */}
-            <h1 className="text-[25px] sm:text-3xl lg:text-[46px] font-extrabold text-slate-950 tracking-tight leading-[1.18] sm:leading-[1.12] mb-3 sm:mb-5 max-w-xl">
-              <span className="hidden sm:inline">
-                {landingContent.heroTitle}
-              </span>
-              <span className="sm:hidden block">
-                Gestiona tu negocio<br />con{' '}
-                <span className="text-[#0066FF]">plantillas premium</span>
-              </span>
-            </h1>
-
-            {/* Párrafo Descriptivo Dinámico */}
-            <p className="text-xs sm:text-base lg:text-[16px] text-slate-600 leading-relaxed max-w-xl mb-5 sm:mb-8">
-              <span className="hidden sm:inline">
-                {landingContent.heroSubtitle}
-              </span>
-              <span className="sm:hidden">
-                Comienza en minutos con una solución diseñada para tu rubro. Arquitectura sólida sin código duplicado.
-              </span>
-            </p>
-
-            {/* Acciones Hero Desktop (3 Niveles de Jerarquía) */}
-            <div className="hidden lg:flex flex-col items-start w-full space-y-4">
-              <div className="flex flex-wrap items-center gap-3">
-                {/* 1. Primario: Explorar Plantillas */}
-                <button
-                  type="button"
-                  onClick={handleExplore}
-                  className="px-6 py-3.5 text-sm sm:text-base font-semibold text-white bg-[#0066FF] hover:bg-[#0052cc] rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer inline-flex items-center justify-center gap-2 active:scale-98"
-                >
-                  <span>{landingContent.heroCtaPrimary}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-
-                {/* 2. Secundario: Comenzar Ahora */}
-                <button
-                  type="button"
-                  onClick={() => navigate('/register')}
-                  className="px-6 py-3.5 text-sm sm:text-base font-semibold text-slate-800 hover:text-slate-950 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl shadow-2xs transition-all cursor-pointer inline-flex items-center justify-center active:scale-98"
-                >
-                  {landingContent.heroCtaSecondary}
-                </button>
-              </div>
-
-              {/* 3. Acción Especial: Solicitar desarrollo a medida (Directo a WhatsApp) */}
-              <div className="pt-1">
-                <a
-                  href={whatsAppUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 hover:text-[#0066FF] bg-slate-100/90 hover:bg-blue-50/80 px-3.5 py-2 rounded-lg border border-slate-200/80 hover:border-blue-200 transition-colors cursor-pointer"
-                >
-                  <MessageSquareCode className="w-4 h-4 text-[#0066FF]" />
-                  <span>Solicitar desarrollo a medida</span>
-                  <span className="text-[11px] text-slate-400">({landingContent.officialWhatsAppDisplay})</span>
-                </a>
-              </div>
-
-              {/* Acceso a Sesión para Usuarios Existentes */}
-              <p className="text-xs sm:text-sm text-slate-500 pt-1">
-                ¿Ya tienes cuenta?{' '}
-                <button
-                  type="button"
-                  onClick={() => navigate('/login')}
-                  className="font-semibold text-[#0066FF] hover:text-[#0052cc] underline underline-offset-2 cursor-pointer"
-                >
-                  Inicia sesión
-                </button>
-              </p>
-            </div>
-
-            {/* Acciones Hero Mobile: Compacto y no saturado */}
-            <div className="flex lg:hidden flex-col items-center gap-2.5 w-full max-w-sm">
-              <a
-                href={whatsAppUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200/90 px-3.5 py-2 rounded-full shadow-2xs"
-              >
-                <MessageSquareCode className="w-3.5 h-3.5 text-[#0066FF]" />
-                <span>Solicitar desarrollo a medida</span>
-              </a>
-            </div>
+        {/* Cabecera Editorial Principal: Presentación de las Dos Modalidades */}
+        <div className="text-center max-w-3xl mx-auto mb-8 sm:mb-12">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
+            <span>PLATAFORMA OPERATIVA PARA EMPRESAS</span>
           </div>
 
-          {/* Columna Derecha: Vitrina Coverflow 3D */}
-          <div className="lg:col-span-7 w-full flex flex-col items-center">
-            <TemplateCoverflow
-              activeIndex={visibleIndex}
-              onChangeActiveIndex={onChangeActiveIndex}
-              onExploreAll={handleExplore}
-              onSelectActiveCard={handleSelectActiveCard}
-            />
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-slate-950 tracking-tight leading-[1.15]">
+            Software que se adapta a tu rubro,{' '}
+            <span className="text-[#0066FF]">no al revés</span>
+          </h1>
+
+          <p className="text-xs sm:text-base text-slate-600 mt-3 sm:mt-4 leading-relaxed max-w-2xl mx-auto">
+            Descubre nuestras dos modalidades de operación: <strong>Soluciones Especializadas</strong> con diagnóstico y acompañamiento continuo para rubros complejos, o <strong>Soluciones Autoservicio</strong> de punto de venta ágil para arrancar en minutos con suscripción directa.
+          </p>
+
+          <div className="mt-4 flex items-center justify-center gap-4 text-xs text-slate-500">
+            <span>¿Ya eres cliente?</span>
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              className="font-bold text-[#0066FF] hover:text-[#0052cc] underline underline-offset-2 cursor-pointer"
+            >
+              Iniciar sesión en mi empresa
+            </button>
           </div>
         </div>
 
-        {/* Detalle de la Plantilla Activa: En Mobile y Tablet aparece inmediatamente debajo del Coverflow */}
-        {activeTemplate && (
-          <div className="lg:hidden mt-4 sm:mt-6 max-w-xl mx-auto">
-            <ActiveTemplateDetail template={activeTemplate} onSelectDemo={handleSelectActiveCard} />
+        {/* ========================================================================= */}
+        {/* DOS CARRUSELES: SIDE-BY-SIDE EN DESKTOP / APILADOS VERTICALMENTE EN MOBILE */}
+        {/* ========================================================================= */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-stretch">
+          {/* ===================================================================== */}
+          {/* CARRUSEL A: SOLUCIONES ESPECIALIZADAS (3 PLANTILLAS)                  */}
+          {/* ===================================================================== */}
+          <div className="flex flex-col justify-between bg-white/90 backdrop-blur-xs border border-slate-200/90 rounded-3xl p-5 sm:p-7 shadow-xs">
+            <div>
+              {/* Encabezado del Grupo A */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-bold uppercase tracking-wider">
+                    Soluciones Especializadas
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    3 plantillas oficiales
+                  </span>
+                </div>
+                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
+                  Operaciones Complejas y Soporte Continuo
+                </h2>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Diseñadas para restaurantes con salón, distribuidoras y locales nocturnos. Requieren diagnóstico técnico, configuración a medida y mantenimiento mensual garantizado.
+                </p>
+              </div>
+
+              {/* Coverflow 3D Especializado */}
+              <div className="w-full flex justify-center my-2">
+                <TemplateCoverflow
+                  templates={SPECIALIZED_SHOWCASE_TEMPLATES}
+                  activeIndex={activeIndexSpecialized}
+                  onChangeActiveIndex={setActiveIndexSpecialized}
+                  onSelectActiveCard={handleLaunchSpecializedDemo}
+                  compact={true}
+                  ariaLabel="Carrusel de soluciones especializadas"
+                />
+              </div>
+
+              {/* Tarjeta de Detalle de la Plantilla Activa A */}
+              {activeSpecialized && (
+                <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {activeSpecialized.commercialName}
+                    </h3>
+                    <span className="text-[10px] font-semibold text-[#0066FF] bg-blue-100/60 px-2 py-0.5 rounded-md">
+                      Mantenimiento continuo
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-snug line-clamp-2 mb-2.5">
+                    {activeSpecialized.description}
+                  </p>
+
+                  {/* Micro-bullets de capacidades */}
+                  <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 mb-3">
+                    {activeSpecialized.bullets.slice(0, 4).map((bullet, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <Check className="w-3 h-3 text-[#0066FF] shrink-0" />
+                        <span className="truncate">{bullet}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Acciones de la Tarjeta Activa A: Ver demo en vivo + Solicitar asesoría */}
+                  <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => handleLaunchSpecializedDemo(activeSpecialized)}
+                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-[#0066FF] hover:bg-[#0052cc] shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>Ver demo en vivo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleConsultSpecialized(activeSpecialized)}
+                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-[#0066FF]" />
+                      <span>Solicitar asesoría</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 text-center">
+              <span className="text-[11px] text-slate-400">
+                Diagnóstico y configuración personalizada · Sin registro automático
+              </span>
+            </div>
           </div>
-        )}
+
+          {/* ===================================================================== */}
+          {/* CARRUSEL B: SOLUCIONES AUTOSERVICIO (2 PLANTILLAS)                   */}
+          {/* ===================================================================== */}
+          <div className="flex flex-col justify-between bg-white/90 backdrop-blur-xs border border-slate-200/90 rounded-3xl p-5 sm:p-7 shadow-xs">
+            <div>
+              {/* Encabezado del Grupo B */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold uppercase tracking-wider">
+                    Soluciones Autoservicio
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    2 plantillas inmediatas
+                  </span>
+                </div>
+                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
+                  Punto de Venta Ágil y Suscripción Directa
+                </h2>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Para comida rápida, mostrador, para llevar y comercio minorista por peso o unidad. Elige tu plan mensual y comienza a operar hoy mismo en 4 pasos.
+                </p>
+              </div>
+
+              {/* Coverflow 3D Autoservicio */}
+              <div className="w-full flex justify-center my-2">
+                <TemplateCoverflow
+                  templates={SELF_SERVICE_SHOWCASE_TEMPLATES}
+                  activeIndex={activeIndexSelfService}
+                  onChangeActiveIndex={setActiveIndexSelfService}
+                  onSelectActiveCard={handleLaunchSelfServiceDemo}
+                  compact={true}
+                  ariaLabel="Carrusel de soluciones autoservicio"
+                />
+              </div>
+
+              {/* Tarjeta de Detalle de la Plantilla Activa B */}
+              {activeSelfService && (
+                <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {activeSelfService.commercialName}
+                    </h3>
+                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-md">
+                      Suscripción directa
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-snug line-clamp-2 mb-2.5">
+                    {activeSelfService.description}
+                  </p>
+
+                  {/* Micro-bullets de capacidades */}
+                  <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 mb-3">
+                    {activeSelfService.bullets.slice(0, 4).map((bullet, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span className="truncate">{bullet}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Acciones de la Tarjeta Activa B: Elegir plan y comenzar + Ver demo */}
+                  <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => handleSubscribeSelfService(activeSelfService)}
+                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <span>Elegir plan y comenzar</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleLaunchSelfServiceDemo(activeSelfService)}
+                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 text-slate-600" />
+                      <span>Ver demo</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 text-center">
+              <span className="text-[11px] text-slate-400">
+                Aprovisionamiento en 4 pasos · Sin tarjeta obligatoria para iniciar
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
+      {/* Modal para Selector de Modos de Restaurante */}
       <TemplateModeSelectorModal
         item={selectedForModal}
         onClose={() => setSelectedForModal(null)}

@@ -2,8 +2,8 @@ import type { TemplateKey } from '../public/config/pricingConfig'
 
 export interface CommercialTemplateItem {
   id: string
-  templateId: TemplateKey
-  canonicalTemplateId: TemplateKey
+  templateId: TemplateKey | 'custom'
+  canonicalTemplateId: TemplateKey | null
   commercialName: string
   cardSubtitle: string
   thumbnailUrl: string

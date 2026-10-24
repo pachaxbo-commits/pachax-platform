@@ -4,8 +4,6 @@ import {
   ArrowRight,
   MessageSquare,
   Play,
-  Sparkles,
-  Layers,
 } from 'lucide-react'
 import {
   OFFICIAL_WHATSAPP,
@@ -70,8 +68,7 @@ export function TemplatePricingSection() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabecera Editorial Principal */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
-            <Layers className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
             <span>MODELOS COMERCIALES TRANSPARENTES</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
@@ -431,8 +428,7 @@ export function TemplatePricingSection() {
         {/* ========================================================================= */}
         <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-1.5 text-center md:text-left max-w-2xl">
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-blue-400">
-              <Sparkles className="w-3.5 h-3.5" />
+            <div className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
               <span>{CUSTOM_DEVELOPMENT_CONFIG.title}</span>
             </div>
             <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
