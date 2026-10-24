@@ -1,11 +1,11 @@
 # Bitácora de Trabajo — GEMINI (Bloques G1 y G1.2)
-## Rediseño Real de la Landing + Corrección de Secciones Rotas + Carruseles Especializados y Autoservicio
+## Rediseño Real de la Landing + Corrección de Secciones Rotas + Carruseles Especializados y Autoservicio + Integración Segura a Main
 
 - **Fecha:** 23 de Octubre de 2026
-- **Rama de Trabajo Exclusiva:** `gemini/landing-distribution-tour`
+- **Rama de Trabajo:** `gemini/landing-distribution-tour`
 - **Worktree Aislado:** `C:\PACHAX-worktrees\gemini-landing-distribution-tour`
-- **Base de Origen:** `origin/main` (`958cbac36f78bc2b772c7aeeae397c88b0ea1a94`)
-- **Estado de Aislamiento:** Trabajo estrictamente confinado en el worktree aislado, sin interferir con `main` ni con el trabajo de Codex (`cambios-dario`).
+- **Base de Origen:** `origin/main` (`bc2a6e681ba9091e0de278e67bf46d43da491468`)
+- **Estado de Aislamiento:** Trabajo estrictamente confinado en el worktree aislado, sin interferir con el trabajo local de Codex (`cambios-dario`).
 
 ---
 
@@ -15,7 +15,7 @@ En respuesta a la revisión visual del usuario sobre el commit inicial de G1 (`a
 
 1. **Separación del Carrusel Principal en Dos Grupos Claramente Diferenciados (`HeroSection.tsx`, `TemplateCoverflow.tsx`, `commercialShowcase.ts`):**
    - **Carrusel A (Soluciones Especializadas):** Exactamente 3 plantillas (`restaurant` / Restaurante con salón, `distribution` / Producción y Distribución, `nightclub` / Nightclub & Lounge). Operaciones de alto volumen que requieren diagnóstico, configuración a medida y mantenimiento mensual. Acciones en la tarjeta activa: *"Ver demo en vivo"* y *"Solicitar asesoría"* (WhatsApp).
-   - **Carrusel B (Soluciones Autoservicio):** Exactamente 2 plantillas (`hamburger` / Restaurante Rápido, `retail` / Comercio - Venta rápida). Suscripción directa autoservicio para arranque inmediato. Acciones en la tarjeta activa: *"Elegir plan y comenzar"* (`/register?template=...`) y *"Ver demo"*.
+   - **Carrusel B (Soluciones Autoservicio):** Exactamente 2 plantillas (`hamburger` / Restaurante Rápido, `retail` / Comercio - Venta rápida). Suscripción directa autoservicio para arranque inmediato. Acciones en la tarjeta activa: *"Consultar disponibilidad"* / *"Elegir plan y comenzar"* y *"Ver demo"*.
    - **Disposición Desktop (>= 1024px):** Lado a lado (*side-by-side*) en una cuadrícula de 2 columnas (`grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10`), cada una con su encabezado comercial, badge de modalidad, carrusel 3D independiente y controles de acción activa.
    - **Disposición Mobile (< 1024px):** Apilados verticalmente de forma ordenada (Especializadas arriba, Autoservicio abajo), conservando el touch swipe, navegación por flechas táctiles, paginador por puntos y perspectiva 3D.
    - **Discurso Editorial Actualizado:** Eliminado cualquier reclamo genérico de "planes mensuales accesibles". Se explica con honestidad técnica la coexistencia de soluciones complejas con mantenimiento vs punto de venta de autoservicio.
@@ -47,73 +47,86 @@ En respuesta a la revisión visual del usuario sobre el commit inicial de G1 (`a
 
 ---
 
-## 2. Detalle de Archivos Modificados en G1.2
+## 2. Bloque G1.2 — Gating Comercial y Protección Tarifaria
 
-1. **`src/public/config/commercialShowcase.ts`**
-   - Agregada definición comercial `HAMBURGER_SHOWCASE_ITEM` (`id: 'hamburger'`, `canonicalTemplateId: 'restaurant'`).
-   - Exportadas las dos vitrinas separadas:
-     - `SPECIALIZED_SHOWCASE_TEMPLATES` (3 plantillas: Restaurante con salón, Producción y Distribución, Nightclub & Lounge).
-     - `SELF_SERVICE_SHOWCASE_TEMPLATES` (2 plantillas: Restaurante Rápido, Comercio / Venta rápida).
-   - Preservado `COMMERCIAL_TEMPLATES` oficial (5 plantillas) para compatibilidad total con pruebas de plataforma y admin.
+Para preparar la integración segura a producción, se incorporaron controles estrictos de disponibilidad y disclaimers comerciales:
 
-2. **`src/public/config/pricingConfig.ts`**
-   - Ampliado el tipo `TemplateKey` con `'hamburger'`.
-   - Incorporados los 3 planes de autoservicio para `'hamburger'` en `PLANS_BY_TEMPLATE` (`status: 'draft'`).
+1. **Gating de Disponibilidad Real de Aprovisionamiento (`HeroSection.tsx` y `TemplatePricingSection.tsx`):**
+   - Se consulta `isTemplateProvisioningAvailable(...)` antes de ofrecer flujos de registro directo.
+   - Las plantillas en estado `coming_soon` (`hamburger` y `retail`) no permiten contratación inmediata en la landing. Su botón de acción se transforma automáticamente en *"Consultar disponibilidad · {Plantilla}"*, redirigiendo a consulta contextual por WhatsApp.
+   - Se muestra un badge institucional en la tarjeta activa de Autoservicio: *"Próximamente disponible"*.
 
-3. **`src/admin/types.ts`**
-   - Actualizada la definición de `CommercialTemplateItem` para admitir `templateId: TemplateKey | 'custom'` y `canonicalTemplateId: TemplateKey | null`.
+2. **Gating de Demos Oficiales (`canLaunchCommercialDemo`):**
+   - Si una plantilla no tiene su demo comercial formalmente habilitada, el botón *"Ver demo"* se deshabilita con el texto *"Demo próximamente"* y tooltip explicativo, evitando redirecciones a pantallas no autorizadas.
 
-4. **`src/public/landing/TemplateCoverflow.tsx`**
-   - Soporte para prop opcional `templates?: readonly CommercialTemplateItem[]`.
-   - Soporte para prop `compact?: boolean` optimizado para grillas de 2 columnas.
-   - Navegación táctil, swipe por pointer, teclas de dirección y puntos adaptados dinámicamente a 2 o 3 elementos.
-
-5. **`src/public/landing/HeroSection.tsx`**
-   - Reestructuración completa en layout de dos carruseles paralelos en desktop (side-by-side) y apilados en mobile.
-   - Estados de navegación independientes: `activeIndexSpecialized` y `activeIndexSelfService`.
-   - Acciones diferenciadas por modalidad:
-     - Especializadas: *"Ver demo en vivo"* + *"Solicitar asesoría"* (WhatsApp).
-     - Autoservicio: *"Elegir plan y comenzar"* (`/register?template=...`) + *"Ver demo"*.
-
-6. **`src/public/landing/TemplatePricingSection.tsx`**
-   - Eliminados iconos `Sparkles` y `Layers` en cabeceras y banner de desarrollo a medida.
-
-7. **`src/public/landing/RealOnboardingSection.tsx`**
-   - Eliminado icono `Sparkles` del badge de cabecera.
-
-8. **`src/public/landing/PlatformExtrasSection.tsx`**
-   - Eliminado icono `Sparkles` del badge.
-   - Reducido padding inferior para eliminar huecos visuales antes del footer.
-
-9. **`src/public/landing/GuidedTutorialsSection.tsx`**
-   - Segmented control simétrico (`grid-cols-2 sm:grid-cols-4`) sin saltos de línea desordenados.
-   - Eliminada iconografía decorativa de los selectores.
-   - Texto de enlace transparente y honesto según la disponibilidad de tours.
-
-10. **`src/public/landing/TrustFooter.tsx`**
-    - Rediseñado como footer corporativo oscuro (`#071322`), compacto, limpio y sobrio.
-
-11. **`scripts/test-public-landing-browser.mjs`**
-    - Actualizada la suite de regresión visual de navegador para validar la presencia de ambos carruseles independientes (3 especializadas, 2 autoservicio), ausencia de desbordamiento horizontal y ausencia estricta de espacio muerto (`trailingSpacePx === 0`).
+3. **Disclaimers Tarifarios y de Prelanzamiento (`TemplatePricingSection.tsx`):**
+   - Se incorpora en la cabecera del módulo de precios la etiqueta:
+     `TARIFAS REFERENCIALES EN FASE DE LANZAMIENTO · SUJETAS A APROBACIÓN DEFINITIVA`
+   - Se reemplaza la etiqueta genérica "Desde" por "Referencial" en los precios de autoservicio.
+   - Se añade la advertencia formal al pie de los precios:
+     `* Tarifa provisional de prelanzamiento. No constituye oferta comercial vinculante.`
+   - La base de implementación especializada se etiqueta como *"Base Cloud Referencial"*.
+   - Los botones de Autoservicio no disponible muestran: *"Plantilla en consolidación operativa. Tarifas referenciales no vinculantes para contratación."*
 
 ---
 
-## 3. Matriz de Pruebas y Verificación
+## 3. Arquitectura y Pendientes Específicos para Codex
+
+### 3.1 Inconsistencia `hamburger` vs `restaurant` en Identificadores de Planes
+- **Diagnóstico:** En `src/core/publicTemplates.ts`, `PLAN_ELIGIBLE_TEMPLATE_IDS = ['restaurant', 'distribution', 'nightclub', 'retail']` no incluye `'hamburger'`. Asimismo, en `functions/platform.cjs`, el backend valida rigurosamente los planes contra `PLAN_ELIGIBLE_TEMPLATE_IDS` y `OFFICIAL_COMMERCIAL_TEMPLATES`.
+- **Mitigación Frontend Implementada por Gemini:** Se preservó `canonicalTemplateId: 'restaurant'` en `pricingConfig.ts` y en `commercialShowcase.ts` para que el frontend resuelva las dependencias visuales de forma coherente y segura.
+- **Acción Requerida por Codex (Backend / Arquitectura):**
+  - Definir si `hamburger` se promoverá a una plantilla canónica de primer orden en el backend (agregándola a `OFFICIAL_COMMERCIAL_TEMPLATES`, `PLAN_ELIGIBLE_TEMPLATE_IDS`, reglas de Firestore y Functions), o
+  - Si comercialmente debe mantenerse como un `subtype: 'hamburger_shop'` dentro de la plantilla canónica `restaurant`, vinculando sus planes directamente a `templateId: 'restaurant'`.
+
+### 3.2 Admin Control Center y Motor de Facturación (Billing)
+- **Delimitación de Responsabilidad:** Gemini no implementó código de persistencia, Admin Control Center ni suscripciones en backend.
+- **Arquitectura Lista para Conexión:**
+  - `TemplatePricingSection.tsx` está desacoplada y lista para sustituir la lectura de `pricingConfig.ts` por una consulta reactiva a la colección Firestore de planes publicados cuando Codex implemente el backend de Platform Admin.
+  - Los *Function Entitlements* declarados en `pricingConfig.ts` deberán ser validados por Codex en Cloud Functions y Firestore Rules al momento de activar o renovar tenants.
+
+---
+
+## 4. Auditoría de Despliegue y Aislamiento de Producción
+
+1. **Despliegue Frontend en Vercel:**
+   - El repositorio en GitHub `pachaxbo-commits/pachax-platform` está conectado al proyecto Vercel `pachax-app`.
+   - La rama de producción conectada es `main`. Un merge a `main` disparará un build estático de Vite SPA (`npm run build`).
+   - El build genera archivos estáticos puros en `/dist`.
+2. **Aislamiento Estricto de Firebase Production:**
+   - La landing page es 100% de presentación en React del lado del cliente.
+   - No ejecuta ninguna mutación ni escritura en Firestore.
+   - No despliega ni modifica Cloud Functions ni Firestore Security Rules (los despliegues de Firebase son manuales por el propietario mediante `firebase deploy --only firestore,functions --project ID`).
+   - Cero riesgo para la base de datos ni credenciales productivas de Firebase.
+
+---
+
+## 5. Matriz de Pruebas y Verificación
 
 | Suite de Verificación | Comando Ejecutado | Resultado |
 | :--- | :--- | :--- |
 | **Typecheck Estricto** | `npm run typecheck` (`tsc -b`) | **PASS (0 errores)** |
-| **Build de Producción** | `npm run build` (`tsc -b && vite build`) | **PASS (5.30s, 0 errores)** |
-| **Regresión Navegador 1440×900** | `npm run test:landing-browser` | **PASS (2 carruseles, 0 overflow, 0 trailing space)** |
-| **Regresión Navegador 390×844 (Mobile)** | `npm run test:landing-browser` | **PASS (2 carruseles, 0 overflow, 0 trailing space)** |
-| **Regresión Navegador 430×932 (Mobile Pro Max)** | `npm run test:landing-browser` | **PASS (2 carruseles, 0 overflow, 0 trailing space)** |
+| **Build de Producción** | `npm run build` (`tsc -b && vite build`) | **PASS (4.70s, 0 errores)** |
+| **Regresión Navegador 1440×900** | `node scripts/test-public-landing-browser.mjs` | **PASS (2 carruseles, 0 overflow, 0 trailing space)** |
+| **Regresión Navegador 390×844 (Mobile)** | `node scripts/test-public-landing-browser.mjs` | **PASS (2 carruseles, 0 overflow, 0 trailing space)** |
+| **Regresión Navegador 430×932 (Mobile Pro Max)** | `node scripts/test-public-landing-browser.mjs` | **PASS (2 carruseles, 0 overflow, 0 trailing space)** |
 | **Suite de Plataforma** | `npm run test:platform` | **PASS (195/195 pruebas aprobadas, 0 fallidas)** |
+| **Suite de Nightclub (Main bc2a6e6)** | `npm run test:nightclub` | **PASS (97/97 pruebas aprobadas, 0 fallidas)** |
 
 ---
 
-## 4. Política Git y Seguridad
+## 6. Archivos Integrados
 
-- **Rama:** `gemini/landing-distribution-tour`
-- **Worktree:** `C:\PACHAX-worktrees\gemini-landing-distribution-tour`
-- Todo el trabajo se entrega en la rama exclusiva `gemini/landing-distribution-tour`.
-- Ningún cambio toca la rama `main` ni `cambios-dario`.
+1. `src/public/landing/HeroSection.tsx`
+2. `src/public/landing/TemplatePricingSection.tsx`
+3. `src/public/landing/GuidedTutorialsSection.tsx`
+4. `src/public/landing/TemplateCoverflow.tsx`
+5. `src/public/landing/TrustFooter.tsx`
+6. `src/public/landing/PlatformExtrasSection.tsx`
+7. `src/public/landing/RealOnboardingSection.tsx`
+8. `src/public/landing/PachaxBrandBackground.tsx`
+9. `src/public/config/commercialShowcase.ts`
+10. `src/public/config/pricingConfig.ts`
+11. `src/admin/types.ts`
+12. `scripts/test-public-landing-browser.mjs`
+13. `docs/WORKSTREAM-GEMINI.md`
