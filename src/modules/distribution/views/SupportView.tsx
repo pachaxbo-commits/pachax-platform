@@ -138,7 +138,7 @@ export function SupportView({
           : 'Soporte técnico sin acceso a información comercial'
       }
     >
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div data-tutorial-target="support-view-header" className="grid gap-4 lg:grid-cols-2">
         {feedback && (
           <p
             role="status"
@@ -225,13 +225,13 @@ export function SupportView({
               sistema en este dispositivo.
             </p>
           </div>
-          <SecondaryButton full onClick={onOpenPrinterSettings}>
+          <SecondaryButton data-tutorial-target="support-printers-btn" full onClick={onOpenPrinterSettings}>
             <Printer size={16} /> Configurar y probar impresoras
           </SecondaryButton>
         </SectionCard>
 
         {/* 4. HERRAMIENTAS TÉCNICAS PROTEGIDAS (Disponible para soporte o administración) */}
-        <SectionCard title={isAdmin ? 'Mantenimiento técnico' : 'Acceso técnico protegido'}>
+        <div data-tutorial-target="support-security-card" className="w-full"><SectionCard title={isAdmin ? 'Mantenimiento técnico' : 'Acceso técnico protegido'}>
           <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
             <ShieldCheck size={20} className="mt-0.5 text-emerald-700 shrink-0" />
             <div>
@@ -263,7 +263,7 @@ export function SupportView({
               </div>
             </div>
           </div>
-        </SectionCard>
+        </SectionCard></div>
       </div>
 
       <Modal

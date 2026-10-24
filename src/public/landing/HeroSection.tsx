@@ -42,6 +42,19 @@ export function HeroSection({}: HeroSectionProps) {
       setSelectedForModal(template)
       return
     }
+    if (!canLaunchCommercialDemo(template)) return
+    if (template.demoRoute.startsWith('/demo/')) {
+      window.location.assign(template.demoRoute)
+    } else if (template.demoRoute.startsWith('http')) {
+      window.open(template.demoRoute, '_blank', 'noopener,noreferrer')
+    } else {
+      navigate(template.demoRoute)
+    }
+  }
+
+  // Manejo de Demo para Autoservicio (Carrusel B)
+  const handleLaunchSelfServiceDemo = (template: CommercialTemplateItem) => {
+    if (!canLaunchCommercialDemo(template)) return
     if (template.demoRoute.startsWith('/demo/')) {
       window.location.assign(template.demoRoute)
     } else if (template.demoRoute.startsWith('http')) {
@@ -242,7 +255,7 @@ export function HeroSection({}: HeroSectionProps) {
                   templates={SELF_SERVICE_SHOWCASE_TEMPLATES}
                   activeIndex={activeIndexSelfService}
                   onChangeActiveIndex={setActiveIndexSelfService}
-                  onSelectActiveCard={handleLaunchSpecializedDemo}
+                  onSelectActiveCard={handleLaunchSelfServiceDemo}
                   compact={true}
                   ariaLabel="Carrusel de soluciones autoservicio"
                 />
@@ -298,7 +311,7 @@ export function HeroSection({}: HeroSectionProps) {
                     {isSelfServiceDemoAvailable ? (
                       <button
                         type="button"
-                        onClick={() => handleLaunchSpecializedDemo(activeSelfService)}
+                        onClick={() => handleLaunchSelfServiceDemo(activeSelfService)}
                         className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
                         <Play className="w-3.5 h-3.5 text-slate-600" />

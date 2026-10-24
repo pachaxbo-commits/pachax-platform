@@ -38,13 +38,65 @@ export interface DistributionTutorialProgress {
   lastUpdated: string
 }
 
+export interface ProgressStorageContext {
+  isDemo?: boolean
+  tenantId?: string
+  uid?: string
+  role?: string
+  profile?: DistributionIndustryProfile
+}
+
 const BUSINESS_TYPE = 'route_distribution'
 
-export function getDistributionTutorialProgressKey(actorKey: string, profile: DistributionIndustryProfile, planId: string): string {
+export function getDistributionTutorialProgressKey(
+  actor: string | ProgressStorageContext,
+  profileOrPlanId: DistributionIndustryProfile | string,
+  maybePlanId?: string
+): string {
+  if (typeof actor === 'object') {
+    const planId = profileOrPlanId as string
+    if (!actor.isDemo && actor.tenantId && actor.uid) {
+      return `tut_progress:${actor.tenantId}:${actor.uid}:${planId}`
+    }
+    const r = actor.role || 'operator'
+    const p = actor.profile || 'food'
+    return `tut_progress:demo:${r}:${p}:${planId}`
+  }
+
+  // Signature (actorKey, profile, planId)
+  const actorKey = actor
+  const profile = profileOrPlanId as DistributionIndustryProfile
+  const planId = maybePlanId || ''
   return `tut_progress:${actorKey}:${profile}:${planId}`
 }
 
-export function loadTutorialProgress(actorKey: string, profile: DistributionIndustryProfile): Record<string, DistributionTutorialProgress> {
+export function loadTutorialProgress(
+  actor: string | ProgressStorageContext,
+  maybeProfile?: DistributionIndustryProfile
+): Record<string, DistributionTutorialProgress> {
+  if (typeof actor === 'object') {
+    if (!actor.isDemo && actor.tenantId && actor.uid) {
+      if (typeof window === 'undefined') return {}
+      try {
+        const raw = localStorage.getItem(`tut_progress:${actor.tenantId}:${actor.uid}`)
+        return raw ? (JSON.parse(raw) as Record<string, DistributionTutorialProgress>) : {}
+      } catch {
+        return {}
+      }
+    }
+    const r = actor.role || 'operator'
+    const p = actor.profile || 'food'
+    const raw = getDemoItem(BUSINESS_TYPE, `progress_${r}_${p}`)
+    if (!raw) return {}
+    try {
+      return JSON.parse(raw) as Record<string, DistributionTutorialProgress>
+    } catch {
+      return {}
+    }
+  }
+
+  const actorKey = actor
+  const profile = maybeProfile || 'food'
   const raw = getDemoItem(BUSINESS_TYPE, `progress_${actorKey}_${profile}`)
   if (!raw) return {}
   try {
@@ -55,11 +107,35 @@ export function loadTutorialProgress(actorKey: string, profile: DistributionIndu
 }
 
 export function saveTutorialProgress(
-  actorKey: string,
-  profile: DistributionIndustryProfile,
-  planId: string,
-  progress: DistributionTutorialProgress
+  actor: string | ProgressStorageContext,
+  profileOrPlanId: DistributionIndustryProfile | string,
+  planIdOrProgress: string | DistributionTutorialProgress,
+  maybeProgress?: DistributionTutorialProgress
 ): void {
+  if (typeof actor === 'object') {
+    const planId = profileOrPlanId as string
+    const progress = planIdOrProgress as DistributionTutorialProgress
+    const current = loadTutorialProgress(actor)
+    current[planId] = progress
+
+    if (!actor.isDemo && actor.tenantId && actor.uid) {
+      if (typeof window === 'undefined') return
+      try {
+        localStorage.setItem(`tut_progress:${actor.tenantId}:${actor.uid}`, JSON.stringify(current))
+      } catch {}
+      return
+    }
+
+    const r = actor.role || 'operator'
+    const p = actor.profile || 'food'
+    setDemoItem(BUSINESS_TYPE, `progress_${r}_${p}`, JSON.stringify(current))
+    return
+  }
+
+  const actorKey = actor
+  const profile = profileOrPlanId as DistributionIndustryProfile
+  const planId = planIdOrProgress as string
+  const progress = maybeProgress!
   const current = loadTutorialProgress(actorKey, profile)
   current[planId] = progress
   setDemoItem(BUSINESS_TYPE, `progress_${actorKey}_${profile}`, JSON.stringify(current))
@@ -94,7 +170,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
   const canView = (modId: ModuleId) => modules.includes(modId)
 
   // =========================================================================
-  // TRACK 1: PRIMEROS PASOS & IDENTIDAD (Disponible para todos los roles)
+  // TRACK 1: PRIMEROS PASOS & IDENTIDAD (Disponible para roles con Dashboard)
   // =========================================================================
   if (canView('dist.dashboard')) {
     const isDistributor = role === 'distributor'
@@ -148,7 +224,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
   }
 
   // =========================================================================
-  // TRACK 2: INVENTARIO & ALMACÉN (Admin, Owner, Warehouse)
+  // TRACK 2: INVENTARIO & ALMACÉN (Admin, Owner, Warehouse, Accountant)
   // =========================================================================
   if (canView('dist.inventory')) {
     const p1 = meta.sampleProducts[0]
@@ -165,7 +241,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           title: 'Abrir Módulo de Inventario',
           explanation: `Pulsa en Inventario para ingresar al control de existencias de ${meta.companyName}.`,
           target: 'nav-item-dist.inventory',
-          module: 'dist.dashboard',
+          module: 'dist.inventory',
           interaction: 'navigate',
           advancesOn: 'module',
           requiredActionHint: 'Pulsa el botón de Inventario resaltado en la navegación.',
@@ -185,7 +261,9 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           explanation: `Para ingresar nuevo stock a Almacén Central, se utiliza el botón "+ Ingreso de mercadería". Permite registrar proveedor, cantidades recibidas, lote y costo unitario real.`,
           target: 'inventory-intake-btn',
           module: 'dist.inventory',
-          interaction: 'observe',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: 'Toca el botón "+ Ingreso de mercadería" para explorar el modal de recepción.',
         },
         {
           id: 'step-inventory-movements',
@@ -193,7 +271,9 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           explanation: `Cada despacho a camión, venta en ruta o merma física queda auditado en el historial inmutable con fecha, usuario responsable y delta de stock correspondiente.`,
           target: 'inventory-movements-tab',
           module: 'dist.inventory',
-          interaction: 'observe',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: 'Toca la pestaña de "Movimientos" para auditar el historial de salidas.',
         },
       ],
     })
@@ -215,7 +295,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           title: 'Abrir Despachos',
           explanation: `Pulsa en Despachos para supervisar o armar la carga de los camiones de reparto.`,
           target: 'nav-item-dist.dispatches',
-          module: 'dist.inventory',
+          module: 'dist.dispatches',
           interaction: 'navigate',
           advancesOn: 'module',
           requiredActionHint: 'Pulsa Despachos en el menú para continuar.',
@@ -243,7 +323,9 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           explanation: `Si durante la jornada el distribuidor requiere más producto por alta demanda de clientes, el almacenero o administrador puede registrar un aumento con auditoría sin reiniciar el viaje.`,
           target: 'dispatch-add-load-btn',
           module: 'dist.dispatches',
-          interaction: 'observe',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: 'Toca "+ Aumentar carga" para ver cómo se añade stock a una ruta activa.',
         },
       ],
     })
@@ -267,7 +349,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           title: 'Abrir Registro de Ventas',
           explanation: `Pulsa en Ventas para abrir el terminal móvil de venta en ruta.`,
           target: 'nav-item-dist.sales',
-          module: 'dist.dashboard',
+          module: 'dist.sales',
           interaction: 'navigate',
           advancesOn: 'module',
           requiredActionHint: 'Pulsa Ventas en la barra de navegación.',
@@ -275,33 +357,39 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
         {
           id: 'step-select-customer',
           title: `Paso 1: Seleccionar Cliente de la Ruta`,
-          explanation: `El primer paso es elegir el negocio al que entregas la mercadería, por ejemplo "${c1}". El sistema vincula el cliente a la ruta asignada y verifica sus créditos pendientes.`,
+          explanation: `El primer paso es elegir el negocio al que entregas la mercadería, por ejemplo "${c1}". Pulsa el botón de cliente para abrir el selector de clientes de la ruta.`,
           target: 'sell-customer-selector',
           module: 'dist.sales',
-          interaction: 'observe',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: `Toca el botón "Cliente" para seleccionar a "${c1}" de la ruta asignada.`,
           missingMessage: 'Observa el selector de clientes de la ruta.',
         },
         {
           id: 'step-select-products',
           title: `Paso 2: Elegir Producto (${meta.label})`,
-          explanation: `Selecciona el producto a entregar, por ejemplo "${p1}". Cada toque suma la cantidad física vendida y valida contra el saldo cargado en tu camión para impedir sobreventas.`,
+          explanation: `Selecciona el producto a entregar, por ejemplo "${p1}". Al tocar la tarjeta del producto se abrirá el modal para ingresar la cantidad exacta y el precio de venta.`,
           target: 'sell-products-catalog',
           module: 'dist.sales',
-          interaction: 'observe',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: `Toca una tarjeta de producto (${p1}) en el catálogo para agregarlo.`,
           missingMessage: 'Observa el catálogo de productos disponibles en ruta.',
         },
         {
           id: 'step-cart-summary',
-          title: 'Paso 3: Revisar Carrito y Totales',
-          explanation: `En el resumen de venta confirmas los ítems cargados, precios unitarios de lista o pactados, y el total a cobrar en moneda oficial.`,
-          target: 'sell-cart-summary',
+          title: 'Paso 3: Revisar Carrito y Cobrar',
+          explanation: `En la barra inferior se totalizan los productos agregados al pedido. Pulsa el botón "Cobrar" para proceder al desglose de pago.`,
+          target: 'sell-checkout-btn',
           module: 'dist.sales',
-          interaction: 'observe',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: 'Pulsa el botón "Cobrar" resaltado en la barra de pedido.',
         },
         {
           id: 'step-payment-methods',
           title: 'Paso 4: Efectivo, Pago QR o Crédito',
-          explanation: `PACHAX permite liquidar la venta en Efectivo inmediato, Pago con QR validado, o Crédito comercial registrado en cuenta corriente si el cliente está habilitado.`,
+          explanation: `Elige la forma de pago autorizada: Efectivo, Pago QR o Crédito comercial en cuenta corriente si el cliente cuenta con límite disponible.`,
           target: 'sell-payment-methods',
           module: 'dist.sales',
           interaction: 'observe',
@@ -309,8 +397,18 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
         {
           id: 'step-submit-sale',
           title: 'Paso 5: Confirmar y Emitir Comprobante',
-          explanation: `Al confirmar la venta, se genera el comprobante de entrega oficial (térmico de 80 mm o digital) y se actualiza de inmediato el kardex offline del distribuidor.`,
+          explanation: `Pulsa "Confirmar" para procesar la transacción. Se generará la nota de entrega oficial y se actualizará automáticamente el stock en el camión.`,
           target: 'sell-confirm-btn',
+          module: 'dist.sales',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: 'Pulsa el botón "Confirmar" para registrar la venta en el sistema.',
+        },
+        {
+          id: 'step-sale-result',
+          title: 'Paso 6: Verificación de Inventario y Kardex',
+          explanation: `¡Venta registrada con éxito! La existencia disponible de ${p1} se ha descontado de tu carga y la transacción quedó asentada para el arqueo de cierre de jornada.`,
+          target: 'sell-products-catalog',
           module: 'dist.sales',
           interaction: 'observe',
         },
@@ -319,7 +417,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
   }
 
   // =========================================================================
-  // TRACK 5: GASTOS, RETORNOS Y CIERRE (Distributor, Warehouse, Admin, Owner)
+  // TRACK 5: GASTOS, RETORNOS Y CIERRE (Distributor, Warehouse, Admin, Owner, Accountant)
   // =========================================================================
   if (canView('dist.closure')) {
     plans.push({
@@ -334,7 +432,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           title: 'Abrir Módulo de Cierre',
           explanation: `Pulsa en Cierre para revisar la liquidación de la jornada.`,
           target: 'nav-item-dist.closure',
-          module: 'dist.sales',
+          module: 'dist.closure',
           interaction: 'navigate',
           advancesOn: 'module',
           requiredActionHint: 'Pulsa Cierre en el menú para entrar.',
@@ -345,7 +443,9 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           explanation: `Al regresar al almacén, el distribuidor anota cuántas unidades quedaron sin vender en el camión. Esto separa el producto que vuelve en buen estado de posibles faltantes o mermas.`,
           target: 'closure-returns-card',
           module: 'dist.closure',
-          interaction: 'observe',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: 'Toca "Declarar retorno para almacén" para iniciar la recepción física.',
           missingMessage: 'Observa la sección de declaración física de retornos.',
         },
         {
@@ -392,7 +492,7 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           title: 'Abrir Reportes',
           explanation: `Pulsa en Reportes para consultar las métricas analíticas de ${meta.companyName}.`,
           target: 'nav-item-dist.reports',
-          module: 'dist.dashboard',
+          module: 'dist.reports',
           interaction: 'navigate',
           advancesOn: 'module',
           requiredActionHint: 'Pulsa Reportes en el menú.',
@@ -412,6 +512,48 @@ export function createDistributionTutorialPlans(options: TutorialPlanOptions): D
           explanation: `Los reportes financieros, de inventario y de cobranzas pueden descargarse en formato Excel detallado o PDF listo para contabilidad y directorio.`,
           target: 'reports-export-actions',
           module: 'dist.reports',
+          interaction: 'observe',
+        },
+      ],
+    })
+  }
+
+  // =========================================================================
+  // TRACK 7: SOPORTE TÉCNICO & CONFIGURACIÓN (Support, Admin, Owner)
+  // =========================================================================
+  if (canView('dist.support') || role === 'support') {
+    plans.push({
+      id: `tour-support-${profile}`,
+      trackId: 'onboarding',
+      title: 'Soporte técnico y terminales',
+      description: 'Aprende a verificar la sincronización, el estado del tenant y la configuración de impresoras térmicas con permisos estrictos de soporte.',
+      estimatedMinutes: 2,
+      steps: [
+        {
+          id: 'step-support-overview',
+          title: 'Aislamiento y Alcance de Soporte',
+          explanation: `Como operador de soporte en ${meta.companyName}, tu acceso está estrictamente protegido: puedes diagnosticar terminales e impresoras sin exponer datos privados de ventas, clientes ni finanzas.`,
+          target: 'support-security-card',
+          module: 'dist.support',
+          interaction: 'observe',
+          missingMessage: 'Observa el panel de acceso técnico protegido.',
+        },
+        {
+          id: 'step-support-printers',
+          title: 'Impresoras Térmicas y Estaciones',
+          explanation: 'Configura impresoras térmicas Bluetooth (58mm o 80mm) y conexión de red local (TCP/IP) para emitir notas de entrega en ruta o recibos de caja.',
+          target: 'support-printers-btn',
+          module: 'dist.support',
+          interaction: 'action',
+          advancesOn: 'click',
+          requiredActionHint: 'Pulsa "Configurar y probar impresoras" para verificar el gestor de hardware.',
+        },
+        {
+          id: 'step-support-diagnostics',
+          title: 'Diagnóstico de Sincronización',
+          explanation: `Verifica el estado de red y cola offline. Si un chofer se encuentra en una zona sin cobertura, las operaciones se guardan de forma inmutable y se sincronizan al recuperar señal.`,
+          target: 'support-view-header',
+          module: 'dist.support',
           interaction: 'observe',
         },
       ],

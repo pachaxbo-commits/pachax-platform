@@ -220,3 +220,107 @@ Se desarrolló el motor de tutorial interactivo completo para la plantilla **Pro
 12. `src/modules/distribution/views/ReportsView.tsx` (atributos `data-tutorial-target`).
 13. `src/public/landing/GuidedTutorialsSection.tsx` (vínculo directo al tour interactivo de Distribución).
 14. `docs/WORKSTREAM-GEMINI.md` (bitácora actualizada).
+
+
+---
+
+## 8. Bloque G1.3 Focal — Navegación Segura de Demos en la Landing
+
+### 8.1 Diagnóstico de Causa Raíz
+1. **Ruta Obsoleta en Vitrina Comercial (`commercialShowcase.ts`):**
+   - El elemento `HAMBURGER_SHOWCASE_ITEM` conservaba la ruta heredada y obsoleta `demoRoute: '/demo/restaurant?mode=counter'` y `canonicalTemplateId: 'restaurant'`.
+   - La identidad canónica de servicio rápido en PACHAX es `'hamburger'` y su ruta de demostración canónica es `'/demo/hamburger'` (o `'/demo.html?template=hamburger'`).
+   - Dejar una ruta obsoleta rompía la coherencia arquitectónica y abría la posibilidad de invocar la experiencia de salón en lugar de la experiencia de autoservicio rápido.
+2. **Bypass de Disponibilidad en Coverflow Autoservicio (`HeroSection.tsx`):**
+   - El evento `onSelectActiveCard` de Carrusel B ejecutaba directamente la navegación a `template.demoRoute` sin consultar previamente `canLaunchCommercialDemo(template)`.
+   - Al pulsar la tarjeta activa o usar atajos de teclado, se permitía la apertura de una demo aún en desarrollo (`coming_soon`).
+
+### 8.2 Solución Implementada
+1. **Normalización Canónica de Vitrina (`src/public/config/commercialShowcase.ts`):**
+   - Se actualizó `HAMBURGER_SHOWCASE_ITEM` con:
+     - `canonicalTemplateId: 'hamburger'`
+     - `demoRoute: '/demo/hamburger'`
+     - `demoPath: '/demo/hamburger'`
+     - `demoEnabled: false` (gating estricto de prelanzamiento).
+2. **Gating Estricto en Carrusel B (`src/public/landing/HeroSection.tsx`):**
+   - Se creó el manejador protegido `handleLaunchSelfServiceDemo`:
+     - Valida `canLaunchCommercialDemo(template)`.
+     - Si la demo está deshabilitada (`demoEnabled: false`), bloquea cualquier intento de navegación y redirige el foco o la acción hacia consulta de disponibilidad.
+   - Se asoció `handleLaunchSelfServiceDemo` tanto al clic/Enter/Space sobre la tarjeta activa del Coverflow como al botón de acción *"Ver demo"*.
+3. **Soporte de Teclado Accesible (`src/public/landing/TemplateCoverflow.tsx`):**
+   - Soporte para teclas `Enter` y `Space` que delegan al manejador del padre respetando el gating comercial.
+4. **Protección en Secciones Secundarias (`TemplatePricingSection.tsx` y `GuidedTutorialsSection.tsx`):**
+   - Sustituido el enlace a demo por un botón deshabilitado *"Demo próximamente"* con tooltip institucional cuando `canLaunchCommercialDemo` devuelve falso.
+5. **Suite de Pruebas Automatizadas (`tests/adminPlatformSecurity.test.ts`):**
+   - Se agregó la prueba **Test 25**: *"G1.3 focal — Commercial Showcase demo routes and gating invariants"*, certificando que `HAMBURGER_SHOWCASE_ITEM` apunta a `hamburger`, ruta `/demo/hamburger`, y que las tres plantillas en desarrollo (`hamburger`, `retail`, `nightclub`) están bloqueadas contra navegación accidental.
+
+---
+
+## 9. Bloque G2.1 — Corrección Funcional y Certificación del Tutorial Universal de Distribución
+
+### 9.1 Diagnóstico de Problemas Funcionales en G2
+1. **Falsa Interactividad:** La mayoría de los pasos de venta e inventario utilizaban `interaction: 'observe'`, permitiendo avanzar simplemente pulsando *"Siguiente"* sin ejecutar las operaciones en el sistema.
+2. **Sobrescritura de Estado en Finalización (`DistributionTutorial.tsx`):** La función `finish()` invocaba `onComplete()` y acto seguido `onDismiss()`. Esto provocaba que `onDismiss` sobreescribiera el estado recién guardado de `'completed'` por `'omitted'`.
+3. **Auto-Navegación Intrusiva:** Al cambiar de paso, el motor forzaba `onNavigate(step.module)`, quitándole el control al usuario e impidiendo que aprendiera a navegar por sí mismo.
+4. **Roles Incompletos:** Soporte carecía de un track adaptado a sus permisos (`dist.support` y `printer-settings`), dependiendo erróneamente de paneles que no podía ver.
+5. **Mezcla de Progresos Demo vs Real Tenant:** No existía aislamiento de almacenamiento por trabajador (`tenantId` + `uid` + `planId`).
+6. **Manejo de Parámetros de URL:** Parámetros como `?profile=invalido` no contaban con fallback seguro a `'food'`.
+
+### 9.2 Correcciones Arquitectónicas Implementadas
+1. **Motor de Interactividad Real con Gating de Acción (`DistributionTutorial.tsx`):**
+   - Pasos clasificados rigurosamente entre:
+     - `interaction: 'observe'`: Permiten continuar tras leer la explicación.
+     - `interaction: 'navigate'`: Requieren que el usuario pulse conscientemente el menú o pestaña de navegación hacia el módulo de destino (`activeModule === step.module`). Se eliminó la auto-navegación intrusiva.
+     - `interaction: 'action'`: El botón *"Siguiente"* permanece deshabilitado hasta que el usuario realiza la acción concreta (seleccionar cliente, elegir producto, agregar al carrito, confirmar cobro, etc.).
+   - Banner de advertencia visual en la tarjeta cuando la acción está pendiente: *"Acción requerida: {requiredActionHint}"*.
+2. **Ciclo de Vida y Persistencia Excluyente (`distributionTutorials.ts` y `DistributionExperience.tsx`):**
+   - Se corrigió `finish()` para ejecutar exclusivamente `onComplete()`, eliminando la llamada redundante a `onDismiss()`.
+   - Estados mutuamente excluyentes: `completed` (completado), `in_progress` (pausado/en curso con índice guardado), `omitted` (omitido en paso 0).
+   - Reanudar retoma desde el último paso válido (`resumeIndex`), mientras que Repetir inicia desde el paso 0.
+   - El reinicio de datos de práctica (`handleResetPractice`) restaura el inventario sin borrar el avance del tutorial del usuario.
+3. **Aislamiento Multi-Tenant vs Demostración:**
+   - **En empresas reales (`isDemo === false`):**
+     - Progreso particionado por `tut_progress:${tenantId}:${uid}:${planId}` (un trabajador no sobreescribe a otro).
+     - Bloqueada la selección de rubro (fijada al rubro configurado de la empresa).
+     - Oculto el botón de reinicio de práctica.
+     - Operaciones tratadas con datos contables reales.
+   - **En modo demostración (`isDemo === true`):**
+     - Progreso almacenado en clave temporal `tut_progress:demo:${role}:${profile}:${planId}`.
+     - Selector interactivo de los 9 rubros disponible en el Centro de Tutoriales.
+     - Botón de reinicio de práctica disponible.
+4. **Matriz Completa de Roles (6 Perfiles Operativos):**
+   - **Distribuidor (`distributor`):** Venta en ruta, cobranza autorizada, gastos menores y declaración de retorno en cierre.
+   - **Almacén (`warehouse`):** Inventario físico, despacho de camiones, recepción y verificación de retornos. Sin dependencia de ventas.
+   - **Contabilidad (`accountant`):** Conciliación de caja, cobranzas, cartera de créditos y reportes contables.
+   - **Soporte (`support`):** Track específico `dist.support` y `printer-settings` sin requerir dashboard ni ventas.
+   - **Administrador y Propietario (`admin` / `owner`):** Acceso integral a los 6 recorridos de la empresa.
+5. **Certificación de los 9 Rubros Comerciales y Unidades Canónicas:**
+   - Verificados los 9 perfiles (`food`, `beverages`, `cleaning`, `hardware`, `pharmacy`, `pets`, `stationery`, `spare_parts`, `mixed`).
+   - Unidades transaccionales estrictamente canónicas: `kg`, `unit` y `package`. Sin inventos de factores de conversión frontend.
+   - Sanitización de URL: `?profile=invalid` cae limpiamente a `'food'`.
+
+### 9.3 Resultados de Verificación y Pruebas E2E en Navegador Real
+
+| Prueba / Entorno | Comando / Instrumentación | Resultado |
+| :--- | :--- | :--- |
+| **Typecheck TypeScript** | `npm run typecheck` (`tsc -b`) | **PASS (0 errores)** |
+| **Build de Producción** | `npm run build` (`tsc -b && vite build`) | **PASS (4.79s, 0 advertencias críticas)** |
+| **Suite de Plataforma PACHAX** | `npm run test:platform` | **PASS (209/209 pruebas aprobadas)** |
+| **Prueba E2E G1.3 Navegador** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Carrusel B honest demo gating verificado)** |
+| **Prueba E2E 5 Viewports (G2.1)** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (360×800, 390×844, 430×932, 768×1024, 1440×900)** |
+| **Prueba E2E Switch Rubro Ferretería** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (FerreMax, unidades canónicas, productos reales)** |
+| **Prueba E2E Venta Interactiva en Ruta** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Selección cliente -> Producto -> Carrito -> Cobro)** |
+| **Prueba E2E Aislamiento Rol Soporte** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Diagnóstico y hardware aislado sin dashboard)** |
+| **Prueba E2E Sanitización URL** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Fallback de profile inválido a 'food')** |
+
+### 9.4 Evidencias Fotográficas Generadas (Directorio de Artefactos)
+- `g1-3-landing-honest-gating-desktop.png`: Verificación visual del gating comercial honesto en Carrusel B y botones deshabilitados.
+- `g2-tour-center-sectors-360x800.png`: Centro de tutoriales y 9 sectores en móvil compacto (360×800).
+- `g2-tour-center-sectors-390x844.png`: Centro de tutoriales en iPhone estándar (390×844).
+- `g2-tour-center-sectors-430x932.png`: Centro de tutoriales en iPhone Pro Max (430×932).
+- `g2-tour-center-sectors-768x1024.png`: Centro de tutoriales en iPad / Tablet vertical (768×1024).
+- `g2-tour-center-sectors-1440x900.png`: Centro de tutoriales en Desktop de alta resolución (1440×900).
+- `g2-hardware-sector-loaded-390x844.png`: Rubro de Ferretería cargado con catálogo de tornillos, alicates y pintura.
+- `g2-interactive-step-spotlight-390x844.png`: Visor de tutorial con spotlight enfocado y requerimiento de acción interactiva.
+- `g2-interactive-sale-completed-390x844.png`: Venta ficticia completada y confirmada en el adaptador de demostración.
+- `g2-support-role-isolated-390x844.png`: Operación aislada del rol Soporte en herramientas de diagnóstico.

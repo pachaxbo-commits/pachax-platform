@@ -26,13 +26,14 @@ interface DistributionTutorialCenterProps {
   isOpen: boolean
   onClose: () => void
   currentProfile: DistributionIndustryProfile
-  onSelectProfile: (profile: DistributionIndustryProfile) => void
+  onSelectProfile?: (profile: DistributionIndustryProfile) => void
   plans: DistributionTutorialPlan[]
   progressMap: Record<string, DistributionTutorialProgress>
   onStartPlan: (plan: DistributionTutorialPlan) => void
-  onResetData: () => void
+  onResetData?: () => void
   role: string
   companyName: string
+  isDemo?: boolean
 }
 
 const TRACK_ICONS = {
@@ -55,8 +56,10 @@ export function DistributionTutorialCenter({
   onResetData,
   role,
   companyName,
+  isDemo = true,
 }: DistributionTutorialCenterProps) {
-  const [view, setView] = useState<'sectors' | 'tracks'>('sectors')
+  // En empresas reales nunca se abre en selección de sectores, sino directamente en sus recorridos
+  const [view, setView] = useState<'sectors' | 'tracks'>(isDemo ? 'sectors' : 'tracks')
   const meta = PROFILE_METADATA[currentProfile] || PROFILE_METADATA.mixed
 
   if (!isOpen) return null
@@ -75,10 +78,10 @@ export function DistributionTutorialCenter({
         <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 bg-slate-50/70">
           <div>
             <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-sky-600">
-              <span>CENTRO DE APRENDIZAJE INTERACTIVO</span>
+              <span>{isDemo ? 'CENTRO DE APRENDIZAJE INTERACTIVO' : 'GUÍA DE CAPACITACIÓN OPERATIVA'}</span>
             </div>
             <h2 className="text-base sm:text-lg font-black text-slate-950 tracking-tight">
-              {view === 'sectors'
+              {view === 'sectors' && isDemo
                 ? '¿Qué tipo de distribuidora quieres conocer?'
                 : `Tutoriales de Distribución · ${meta.label}`}
             </h2>
@@ -95,9 +98,9 @@ export function DistributionTutorialCenter({
 
         {/* Contenido con scroll independiente */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-6">
-          {view === 'sectors' ? (
+          {view === 'sectors' && isDemo ? (
             /* ========================================================================= */
-            /* VISTA DE SELECCIÓN DE LOS 9 SECTORES COMERCIALES                          */
+            /* VISTA DE SELECCIÓN DE LOS 9 SECTORES COMERCIALES (Solo en modo Demo)       */
             /* ========================================================================= */
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -122,50 +125,43 @@ export function DistributionTutorialCenter({
                       type="button"
                       data-sector-id={item.id}
                       onClick={() => {
-                        onSelectProfile(item.id)
+                        onSelectProfile?.(item.id)
                         setView('tracks')
                       }}
-                      className={`text-left p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                      className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between min-h-[140px] ${
                         isSelected
-                          ? 'border-sky-500 bg-sky-50/40 shadow-sm ring-2 ring-sky-400/30'
-                          : 'border-slate-200/90 bg-white hover:border-slate-300 hover:shadow-xs'
+                          ? 'border-sky-500 bg-sky-50/50 ring-2 ring-sky-400/30 shadow-md'
+                          : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/80 shadow-xs'
                       }`}
                     >
                       <div>
-                        <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
                           <span
-                            className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider text-white"
-                            style={{ backgroundColor: item.accentColor }}
+                            className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full"
+                            style={{
+                              backgroundColor: `${item.accentColor}18`,
+                              color: item.accentColor,
+                            }}
                           >
                             {item.label}
                           </span>
                           {isSelected && (
-                            <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full">
+                            <span className="text-[10px] font-bold text-sky-600 bg-sky-100 px-1.5 py-0.2 rounded-md">
                               Activo
                             </span>
                           )}
                         </div>
-
-                        <h4 className="text-sm font-bold text-slate-950">
+                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
                           {item.companyName}
                         </h4>
-                        <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
                           {item.description}
                         </p>
-
-                        <div className="mt-3 pt-2.5 border-t border-slate-100/80 space-y-1">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Productos de muestra:
-                          </div>
-                          <p className="text-[11px] text-slate-700 truncate">
-                            {item.sampleProducts.join(' · ')}
-                          </p>
-                        </div>
                       </div>
 
-                      <div className="mt-4 pt-2 flex items-center justify-between text-xs font-bold text-sky-600">
-                        <span>{isSelected ? 'Sector seleccionado' : 'Cargar este sector'}</span>
-                        <ArrowRight size={14} />
+                      <div className="pt-2 text-[11px] font-semibold text-slate-400 border-t border-slate-100 flex items-center justify-between mt-2">
+                        <span>{item.primaryUnitHint.split(',')[0]}</span>
+                        <ArrowRight size={13} className="text-slate-400" />
                       </div>
                     </button>
                   )
@@ -174,47 +170,50 @@ export function DistributionTutorialCenter({
             </div>
           ) : (
             /* ========================================================================= */
-            /* VISTA DE RECORRIDOS TEMÁTICOS PARA EL ROL ACTUAL                          */
+            /* VISTA DE RECORRIDOS GUIADOS SEGÚN EL ROL AUTORIZADO                       */
             /* ========================================================================= */
-            <div className="space-y-6">
-              {/* Tarjeta del Sector Activo con botón de cambio */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-sky-50/80 via-white to-slate-50 border border-sky-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: meta.accentColor }}
-                    />
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                      Sector actual: <strong className="text-slate-900">{meta.label}</strong>
-                    </span>
+            <div className="space-y-5">
+              {/* Resumen del Contexto Comercial Actual */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white shrink-0 shadow-xs"
+                    style={{ backgroundColor: meta.accentColor }}
+                  >
+                    {meta.label.slice(0, 2).toUpperCase()}
                   </div>
-                  <h3 className="text-sm sm:text-base font-bold text-slate-950 mt-0.5">
-                    {companyName || meta.companyName}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Rol efectivo: <span className="font-semibold text-slate-700 uppercase text-[11px]">{role}</span> · {meta.primaryUnitHint}
-                  </p>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-950">
+                      {companyName || meta.companyName}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Sector: <strong>{meta.label}</strong> · Rol activo: <span className="capitalize font-semibold text-sky-700">{role}</span>
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setView('sectors')}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer"
-                  >
-                    Cambiar sector comercial
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onResetData}
-                    className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-900 shadow-2xs transition cursor-pointer"
-                    title="Reiniciar datos de práctica al estado original de este sector"
-                    aria-label="Reiniciar datos de práctica"
-                  >
-                    <RotateCcw size={15} />
-                  </button>
-                </div>
+                {isDemo && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setView('sectors')}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer"
+                    >
+                      Cambiar sector comercial
+                    </button>
+                    {onResetData && (
+                      <button
+                        type="button"
+                        onClick={onResetData}
+                        className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-900 shadow-2xs transition cursor-pointer"
+                        title="Reiniciar datos de práctica al estado original de este sector"
+                        aria-label="Reiniciar datos de práctica"
+                      >
+                        <RotateCcw size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Lista de Recorridos Disponibles */}
@@ -336,7 +335,9 @@ export function DistributionTutorialCenter({
         {/* Pie del modal */}
         <div className="px-5 sm:px-6 py-3.5 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <span>
-            Datos temporales de práctica aislados en navegador. No se realizan mutaciones en base de datos.
+            {isDemo
+              ? 'Datos temporales de práctica aislados en navegador. No se realizan mutaciones en base de datos.'
+              : 'Capacitación guiada para el personal de la empresa con permisos asignados.'}
           </span>
           <button
             type="button"

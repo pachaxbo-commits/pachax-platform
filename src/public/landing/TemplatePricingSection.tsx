@@ -15,7 +15,7 @@ import {
   CUSTOM_DEVELOPMENT_CONFIG,
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
-import { isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { isTemplateProvisioningAvailable, canLaunchCommercialDemo, getPublicTemplate } from '../../core/publicTemplates'
 
 export function TemplatePricingSection() {
   const { navigate } = usePublicRouter()
@@ -248,14 +248,26 @@ export function TemplatePricingSection() {
                 <MessageSquare className="w-4 h-4" />
                 <span>Solicitar diagnóstico gratuito</span>
               </button>
-              <button
-                type="button"
-                onClick={() => handleLaunchSpecializedDemo(activeSpecialized.demoRoute)}
-                className="py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/15 inline-flex items-center justify-center gap-2"
-              >
-                <Play className="w-3.5 h-3.5 text-blue-400 fill-blue-400" />
-                <span>Ver demo en vivo</span>
-              </button>
+              {canLaunchCommercialDemo(getPublicTemplate(activeSpecialized.id)) ? (
+                <button
+                  type="button"
+                  onClick={() => handleLaunchSpecializedDemo(activeSpecialized.demoRoute)}
+                  className="py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/15 inline-flex items-center justify-center gap-2"
+                >
+                  <Play className="w-3.5 h-3.5 text-blue-400 fill-blue-400" />
+                  <span>Ver demo en vivo</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold bg-white/5 text-slate-400 border border-white/10 inline-flex items-center justify-center gap-2 cursor-not-allowed opacity-75"
+                  title="Demostración disponible próximamente"
+                >
+                  <Play className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Demo próximamente</span>
+                </button>
+              )}
             </div>
           </div>
 

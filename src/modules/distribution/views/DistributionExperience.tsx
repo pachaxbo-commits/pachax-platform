@@ -110,6 +110,7 @@ export interface DistributionExperienceProps {
   onSelectProfile?: (profile: DistributionIndustryProfile) => void
   onResetPractice?: () => void
   initialOpenTour?: boolean
+  isDemo?: boolean
 }
 
 const MODULE_ICONS: Partial<Record<ModuleId, BottomNavItem<ModuleId>['icon']>> = {
@@ -151,7 +152,13 @@ export function DistributionExperience({
   onSelectProfile,
   onResetPractice,
   initialOpenTour = false,
+  isDemo,
 }: DistributionExperienceProps) {
+  const effectiveIsDemo = isDemo ?? (
+    Boolean(onResetPractice || onSelectProfile) ||
+    session.tenantId.startsWith('preview-') ||
+    session.tenantId.startsWith('demo-')
+  )
   const modules = useMemo(
     () => getVisibleModules('mobile_distribution', session.can, session.role),
     [session.can, session.role]
@@ -169,9 +176,21 @@ export function DistributionExperience({
     }
   }, [activeProfile, currentProfile])
 
+  const progressContext = useMemo(() => ({
+    isDemo: effectiveIsDemo,
+    tenantId: session.tenantId,
+    uid: session.uid,
+    role: session.role,
+    profile: currentProfile,
+  }), [effectiveIsDemo, session.tenantId, session.uid, session.role, currentProfile])
+
   const [progressMap, setProgressMap] = useState<Record<string, DistributionTutorialProgress>>(() =>
-    loadTutorialProgress(session.role, currentProfile)
+    loadTutorialProgress(progressContext)
   )
+
+  useEffect(() => {
+    setProgressMap(loadTutorialProgress(progressContext))
+  }, [progressContext])
 
   const tutorialPlans = useMemo(
     () =>
@@ -623,32 +642,35 @@ export function DistributionExperience({
           initialStepIndex={activeStepIndex}
           onStepChange={(newStepIndex) => {
             setActiveStepIndex(newStepIndex)
-            saveTutorialProgress(session.role, currentProfile, activeTourPlan.id, {
+            saveTutorialProgress(progressContext, activeTourPlan.id, {
               status: 'in_progress',
               stepIndex: newStepIndex,
               lastUpdated: new Date().toISOString(),
             })
-            setProgressMap(loadTutorialProgress(session.role, currentProfile))
+            setProgressMap(loadTutorialProgress(progressContext))
           }}
           onDismiss={() => {
             if (activeTourPlan) {
-              saveTutorialProgress(session.role, currentProfile, activeTourPlan.id, {
-                status: 'omitted',
-                stepIndex: activeStepIndex,
-                lastUpdated: new Date().toISOString(),
-              })
-              setProgressMap(loadTutorialProgress(session.role, currentProfile))
+              const currentStatus = progressMap[activeTourPlan.id]?.status
+              if (currentStatus !== 'completed') {
+                saveTutorialProgress(progressContext, activeTourPlan.id, {
+                  status: activeStepIndex > 0 ? 'in_progress' : 'omitted',
+                  stepIndex: activeStepIndex,
+                  lastUpdated: new Date().toISOString(),
+                })
+                setProgressMap(loadTutorialProgress(progressContext))
+              }
             }
             setActiveTourPlan(null)
           }}
           onComplete={() => {
             if (activeTourPlan) {
-              saveTutorialProgress(session.role, currentProfile, activeTourPlan.id, {
+              saveTutorialProgress(progressContext, activeTourPlan.id, {
                 status: 'completed',
                 stepIndex: activeTourPlan.steps.length - 1,
                 lastUpdated: new Date().toISOString(),
               })
-              setProgressMap(loadTutorialProgress(session.role, currentProfile))
+              setProgressMap(loadTutorialProgress(progressContext))
             }
             setActiveTourPlan(null)
           }}

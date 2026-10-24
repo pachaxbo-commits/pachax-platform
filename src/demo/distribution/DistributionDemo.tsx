@@ -36,8 +36,23 @@ export function DistributionDemo({
     return new URLSearchParams(window.location.search)
   }, [])
 
+  const rawProfile = searchParams.get('profile')
+  const validProfiles: readonly DistributionIndustryProfile[] = [
+    'food',
+    'beverages',
+    'cleaning',
+    'hardware',
+    'pharmacy',
+    'pets',
+    'stationery',
+    'spare_parts',
+    'mixed',
+  ]
   const initialProfileParam =
-    initialProfile || (searchParams.get('profile') as DistributionIndustryProfile | null) || 'food'
+    initialProfile ||
+    (validProfiles.includes(rawProfile as DistributionIndustryProfile)
+      ? (rawProfile as DistributionIndustryProfile)
+      : 'food')
   const tourParam = searchParams.get('tour')
   const shouldOpenTour = tourParam === 'start' || tourParam === '1' || tourParam === 'true'
 
@@ -159,6 +174,7 @@ export function DistributionDemo({
         onSelectProfile={handleSelectProfile}
         onResetPractice={handleResetPractice}
         initialOpenTour={shouldOpenTour}
+        isDemo={true}
         onSignOut={() => {
           window.location.assign('/')
         }}

@@ -459,7 +459,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
 
       {cart.length > 0 && (
         <div
-          className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-3 py-2.5"
+          data-tutorial-target="sell-cart-summary" className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-3 py-2.5"
           style={{ paddingBottom: 'calc(0.625rem + var(--safe-bottom) + var(--bottom-nav-height))' }}
         >
           <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
@@ -469,7 +469,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
               </p>
               <p className="truncate text-lg font-black tabular-nums text-slate-900">{formatBs(total)}</p>
             </div>
-            <PrimaryButton onClick={() => setIsCheckoutOpen(true)}>
+            <PrimaryButton data-tutorial-target="sell-checkout-btn" onClick={() => setIsCheckoutOpen(true)}>
               <ShoppingCart size={16} /> Cobrar
             </PrimaryButton>
           </div>
@@ -494,7 +494,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
         title={editingProduct?.name ?? ''}
         subtitle={editingProduct?.presentation}
         footer={
-          <PrimaryButton full onClick={addToCart}>
+          <PrimaryButton data-tutorial-target="sell-add-to-cart-btn" full onClick={addToCart}>
             <Plus size={16} /> Agregar {formatBs(round2(Number(quantity) * Number(unitPrice)))}
           </PrimaryButton>
         }
@@ -611,9 +611,8 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
 
           {saleKind === 'normal' && (
             <>
-              <Field label="Forma de pago">
-                <Segmented value={paymentKind} options={PAYMENT_OPTIONS} onChange={setPaymentKind} />
-              </Field>
+              <div data-tutorial-target="sell-payment-methods" className="w-full"><Field label="Forma de pago">
+                <Segmented value={paymentKind} options={PAYMENT_OPTIONS} onChange={setPaymentKind} /></Field></div>
 
               {paymentKind === 'mixed' && (
                 <div className="grid gap-2 sm:grid-cols-2">

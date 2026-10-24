@@ -859,9 +859,11 @@ export function ClosureView({ session, data }: DistributionViewProps) {
             BOTÓN ACCIÓN PASO 1: DECLARAR RETORNO PARA ALMACÉN
            ========================================================================= */}
         {!isReturnDeclared && (isDistributor || session.role === 'admin') && (
-          <SecondaryButton full disabled={isSubmitting || !loaded} onClick={handleDeclareReturn}>
-            <ClipboardCheck size={16} /> Declarar retorno para almacén
-          </SecondaryButton>
+          <div data-tutorial-target="closure-returns-card" className="w-full">
+            <SecondaryButton full disabled={isSubmitting || !loaded} onClick={handleDeclareReturn}>
+              <ClipboardCheck size={16} /> Declarar retorno para almacén
+            </SecondaryButton>
+          </div>
         )}
 
         {/* =========================================================================
@@ -877,7 +879,8 @@ export function ClosureView({ session, data }: DistributionViewProps) {
             SECCIÓN 2: ARQUEO DE DINERO Y CIERRE FINAL
            ========================================================================= */}
         {session.role !== 'warehouse' && (
-          <SectionCard title="Arqueo de dinero">
+          <div data-tutorial-target="closure-cash-reconciliation" className="w-full">
+            <SectionCard title="Arqueo de dinero">
             {!returnsAlreadyApplied ? (
               <p className="rounded-xl bg-slate-100 p-3 text-xs font-semibold text-slate-600">
                 El arqueo y cierre final del dinero se habilitará en cuanto Almacén confirme la recepción física del retorno.
@@ -941,6 +944,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
               </>
             )}
           </SectionCard>
+          </div>
         )}
 
         {error && <p role="alert" className="text-xs font-bold text-rose-600">{error}</p>}

@@ -8,6 +8,7 @@ import type {
   CommercialExtraService,
 } from '../src/admin/types.ts'
 import { PLANS_BY_TEMPLATE, COMMERCIAL_EXTRAS } from '../src/public/config/pricingConfig.ts'
+import { HAMBURGER_SHOWCASE_ITEM, COMMERCIAL_TEMPLATES } from '../src/public/config/commercialShowcase.ts'
 import {
   canLaunchCommercialDemo,
   isTechnicalDemoAvailable,
@@ -619,7 +620,7 @@ test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de dem
   // Invariante de identidad técnica:
   // Una plantilla no puede remapear su canonicalTemplateId a otra plantilla distinta
   function validateTemplateIdentity(templateId: string, canonicalTemplateId?: string | null): boolean {
-    const validCanonical = ['restaurant', 'distribution', 'nightclub', 'retail', null]
+    const validCanonical = ['restaurant', 'distribution', 'nightclub', 'retail', 'hamburger', null]
     if (canonicalTemplateId !== undefined) {
       if (!validCanonical.includes(canonicalTemplateId)) return false
       if (templateId === 'custom') {
@@ -655,4 +656,40 @@ test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de dem
   assert.equal(validateDemoRoute('distribution', '/demo/custom_override'), false)
   assert.equal(validateDemoRoute('restaurant', '/demo/restaurant'), true)
   assert.equal(validateDemoRoute('restaurant', '/demo/distribution'), false)
+  // Hamburger mantiene su propia identidad y ruta canónica
+  assert.equal(validateTemplateIdentity('hamburger', 'hamburger'), true)
+  assert.equal(validateTemplateIdentity('hamburger', 'restaurant'), false)
+  assert.equal(validateDemoRoute('hamburger', '/demo/hamburger'), true)
+  assert.equal(validateDemoRoute('hamburger', '/demo/restaurant'), false)
+})
+
+test('25. G1.3 focal — Commercial Showcase demo routes and gating invariants', () => {
+  // HAMBURGER_SHOWCASE_ITEM tiene identidad comercial limpia y desvinculada de salon
+  assert.equal(HAMBURGER_SHOWCASE_ITEM.id, 'hamburger')
+  assert.equal(HAMBURGER_SHOWCASE_ITEM.canonicalTemplateId, 'hamburger')
+  assert.equal(HAMBURGER_SHOWCASE_ITEM.demoRoute, '/demo/hamburger')
+  assert.equal(HAMBURGER_SHOWCASE_ITEM.demoPath, '/demo/hamburger')
+  assert.equal(HAMBURGER_SHOWCASE_ITEM.demoEnabled, false)
+  assert.equal(canLaunchCommercialDemo(HAMBURGER_SHOWCASE_ITEM), false)
+
+  // Comercio / Retail apunta exclusivamente a su demo canónica
+  const retailShowcase = COMMERCIAL_TEMPLATES.find((t) => t.id === 'retail')
+  assert.ok(retailShowcase, 'Retail showcase item must exist')
+  assert.equal(retailShowcase.canonicalTemplateId, 'retail')
+  assert.equal(retailShowcase.demoRoute, '/demo/retail')
+  assert.equal(retailShowcase.demoPath, '/demo/retail')
+  assert.equal(retailShowcase.demoEnabled, false)
+  assert.equal(canLaunchCommercialDemo(retailShowcase), false)
+
+  // Nightclub con demo comercialmente deshabilitada
+  const nightclubShowcase = COMMERCIAL_TEMPLATES.find((t) => t.id === 'nightclub')
+  assert.ok(nightclubShowcase)
+  assert.equal(nightclubShowcase.demoEnabled, false)
+  assert.equal(canLaunchCommercialDemo(nightclubShowcase), false)
+
+  // Distribución es la única con demo comercialmente habilitada
+  const distShowcase = COMMERCIAL_TEMPLATES.find((t) => t.id === 'distribution')
+  assert.ok(distShowcase)
+  assert.equal(distShowcase.demoEnabled, true)
+  assert.equal(canLaunchCommercialDemo(distShowcase), true)
 })

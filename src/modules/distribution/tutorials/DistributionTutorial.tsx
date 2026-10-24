@@ -53,7 +53,7 @@ function findTargetElement(targetKey: string): HTMLElement | null {
 export function DistributionTutorial({
   plan,
   activeModule,
-  onNavigate,
+  onNavigate: _onNavigate,
   onDismiss,
   onComplete,
   onStepChange,
@@ -67,11 +67,30 @@ export function DistributionTutorial({
 
   const step: DistributionTutorialStep = plan.steps[index] || plan.steps[0]
 
+  // Estado de acción interactiva: en pasos de observación inicia en true; en interactivos exige acción
+  const [hasActed, setHasActed] = useState(() => {
+    if (step.interaction === 'observe') return true
+    if (step.interaction === 'navigate') return activeModule === step.module
+    return false
+  })
+
+  // Al cambiar de paso, reevaluar si el paso ya está satisfecho
   useEffect(() => {
-    if (step && step.module && activeModule !== step.module && onNavigate) {
-      onNavigate(step.module);
+    if (step.interaction === 'observe') {
+      setHasActed(true)
+    } else if (step.interaction === 'navigate') {
+      setHasActed(activeModule === step.module)
+    } else {
+      setHasActed(false)
     }
-  }, [step, activeModule, onNavigate]);
+  }, [index, step, activeModule])
+
+  // En pasos de navegación, detectar cuando el usuario navegó al módulo requerido
+  useEffect(() => {
+    if (step.interaction === 'navigate' && activeModule === step.module) {
+      setHasActed(true)
+    }
+  }, [activeModule, step])
 
   // Notificar cambio de paso
   useEffect(() => {
@@ -136,32 +155,30 @@ export function DistributionTutorial({
     }
   }, [step])
 
-  // Escuchar clics en el elemento objetivo cuando el paso requiere interacción o navegación
+  // Escuchar clics en el elemento objetivo cuando el paso requiere acción
   useEffect(() => {
     const onTargetClick = (event: MouseEvent) => {
-      if (step.interaction === 'navigate') {
-        const element = findTargetElement(step.target)
-        if (element && event.target instanceof Element && element.contains(event.target)) {
-          // El usuario clickeó el control real
-          window.setTimeout(() => {
-            setIndex((curr) => Math.min(curr + 1, plan.steps.length - 1))
-          }, 60)
-        }
+      const element = findTargetElement(step.target)
+      if (element && event.target instanceof Element && element.contains(event.target)) {
+        setHasActed(true)
       }
     }
 
     document.addEventListener('click', onTargetClick, true)
     return () => document.removeEventListener('click', onTargetClick, true)
-  }, [step, plan.steps.length])
+  }, [step])
 
-  // Si el paso requería navegar a un módulo y ya estamos en él
+  // Fallback seguro: si el objetivo no existe tras un tiempo prudente, permitir continuar
   useEffect(() => {
-    if (step.interaction === 'navigate' && step.advancesOn === 'module' && activeModule === step.module) {
-      // Ya estamos en el módulo requerido
+    if (missingTarget) {
+      const timer = window.setTimeout(() => {
+        setHasActed(true)
+      }, 1200)
+      return () => window.clearTimeout(timer)
     }
-  }, [activeModule, step])
+  }, [missingTarget])
 
-  // Tecla Escape para salir
+  // Tecla Escape para salir (omisión o pausa explícita)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onDismiss()
@@ -170,10 +187,10 @@ export function DistributionTutorial({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [onDismiss])
 
+  // Finalización mutuamente excluyente de omisión: SOLO llama a onComplete
   const finish = useCallback(() => {
     onComplete()
-    onDismiss()
-  }, [onComplete, onDismiss])
+  }, [onComplete])
 
   const next = useCallback(() => {
     if (index >= plan.steps.length - 1) {
@@ -292,8 +309,15 @@ export function DistributionTutorial({
           )}
 
           {step.requiredActionHint && !missingTarget && (
-            <div className="mt-2 rounded-xl bg-sky-50 p-2 text-[11px] font-semibold text-sky-900 border border-sky-100">
-              {step.requiredActionHint}
+            <div className={`mt-2 rounded-xl p-2.5 text-[11px] font-bold border transition-colors ${
+              hasActed
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : 'bg-amber-50 text-amber-900 border-amber-200'
+            }`}>
+              <span className="block text-[10px] uppercase font-black tracking-wider opacity-80 mb-0.5">
+                {hasActed ? '✓ Acción completada' : 'Acción requerida:'}
+              </span>
+              <span>{step.requiredActionHint}</span>
             </div>
           )}
         </div>
@@ -316,8 +340,13 @@ export function DistributionTutorial({
             </span>
             <button
               type="button"
+              disabled={!hasActed}
               onClick={next}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition cursor-pointer"
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition shadow-xs cursor-pointer ${
+                hasActed
+                  ? 'bg-slate-900 hover:bg-slate-800 text-white'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+              }`}
             >
               <span>{index === plan.steps.length - 1 ? 'Finalizar' : 'Siguiente'}</span>
               <ArrowRight size={14} />

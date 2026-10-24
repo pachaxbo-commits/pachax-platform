@@ -1,3 +1,4 @@
+import { canLaunchCommercialDemo, getPublicTemplate } from '../../core/publicTemplates'
 import { useState } from 'react'
 import {
   ChevronRight,
@@ -523,18 +524,30 @@ export function GuidedTutorialsSection() {
                   ? `Guía interactiva paso a paso disponible en la demo oficial de ${activeMeta.name}.`
                   : 'Demo técnica disponible · Guía interactiva en desarrollo.'}
               </span>
-              <button
-                type="button"
-                onClick={handleLaunchDemo}
-                className="text-white hover:text-sky-300 font-bold inline-flex items-center gap-1.5 cursor-pointer bg-white/10 hover:bg-white/15 px-3.5 py-2 rounded-lg border border-white/10 transition-colors"
-              >
-                <Play className="w-3.5 h-3.5 text-sky-400 fill-sky-400" />
-                <span>
-                  {selectedTemplate === 'restaurant' || selectedTemplate === 'distribution'
-                    ? `Probar demo con tutorial interactivo (${activeMeta.name})`
-                    : `Ver demo de ${activeMeta.name}`}
-                </span>
-              </button>
+              {canLaunchCommercialDemo(getPublicTemplate(activeMeta.id)) ? (
+                <button
+                  type="button"
+                  onClick={handleLaunchDemo}
+                  className="text-white hover:text-sky-300 font-bold inline-flex items-center gap-1.5 cursor-pointer bg-white/10 hover:bg-white/15 px-3.5 py-2 rounded-lg border border-white/10 transition-colors"
+                >
+                  <Play className="w-3.5 h-3.5 text-sky-400 fill-sky-400" />
+                  <span>
+                    {selectedTemplate === 'restaurant' || selectedTemplate === 'distribution'
+                      ? `Probar demo con tutorial interactivo (${activeMeta.name})`
+                      : `Ver demo de ${activeMeta.name}`}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="text-slate-400 font-semibold inline-flex items-center gap-1.5 cursor-not-allowed bg-white/5 px-3.5 py-2 rounded-lg border border-white/5 opacity-70"
+                  title="Demostración próximamente disponible"
+                >
+                  <Play className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Demo próximamente</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
