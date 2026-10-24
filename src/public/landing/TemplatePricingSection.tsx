@@ -15,6 +15,7 @@ import {
   CUSTOM_DEVELOPMENT_CONFIG,
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
+import { isTemplateProvisioningAvailable } from '../../core/publicTemplates'
 
 export function TemplatePricingSection() {
   const { navigate } = usePublicRouter()
@@ -58,18 +59,31 @@ export function TemplatePricingSection() {
     navigate(`/register?template=${activeQuickCatalog.templateParam}&plan=${plan.id}&cycle=${billingCycle}`)
   }
 
+  const handleQuickWaitlistWhatsApp = (catalog: QuickServiceSubcategory, plan: TemplateTierPlan) => {
+    const text = `Hola PACHAX, me interesa el plan referencial "${plan.name}" para la plantilla ${catalog.commercialTitle} (en fase de prelanzamiento). Deseo información cuando esté disponible para contratación.`
+    const url = OFFICIAL_WHATSAPP.buildUrl(text)
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   const handleCustomDevWhatsApp = () => {
     const url = OFFICIAL_WHATSAPP.buildUrl(CUSTOM_DEVELOPMENT_CONFIG.whatsAppMessage)
     window.open(url, '_blank', 'noopener,noreferrer')
   }
+
+  const isQuickProvisioningActive = isTemplateProvisioningAvailable(activeQuickCatalog.templateParam)
 
   return (
     <section id="planes" className="w-full py-20 bg-slate-50/70 border-t border-slate-200/80 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabecera Editorial Principal */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-2.5">
             <span>MODELOS COMERCIALES TRANSPARENTES</span>
+          </div>
+          <div className="mb-3">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+              TARIFAS REFERENCIALES EN FASE DE LANZAMIENTO · SUJETAS A APROBACIÓN DEFINITIVA
+            </span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
             Elige la ruta adaptada a la complejidad real de tu negocio
@@ -147,7 +161,7 @@ export function TemplatePricingSection() {
                   </div>
                   <div className="text-right shrink-0">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Base Cloud
+                      Base Cloud Referencial
                     </span>
                     <span className="text-lg sm:text-xl font-black text-white">
                       ${activeSpecialized.cloudMaintenance.monthlyPriceUSD}
@@ -372,21 +386,26 @@ export function TemplatePricingSection() {
                 </div>
 
                 {/* Precio */}
-                <div className="pb-4 mb-4 border-b border-slate-100 flex items-baseline gap-1.5">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    Desde
-                  </span>
-                  <span className="text-4xl font-black text-slate-950 tracking-tight">
-                    ${calculatedPrice}
-                  </span>
-                  <span className="text-xs font-semibold text-slate-500">
-                    USD / mes
-                  </span>
-                  {billingCycle === 'annual' && (
-                    <span className="ml-2 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
-                      Ahorras ${(activePlan.monthlyPriceUSD - activePlan.annualPriceUSD) * 12} USD al año
+                <div className="pb-3 mb-3 border-b border-slate-100">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Referencial
                     </span>
-                  )}
+                    <span className="text-4xl font-black text-slate-950 tracking-tight">
+                      ${calculatedPrice}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      USD / mes
+                    </span>
+                    {billingCycle === 'annual' && (
+                      <span className="ml-2 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
+                        Ahorro estimado ${(activePlan.monthlyPriceUSD - activePlan.annualPriceUSD) * 12} USD/año
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    * Tarifa provisional de prelanzamiento. No constituye oferta comercial vinculante.
+                  </span>
                 </div>
 
                 {/* Lista de Capacidades Técnicas Incluidas */}
@@ -408,17 +427,35 @@ export function TemplatePricingSection() {
 
             {/* CTA del Bloque Autoservicio */}
             <div className="pt-6 mt-6 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => handleSelectQuickPlan(activePlan)}
-                className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <span>{activePlan.ctaLabel}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-              <p className="text-[11px] text-center text-slate-400 mt-2">
-                Sin tarjeta de crédito obligatoria para comenzar. Aprovisionamiento seguro en 4 pasos.
-              </p>
+              {isQuickProvisioningActive ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectQuickPlan(activePlan)}
+                    className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <span>{activePlan.ctaLabel}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <p className="text-[11px] text-center text-slate-400 mt-2">
+                    Sin tarjeta de crédito obligatoria para comenzar. Aprovisionamiento seguro en 4 pasos.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickWaitlistWhatsApp(activeQuickCatalog, activePlan)}
+                    className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 hover:bg-slate-800 text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <MessageSquare className="w-4 h-4 text-emerald-400" />
+                    <span>Consultar disponibilidad · {activePlan.name}</span>
+                  </button>
+                  <p className="text-[11px] text-center text-slate-400 mt-2">
+                    Plantilla en consolidación operativa. Tarifas referenciales no vinculantes para contratación.
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>

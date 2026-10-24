@@ -8,7 +8,7 @@ import {
   SELF_SERVICE_SHOWCASE_TEMPLATES,
   type CommercialTemplateItem,
 } from '../config/commercialShowcase'
-import { canLaunchCommercialDemo } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
 import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 
 interface HeroSectionProps {
@@ -59,22 +59,12 @@ export function HeroSection({}: HeroSectionProps) {
     window.open(`https://wa.me/${OFFICIAL_WHATSAPP.phoneNumber}?text=${text}`, '_blank', 'noopener,noreferrer')
   }
 
-  // Manejo de Demo para Autoservicio (Carrusel B)
-  const handleLaunchSelfServiceDemo = (template: CommercialTemplateItem) => {
-    if (canLaunchCommercialDemo(template)) {
-      if (template.demoRoute.startsWith('/demo/')) {
-        window.location.assign(template.demoRoute)
-      } else {
-        navigate(template.demoRoute)
-      }
-    } else {
-      // Demo técnica en desarrollo o modo mostrador
-      if (template.id === 'hamburger') {
-        window.location.assign('/demo/restaurant?mode=counter')
-      } else {
-        window.location.assign('/demo/retail')
-      }
-    }
+  // Manejo de Consulta / Lista de Espera para Autoservicio no consolidado (Carrusel B)
+  const handleConsultSelfService = (template: CommercialTemplateItem) => {
+    const text = encodeURIComponent(
+      `Hola PACHAX, consulto sobre la disponibilidad y apertura para la plantilla "${template.commercialName}".`
+    )
+    window.open(`https://wa.me/${OFFICIAL_WHATSAPP.phoneNumber}?text=${text}`, '_blank', 'noopener,noreferrer')
   }
 
   // Manejo de Registro / Suscripción para Autoservicio (Carrusel B)
@@ -83,12 +73,16 @@ export function HeroSection({}: HeroSectionProps) {
     navigate(`/register?template=${templateQuery}`)
   }
 
+  const isSpecializedDemoAvailable = canLaunchCommercialDemo(activeSpecialized) || activeSpecialized.id === 'restaurant'
+  const isSelfServiceAvailable = isTemplateProvisioningAvailable(activeSelfService.canonicalTemplateId || activeSelfService.templateId || activeSelfService.id)
+  const isSelfServiceDemoAvailable = canLaunchCommercialDemo(activeSelfService)
+
   return (
     <section id="hero" className="relative w-full pt-4 pb-10 sm:pt-8 sm:pb-16 overflow-hidden z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Cabecera Editorial Principal: Presentación de las Dos Modalidades */}
         <div className="text-center max-w-3xl mx-auto mb-8 sm:mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
             <span>PLATAFORMA OPERATIVA PARA EMPRESAS</span>
           </div>
 
@@ -179,14 +173,26 @@ export function HeroSection({}: HeroSectionProps) {
 
                   {/* Acciones de la Tarjeta Activa A: Ver demo en vivo + Solicitar asesoría */}
                   <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/60">
-                    <button
-                      type="button"
-                      onClick={() => handleLaunchSpecializedDemo(activeSpecialized)}
-                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-[#0066FF] hover:bg-[#0052cc] shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-white" />
-                      <span>Ver demo en vivo</span>
-                    </button>
+                    {isSpecializedDemoAvailable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleLaunchSpecializedDemo(activeSpecialized)}
+                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-[#0066FF] hover:bg-[#0052cc] shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-white" />
+                        <span>Ver demo en vivo</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 border border-slate-200 inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
+                        title="Demostración pública en desarrollo (G2)"
+                      >
+                        <Play className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Demo próximamente</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleConsultSpecialized(activeSpecialized)}
@@ -219,14 +225,14 @@ export function HeroSection({}: HeroSectionProps) {
                     Soluciones Autoservicio
                   </span>
                   <span className="text-[11px] font-semibold text-slate-400">
-                    2 plantillas inmediatas
+                    2 plantillas en prelanzamiento
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
                   Punto de Venta Ágil y Suscripción Directa
                 </h2>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Para comida rápida, mostrador, para llevar y comercio minorista por peso o unidad. Elige tu plan mensual y comienza a operar hoy mismo en 4 pasos.
+                  Para comida rápida, mostrador, para llevar y comercio minorista por peso o unidad. Modelos ágiles en proceso de apertura comercial.
                 </p>
               </div>
 
@@ -236,7 +242,7 @@ export function HeroSection({}: HeroSectionProps) {
                   templates={SELF_SERVICE_SHOWCASE_TEMPLATES}
                   activeIndex={activeIndexSelfService}
                   onChangeActiveIndex={setActiveIndexSelfService}
-                  onSelectActiveCard={handleLaunchSelfServiceDemo}
+                  onSelectActiveCard={handleLaunchSpecializedDemo}
                   compact={true}
                   ariaLabel="Carrusel de soluciones autoservicio"
                 />
@@ -249,8 +255,8 @@ export function HeroSection({}: HeroSectionProps) {
                     <h3 className="text-sm font-bold text-slate-900">
                       {activeSelfService.commercialName}
                     </h3>
-                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-md">
-                      Suscripción directa
+                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-100/70 border border-amber-200/60 px-2 py-0.5 rounded-md">
+                      Próximamente disponible
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 leading-snug line-clamp-2 mb-2.5">
@@ -267,24 +273,48 @@ export function HeroSection({}: HeroSectionProps) {
                     ))}
                   </div>
 
-                  {/* Acciones de la Tarjeta Activa B: Elegir plan y comenzar + Ver demo */}
+                  {/* Acciones de la Tarjeta Activa B: Consultar disponibilidad / Lista de espera + Demo honesta */}
                   <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/60">
-                    <button
-                      type="button"
-                      onClick={() => handleSubscribeSelfService(activeSelfService)}
-                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <span>Elegir plan y comenzar</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleLaunchSelfServiceDemo(activeSelfService)}
-                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 text-slate-600" />
-                      <span>Ver demo</span>
-                    </button>
+                    {isSelfServiceAvailable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSubscribeSelfService(activeSelfService)}
+                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <span>Elegir plan y comenzar</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleConsultSelfService(activeSelfService)}
+                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Consultar disponibilidad</span>
+                      </button>
+                    )}
+
+                    {isSelfServiceDemoAvailable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleLaunchSpecializedDemo(activeSelfService)}
+                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5 text-slate-600" />
+                        <span>Ver demo</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 border border-slate-200 inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
+                        title="Demostración técnica en desarrollo"
+                      >
+                        <Play className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Demo próximamente</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -292,7 +322,7 @@ export function HeroSection({}: HeroSectionProps) {
 
             <div className="mt-4 pt-3 border-t border-slate-100 text-center">
               <span className="text-[11px] text-slate-400">
-                Aprovisionamiento en 4 pasos · Sin tarjeta obligatoria para iniciar
+                Plantilla en proceso de consolidación · Apertura comercial próximamente
               </span>
             </div>
           </div>
