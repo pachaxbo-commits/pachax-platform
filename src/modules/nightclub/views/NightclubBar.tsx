@@ -17,6 +17,7 @@ export function NightclubBar({
   canAdvance = true,
   onPrintComanda,
   canPrint = true,
+  tutorialRoundId,
 }: {
   data: NightclubDataset
   onAdvance: (accountId: string, roundId: string) => void | Promise<void | boolean>
@@ -24,6 +25,7 @@ export function NightclubBar({
   canAdvance?: boolean
   onPrintComanda?: (accountId: string, roundId: string, isReprint?: boolean) => void | Promise<void>
   canPrint?: boolean
+  tutorialRoundId?: string
 }) {
   const rounds = nightclubBarQueue(data).filter(
     ({ account, round }) => !cashboxId || (round.cashboxId || account.cashboxId || 'cashbox-1') === cashboxId
@@ -72,6 +74,7 @@ export function NightclubBar({
             </div>
             <div className="flex flex-col gap-2">
               <button
+                data-tutorial-target={(!tutorialRoundId || round.id === tutorialRoundId) ? (round.status === 'pending' ? 'bar-prepare' : round.status === 'preparing' ? 'bar-ready' : undefined) : undefined}
                 disabled={!canAdvance || round.status === 'ready'}
                 onClick={() => onAdvance(account.id, round.id)}
                 className="h-11 w-full rounded-xl bg-amber-400 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"

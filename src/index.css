@@ -156,15 +156,19 @@ button {
 
 /* Nightclub owns a dark, tenant-themed surface inside the global light app. */
 .nightclub-shell {
+  color: var(--night-text, #f8fafc) !important;
   color-scheme: dark;
   background: var(--night-background, #050c13);
 }
 
 .nightclub-shell > div > aside { background: var(--night-sidebar, #07111a); }
-.nightclub-shell .bg-amber-300 { background-color: var(--night-gold, #d8a84e) !important; }
-.nightclub-shell .text-amber-300 { color: var(--night-gold, #d8a84e) !important; }
-.nightclub-shell .bg-emerald-400 { background-color: var(--night-positive, #35d0a0) !important; }
-.nightclub-shell .text-emerald-300 { color: var(--night-positive, #35d0a0) !important; }
+.nightclub-shell .bg-amber-300 { background-color: var(--night-gold, #d8a84e) !important; color: var(--night-on-gold, #0f172a) !important; }
+.nightclub-shell .text-amber-300 { color: var(--night-gold-text, var(--night-gold, #d8a84e)) !important; }
+.nightclub-shell .bg-emerald-400 { background-color: var(--night-positive, #35d0a0) !important; color: var(--night-on-positive, #0f172a) !important; }
+.nightclub-shell .text-emerald-300 { color: var(--night-positive-text, var(--night-positive, #35d0a0)) !important; }
+.nightclub-shell .text-slate-500,
+.nightclub-shell .text-slate-600 { color: var(--night-text-secondary, #cbd5e1) !important; }
+.nightclub-shell option { color: #f8fafc; background-color: #07111a; }
 .nightclub-shell [class*="bg-[#0d1720]"] { background-color: var(--night-surface, #0d1720) !important; }
 
 .nightclub-shell input,
@@ -178,7 +182,8 @@ button {
 
 .nightclub-shell input::placeholder,
 .nightclub-shell textarea::placeholder {
-  color: #64748b !important;
+  color: #94a3b8 !important;
+  opacity: 1;
 }
 
 .nightclub-shell ::-webkit-scrollbar-thumb {
@@ -197,6 +202,12 @@ button {
   color-scheme: light !important;
   color: #0f172a !important;
   background-color: var(--night-background, #f1f5f9) !important;
+}
+
+.nightclub-shell[data-theme="light"] option,
+.nightclub-shell.theme-light option {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
 }
 
 /* Sidebar, Header & Navigation */

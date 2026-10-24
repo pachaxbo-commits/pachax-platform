@@ -243,7 +243,6 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
     onOpenBottleExit: (id: string, millilitres: number, type: 'waste' | 'courtesy' | 'internal_consumption', reason: string) => apply(state => recordNightclubOpenBottleExit(state, id, millilitres, type, reason, actor)),
     onSaveBottleInventory: (draft: { id?: string; name: string; category: string; closedBottles: number; minimum: number; capacityMl: number; cost: number; sellBottle: boolean; bottlePrice: number; sellPour: boolean; pourMl: number; pourPrice: number; bottleCommissionEnabled?: boolean; bottleCommissionType?: 'percentage' | 'fixed'; bottleCommissionValue?: number }) => apply(state => {
       if (!draft.name.trim() || !Number.isFinite(draft.closedBottles) || draft.closedBottles < 0 || !Number.isFinite(draft.capacityMl) || draft.capacityMl <= 0 || !Number.isFinite(draft.cost) || draft.cost < 0) throw new Error('Revisa nombre, stock, contenido y costo.')
-      if (!draft.sellBottle && !draft.sellPour && !draft.id) throw new Error('Selecciona una presentaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n o guarda solo como inventario.')
       if ((draft.sellBottle && (!Number.isFinite(draft.bottlePrice) || draft.bottlePrice <= 0)) || (draft.sellPour && (!Number.isFinite(draft.pourPrice) || draft.pourPrice <= 0))) throw new Error('Ingresa un precio para vender esta presentaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n.')
       const next = structuredClone(state); const id = draft.id || crypto.randomUUID(); const existing = next.inventory.find(item => item.id === id)
       const item = { id, name: draft.name.trim(), category: draft.category.trim() || 'Licores', unit: 'unit' as const, current: draft.closedBottles, minimum: draft.minimum, unitCost: draft.cost, bottleCapacityMl: draft.capacityMl, openBottleMl: existing?.openBottleMl || 0, linkedProductIds: existing?.linkedProductIds || [] }
@@ -259,11 +258,20 @@ export function useNightclubController(initial: () => NightclubDataset, actor: s
       for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
       return next
     }),
-    onSaveSimpleInventoryProduct: (draft: { name: string; category: string; quantity: number; minimum: number; unit: 'unit' | 'ml' | 'g' | 'l' | 'kg'; cost: number; price: number; presentation: string; sell: boolean }) => apply(state => {
+    onSaveSimpleInventoryProduct: (draft: { id?: string; name: string; category: string; quantity: number; minimum: number; unit: 'unit' | 'ml' | 'g' | 'l' | 'kg'; cost: number; price: number; presentation: string; sell: boolean; sellPour?: boolean; pourMl?: number; pourPrice?: number }) => apply(state => {
       if (!draft.name.trim() || !Number.isFinite(draft.quantity) || draft.quantity < 0 || !Number.isFinite(draft.cost) || draft.cost < 0 || !Number.isFinite(draft.price) || draft.price < 0) throw new Error('Revisa nombre, cantidad, costo y precio.')
-      const next = structuredClone(state); const id = crypto.randomUUID(); const scale = draft.unit === 'kg' || draft.unit === 'l' ? 1000 : 1; const baseUnit = draft.unit === 'kg' ? 'g' : draft.unit === 'l' ? 'ml' : draft.unit; const item = { id, name: draft.name.trim(), category: draft.category, unit: baseUnit, displayUnit: draft.unit, current: draft.quantity * scale, minimum: draft.minimum * scale, unitCost: draft.cost / scale, linkedProductIds: [] as string[] }
-      next.inventory.push(item)
-      if (draft.sell) { const productId = `presentation:${id}:unit`; next.products.push({ id: productId, name: `${item.name} - ${draft.presentation}`, category: draft.category, price: draft.price, preparationArea: 'Barra', stockUnits: 0, inventoryMode: 'recipe', recipe: [{ inventoryId: id, quantity: 1 }], active: true }); item.linkedProductIds.push(productId) }
+      if (draft.sellPour && (!['ml', 'l'].includes(draft.unit) || !Number.isFinite(draft.pourMl) || (draft.pourMl || 0) <= 0 || !Number.isFinite(draft.pourPrice) || (draft.pourPrice || 0) <= 0)) throw new Error('Revisa medida y precio de venta de la jarra.')
+      const next = structuredClone(state); const id = draft.id || crypto.randomUUID(); const scale = draft.unit === 'kg' || draft.unit === 'l' ? 1000 : 1; const baseUnit = draft.unit === 'kg' ? 'g' : draft.unit === 'l' ? 'ml' : draft.unit; const existing = next.inventory.find(candidate => candidate.id === id); const item = { id, name: draft.name.trim(), category: draft.category, unit: baseUnit, displayUnit: draft.unit, current: draft.quantity * scale, minimum: draft.minimum * scale, unitCost: draft.cost / scale, linkedProductIds: existing?.linkedProductIds || [] as string[] }
+      const itemIndex = next.inventory.findIndex(candidate => candidate.id === id); if (itemIndex >= 0) next.inventory[itemIndex] = item; else next.inventory.push(item)
+      if (draft.sell) { const productId = `presentation:${id}:unit`; const product = { id: productId, name: `${item.name} - ${draft.presentation}`, category: draft.category, price: draft.price, preparationArea: 'Barra' as const, stockUnits: 0, inventoryMode: 'recipe' as const, recipe: [{ inventoryId: id, quantity: 1 }], active: true }; const productIndex = next.products.findIndex(candidate => candidate.id === productId); if (productIndex >= 0) next.products[productIndex] = product; else next.products.push(product); if (!item.linkedProductIds.includes(productId)) item.linkedProductIds.push(productId) }
+      const pourId = `presentation:${id}:pour`
+      const existingPourIndex = next.products.findIndex(candidate => candidate.id === pourId)
+      if (draft.sellPour || existingPourIndex >= 0) {
+        const pourProduct = { id: pourId, name: `${item.name} - Jarra`, category: draft.category, price: draft.pourPrice || 0, preparationArea: 'Barra' as const, stockUnits: 0, inventoryMode: 'recipe' as const, recipe: [{ inventoryId: id, quantity: draft.pourMl || 1000, unit: 'ml' as const }], active: Boolean(draft.sellPour) }
+        if (existingPourIndex >= 0) next.products[existingPourIndex] = { ...next.products[existingPourIndex], ...pourProduct }
+        else next.products.push(pourProduct)
+        if (!item.linkedProductIds.includes(pourId)) item.linkedProductIds.push(pourId)
+      }
       for (const product of next.products) product.stockUnits = nightclubProductAvailability(product, next.inventory)
       return next
     }),

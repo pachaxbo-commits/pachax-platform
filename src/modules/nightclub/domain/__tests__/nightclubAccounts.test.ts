@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createNightclubDataset } from '../nightclubDatasets.ts'
-import { advanceNightclubRound, deliverNightclubRound, exchangeNightclubPaidProduct, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubBarQueue, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary, openNightclubAccount, openNightclubBottle, recordNightclubPayment, refundNightclubRound, requestNightclubBill, sendNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
+import { advanceNightclubRound, deliverNightclubRound, exchangeNightclubPaidProduct, finishNightclubOccupancy, nightclubAccountLabel, nightclubBalance, nightclubBarQueue, nightclubCashSummary, nightclubPaidTotal, nightclubProductAvailability, nightclubProfitSummary, openNightclubAccount, openNightclubBottle, recordNightclubPayment, refundNightclubRound, requestNightclubBill, sendNightclubRound, settleNightclubRound } from '../nightclubAccounts.ts'
 import { registerNightclubCourtesy } from '../nightclubCourtesies.ts'
 import { nightclubAccountTimeline, selectNightclubHistory } from '../nightclubHistory.ts'
 
@@ -300,6 +300,23 @@ test('licor por vaso abre botella automáticamente y no duplica el descuento', (
   assert.equal(manual.inventory[0].openBottleMl, 750)
 })
 
+test('receta de práctica calcula disponibilidad en ml y descuenta insumos al enviar la ronda', () => {
+  const { data: initial, id } = setup()
+  initial.inventory = [
+    { id: 'demo-tutorial-ron-v1', name: 'Ron de práctica', unit: 'unit', current: 2, minimum: 0, bottleCapacityMl: 750, openBottleMl: 0 },
+    { id: 'demo-tutorial-coca-v1', name: 'Coca-Cola de práctica', unit: 'ml', displayUnit: 'ml', current: 3000, minimum: 0 },
+  ]
+  initial.products = [{ id: 'demo-tutorial-ron-coca-v1', name: 'Vaso de ron con Coca-Cola — Práctica', category: 'Tragos / Cócteles', price: 20, preparationArea: 'Barra', stockUnits: 0, inventoryMode: 'recipe', recipe: [{ inventoryId: 'demo-tutorial-ron-v1', quantity: 50, unit: 'ml' }, { inventoryId: 'demo-tutorial-coca-v1', quantity: 150, unit: 'ml' }] }]
+  assert.equal(nightclubProductAvailability(initial.products[0], initial.inventory), 20)
+  const sent = sendNightclubRound(initial, id, [{ productId: initial.products[0].id, quantity: 1 }], 'Mesero', at, 'demo-recipe-practice')
+  assert.equal(sent.accounts[0].rounds[0].status, 'pending')
+  assert.equal(sent.inventory.find(item => item.id === 'demo-tutorial-ron-v1')?.current, 1)
+  assert.equal(sent.inventory.find(item => item.id === 'demo-tutorial-ron-v1')?.openBottleMl, 700)
+  assert.equal(sent.inventory.find(item => item.id === 'demo-tutorial-coca-v1')?.current, 2850)
+  assert.equal(sent.inventoryMovements.filter(item => item.type === 'sale' || item.type === 'bottle_opened' || item.type === 'pour').length, 3)
+  assert.equal(sendNightclubRound(sent, id, [{ productId: initial.products[0].id, quantity: 1 }], 'Mesero', at, 'demo-recipe-practice'), sent)
+})
+
 
 test('refresco de 2 L guarda 2000 ml y descuenta jarras y recetas en ml', () => {
   const { data: initial, id } = setup()
@@ -322,6 +339,42 @@ test('refresco de 2 L guarda 2000 ml y descuenta jarras y recetas en ml', () => 
   const afterRecipe = settleNightclubRound(secondJar, id, [{ productId: 'coca-receta', quantity: 1 }], { method: 'qr' }, 'Barra', at, 'coca-receta-1')
   assert.equal(afterRecipe.inventory[0].current, 99)
   assert.equal(afterRecipe.inventory[0].openBottleMl, 850)
+})
+
+test('jarra de 1 litro y receta comparten también un inventario antiguo medido en ml', () => {
+  const { data: initial, id } = setup()
+  initial.inventory = [{ id: 'coca-ml', name: 'Coca-Cola', category: 'Refrescos', unit: 'ml', displayUnit: 'ml', current: 3000, minimum: 0, unitCost: 0.02 }]
+  initial.products = [
+    { id: 'presentation:coca-ml:pour', name: 'Coca-Cola - Jarra', category: 'Refrescos', price: 25, preparationArea: 'Barra', stockUnits: 3, inventoryMode: 'recipe', recipe: [{ inventoryId: 'coca-ml', quantity: 1000, unit: 'ml' }], active: true },
+    { id: 'vaso-coca', name: 'Vaso con Coca-Cola', category: 'Tragos', price: 20, preparationArea: 'Barra', stockUnits: 20, inventoryMode: 'recipe', recipe: [{ inventoryId: 'coca-ml', quantity: 150, unit: 'ml' }], active: true },
+  ]
+  const afterJar = settleNightclubRound(initial, id, [{ productId: 'presentation:coca-ml:pour', quantity: 1 }], { method: 'qr' }, 'Barra', at, 'jarra-1')
+  assert.equal(afterJar.inventory[0].current, 2000)
+  const afterGlass = settleNightclubRound(afterJar, id, [{ productId: 'vaso-coca', quantity: 1 }], { method: 'qr' }, 'Barra', at, 'vaso-1')
+  assert.equal(afterGlass.inventory[0].current, 1850)
+  assert.equal(nightclubProductAvailability(afterGlass.products[0], afterGlass.inventory), 1)
+})
+
+test('botella completa y receta consumen el mismo Ron físico sin duplicar stock ni costo', () => {
+  const { data: initial, id } = setup()
+  initial.inventory = [
+    { id: 'shared-ron', name: 'Ron', category: 'Licores', unit: 'unit', current: 10, minimum: 0, unitCost: 80, bottleCapacityMl: 750, openBottleMl: 0 },
+    { id: 'shared-coca', name: 'Coca-Cola', category: 'Refrescos', unit: 'unit', current: 1, minimum: 0, unitCost: 40, bottleCapacityMl: 2000, openBottleMl: 0 },
+  ]
+  initial.products = [
+    { id: 'ron-bottle-350', name: 'Ron - Botella', category: 'Licores', price: 350, preparationArea: 'Barra', stockUnits: 10, inventoryMode: 'recipe', recipe: [], bottlePresentation: { inventoryId: 'shared-ron', kind: 'bottle' } },
+    { id: 'ron-coca-glass', name: 'Vaso de ron con Coca-Cola', category: 'Tragos / Cócteles', price: 30, preparationArea: 'Barra', stockUnits: 0, inventoryMode: 'recipe', recipe: [{ inventoryId: 'shared-ron', quantity: 50, unit: 'ml' }, { inventoryId: 'shared-coca', quantity: 150, unit: 'ml' }] },
+  ]
+  assert.equal(nightclubProductAvailability(initial.products[0], initial.inventory), 10)
+  assert.equal(nightclubProductAvailability(initial.products[1], initial.inventory), 13)
+  const bottle = sendNightclubRound(initial, id, [{ productId: 'ron-bottle-350', quantity: 1 }], 'Mesero', at, 'shared-bottle-sale')
+  const cocktail = sendNightclubRound(bottle, id, [{ productId: 'ron-coca-glass', quantity: 1 }], 'Mesero', at, 'shared-cocktail-sale')
+  assert.deepEqual(cocktail.inventory.map(item => [item.id, item.current, item.openBottleMl]), [['shared-ron', 8, 700], ['shared-coca', 0, 1850]])
+  assert.equal(8 * 750 + 700, 7500 - 750 - 50)
+  assert.equal(0 * 2000 + 1850, 2000 - 150)
+  assert.equal(cocktail.accounts[0].payments.length, 0)
+  assert.equal(cocktail.accounts[0].rounds[1].items[0].costAtSale, 8.33)
+  assert.equal(cocktail.inventoryMovements.filter(item => item.inventoryId === 'shared-ron' && (item.type === 'sale' || item.type === 'bottle_opened' || item.type === 'pour')).length, 3)
 })
 
 
