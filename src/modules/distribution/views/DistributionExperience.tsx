@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   Boxes,
   ClipboardList,
@@ -15,6 +15,7 @@ import {
   BarChart3,
   Printer,
   Settings2,
+  Sparkles,
 } from 'lucide-react'
 import { getVisibleModules, type ModuleId } from '../../../config/businessTypes'
 import { BottomNav, type BottomNavItem } from '../../../components/ui/BottomNav'
@@ -40,6 +41,16 @@ import { QrView } from './QrView'
 import { WarehousesView } from './WarehousesView'
 import type { Permission, UserRole } from '../../../types'
 import type { DistributionData } from '../state/useDistributionStore'
+import type { DistributionIndustryProfile } from '../types'
+import { DistributionTutorial } from '../tutorials/DistributionTutorial'
+import { DistributionTutorialCenter } from '../tutorials/DistributionTutorialCenter'
+import {
+  createDistributionTutorialPlans,
+  loadTutorialProgress,
+  saveTutorialProgress,
+  type DistributionTutorialPlan,
+  type DistributionTutorialProgress,
+} from '../tutorials/distributionTutorials'
 import {
   type BusinessIdentity,
   type BusinessDocumentContext,
@@ -95,6 +106,10 @@ export interface DistributionExperienceProps {
   onUploadLogo?: (file: File) => Promise<string>
   activeModuleOverride?: ModuleId
   onModuleChange?: (module: ModuleId) => void
+  activeProfile?: DistributionIndustryProfile
+  onSelectProfile?: (profile: DistributionIndustryProfile) => void
+  onResetPractice?: () => void
+  initialOpenTour?: boolean
 }
 
 const MODULE_ICONS: Partial<Record<ModuleId, BottomNavItem<ModuleId>['icon']>> = {
@@ -132,6 +147,10 @@ export function DistributionExperience({
   onUploadLogo,
   activeModuleOverride,
   onModuleChange,
+  activeProfile = 'food',
+  onSelectProfile,
+  onResetPractice,
+  initialOpenTour = false,
 }: DistributionExperienceProps) {
   const modules = useMemo(
     () => getVisibleModules('mobile_distribution', session.can, session.role),
@@ -139,6 +158,31 @@ export function DistributionExperience({
   )
 
   const [internalModule, setInternalModule] = useState<ModuleId>('dist.dashboard')
+  const [currentProfile, setCurrentProfile] = useState<DistributionIndustryProfile>(activeProfile)
+  const [isTutorialCenterOpen, setIsTutorialCenterOpen] = useState(initialOpenTour)
+  const [activeTourPlan, setActiveTourPlan] = useState<DistributionTutorialPlan | null>(null)
+  const [activeStepIndex, setActiveStepIndex] = useState(0)
+
+  useEffect(() => {
+    if (activeProfile && activeProfile !== currentProfile) {
+      setCurrentProfile(activeProfile)
+    }
+  }, [activeProfile, currentProfile])
+
+  const [progressMap, setProgressMap] = useState<Record<string, DistributionTutorialProgress>>(() =>
+    loadTutorialProgress(session.role, currentProfile)
+  )
+
+  const tutorialPlans = useMemo(
+    () =>
+      createDistributionTutorialPlans({
+        role: session.role,
+        profile: currentProfile,
+        can: session.can,
+        modules: modules.map((m) => m.id),
+      }),
+    [session.role, currentProfile, session.can, modules]
+  )
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
   const [copiedOperationId, setCopiedOperationId] = useState('')
@@ -292,7 +336,7 @@ export function DistributionExperience({
         style={{ borderBottomColor: 'var(--primary-soft)' }}
       >
         <div className="mx-auto grid w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-          <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex min-w-0 items-center gap-2.5" data-tutorial-target="header-identity">
             {effectiveLogoUrl ? (
               <img
                 src={effectiveLogoUrl}
@@ -318,13 +362,32 @@ export function DistributionExperience({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsTutorialCenterOpen(true)}
+              data-tutorial-target="tutorial-trigger-btn"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-bold text-sky-800 transition hover:bg-sky-100 cursor-pointer shadow-xs"
+            >
+              <Sparkles size={14} className="text-sky-600" />
+              <span className="hidden sm:inline">Tutorial interactivo</span>
+              <span className="sm:hidden">Tutorial</span>
+            </button>
             <span className="sm:hidden">
               <SyncStatusPill state={syncState} compact />
             </span>
             <span className="hidden sm:inline-flex">
               <SyncStatusPill state={syncState} />
             </span>
-            {onSignOut && (
+            <button
+            type="button"
+            onClick={() => setIsTutorialCenterOpen(true)}
+            data-tutorial-target="sidebar-tutorial-btn"
+            className="mt-2 flex min-h-[44px] items-center gap-2.5 rounded-2xl border border-sky-200 bg-sky-50/70 px-3 text-left text-xs font-bold text-sky-800 hover:bg-sky-100 transition cursor-pointer"
+          >
+            <Sparkles size={16} className="text-sky-600 shrink-0" />
+            <span className="min-w-0 break-words leading-tight">Tutorial por rubro</span>
+          </button>
+          {onSignOut && (
               <button
                 type="button"
                 onClick={() => setIsSignOutOpen(true)}
@@ -351,6 +414,7 @@ export function DistributionExperience({
               <button
                 key={module.id}
                 type="button"
+                data-tutorial-target={`nav-item-${module.id}`}
                 onClick={() => selectModule(module.id)}
                 className={`flex min-h-[44px] items-center gap-2.5 rounded-2xl px-3 text-left text-sm font-bold transition ${
                   isActive ? 'text-white' : 'text-slate-600 hover:bg-white'
@@ -520,6 +584,76 @@ export function DistributionExperience({
           )}
         </div>
       </Modal>
+      {/* Modal Centro de Tutoriales */}
+      <DistributionTutorialCenter
+        isOpen={isTutorialCenterOpen}
+        onClose={() => setIsTutorialCenterOpen(false)}
+        currentProfile={currentProfile}
+        onSelectProfile={(newProfile) => {
+          setCurrentProfile(newProfile)
+          setProgressMap(loadTutorialProgress(session.role, newProfile))
+          onSelectProfile?.(newProfile)
+        }}
+        plans={tutorialPlans}
+        progressMap={progressMap}
+        onStartPlan={(plan) => {
+          setActiveTourPlan(plan)
+          const savedProgress = progressMap[plan.id]
+          const resumeIndex = savedProgress?.status === 'in_progress' ? savedProgress.stepIndex : 0
+          setActiveStepIndex(resumeIndex)
+          setIsTutorialCenterOpen(false)
+          if (plan.steps[resumeIndex]?.module) {
+            selectModule(plan.steps[resumeIndex].module)
+          }
+        }}
+        onResetData={() => {
+          onResetPractice?.()
+          setIsTutorialCenterOpen(false)
+        }}
+        role={session.role}
+        companyName={effectiveCompanyName}
+      />
+
+      {/* Visor interactivo flotante con spotlight y overlay */}
+      {activeTourPlan && (
+        <DistributionTutorial
+          plan={activeTourPlan}
+          activeModule={activeModule}
+          onNavigate={selectModule}
+          initialStepIndex={activeStepIndex}
+          onStepChange={(newStepIndex) => {
+            setActiveStepIndex(newStepIndex)
+            saveTutorialProgress(session.role, currentProfile, activeTourPlan.id, {
+              status: 'in_progress',
+              stepIndex: newStepIndex,
+              lastUpdated: new Date().toISOString(),
+            })
+            setProgressMap(loadTutorialProgress(session.role, currentProfile))
+          }}
+          onDismiss={() => {
+            if (activeTourPlan) {
+              saveTutorialProgress(session.role, currentProfile, activeTourPlan.id, {
+                status: 'omitted',
+                stepIndex: activeStepIndex,
+                lastUpdated: new Date().toISOString(),
+              })
+              setProgressMap(loadTutorialProgress(session.role, currentProfile))
+            }
+            setActiveTourPlan(null)
+          }}
+          onComplete={() => {
+            if (activeTourPlan) {
+              saveTutorialProgress(session.role, currentProfile, activeTourPlan.id, {
+                status: 'completed',
+                stepIndex: activeTourPlan.steps.length - 1,
+                lastUpdated: new Date().toISOString(),
+              })
+              setProgressMap(loadTutorialProgress(session.role, currentProfile))
+            }
+            setActiveTourPlan(null)
+          }}
+        />
+      )}
     </div>
   )
 }

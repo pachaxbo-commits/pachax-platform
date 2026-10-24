@@ -29,6 +29,7 @@ export function BottomNav<T extends string>({
 
   return (
     <nav
+      data-tutorial-target="bottom-nav"
       className={`fixed bottom-0 left-0 right-0 z-40 flex items-stretch justify-around border-t border-slate-200 bg-white px-1 ${tabletVisible ? 'lg:hidden' : 'md:hidden'}`}
       style={{ paddingBottom: 'var(--safe-bottom)' }}
     >

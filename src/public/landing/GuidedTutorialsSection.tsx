@@ -61,7 +61,7 @@ const TUTORIAL_DATA: Record<TemplateId, TemplateTutorialMeta> = {
     id: 'distribution',
     name: 'Producción & Distribución',
     accentColor: '#0284C7',
-    demoRoute: '/demo/distribution',
+    demoRoute: '/demo/distribution?tour=start',
     steps: [
       {
         step: 1,
@@ -519,9 +519,9 @@ export function GuidedTutorialsSection() {
             {/* Pie de la Simulación con CTA hacia la Demo */}
             <div className="lg:col-span-12 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400 pt-4 border-t border-white/10">
               <span>
-                {selectedTemplate === 'restaurant'
-                  ? 'Guía interactiva paso a paso disponible en la demo oficial de Restaurante.'
-                  : 'Demo técnica disponible · Guía interactiva en desarrollo (G2).'}
+                {selectedTemplate === 'restaurant' || selectedTemplate === 'distribution'
+                  ? `Guía interactiva paso a paso disponible en la demo oficial de ${activeMeta.name}.`
+                  : 'Demo técnica disponible · Guía interactiva en desarrollo.'}
               </span>
               <button
                 type="button"
@@ -530,8 +530,8 @@ export function GuidedTutorialsSection() {
               >
                 <Play className="w-3.5 h-3.5 text-sky-400 fill-sky-400" />
                 <span>
-                  {selectedTemplate === 'restaurant'
-                    ? 'Probar demo con tutorial interactivo'
+                  {selectedTemplate === 'restaurant' || selectedTemplate === 'distribution'
+                    ? `Probar demo con tutorial interactivo (${activeMeta.name})`
                     : `Ver demo de ${activeMeta.name}`}
                 </span>
               </button>

@@ -1,4 +1,5 @@
 import type { DistributionData } from '../../modules/distribution/state/useDistributionStore.ts'
+import type { DistributionIndustryProfile } from '../../modules/distribution/types.ts'
 import { createFullDistributionDataset, createEmptyDistributionDataset } from '../datasets/distribution/distributionDatasets.ts'
 import type { DemoDatasetMode } from '../datasets/types.ts'
 import { getDemoItem, setDemoItem, clearDemoState } from '../core/demoContext.ts'
@@ -53,24 +54,26 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
   private listeners: ListenerMap = {}
   private allListeners = new Set<(data: DistributionData) => void>()
 
-  constructor(initialMode: DemoDatasetMode = 'full') {
-    this.data = this.loadOrSeed(initialMode)
+  constructor(initialMode: DemoDatasetMode = 'full', initialProfile?: DistributionIndustryProfile) {
+    this.data = this.loadOrSeed(initialMode, initialProfile)
   }
 
-  private loadOrSeed(mode: DemoDatasetMode): DistributionData {
+  private loadOrSeed(mode: DemoDatasetMode, profile?: DistributionIndustryProfile): DistributionData {
     const raw = getDemoItem(BUSINESS_TYPE, DATA_STORAGE_KEY)
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as DistributionData
         if (parsed && Array.isArray(parsed.products) && Array.isArray(parsed.customers)) {
-          if (!parsed.catalogSettings) parsed.catalogSettings = { id: 'catalog', tenantId: 'preview-distribution', industryProfile: 'mixed', categories: [{ id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: new Date().toISOString() }
-          return parsed
+          if (!profile || parsed.catalogSettings?.industryProfile === profile) {
+            if (!parsed.catalogSettings) parsed.catalogSettings = { id: 'catalog', tenantId: 'preview-distribution', industryProfile: profile || 'mixed', categories: [{ id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: new Date().toISOString() }
+            return parsed
+          }
         }
       } catch {
         // Fallback to seed on parse error
       }
     }
-    const seed = mode === 'empty' ? createEmptyDistributionDataset().data : createFullDistributionDataset().data
+    const seed = mode === 'empty' ? createEmptyDistributionDataset().data : createFullDistributionDataset(profile).data
     this.persist(seed)
     return seed
   }
@@ -80,10 +83,14 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
     setDemoItem(BUSINESS_TYPE, DATA_STORAGE_KEY, JSON.stringify(newData))
   }
 
-  public reset(mode: DemoDatasetMode = 'full'): void {
+  public reset(mode: DemoDatasetMode = 'full', profile?: DistributionIndustryProfile): void {
     clearDemoState(BUSINESS_TYPE)
-    this.data = this.loadOrSeed(mode)
+    this.data = this.loadOrSeed(mode, profile)
     this.notifyAll()
+  }
+
+  public switchProfile(profile: DistributionIndustryProfile): void {
+    this.reset('full', profile)
   }
 
   public getData(): DistributionData {

@@ -78,6 +78,7 @@ export function DistributorHomeView({
           ))}
         </div>
 
+        <div data-tutorial-target="distributor-stock-summary">
         <SectionCard title="Mi carga">
           {routeStock.length === 0 ? (
             <p className="text-xs font-semibold text-slate-500">Almacen todavia no registro tu carga de hoy.</p>
@@ -94,6 +95,7 @@ export function DistributorHomeView({
             </div>
           )}
         </SectionCard>
+        </div>
 
         <SectionCard title="Mis movimientos de hoy">
           <div className="grid grid-cols-3 gap-2">

@@ -11,6 +11,8 @@ import type { UserRole, Permission } from '../../types'
 import { DemoDistributionRepository } from './demoDistributionRepository'
 import { setDistributionRepositoryAdapter } from '../../modules/distribution/data/distributionRepository'
 import { enterDemoMode, exitDemoMode } from '../core/demoContext'
+import type { DistributionIndustryProfile } from '../../modules/distribution/types'
+import { PROFILE_METADATA } from '../datasets/distribution/profileDatasets'
 
 export function DistributionDemo({
   simulatedRole = 'admin',
@@ -18,6 +20,7 @@ export function DistributionDemo({
   companyName,
   datasetMode = 'full',
   resetKey = 0,
+  initialProfile,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
@@ -26,11 +29,23 @@ export function DistributionDemo({
   companyName?: string
   datasetMode?: DemoDatasetMode
   resetKey?: number
+  initialProfile?: DistributionIndustryProfile
 }) {
+  const searchParams = useMemo(() => {
+    if (typeof window === 'undefined') return new URLSearchParams()
+    return new URLSearchParams(window.location.search)
+  }, [])
+
+  const initialProfileParam =
+    initialProfile || (searchParams.get('profile') as DistributionIndustryProfile | null) || 'food'
+  const tourParam = searchParams.get('tour')
+  const shouldOpenTour = tourParam === 'start' || tourParam === '1' || tourParam === 'true'
+
+  const [activeProfile, setActiveProfile] = useState<DistributionIndustryProfile>(initialProfileParam)
   const [isPrinterOpen, setIsPrinterOpen] = useState(false)
   const repoRef = useRef<DemoDistributionRepository | null>(null)
   if (!repoRef.current) {
-    repoRef.current = new DemoDistributionRepository(datasetMode)
+    repoRef.current = new DemoDistributionRepository(datasetMode, activeProfile)
   }
 
   const [currentData, setCurrentData] = useState(() => repoRef.current!.getData())
@@ -38,13 +53,13 @@ export function DistributionDemo({
   const prevResetRef = useRef(`${datasetMode}:${resetKey}`)
   if (prevResetRef.current !== `${datasetMode}:${resetKey}`) {
     prevResetRef.current = `${datasetMode}:${resetKey}`
-    repoRef.current.reset(datasetMode)
+    repoRef.current.reset(datasetMode, activeProfile)
     setCurrentData(repoRef.current.getData())
   }
 
   useEffect(() => {
     enterDemoMode('route_distribution')
-    const repo = repoRef.current || new DemoDistributionRepository(datasetMode)
+    const repo = repoRef.current || new DemoDistributionRepository(datasetMode, activeProfile)
     repoRef.current = repo
     setDistributionRepositoryAdapter(repo)
 
@@ -57,7 +72,7 @@ export function DistributionDemo({
       setDistributionRepositoryAdapter(null)
       exitDemoMode()
     }
-  }, [datasetMode, resetKey])
+  }, [datasetMode, resetKey, activeProfile])
 
   const [dayKeys, setDayKeys] = useState<string[]>(() => {
     return [new Date().toISOString().slice(0, 10)]
@@ -66,9 +81,12 @@ export function DistributionDemo({
   const role = (simulatedRole as UserRole) || 'admin'
   const can = useMemo(() => (permission: Permission) => hasPermission(role, permission), [role])
 
+  const profileMeta = PROFILE_METADATA[activeProfile] || PROFILE_METADATA.food
+  const effectiveCompanyName = companyName || profileMeta.commercialName
+
   const session: DistributionSession = {
     tenantId: 'preview-distribution',
-    restaurantName: companyName || 'Distribuidora Demo',
+    restaurantName: effectiveCompanyName,
     uid:
       role === 'distributor'
         ? 'v1'
@@ -109,6 +127,26 @@ export function DistributionDemo({
     lastError: null,
   }
 
+  const handleSelectProfile = (newProfile: DistributionIndustryProfile) => {
+    setActiveProfile(newProfile)
+    if (typeof window !== 'undefined' && window.history?.replaceState) {
+      const url = new URL(window.location.href)
+      url.searchParams.set('profile', newProfile)
+      window.history.replaceState({}, '', url.toString())
+    }
+    repoRef.current?.switchProfile(newProfile)
+    if (repoRef.current) {
+      setCurrentData({ ...repoRef.current.getData() })
+    }
+  }
+
+  const handleResetPractice = () => {
+    repoRef.current?.reset(datasetMode, activeProfile)
+    if (repoRef.current) {
+      setCurrentData({ ...repoRef.current.getData() })
+    }
+  }
+
   return (
     <>
       <DistributionExperience
@@ -116,7 +154,11 @@ export function DistributionDemo({
         data={currentData}
         syncState={syncState}
         logoUrl={logoUrl}
-        companyName={companyName || 'Distribuidora Demo'}
+        companyName={effectiveCompanyName}
+        activeProfile={activeProfile}
+        onSelectProfile={handleSelectProfile}
+        onResetPractice={handleResetPractice}
+        initialOpenTour={shouldOpenTour}
         onSignOut={() => {
           window.location.assign('/')
         }}

@@ -177,7 +177,7 @@ export function InventoryView({ session, data }: DistributionViewProps) {
         {tab === 'central' && !isDistributor && (
           <>
             <TextInput value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar producto..." />
-            <div className="grid w-full min-w-0 gap-2 sm:grid-cols-2">
+            <div className="grid w-full min-w-0 gap-2 sm:grid-cols-2" data-tutorial-target="inventory-balances-table">
               {filteredProducts.map((product) => {
                 const stock = central.get(product.id) ?? 0
                 return (

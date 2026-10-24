@@ -130,3 +130,93 @@ Para preparar la integración segura a producción, se incorporaron controles es
 11. `src/admin/types.ts`
 12. `scripts/test-public-landing-browser.mjs`
 13. `docs/WORKSTREAM-GEMINI.md`
+
+
+---
+
+## 7. Bloque G2 — Tutorial Interactivo Universal de Distribución
+
+### 7.1 Objetivos y Alcance Implementado
+Se desarrolló el motor de tutorial interactivo completo para la plantilla **Producción y Distribución**, dotándola del mismo nivel de excelencia visual, interactividad con controles reales y filosofía de spotlight que el tutorial de Restaurante, adaptado minuciosamente a la realidad operativa de una distribuidora mayorista y de reparto.
+
+1. **Soporte Dinámico para los 9 Sectores Comerciales Canónicos:**
+   - `food` (Alimentos): *Distribuidora Valle Alimentos* (arroz 5 kg, aceite 1 L, frijol en conserva).
+   - `beverages` (Bebidas): *Distribuidora Refrescos del Valle* (agua mineral caja 12, gaseosa cola 350 ml, jugo néctar 1 L).
+   - `cleaning` (Limpieza): *Distribuidora Limpieza Integral* (detergente concentrado 1 L, lavandina 2 L, esponja multiuso).
+   - `hardware` (Ferretería): *Distribuidora FerreMax* (tornillos autoperforantes caja 100, alicate universal, pintura sintética 1 L).
+   - `pharmacy` (Farmacia): *Distribuidora Salud Comercial* (venda elástica 10 cm, alcohol 70% 500 ml, guantes látex caja 100).
+   - `pets` (Mascotas): *Distribuidora Mundo Mascotas* (alimento perro 5 kg, arena gato 4 kg, plato acero inox).
+   - `stationery` (Papelería): *Distribuidora Escolar* (cuaderno espiral 100 hojas, bolígrafos caja 12, archivador palanca).
+   - `spare_parts` (Repuestos): *Distribuidora AutoPartes* (aceite motor 20W50 1 L, pastillas freno, filtro aceite).
+   - `mixed` (Comercio Integral): *Distribuidora Comercial Integral* (artículos de muestra, empaque y granel).
+
+2. **Datasets Auténticos y Deterministas por Rubro (`profileDatasets.ts`):**
+   - Cada sector genera productos reales con SKU, presentaciones comerciales, costos y precios de referencia.
+   - Respeta estrictamente las limitaciones canónicas de unidades: unidades transaccionales permitidas son `kg`, `unit` o `package`. No se inventaron conversiones automáticas ni atributos no soportados.
+   - Generación coherente de clientes asignados a la ruta (`route-norte`), stock inicial en almacén central, despacho abierto, ventas, cuentas por cobrar, cobros y gastos.
+
+3. **Gating Estricto de Recorridos por Rol:**
+   - **Propietario / Administrador:** Acceso a los 6 recorridos temáticos (*Primeros pasos*, *Inventario y almacén central*, *Rutas y despachos*, *Ventas y cobranzas*, *Retornos y conciliación*, *Administración y reportes*).
+   - **Distribuidor:** Acceso exclusivo a recorridos de operación en carretera (*Primeros pasos*, *Ventas en ruta*, *Declaración de retorno y cierre*). Sin acceso a inventario general ni finanzas.
+   - **Almacén:** Acceso exclusivo a control físico (*Primeros pasos*, *Inventario y lotes*, *Despacho de camiones*, *Recepción física de retornos*). Sin acceso a ventas ni cobranzas.
+   - **Contabilidad:** Acceso a *Arqueo de dinero*, *Cartera de créditos* y *Reportes*.
+
+4. **Motor de Posicionamiento Inteligente (`tutorialLayout.ts`):**
+   - Algoritmo que calcula el cuadrante óptimo (arriba, abajo, izquierda, derecha) para la tarjeta de instrucciones según la posición del elemento objetivo.
+   - En pantallas móviles (< 768px), invierte automáticamente arriba/abajo para no tapar el objetivo táctil ni superponerse con la barra de navegación inferior.
+   - Detección de elementos objetivo ausentes o en carga con aviso amigable y botón de reintento/avance.
+
+5. **Aislamiento y Modo Práctica Seguro:**
+   - Progreso guardado de forma aislada en el almacenamiento de sesión de demo (`demoContext.ts`), particionado por rol y sector.
+   - Botón *"Reiniciar datos de práctica"* en el Centro de Tutoriales que limpia mutaciones temporales y restablece el dataset limpio sin tocar datos de otros roles ni plantillas.
+
+6. **Integración con Navegación y Landing:**
+   - Parámetros de URL transparentes: `/demo/distribution?tour=start&profile=beverages` abre de inmediato el Centro de Tutoriales con el sector preseleccionado.
+   - Botón CTA de Distribución en la landing (`GuidedTutorialsSection.tsx`) actualizado para enlazar directamente al tour interactivo.
+
+---
+
+### 7.2 Matriz de Verificación y Evidencia
+
+| Verificación | Herramienta / Comando | Resultado |
+| :--- | :--- | :--- |
+| **Typecheck TypeScript** | `npm run typecheck` (`tsc -b`) | **PASS (0 errores en todo el proyecto)** |
+| **Build de Producción** | `npm run build` (`tsc -b && vite build`) | **PASS (4.80s, bundles generados)** |
+| **Suite de Plataforma** | `npm run test:platform` | **PASS (202/202 pruebas aprobadas)** |
+| **Suite de Tutoriales G2** | `node --experimental-strip-types --test tests/distributionTutorials.test.ts` | **PASS (7/7 pruebas aprobadas)** |
+| **Navegador Headless 360×800** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Modal 9 sectores, spotlight, navegación)** |
+| **Navegador Headless 390×844** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Cambio a Bebidas, tracks de rol)** |
+| **Navegador Headless 430×932** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Disposición Pro Max validada)** |
+| **Navegador Headless 768×1024** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Tablet vertical validada)** |
+| **Navegador Headless 1440×900** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Desktop sidebar + spotlight)** |
+| **Aislamiento Rol Distribuidor** | `node scripts/test-distribution-tour-browser.mjs` | **PASS (Sin almacén ni finanzas)** |
+| **Capturas de Evidencia** | 11 screenshots generados en directorio de artefactos | **COMPLETADO (45 KB a 135 KB c/u)** |
+
+---
+
+### 7.3 Archivos Creados y Modificados en G2
+
+**Archivos Creados:**
+1. `src/demo/datasets/distribution/profileDatasets.ts` (9 sectores comerciales, metadatos, productos y clientes).
+2. `src/modules/distribution/tutorials/tutorialLayout.ts` (motor de cálculo de coordenadas y cuadrantes).
+3. `src/modules/distribution/tutorials/distributionTutorials.ts` (contratos de datos, generador dinámico de 6 recorridos y persistencia).
+4. `src/modules/distribution/tutorials/DistributionTutorial.tsx` (componente de spotlight, overlay oscurecido y auto-scroll).
+5. `src/modules/distribution/tutorials/DistributionTutorialCenter.tsx` (modal interactivo con selector de 9 sectores y tracks por rol).
+6. `tests/distributionTutorials.test.ts` (suite exhaustiva de pruebas unitarias y de integración de G2).
+7. `scripts/test-distribution-tour-browser.mjs` (script de automatización CDP para pruebas en navegador real en 5 viewports).
+
+**Archivos Modificados:**
+1. `src/demo/datasets/distribution/distributionDatasets.ts` (inyección de perfiles respetando 100% retrocompatibilidad con `p-viena`).
+2. `src/demo/distribution/demoDistributionRepository.ts` (métodos `switchProfile` y `reset` con perfil).
+3. `src/demo/distribution/DistributionDemo.tsx` (manejo de query params `?tour=...`, `?profile=...`, switch de perfil y reset).
+4. `src/modules/distribution/views/DistributionExperience.tsx` (montaje del Centro de Tutoriales, spotlight flotante, botones de cabecera y sidebar).
+5. `src/components/ui/BottomNav.tsx` (atributos `data-tutorial-target` para navegación inferior).
+6. `src/modules/distribution/views/DashboardView.tsx` (atributos `data-tutorial-target`).
+7. `src/modules/distribution/views/DistributorHomeView.tsx` (atributos `data-tutorial-target`).
+8. `src/modules/distribution/views/InventoryView.tsx` (atributos `data-tutorial-target`).
+9. `src/modules/distribution/views/DispatchesView.tsx` (atributos `data-tutorial-target`).
+10. `src/modules/distribution/views/SellView.tsx` (atributos `data-tutorial-target`).
+11. `src/modules/distribution/views/ClosureView.tsx` (atributos `data-tutorial-target`).
+12. `src/modules/distribution/views/ReportsView.tsx` (atributos `data-tutorial-target`).
+13. `src/public/landing/GuidedTutorialsSection.tsx` (vínculo directo al tour interactivo de Distribución).
+14. `docs/WORKSTREAM-GEMINI.md` (bitácora actualizada).

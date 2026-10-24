@@ -569,6 +569,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
         {/* =========================================================================
             SECCIÓN 1: PRODUCTOS EN RUTA Y CONCILIACIÓN FÍSICA
            ========================================================================= */}
+        <div data-tutorial-target="closure-physical-reconciliation">
         <SectionCard title="Conciliación física de productos">
           <div className="grid gap-3">
             {productRows.map((row) => {
@@ -852,6 +853,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
             })}
           </div>
         </SectionCard>
+        </div>
 
         {/* =========================================================================
             BOTÓN ACCIÓN PASO 1: DECLARAR RETORNO PARA ALMACÉN
@@ -931,7 +933,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
 
                 {canCloseMoney && existingClosure?.status !== 'closed' && (
                   <div className="mt-3">
-                    <PrimaryButton full disabled={isSubmitting || !loaded || !returnsAlreadyApplied} onClick={() => void submit('closed')}>
+                    <PrimaryButton data-tutorial-target="closure-submit-btn" full disabled={isSubmitting || !loaded || !returnsAlreadyApplied} onClick={() => void submit('closed')}>
                       <Lock size={16} /> Cerrar ruta
                     </PrimaryButton>
                   </div>

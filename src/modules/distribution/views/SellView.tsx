@@ -422,7 +422,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
           />
         </div>
 
-        <div className="grid w-full min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid w-full min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4" data-tutorial-target="sell-products-catalog">
           {filteredProducts.map((product) => {
             const stock = availableStock.get(product.id) ?? 0
             return (
@@ -541,7 +541,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
         title={saleKind === 'courtesy' ? 'Registrar cortesía / muestra' : 'Cobrar venta'}
         subtitle={saleKind === 'courtesy' ? 'Sin cobro comercial (Bs 0.00)' : formatBs(total)}
         footer={
-          <PrimaryButton full disabled={isSubmitting} onClick={() => void confirmSale()}>
+          <PrimaryButton data-tutorial-target="sell-confirm-btn" full disabled={isSubmitting} onClick={() => void confirmSale()}>
             {isSubmitting
               ? 'Registrando...'
               : saleKind === 'courtesy'
@@ -642,7 +642,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
                   : 'Opcional en venta al contado.'
             }
           >
-            <SecondaryButton full onClick={() => setIsCustomerOpen(true)}>
+            <SecondaryButton data-tutorial-target="sell-customer-selector" full onClick={() => setIsCustomerOpen(true)}>
               {selectedCustomer ? `${selectedCustomer.name} · ${selectedCustomer.customerCode || selectedCustomer.identityNumber || ''}` : 'Seleccionar cliente'}
             </SecondaryButton>
           </Field>
