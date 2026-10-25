@@ -1,7 +1,7 @@
 # Candidata mínima de demos para `pachax-app`
 
-Fecha: 25/10/2026  
-Base: `origin/main` `3b67ffdfb8a01ee4e1b6740d16271d79158ac9e7`  
+Fecha: 25/10/2026
+Base: `origin/main` `3b67ffdfb8a01ee4e1b6740d16271d79158ac9e7`
 Rama: `codex/demo-public-main-minimal`
 
 ## Alcance
