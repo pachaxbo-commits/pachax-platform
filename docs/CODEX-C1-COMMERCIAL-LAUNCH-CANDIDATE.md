@@ -1,7 +1,7 @@
 # C1 — Candidata mínima de catálogo y solicitudes comerciales
 
-Fecha: 2026-10-25  
-Rama: `codex/commercial-launch-candidate`  
+Fecha: 2026-10-25
+Rama: `codex/commercial-launch-candidate`
 Base: `origin/main` `c927b45e7f7ad6347086b589970a10e21376d6a7`
 
 ## Alcance incluido
