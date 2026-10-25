@@ -3,8 +3,11 @@ import { Plus, Save, Trash2, CheckCircle2, AlertCircle, Globe, EyeOff, Loader2 }
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { TemplateTierPlan } from '../../types'
 import type { TemplateKey } from '../../../public/config/pricingConfig'
+import { useAdminAuth } from '../../auth/adminAuthStore'
 
 export function PlansSection() {
+  const { user } = useAdminAuth()
+  const canApprovePrice = user?.role === 'platform_owner'
   const { config, updatePlan, createPlan, deletePlan, togglePublishPlan } = useCommercialConfig()
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('restaurant')
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
@@ -14,6 +17,7 @@ export function PlansSection() {
 
   const templateTabs: { id: TemplateKey; label: string }[] = [
     { id: 'restaurant', label: 'Restaurante' },
+    { id: 'hamburger', label: 'Restaurante Rápido' },
     { id: 'distribution', label: 'Distribuidora' },
     { id: 'nightclub', label: 'Nightclub & Lounge' },
     { id: 'retail', label: 'Ventas Express' },
@@ -43,6 +47,10 @@ export function PlansSection() {
 
   const handleSave = async () => {
     if (!formData) return
+    if (formData.status === 'published' && formData.priceApproval !== 'approved') {
+      setSaveError('Antes de publicar, confirma que el precio y el alcance comercial fueron aprobados.')
+      return
+    }
 
     // Validar límite de planes por template (máx 1 gratuito, máx 3 de pago)
     if (formData.status === 'published') {
@@ -87,6 +95,10 @@ export function PlansSection() {
     const nextStatus = formData.status === 'published' ? 'draft' : 'published'
 
     if (nextStatus === 'published') {
+      if (formData.priceApproval !== 'approved') {
+        setSaveError('Este borrador sigue como referencia. Confirma la aprobación del precio antes de publicarlo.')
+        return
+      }
       if (formData.planKind === 'free') {
         const freeCount = plansForTemplate.filter(
           (p) => p.id !== formData.id && p.status === 'published' && p.planKind === 'free',
@@ -136,8 +148,8 @@ export function PlansSection() {
       name: 'Nuevo Plan',
       planKind: 'paid',
       tierLevel: 1,
-      monthlyPriceUSD: 29,
-      annualPriceUSD: 24,
+      monthlyPriceUSD: 0,
+      annualPriceUSD: 0,
       currency: 'USD',
       billingPeriod: 'monthly',
       clientProfile: 'Perfil de empresa adecuado para este plan.',
@@ -146,6 +158,7 @@ export function PlansSection() {
       technicalEntitlements: [],
       ctaLabel: 'Elegir Plan',
       status: 'draft',
+      priceApproval: 'pending',
       order: plansForTemplate.length + 1,
     }
     const res = await createPlan(newPlan)
@@ -181,6 +194,7 @@ export function PlansSection() {
     setFormData({
       ...formData,
       includedFeatures: [...formData.includedFeatures, 'Nueva característica'],
+      priceApproval: 'pending',
     })
   }
 
@@ -188,7 +202,7 @@ export function PlansSection() {
     if (!formData) return
     const updated = [...formData.includedFeatures]
     updated[idx] = val
-    setFormData({ ...formData, includedFeatures: updated })
+    setFormData({ ...formData, includedFeatures: updated, priceApproval: 'pending' })
   }
 
   const handleRemoveFeature = (idx: number) => {
@@ -196,7 +210,12 @@ export function PlansSection() {
     setFormData({
       ...formData,
       includedFeatures: formData.includedFeatures.filter((_, i) => i !== idx),
+      priceApproval: 'pending',
     })
+  }
+
+  const updateCommercialField = <K extends keyof TemplateTierPlan>(field: K, value: TemplateTierPlan[K]) => {
+    setFormData((current) => current ? { ...current, [field]: value, priceApproval: 'pending' } : current)
   }
 
   return (
@@ -420,7 +439,7 @@ export function PlansSection() {
                   <input
                     type="text"
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onChange={(e) => updateCommercialField('name', e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900"
                   />
                 </div>
@@ -436,6 +455,7 @@ export function PlansSection() {
                       setFormData({
                         ...formData,
                         planKind: newKind,
+                        priceApproval: 'pending',
                         ...(newKind === 'free'
                           ? {
                               monthlyPriceUSD: 0,
@@ -471,6 +491,19 @@ export function PlansSection() {
                 </div>
               </div>
 
+              <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                <input type="checkbox" checked={formData.priceApproval === 'approved'} disabled={!canApprovePrice}
+                  onChange={(event) => setFormData({ ...formData, priceApproval: event.target.checked ? 'approved' : 'pending' })}
+                  className="mt-0.5" />
+                <span><strong>Aprobación comercial explícita:</strong> {canApprovePrice
+                  ? 'confirmo los precios y las características visibles. Solo incluye capacidades implementadas y verificadas; las futuras o cotizadas deben quedar fuera de esta lista. Esto no activa permisos técnicos.'
+                  : 'solo Platform Owner puede confirmar precios oficiales. Esto no activa permisos técnicos.'}</span>
+              </label>
+
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
+                <strong>Control técnico:</strong> los entitlements del plan no se activan con esta publicación. Billing Core aún no aplica límites ni permisos por plan; el servidor bloquea la publicación con entitlements técnicos hasta que exista ese control.
+              </div>
+
               {formData.planKind === 'free' && (
                 <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 text-xs font-medium flex items-start gap-2.5">
                   <AlertCircle className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
@@ -483,13 +516,13 @@ export function PlansSection() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Precio mensual ($ USD)
+                    Precio mensual ({formData.currency})
                   </label>
                   <input
                     type="number"
                     disabled={formData.planKind === 'free'}
                     value={formData.planKind === 'free' ? 0 : formData.monthlyPriceUSD}
-                    onChange={(e) => setFormData({ ...formData, monthlyPriceUSD: Number(e.target.value) })}
+                    onChange={(e) => updateCommercialField('monthlyPriceUSD', Number(e.target.value))}
                     className={`w-full border rounded-xl px-3 py-2 text-xs font-bold ${
                       formData.planKind === 'free'
                         ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
@@ -500,13 +533,13 @@ export function PlansSection() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Precio anual ($ USD/mes)
+                    Precio anual equivalente ({formData.currency}/mes)
                   </label>
                   <input
                     type="number"
                     disabled={formData.planKind === 'free'}
                     value={formData.planKind === 'free' ? 0 : formData.annualPriceUSD}
-                    onChange={(e) => setFormData({ ...formData, annualPriceUSD: Number(e.target.value) })}
+                    onChange={(e) => updateCommercialField('annualPriceUSD', Number(e.target.value))}
                     className={`w-full border rounded-xl px-3 py-2 text-xs font-bold ${
                       formData.planKind === 'free'
                         ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
@@ -522,7 +555,7 @@ export function PlansSection() {
                   <input
                     type="text"
                     value={formData.limitsLabel || ''}
-                    onChange={(e) => setFormData({ ...formData, limitsLabel: e.target.value })}
+                    onChange={(e) => updateCommercialField('limitsLabel', e.target.value)}
                     placeholder="Ej. 1 estación · 1 caja"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
                   />
@@ -545,7 +578,7 @@ export function PlansSection() {
                   ) : (
                     <select
                       value={formData.tierLevel || 1}
-                      onChange={(e) => setFormData({ ...formData, tierLevel: Number(e.target.value) as 1 | 2 | 3 })}
+                    onChange={(e) => updateCommercialField('tierLevel', Number(e.target.value) as 1 | 2 | 3)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900"
                     >
                       <option value={1}>Tier 1 (Entrada / Básico)</option>
@@ -576,7 +609,7 @@ export function PlansSection() {
                     type="text"
                     placeholder="Ej. Más elegido"
                     value={formData.badge || ''}
-                    onChange={(e) => setFormData({ ...formData, badge: e.target.value || undefined })}
+                    onChange={(e) => updateCommercialField('badge', e.target.value || undefined)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
                   />
                 </div>
@@ -588,7 +621,7 @@ export function PlansSection() {
                   <input
                     type="text"
                     value={formData.ctaLabel || 'Elegir Plan'}
-                    onChange={(e) => setFormData({ ...formData, ctaLabel: e.target.value })}
+                    onChange={(e) => updateCommercialField('ctaLabel', e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
                   />
                 </div>
@@ -614,7 +647,7 @@ export function PlansSection() {
                 <textarea
                   rows={2}
                   value={formData.clientProfile}
-                  onChange={(e) => setFormData({ ...formData, clientProfile: e.target.value })}
+                  onChange={(e) => updateCommercialField('clientProfile', e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
                 />
               </div>

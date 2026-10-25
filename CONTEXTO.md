@@ -1,5 +1,15 @@
 # Continuidad del proyecto PACHAX
 
+## Admin B1 + C1: núcleo comercial y solicitudes de contratación (25/10/2026)
+
+- Rama de trabajo aislada `codex/commercial-core-c1`, basada en `origin/main` `c927b45e7f7ad6347086b589970a10e21376d6a7`. Se recuperó selectivamente Admin B1 desde `codex/admin-commercial-b1` (`841f80d`), sin integrar ramas completas ni editar landing, demos o tutoriales protegidos. No se hizo push, Preview, merge, despliegue o cambio en Firebase remoto.
+- Admin conserva cinco identidades técnicas/comerciales independientes y cinco pestañas. Hamburger corresponde a `hamburger_shop` y queda separado de `restaurant_pos`; la compatibilidad histórica solo normaliza la referencia antigua `restaurant` al guardar Hamburger.
+- Los catálogos de planes y extras inician como borradores. Publicar exige contenido/precio aprobado por Platform Owner, plantilla correcta y `technicalEntitlements` vacío. Semillas publicadas antiguas no se reemplazan automáticamente. La landing no usa precios estáticos ni LocalStorage como fallback público; la conexión visual a G2.4 queda pendiente de integración con Gemini.
+- C1 agrega interés autenticado y propuestas en borrador con precio/versionado snapshot, autorización Functions, auditoría e idempotencia. No crea tenant, suscripción, pago ni entitlements. Hamburger y Retail continúan `coming_soon`; no se conectó `/register` ni se habilitó contratación.
+- Verificación en emuladores aislados `demo-pachax-c1`: Functions core y Rules generadas, typecheck, build emulator, lint focal, contrato de catálogo, Admin unitario (29/29), seguridad Platform (61 comprobaciones) y onboarding (23) aprobados. No se hizo QA de navegador de la nueva sección de solicitudes. Node 24 del host difiere del runtime de Functions configurado (22), y el build conserva la advertencia de chunks grandes.
+- Auditoría de Storage solo de código documentada en `docs/CODEX-C1-COMMERCIAL-CORE-ONBOARDING.md`: uploads de producto no coinciden con las Rules actuales; SVG de logos requiere sanitización/revisión. El bucket remoto no fue consultado ni modificado.
+- Decisión: GO local para revisión del núcleo Admin/interés/propuesta; NO-GO para onboarding público, catálogo visual conectado, contratación, pagos o entitlements. Ver el informe de C1 para alcance, seguridad y dependencias.
+
 ## Candidata mínima: demos Hamburger y Retail en pachax-app (25/10/2026)
 
 - Rama local `codex/demo-public-main-minimal`, creada directamente desde `origin/main` `3b67ffdfb8a01ee4e1b6740d16271d79158ac9e7`. Se conservan intactos los worktrees D5 e integración (`codex/demo-hosting-d5`, `codex/demo-app-integration`) y sus commits. No se hizo push, Preview, merge ni despliegue.

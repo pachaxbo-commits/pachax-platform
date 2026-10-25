@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Shield,
   ShieldAlert,
+  MessageSquareText,
   Menu,
   X,
 } from 'lucide-react'
@@ -28,6 +29,7 @@ import { MediaSection } from './sections/MediaSection'
 import { ClientsSection } from './sections/ClientsSection'
 import { StudioAdminSection } from './sections/StudioAdminSection'
 import { AdministratorsSection } from './sections/AdministratorsSection'
+import { CommercialIntentsSection } from './sections/CommercialIntentsSection'
 import { AdminLoginView } from './AdminLoginView'
 
 type AdminTab =
@@ -40,6 +42,7 @@ type AdminTab =
   | 'clients'
   | 'studio'
   | 'administrators'
+  | 'commercial-intents'
 
 export function AdminShell() {
   const { user, isAuthenticated, logout, status } = useAdminAuth()
@@ -102,6 +105,9 @@ export function AdminShell() {
     { id: 'media', label: 'Biblioteca de media', icon: Image },
     { id: 'clients', label: 'Clientes / Tenants', icon: Users },
     { id: 'studio', label: 'PACHAX Studio', icon: MonitorPlay },
+    ...(['platform_owner', 'platform_admin'].includes(user.role)
+      ? [{ id: 'commercial-intents' as AdminTab, label: 'Solicitudes comerciales', icon: MessageSquareText }]
+      : []),
     ...(user.role === 'platform_owner'
       ? [{ id: 'administrators' as AdminTab, label: 'Administradores', icon: Shield }]
       : []),
@@ -240,6 +246,7 @@ export function AdminShell() {
           {activeTab === 'clients' && <ClientsSection />}
           {activeTab === 'studio' && <StudioAdminSection />}
           {activeTab === 'administrators' && <AdministratorsSection />}
+          {activeTab === 'commercial-intents' && <CommercialIntentsSection />}
         </div>
       </main>
     </div>

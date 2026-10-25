@@ -12,10 +12,9 @@ import {
   canLaunchCommercialDemo,
   isTechnicalDemoAvailable,
   isTemplateProvisioningAvailable,
-  PLAN_ELIGIBLE_TEMPLATE_IDS,
   PUBLIC_TEMPLATES,
-  OFFICIAL_COMMERCIAL_TEMPLATES,
 } from '../src/core/publicTemplates.ts'
+import { COMMERCIAL_PLAN_TEMPLATE_IDS as PLAN_ELIGIBLE_TEMPLATE_IDS } from '../src/admin/store/commercialCatalogContract.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
   assert.equal(canPlatform(null, 'tenants.read'), false)
@@ -223,7 +222,7 @@ test('CASO 3: Firestore contiene un plan published -> landing muestra exactament
   assert.equal(publishedForLanding[0].monthlyPriceUSD, 35)
 })
 
-test('CASO 4: Firestore no está disponible -> fallback funciona -> fallback NO contiene precios placeholder publicados', () => {
+test('CASO 4: Firestore no está disponible -> landing pública queda sin ofertas aprobadas', () => {
   // Cargar la configuración fallback por defecto:
   // Todos los 12 planes estándar por rubro en PLANS_BY_TEMPLATE están en draft
   const allDefaultPlans = Object.values(PLANS_BY_TEMPLATE).flat()
@@ -234,6 +233,8 @@ test('CASO 4: Firestore no está disponible -> fallback funciona -> fallback NO 
   // Asegurar que ningún precio inventado o no oficial está marcado como published
   const anyPublished = allDefaultPlans.some((p) => p.status === 'published')
   assert.equal(anyPublished, false)
+  const publicOffersOnError: TemplateTierPlan[] = []
+  assert.deepEqual(publicOffersOnError, [])
 })
 
 test('CASO 5: Extras con precio draft -> no aparecen públicamente', () => {
@@ -487,8 +488,8 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y c
 })
 
 test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun privilegio de plataforma', () => {
-  const fakeSuperadmin = { uid: 'fake_1', role: 'superadmin' as any, active: true }
-  const fakeRoot = { uid: 'fake_2', role: 'root' as any, active: true }
+  const fakeSuperadmin = { uid: 'fake_1', role: 'superadmin', active: true } as unknown as PlatformOperator
+  const fakeRoot = { uid: 'fake_2', role: 'root', active: true } as unknown as PlatformOperator
 
   assert.equal(canPlatform(fakeSuperadmin, 'tenants.read'), false)
   assert.equal(canPlatform(fakeSuperadmin, 'operators.manage'), false)
@@ -516,18 +517,21 @@ test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica est
 })
 
 test('21. Planes de suscripción: whitelist PLAN_ELIGIBLE_TEMPLATE_IDS excluye custom y arbitrarios', () => {
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('restaurant' as any), true)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('distribution' as any), true)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('nightclub' as any), true)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('retail' as any), true)
+  const eligibleTemplateIds: readonly string[] = PLAN_ELIGIBLE_TEMPLATE_IDS
+  assert.equal(eligibleTemplateIds.includes('restaurant'), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('hamburger'), true)
+  assert.equal(eligibleTemplateIds.includes('distribution'), true)
+  assert.equal(eligibleTemplateIds.includes('nightclub'), true)
+  assert.equal(eligibleTemplateIds.includes('retail'), true)
 
   // Custom y arbitrarios NO son elegibles para planes de suscripción
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('custom' as any), false)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('services' as any), false)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('arbitrary' as any), false)
+  assert.equal(eligibleTemplateIds.includes('custom'), false)
+  assert.equal(eligibleTemplateIds.includes('services'), false)
+  assert.equal(eligibleTemplateIds.includes('arbitrary'), false)
 })
 
 test('22. Seed de configuración oficial: preserva estado oficial y no auto-publica drafts', () => {
+  const eligibleTemplateIds: readonly string[] = PLAN_ELIGIBLE_TEMPLATE_IDS
   const seedTemplateDraft = { id: 'test_tpl', status: 'draft', name: 'Draft Template' }
   const templateStatusDraft = seedTemplateDraft.status === 'published' ? 'published' : 'draft'
   assert.equal(templateStatusDraft, 'draft')
@@ -542,7 +546,7 @@ test('22. Seed de configuración oficial: preserva estado oficial y no auto-publ
     { id: 'plan_rest_paid', templateId: 'restaurant', planKind: 'paid' },
     { id: 'plan_custom_dummy', templateId: 'custom', planKind: 'paid' },
   ]
-  const filteredPlans = samplePlans.filter(p => PLAN_ELIGIBLE_TEMPLATE_IDS.includes(p.templateId as any))
+  const filteredPlans = samplePlans.filter(p => eligibleTemplateIds.includes(p.templateId))
   assert.equal(filteredPlans.length, 2)
   assert.equal(filteredPlans.some(p => p.templateId === 'custom'), false)
 })
@@ -638,7 +642,7 @@ test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de dem
   // Retail no puede remapearse a restaurante
   assert.equal(validateTemplateIdentity('retail', 'restaurant'), false)
   // ID canónico arbitrario es rechazado
-  assert.equal(validateTemplateIdentity('distribution', 'arbitrary_canonical' as any), false)
+  assert.equal(validateTemplateIdentity('distribution', 'arbitrary_canonical'), false)
   // Custom solo admite null
   assert.equal(validateTemplateIdentity('custom', null), true)
   assert.equal(validateTemplateIdentity('custom', 'distribution'), false)

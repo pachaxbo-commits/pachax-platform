@@ -7,6 +7,7 @@ const tenants = require('./tenants.cjs');
 const { prepareCleanDelivery, executeCleanDelivery } = require('./maintenance.cjs');
 const { PACHAX_FUNCTIONS_REGION } = require('./regions.cjs');
 const platform = require('./platform.cjs');
+const commercialOnboarding = require('./commercialOnboarding.cjs');
 const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
 const { executeRestaurantCommand } = require('./restaurant.cjs');
@@ -41,6 +42,7 @@ exports.tenantGateway = onCall(options, async request => {
       assertProvisionableTemplate(bType);
       return onboarding.completeOnboarding(db, auth, request);
     }
+    case 'submitCommercialInterest': return commercialOnboarding.submitCommercialInterest(db, request);
     case 'createTenant': {
       const bType = request.data?.businessType;
       assertProvisionableTemplate(bType);

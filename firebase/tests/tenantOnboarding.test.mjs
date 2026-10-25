@@ -6,10 +6,13 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { BRAND_PALETTES } from '../../src/core/brandPalettes.ts'
 
-const projectId = 'demo-pachax-platform'
+const projectId = process.env.C1_PROJECT_ID || 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) throw new Error('Proyecto no autorizado para QA onboarding.')
 process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8185'
 process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9195'
+const firestoreEndpoint = process.env.FIRESTORE_EMULATOR_HOST.split(':')
+const authOrigin = `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}`
+const functionsOrigin = process.env.C1_FUNCTIONS_ORIGIN || 'http://127.0.0.1:5101'
 const require = createRequire(new URL('../../functions/package.json', import.meta.url))
 const { initializeApp } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
@@ -30,7 +33,7 @@ const ids = {
 const paletteOwners = Object.fromEntries(BRAND_PALETTES.map(palette => [palette.id, `onboarding-palette-${palette.id}-${suffix}`]))
 const env = await initializeTestEnvironment({
   projectId,
-  firestore: { host: '127.0.0.1', port: 8185, rules: fs.readFileSync('firebase/firestore.rules', 'utf8') },
+  firestore: { host: firestoreEndpoint[0], port: Number(firestoreEndpoint[1]), rules: fs.readFileSync('firebase/firestore.rules', 'utf8') },
 })
 const app = initializeApp({ projectId }, `tenant-onboarding-${suffix}`)
 const db = getFirestore(app)
@@ -39,7 +42,7 @@ let checks = 0
 const pass = message => { checks++; console.log('PASS', message) }
 
 async function signIn(uid) {
-  const response = await fetch('http://127.0.0.1:9195/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=emulator', {
+  const response = await fetch(`${authOrigin}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=emulator`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ email: `${uid}@example.test`, password: 'Emulator123!', returnSecureToken: true }),
   })
@@ -48,7 +51,7 @@ async function signIn(uid) {
 }
 
 async function callOnboarding(token, data) {
-  const response = await fetch(`http://127.0.0.1:5101/${projectId}/southamerica-west1/tenantGateway`, {
+  const response = await fetch(`${functionsOrigin}/${projectId}/southamerica-west1/tenantGateway`, {
     method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ data: { action: 'completeOnboarding', ...data } }),
   })
