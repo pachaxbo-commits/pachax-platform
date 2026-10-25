@@ -69,7 +69,7 @@ exports.publicCommercialGateway = onCall({
 }, async request => {
   const db = getFirestore();
   switch (request.data?.action) {
-    case 'getCatalog': return commercialOnboarding.getPublicCommercialCatalog(db);
+    case 'getCatalog': return commercialOnboarding.getPublicCommercialCatalog(db, request, publicCommercialRateLimitSecret.value(), { emulator: process.env.FUNCTIONS_EMULATOR === 'true' });
     case 'submitInterest': return commercialOnboarding.submitPublicCommercialInterest(db, request, publicCommercialRateLimitSecret.value(), { emulator: process.env.FUNCTIONS_EMULATOR === 'true' });
     default: throw new HttpsError('invalid-argument', 'Acción pública comercial no reconocida.');
   }

@@ -8,6 +8,9 @@ const { platformActor, cleanText, auditPlatform } = require('./platformAuthoriza
 const MAX_PUBLIC_CATALOG_TEMPLATES = 20;
 const MAX_PUBLIC_CATALOG_PLANS = 50;
 const MAX_PUBLIC_CATALOG_EXTRAS = 100;
+const PUBLIC_CATALOG_PER_MINUTE_LIMIT = 20;
+const PUBLIC_CATALOG_PER_DAY_LIMIT = 300;
+const PUBLIC_COMMERCIAL_CONSENT_VERSION = 'public-commercial-2026-10-v1';
 
 function publicString(value, max = 240) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -157,7 +160,8 @@ function safePublicLandingContent(value = {}) {
   };
 }
 
-async function getPublicCommercialCatalog(db) {
+async function getPublicCommercialCatalog(db, request, rateLimitSecret, options = {}) {
+  await consumePublicCatalogQuota(db, request, rateLimitSecret, options);
   const [templates, plans, extras, media, landing] = await Promise.all([
     db.collection('platformTemplates').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_TEMPLATES + 1).get(),
     db.collection('platformPlans').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_PLANS + 1).get(),
@@ -191,6 +195,39 @@ async function getPublicCommercialCatalog(db) {
 
 function rateLimitDigest(secret, kind, value) {
   return createHmac('sha256', secret).update(`${kind}:${value}`).digest('hex');
+}
+
+async function consumePublicCatalogQuota(db, request, rateLimitSecret, options = {}) {
+  if (typeof rateLimitSecret !== 'string' || rateLimitSecret.length < 32) {
+    throw new HttpsError('failed-precondition', 'El catálogo comercial no está disponible temporalmente.');
+  }
+  const ip = publicString(request.rawRequest?.ip, 100);
+  if (!ip && options.emulator !== true) {
+    throw new HttpsError('failed-precondition', 'No se pudo verificar el origen de la consulta.');
+  }
+  const ipKey = rateLimitDigest(rateLimitSecret, 'ip', ip || 'emulator-local');
+  const ref = db.doc(`platformCommercialRateLimits/${ipKey}`);
+  const nowMs = Date.now();
+  const day = new Date(nowMs).toISOString().slice(0, 10);
+  const minute = new Date(nowMs).toISOString().slice(0, 16);
+  const expiresAt = Timestamp.fromMillis(nowMs + 30 * 24 * 60 * 60 * 1000);
+  await db.runTransaction(async tx => {
+    const snapshot = await tx.get(ref);
+    const previous = snapshot.data() || {};
+    const dailyCount = previous.catalogDay === day ? Number(previous.catalogCount || 0) : 0;
+    const minuteCount = previous.catalogMinute === minute ? Number(previous.catalogMinuteCount || 0) : 0;
+    if (dailyCount >= PUBLIC_CATALOG_PER_DAY_LIMIT || minuteCount >= PUBLIC_CATALOG_PER_MINUTE_LIMIT) {
+      throw new HttpsError('resource-exhausted', 'El catálogo recibió demasiadas consultas. Espera un momento e inténtalo de nuevo.');
+    }
+    tx.set(ref, {
+      catalogDay: day,
+      catalogCount: dailyCount + 1,
+      catalogMinute: minute,
+      catalogMinuteCount: minuteCount + 1,
+      expiresAt,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }, { maxAttempts: 10 });
 }
 
 function publicRequestDigest(input) {
@@ -280,6 +317,7 @@ async function submitPublicCommercialInterest(db, request, rateLimitSecret, opti
       branchCount,
       planSnapshot,
       consent: true,
+      consentVersion: PUBLIC_COMMERCIAL_CONSENT_VERSION,
       consentAt: now,
       source: 'public_landing',
       requestDigest: digest,
@@ -515,6 +553,7 @@ async function updateCommercialIntentStatus(db, request) {
 
 module.exports = {
   getPublicCommercialCatalog,
+  consumePublicCatalogQuota,
   submitPublicCommercialInterest,
   submitCommercialInterest,
   listCommercialIntents,

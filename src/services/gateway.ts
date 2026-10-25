@@ -15,5 +15,13 @@ export async function gateway<T>(name: 'tenantGateway' | 'platformGateway' | 'pu
     connectFunctionsEmulator(functions, window.location.hostname || '127.0.0.1', Number(import.meta.env.VITE_FUNCTIONS_EMULATOR_PORT || 5101))
     connected = true
   }
-  return (await httpsCallable<Record<string, unknown>, T>(functions, name)(payload)).data
+  try {
+    return (await httpsCallable<Record<string, unknown>, T>(functions, name)(payload)).data
+  } catch (cause) {
+    const code = typeof cause === 'object' && cause !== null && 'code' in cause ? String(cause.code) : ''
+    if (name === 'publicCommercialGateway' && ['functions/unauthenticated', 'functions/unavailable', 'functions/deadline-exceeded', 'functions/internal'].includes(code)) {
+      throw new Error('No pudimos verificar o enviar la solicitud. Recarga la página e inténtalo nuevamente.', { cause })
+    }
+    throw cause
+  }
 }

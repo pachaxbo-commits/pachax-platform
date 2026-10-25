@@ -117,11 +117,18 @@ async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
       const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
       const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY
       if (!useEmulator && appCheckSiteKey && !appCheckInitialized) {
-        initializeAppCheck(app, {
-          provider: new ReCaptchaV3Provider(appCheckSiteKey),
-          isTokenAutoRefreshEnabled: true,
-        })
-        appCheckInitialized = true
+        try {
+          initializeAppCheck(app, {
+            provider: new ReCaptchaV3Provider(appCheckSiteKey),
+            isTokenAutoRefreshEnabled: true,
+          })
+          appCheckInitialized = true
+        } catch {
+          // A bad/misconfigured public key must fail closed for protected
+          // callables without preventing unrelated Firebase services from
+          // initializing or the landing page from rendering.
+          console.warn('App Check no pudo inicializarse; las operaciones protegidas quedarán rechazadas.')
+        }
       }
       let db: Firestore
 
