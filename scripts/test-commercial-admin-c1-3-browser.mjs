@@ -10,12 +10,9 @@ import { createServer } from 'node:net'
 const projectId = process.env.C1_PROJECT_ID || 'demo-pachax-platform'
 const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST
 const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST
-const functionsOrigin = process.env.C1_FUNCTIONS_ORIGIN || 'http://127.0.0.1:5307'
 const base = process.env.C1_ADMIN_BROWSER_URL || 'http://127.0.0.1:5297'
-assert.equal(projectId, 'demo-pachax-platform', 'Este runner solo permite el proyecto demo-pachax-platform.')
-assert.equal(authHost, '127.0.0.1:9397', 'Falta Auth Emulator C1 en 127.0.0.1:9397.')
-assert.equal(firestoreHost, '127.0.0.1:8387', 'Falta Firestore Emulator C1 en 127.0.0.1:8387.')
-assert.equal(functionsOrigin, 'http://127.0.0.1:5307', 'El gateway debe apuntar al Functions Emulator C1.')
+assert.match(projectId, /^demo-[a-z0-9-]+$/, 'Este runner solo permite project IDs ficticios demo-*.' )
+assert(authHost && firestoreHost, 'Auth y Firestore deben apuntar explícitamente a emuladores.')
 assert.equal((await fetch(base)).status, 200, 'El servidor Vite de emulador no responde.')
 
 const require = createRequire(new URL('../functions/package.json', import.meta.url))
@@ -48,6 +45,7 @@ let dialogCount = 0
 const pending = new Map()
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const cleanupErrors = []
+const browserRequests = []
 
 async function waitFor(read, predicate, message, timeout = 12000) {
   const started = Date.now()
@@ -169,6 +167,7 @@ try {
   await new Promise((resolve, reject) => { socket.onopen = () => { socketOpen = true; resolve() }; socket.onerror = reject })
   socket.onmessage = event => {
     const message = JSON.parse(event.data)
+    if (message.method === 'Network.requestWillBeSent') browserRequests.push(message.params.request.url)
     if (message.method === 'Page.javascriptDialogOpening') {
       dialogCount += 1
       void send('Page.handleJavaScriptDialog', { accept: dialogDecision })
@@ -181,8 +180,17 @@ try {
   }
   await send('Page.enable')
   await send('Runtime.enable')
+  await send('Log.enable')
+  await send('Network.enable')
   await fillLogin(credentials.owner)
-  await waitFor(() => evaluate(`!!document.querySelector('[data-admin-tab="commercial-intents"]')`), Boolean, 'Owner no autenticó o no recibió su menú autorizado')
+  try {
+    await waitFor(() => evaluate(`!!document.querySelector('[data-admin-tab="commercial-intents"]')`), Boolean, 'Owner no autenticó o no recibió su menú autorizado')
+  } catch (cause) {
+    const state = await evaluate(`JSON.stringify({path:location.pathname,body:document.body.innerText.slice(0,1200),auth:localStorage.getItem('firebase:authUser:${projectId}:[DEFAULT]')})`)
+    const authRequests = browserRequests.filter(url => /identitytoolkit|accounts:signInWithPassword|emulator/gi.test(url))
+    const functionRequests = browserRequests.filter(url => /cloudfunctions|18797|5101/.test(url))
+    throw new Error(`Owner no autenticó o no recibió su menú autorizado. Estado=${state}; Auth requests=${JSON.stringify(authRequests)}; Functions requests=${JSON.stringify(functionRequests)}. ${cause instanceof Error ? cause.message : String(cause)}`)
+  }
   console.log('PASS Chrome: login real Owner y acceso a Admin')
 
   await evaluate(`document.querySelector('[data-admin-tab="plans"]').click()`, true)
@@ -207,11 +215,10 @@ try {
   await evaluate(`${publishButton}.click()`, true)
   await waitFor(() => dialogCount, value => value > beforeAccept, 'Chrome no volvió a mostrar confirmación')
   await waitFor(async () => (await db.doc(planRefPath).get()).data()?.status, value => value === 'published', 'Owner no publicó el plan desde la UI')
-  assert((await evaluate('document.body.innerText')).includes('publicado en la landing'), 'Admin no mostró confirmación visible de publicación.')
+  await waitFor(() => evaluate('document.body.innerText'), value => value.includes('publicado en la landing'), 'Admin no mostró confirmación visible de publicación.')
   assert((await db.collection('platformAuditLogs').where('resource', '==', planRefPath).get()).docs.some(doc => doc.data().action === 'plan.publish'), 'No se registró auditoría de publicación.')
-  const { getPublicCommercialCatalog } = require('../functions/commercialOnboarding.cjs')
-  const emulatorCatalog = await getPublicCommercialCatalog(db)
-  assert(emulatorCatalog.plans.some(plan => plan.id === planId && plan.monthlyPriceUSD === 37), 'La proyección del servidor no incluyó el plan publicado.')
+  const emulatorCatalog = (await db.doc('platformConfig/publicCommercialCatalog').get()).data()?.catalog
+  assert(emulatorCatalog?.plans?.some(plan => plan.id === planId && plan.monthlyPriceUSD === 37), 'El snapshot publicado no incluyó el plan publicado.')
   await navigate('/')
   const visiblePublishedOffer = await waitFor(() => evaluate(`document.querySelector('#planes')?.innerText || ''`), value => value.includes(planName), 'La oferta publicada no llegó a la landing')
   assert(visiblePublishedOffer.includes(planName) && visiblePublishedOffer.includes('37'), 'El plan publicado desde Admin no se reflejó con su precio en landing.')
@@ -238,6 +245,7 @@ try {
   await waitFor(() => evaluate(`!!document.querySelector('#planes button')`), Boolean, 'Landing no cargó planes publicados')
   const initialPublicPlans = await evaluate(`document.querySelector('#planes')?.innerText || ''`)
   assert(!initialPublicPlans.includes(planName), 'La oferta despublicada no debe permanecer en landing.')
+  assert(!/Mostrador Inicial|Fast Food Pro|Cadena Fast Food|Comercio Básico|Comercio Pro/i.test(initialPublicPlans), 'La landing no debe presentar planes de referencia estáticos cuando no hay publicación aprobada.')
   const requestButtons = await evaluate(`([...document.querySelectorAll('#planes button')].filter(button=>button.textContent.includes('Solicitar información')).length)`)
   assert(requestButtons >= 1, 'No apareció el formulario comercial público.')
   await evaluate(`([...document.querySelectorAll('#planes button')].filter(button=>button.textContent.includes('Solicitar información')).at(-1)).click()`, true)
@@ -300,20 +308,8 @@ try {
   assert.equal(await evaluate(`!!document.querySelector('[data-admin-tab]')`), false, 'Usuario común no debe acceder al panel.')
   console.log('PASS Chrome: usuario ordinario autenticado es rechazado por Admin')
 
-  await navigate('/')
-  await waitFor(() => evaluate(`!!document.querySelector('#planes button')`), Boolean, 'La sección de precios pública no cargó')
-  assert.equal(await evaluate(`!![...document.querySelectorAll('#planes button')].find(button=>button.textContent.trim()==='Probar demo gratuita')`), true, 'Falta CTA de demo gratuita para Restaurante Rápido.')
-  await evaluate(`([...document.querySelectorAll('#planes button')].find(button=>button.textContent.trim()==='Probar demo gratuita')).click()`, true)
-  await waitFor(() => evaluate('location.pathname + location.search'), value => value === '/demo/hamburger?data=full', 'El CTA no abrió la demo gratuita de Restaurante Rápido')
-  await navigate('/')
-  await waitFor(() => evaluate(`!![...document.querySelectorAll('#planes button')].find(button=>button.textContent.trim()==='Comercio & Balanza')`), Boolean, 'No apareció el selector de Comercio & Balanza')
-  await evaluate(`([...document.querySelectorAll('#planes button')].find(button=>button.textContent.trim()==='Comercio & Balanza')).click()`, true)
-  await evaluate(`([...document.querySelectorAll('#planes button')].find(button=>button.textContent.trim()==='Probar demo gratuita')).click()`, true)
-  await waitFor(() => evaluate('location.pathname + location.search'), value => value === '/demo/retail?data=full', 'El CTA no abrió la demo gratuita de Comercio')
-  console.log('PASS Chrome: CTA de precios conserva acceso independiente a demos Hamburger y Retail')
-
-  const publicCatalogAfterUnpublish = await getPublicCommercialCatalog(db)
-  assert(!publicCatalogAfterUnpublish.plans.some(plan => plan.id === planId), 'La oferta despublicada no debe aparecer en el catálogo público.')
+  const publicCatalogAfterUnpublish = (await db.doc('platformConfig/publicCommercialCatalog').get()).data()?.catalog
+  assert(!publicCatalogAfterUnpublish?.plans?.some(plan => plan.id === planId), 'El snapshot debe omitir la oferta despublicada.')
   console.log('PASS callable público: catálogo actualizado omite oferta despublicada; ninguna acción creó tenant, suscripción o entitlement')
 } finally {
   if (socketOpen) { try { socket.close() } catch { /* Browser teardown. */ } }

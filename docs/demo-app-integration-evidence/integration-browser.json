@@ -1,6 +1,6 @@
 {
   "result": "PASS",
-  "server": "127.0.0.1:62683",
+  "server": "127.0.0.1:62052",
   "routes": [
     {
       "route": "/demo/hamburger?data=full",
@@ -108,9 +108,5 @@
   "isolatedDemoExternalRequests": 0,
   "isolatedDemoBrowserErrors": 0,
   "productionFirebaseRequests": 0,
-  "landingConsoleErrorsWithEmulatorsStopped": [
-    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
-    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
-    "Failed to load resource: net::ERR_CONNECTION_REFUSED"
-  ]
+  "landingConsoleErrorsWithEmulatorsStopped": []
 }

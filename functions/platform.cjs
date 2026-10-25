@@ -26,6 +26,11 @@ const COMMERCIAL_PLAN_TEMPLATE_IDS = Object.freeze([...new Set([...PLAN_ELIGIBLE
 const READ_SESSION_MS = 60 * 60 * 1000;
 const EDIT_SESSION_MS = 15 * 60 * 1000;
 
+async function commitCommercialBatch(db, batch, refreshPublicSnapshot) {
+  if (refreshPublicSnapshot) return commercialOnboarding.commitPublicCatalogMutation(db, batch);
+  return batch.commit();
+}
+
 function limit(value, fallback = 25) {
   const parsed = Number(value ?? fallback);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > DIRECTORY_LIMIT) throw new HttpsError('invalid-argument', 'Límite inválido.');
@@ -445,7 +450,7 @@ async function publishPlan(db, request) {
     },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, status === 'published' || planData.status === 'published');
   return { success: true, planId, status };
 }
 
@@ -593,7 +598,7 @@ async function savePlan(db, request) {
     },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, status === 'published' || planSnap.data()?.status === 'published');
   return { success: true, planId };
 }
 
@@ -616,7 +621,7 @@ async function deletePlan(db, request) {
     metadata: { planId },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, planSnap.data().status === 'published');
   return { success: true, planId };
 }
 
@@ -744,7 +749,7 @@ async function saveTemplate(db, request) {
     },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, template.status === 'published' || previousTemplate.status === 'published');
   return { success: true, templateId };
 }
 
@@ -796,7 +801,7 @@ async function saveExtra(db, request) {
     metadata: { extraId, title: extra.title, status: extra.status, pricingType: extra.pricingType },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, extra.status === 'published' || previousExtra.status === 'published');
   return { success: true, extraId };
 }
 
@@ -818,7 +823,7 @@ async function deleteExtra(db, request) {
     metadata: { extraId },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, extraSnap.data().status === 'published');
   return { success: true, extraId };
 }
 
@@ -829,6 +834,7 @@ async function saveLandingContent(db, request) {
     throw new HttpsError('invalid-argument', 'Contenido de landing inválido.');
   }
   const landingRef = db.doc('platformConfig/publicLanding');
+  const previousLanding = await landingRef.get();
   const now = FieldValue.serverTimestamp();
 
   const batch = db.batch();
@@ -843,7 +849,7 @@ async function saveLandingContent(db, request) {
     reason: 'Actualización de textos y configuración editorial de la landing pública',
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, content.status === 'published' || previousLanding.data()?.status === 'published');
   return { success: true };
 }
 
@@ -855,6 +861,7 @@ async function saveMediaAsset(db, request) {
   }
   const assetId = cleanText(asset.id, 'ID de asset', 1, 100);
   const assetRef = db.doc(`platformMedia/${assetId}`);
+  const previousAsset = await assetRef.get();
   const now = FieldValue.serverTimestamp();
 
   const batch = db.batch();
@@ -870,7 +877,7 @@ async function saveMediaAsset(db, request) {
     metadata: { assetId, name: asset.name, url: asset.url },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, asset.status === 'published' || previousAsset.data()?.status === 'published');
   return { success: true, assetId };
 }
 
@@ -892,7 +899,7 @@ async function deleteMediaAsset(db, request) {
     metadata: { assetId },
   });
 
-  await batch.commit();
+  await commitCommercialBatch(db, batch, assetSnap.data().status === 'published');
   return { success: true, assetId };
 }
 
@@ -1007,7 +1014,7 @@ async function seedPlatformConfig(db, request) {
     reason: 'Inicialización de configuración oficial por defecto',
   });
 
-  await batch.commit();
+  await commercialOnboarding.commitPublicCatalogMutation(db, batch);
   return { success: true, message: 'Configuración oficial inicializada en Firestore con trazabilidad server-authoritative.' };
 }
 

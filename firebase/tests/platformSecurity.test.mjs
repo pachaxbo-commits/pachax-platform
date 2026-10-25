@@ -305,6 +305,37 @@ try {
   assert.equal(projectedPlan.priceApproval, 'approved')
   assert.equal('internalApproverUid' in projectedPlan, false)
   assert(!publicCatalog.plans.some(item => item.id === hamburgerPlan.id))
+  const publicCatalogMeta = (await db.doc('platformConfig/publicCommercialCatalogMeta').get()).data()
+  const publicCatalogSnapshot = (await db.doc('platformConfig/publicCommercialCatalog').get()).data()
+  assert.equal(publicCatalogSnapshot.revision, publicCatalogMeta.revision)
+  assert(publicCatalogSnapshot.catalog.plans.some(item => item.id === publishedAdminPlan.id))
+  const sourceCollectionNames = new Set(['platformTemplates', 'platformPlans', 'platformExtras', 'platformMedia'])
+  const guardedDb = new Proxy(db, {
+    get(target, property) {
+      if (property === 'collection') return name => {
+        if (sourceCollectionNames.has(name)) throw new Error(`Snapshot path queried source collection ${name}`)
+        return target.collection(name)
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+  const snapshotOnlyCatalog = await commercialOnboarding.getPublicCommercialCatalog(guardedDb, {
+    rawRequest: { ip: `198.51.100.${parseInt(suffix.slice(-1), 36) % 200 + 1}` },
+  }, 'emulator-only-snapshot-secret-32-bytes-minimum', { emulator: true })
+  assert.equal(snapshotOnlyCatalog.plans.some(item => item.id === publishedAdminPlan.id), true)
+  pass('snapshot publicado reduce la lectura estable a cuota + dos documentos; no consulta colecciones fuente')
+  const oldRevision = Number(publicCatalogMeta.revision)
+  await db.doc('platformConfig/publicCommercialCatalogMeta').set({ revision: oldRevision + 1 }, { merge: true })
+  await assert.rejects(() => commercialOnboarding.getPublicCommercialCatalog(db, {
+    rawRequest: { ip: `198.51.100.${parseInt(suffix.slice(-4), 36) % 200 + 1}` },
+  }, 'emulator-only-snapshot-secret-32-bytes-minimum', { emulator: true }), error => error.code === 'unavailable')
+  await commercialOnboarding.refreshPublicCommercialCatalogSnapshot(db)
+  const refreshedCatalog = await commercialOnboarding.getPublicCommercialCatalog(db, {
+    rawRequest: { ip: `198.51.100.${parseInt(suffix.slice(-5), 36) % 200 + 1}` },
+  }, 'emulator-only-snapshot-secret-32-bytes-minimum', { emulator: true })
+  assert.equal(refreshedCatalog.plans.some(item => item.id === publishedAdminPlan.id), true)
+  pass('desfase entre revisión y snapshot falla cerrado y vuelve a servir solo tras reconstrucción')
   pass('callable público entrega solo campos aprobados del catálogo Admin')
 
   const publicInterestInput = {
@@ -323,7 +354,7 @@ try {
   assert.equal(publicIntent.email, 'ana@example.test')
   assert.equal(publicIntent.businessType, 'Cafetería')
   assert.equal(publicIntent.planSnapshot.planId, publishedAdminPlan.id)
-  assert.equal(publicIntent.consentVersion, 'public-commercial-2026-10-v1')
+  assert.equal(publicIntent.consentVersion, 'public-commercial-2026-10-v2')
   assert.equal(publicIntent.tenantId, null)
   assert.equal(publicIntent.subscriptionStatus, null)
   assert.equal(publicIntent.entitlements, null)
@@ -338,7 +369,9 @@ try {
   pass('servidor rechaza consentimiento faltante y campos privados/forjados')
   await assertFails(setDoc(doc(unauthenticatedClient, 'platformCommercialIntents', 'direct-write'), { companyName: 'Hack' }))
   await assertFails(getDocs(collection(unauthenticatedClient, 'platformCommercialRateLimits')))
-  pass('cliente no puede escribir solicitudes ni leer rate limits directamente')
+  await assertFails(getDoc(doc(unauthenticatedClient, 'platformConfig', 'publicCommercialCatalog')))
+  await assertFails(getDoc(doc(unauthenticatedClient, 'platformConfig', 'publicCommercialCatalogMeta')))
+  pass('cliente no puede escribir solicitudes ni leer rate limits o snapshots internos directamente')
   const rateSecret = 'emulator-only-c1-3-rate-secret-32-bytes-minimum'
   for (let index = 0; index < 8; index++) {
     await commercialOnboarding.submitPublicCommercialInterest(db, {
@@ -370,6 +403,8 @@ try {
 
   const catalogCapIds = Array.from({ length: 51 }, (_, index) => `commercial-cap-${suffix}-${index}`)
   try {
+    await db.doc('platformConfig/publicCommercialCatalog').delete()
+    await db.doc('platformConfig/publicCommercialCatalogMeta').delete()
     await Promise.all(catalogCapIds.map((idValue, index) => db.doc(`platformPlans/${idValue}`).set({
       status: 'published', name: `Plan límite ${index}`, templateId: 'hamburger',
     })))
@@ -566,7 +601,7 @@ try {
   assert(onbNight.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con nightclub_lounge es PERMITIDO y converge')
 
-  assert.equal(checks, 70)
+    assert.equal(checks, 72)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()

@@ -2,7 +2,7 @@ import { getActiveTenant } from '../store/activeTenant.ts'
 import { gateway } from '../services/gateway.ts'
 import { validateFirebaseEnvironment } from '../config/firebaseEnvironment.ts'
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check'
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
 import {
   browserLocalPersistence,
   connectAuthEmulator,
@@ -119,7 +119,7 @@ async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
       if (!useEmulator && appCheckSiteKey && !appCheckInitialized) {
         try {
           initializeAppCheck(app, {
-            provider: new ReCaptchaV3Provider(appCheckSiteKey),
+            provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
             isTokenAutoRefreshEnabled: true,
           })
           appCheckInitialized = true

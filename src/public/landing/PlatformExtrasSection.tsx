@@ -5,16 +5,13 @@ import {
   Zap,
   Code2,
   Cpu,
-  ArrowRight,
   MessageSquare,
-  Check,
+  ArrowRight,
 } from 'lucide-react'
-import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialExtraService } from '../../admin/types'
 
 export function PlatformExtrasSection() {
-  const { navigate } = usePublicRouter()
   const { landingContent, publishedExtras } = useCommercialConfig()
 
   const featuredCustom = publishedExtras.find(
@@ -50,10 +47,6 @@ export function PlatformExtrasSection() {
 
     const url = `https://wa.me/${landingContent.officialWhatsAppNumber}?text=${encodeURIComponent(text)}`
     window.open(url, '_blank', 'noopener,noreferrer')
-  }
-
-  const handleRegisterAddon = (extra: CommercialExtraService) => {
-    navigate(`/register?intent=extra&extraId=${extra.id}`)
   }
 
   return (
@@ -102,27 +95,6 @@ export function PlatformExtrasSection() {
                   {featuredCustom.shortDescription}
                 </p>
 
-                <div className="space-y-2.5 pt-4 border-t border-slate-800 mb-8">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                    Capacidades del servicio:
-                  </div>
-                  <div className="flex items-start gap-2 text-xs text-slate-300">
-                    <Check className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                    <span>Integración con balanzas industriales, lectores térmicos y KDS</span>
-                  </div>
-                  <div className="flex items-start gap-2 text-xs text-slate-300">
-                    <Check className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                    <span>Conexión directa con ERPs contables, Facturación y CRM corporativo</span>
-                  </div>
-                  <div className="flex items-start gap-2 text-xs text-slate-300">
-                    <Check className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                    <span>Desarrollo de módulos exclusivos y workflows a medida para tu empresa</span>
-                  </div>
-                  <div className="flex items-start gap-2 text-xs text-slate-300">
-                    <Check className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                    <span>Acuerdos de Nivel de Servicio (SLA) con guardia de ingeniería</span>
-                  </div>
-                </div>
               </div>
 
               <div className="relative z-10 pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row gap-3">
@@ -133,13 +105,6 @@ export function PlatformExtrasSection() {
                 >
                   <MessageSquare className="w-4 h-4" />
                   <span>Consultar por WhatsApp</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleRegisterAddon(featuredCustom)}
-                  className="py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/15"
-                >
-                  Solicitar
                 </button>
               </div>
             </div>
@@ -219,10 +184,10 @@ export function PlatformExtrasSection() {
             </button>
             <button
               type="button"
-              onClick={() => navigate('/register')}
+              onClick={() => handleInquireWhatsApp()}
               className="w-full sm:w-auto px-7 py-4 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/20 transition-all cursor-pointer text-center"
             >
-              Crear mi empresa ahora
+              Solicitar propuesta
             </button>
           </div>
         </div>

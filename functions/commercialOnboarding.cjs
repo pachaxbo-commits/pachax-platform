@@ -10,7 +10,7 @@ const MAX_PUBLIC_CATALOG_PLANS = 50;
 const MAX_PUBLIC_CATALOG_EXTRAS = 100;
 const PUBLIC_CATALOG_PER_MINUTE_LIMIT = 20;
 const PUBLIC_CATALOG_PER_DAY_LIMIT = 300;
-const PUBLIC_COMMERCIAL_CONSENT_VERSION = 'public-commercial-2026-10-v1';
+const PUBLIC_COMMERCIAL_CONSENT_VERSION = 'public-commercial-2026-10-v2';
 
 function publicString(value, max = 240) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -160,14 +160,16 @@ function safePublicLandingContent(value = {}) {
   };
 }
 
-async function getPublicCommercialCatalog(db, request, rateLimitSecret, options = {}) {
-  await consumePublicCatalogQuota(db, request, rateLimitSecret, options);
+const PUBLIC_CATALOG_META_PATH = 'platformConfig/publicCommercialCatalogMeta';
+const PUBLIC_CATALOG_SNAPSHOT_PATH = 'platformConfig/publicCommercialCatalog';
+
+async function buildPublicCommercialCatalog(db, tx) {
   const [templates, plans, extras, media, landing] = await Promise.all([
-    db.collection('platformTemplates').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_TEMPLATES + 1).get(),
-    db.collection('platformPlans').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_PLANS + 1).get(),
-    db.collection('platformExtras').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_EXTRAS + 1).get(),
-    db.collection('platformMedia').where('status', '==', 'published').limit(51).get(),
-    db.doc('platformConfig/publicLanding').get(),
+    tx.get(db.collection('platformTemplates').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_TEMPLATES + 1)),
+    tx.get(db.collection('platformPlans').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_PLANS + 1)),
+    tx.get(db.collection('platformExtras').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_EXTRAS + 1)),
+    tx.get(db.collection('platformMedia').where('status', '==', 'published').limit(51)),
+    tx.get(db.doc('platformConfig/publicLanding')),
   ]);
   if (templates.size > MAX_PUBLIC_CATALOG_TEMPLATES || plans.size > MAX_PUBLIC_CATALOG_PLANS || extras.size > MAX_PUBLIC_CATALOG_EXTRAS || media.size > 50) {
     throw new HttpsError('resource-exhausted', 'El catálogo comercial supera el límite seguro de publicación.');
@@ -183,14 +185,62 @@ async function getPublicCommercialCatalog(db, request, rateLimitSecret, options 
     recommendedTemplate: publicString(snapshot.data().recommendedTemplate, 50),
     focalPointDefault: publicString(snapshot.data().focalPointDefault, 40),
   })).filter(asset => asset.name && asset.url);
-  return {
+  const catalog = {
     templates: publicTemplates.sort((a, b) => a.order - b.order),
     plans: publicPlans.sort((a, b) => a.order - b.order),
     extras: publicExtras.sort((a, b) => a.order - b.order),
     mediaAssets: publicMedia,
     landingContent: safePublicLandingContent(landing.exists && landing.data().status === 'published' ? landing.data() : {}),
-    fetchedAt: new Date().toISOString(),
   };
+  if (Buffer.byteLength(JSON.stringify(catalog), 'utf8') > 900_000) {
+    throw new HttpsError('resource-exhausted', 'El catálogo comercial publicado supera el tamaño seguro.');
+  }
+  return catalog;
+}
+
+async function refreshPublicCommercialCatalogSnapshot(db) {
+  const metaRef = db.doc(PUBLIC_CATALOG_META_PATH);
+  const snapshotRef = db.doc(PUBLIC_CATALOG_SNAPSHOT_PATH);
+  return db.runTransaction(async tx => {
+    const meta = await tx.get(metaRef);
+    const revision = Number(meta.data()?.revision || 0);
+    const catalog = await buildPublicCommercialCatalog(db, tx);
+    tx.set(snapshotRef, { revision, catalog, updatedAt: FieldValue.serverTimestamp() });
+    return revision;
+  }, { maxAttempts: 10 });
+}
+
+async function commitPublicCatalogMutation(db, batch) {
+  batch.set(db.doc(PUBLIC_CATALOG_META_PATH), {
+    revision: FieldValue.increment(1),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  await batch.commit();
+  // A mismatch makes reads fail closed if refreshing fails after this commit.
+  return refreshPublicCommercialCatalogSnapshot(db);
+}
+
+async function getPublicCommercialCatalog(db, request, rateLimitSecret, options = {}) {
+  await consumePublicCatalogQuota(db, request, rateLimitSecret, options);
+  const metaRef = db.doc(PUBLIC_CATALOG_META_PATH);
+  const snapshotRef = db.doc(PUBLIC_CATALOG_SNAPSHOT_PATH);
+  let catalog;
+  await db.runTransaction(async tx => {
+    const [meta, snapshot] = await Promise.all([tx.get(metaRef), tx.get(snapshotRef)]);
+    if (!meta.exists && !snapshot.exists) {
+      // First request on an existing installation initializes version zero.
+      catalog = await buildPublicCommercialCatalog(db, tx);
+      tx.create(snapshotRef, { revision: 0, catalog, updatedAt: FieldValue.serverTimestamp() });
+      return;
+    }
+    const revision = Number(meta.data()?.revision);
+    if (!meta.exists || !snapshot.exists || !Number.isSafeInteger(revision)
+      || Number(snapshot.data()?.revision) !== revision || !snapshot.data()?.catalog) {
+      throw new HttpsError('unavailable', 'El catálogo comercial se está actualizando. Inténtalo nuevamente en un momento.');
+    }
+    catalog = snapshot.data().catalog;
+  }, { maxAttempts: 10 });
+  return { ...catalog, fetchedAt: new Date().toISOString() };
 }
 
 function rateLimitDigest(secret, kind, value) {
@@ -560,4 +610,6 @@ module.exports = {
   prepareCommercialProposal,
   updateCommercialIntentStatus,
   safePublicPlan,
+  refreshPublicCommercialCatalogSnapshot,
+  commitPublicCatalogMutation,
 };

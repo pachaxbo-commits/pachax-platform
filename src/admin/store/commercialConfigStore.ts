@@ -737,6 +737,7 @@ export function useCommercialConfig() {
         : loadCommercialConfig())
       setPublicState(publicCatalogStatus)
       setTemplatesState(adminTemplatesState)
+      if (isPublicPage) syncPublicPublishedFromFirestore().catch(() => undefined)
     }
     window.addEventListener(EVENT_NAME, handleUpdate)
     window.addEventListener('storage', handleUpdate)

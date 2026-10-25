@@ -27,6 +27,11 @@ export function PublicCommercialInterestDialog({ templateId, planId, onClose }: 
     setError('')
     const form = new FormData(event.currentTarget)
     const branchCountValue = String(form.get('branchCount') || '').trim()
+    if (form.get('consent') !== 'on') {
+      setError('Debes aceptar el aviso de privacidad para enviar la solicitud.')
+      setBusy(false)
+      return
+    }
     try {
       await submitPublicCommercialInterest({
         requestId: requestKey,
@@ -74,7 +79,7 @@ export function PublicCommercialInterestDialog({ templateId, planId, onClose }: 
               <label className="block text-sm font-medium text-slate-700">Sucursales aproximadas <span className="font-normal text-slate-500">(opcional)</span><input name="branchCount" type="number" min={1} max={1000} step={1} inputMode="numeric" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3" /></label>
               <label className="block text-sm font-medium text-slate-700">¿Qué necesitas resolver? <span className="font-normal text-slate-500">(opcional)</span><textarea name="needs" maxLength={1000} rows={3} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label>
               <label className="hidden" aria-hidden="true">Sitio web<input name="website" tabIndex={-1} autoComplete="off" /></label>
-              <label className="flex items-start gap-2 text-sm text-slate-600"><input name="consent" type="checkbox" required className="mt-1 h-4 w-4" /><span>Acepto que PACHAX use estos datos para responder esta solicitud.</span></label>
+              <label className="flex items-start gap-2 text-sm text-slate-600"><input name="consent" type="checkbox" required className="mt-1 h-4 w-4" /><span>Leí el <a className="font-semibold text-blue-700 underline" href="/aviso-privacidad-solicitud-comercial.html" target="_blank" rel="noreferrer">aviso de privacidad</a> y autorizo el uso de mis datos para responder esta solicitud.</span></label>
               {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
               <button type="submit" disabled={busy} className="min-h-11 w-full rounded-xl bg-slate-900 px-4 font-semibold text-white disabled:cursor-wait disabled:opacity-60">{busy ? 'Enviando…' : 'Enviar solicitud'}</button>
             </form>
