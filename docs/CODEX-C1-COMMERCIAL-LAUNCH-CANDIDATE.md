@@ -6,7 +6,7 @@ Base: `origin/main` `c927b45e7f7ad6347086b589970a10e21376d6a7`
 
 ## Alcance incluido
 
-Esta candidata parte del `main` productivo y contiene cuatro commits locales: Admin comercial mínimo, catálogo/solicitud pública, controles C1.4 y este cierre de candidata. No se importaron los demás commits de `codex/commercial-c1-4`, los worktrees de Gemini/Darío, sus tutoriales ni funcionalidades de Distribución. Las demos existentes y sus entrypoints no se modifican.
+Esta candidata parte del `main` productivo. La selección inicial incluyó cuatro commits: Admin comercial mínimo, catálogo/solicitud pública, controles C1.4 y documentación; dos commits locales posteriores cierran las pruebas focales y documentan el estado final. No se importaron los otros commits acumulados de `codex/commercial-c1-4`, los worktrees de Gemini/Darío, sus tutoriales ni funcionalidades de Distribución. Las demos existentes y sus entrypoints no se modifican.
 
 La composición visual vigente de `TemplatePricingSection` de `main` se conserva. Se conectó a `publishedPlansByTemplate` y al catálogo publicado: las tarifas y características solo aparecen desde planes con aprobación de precio, estado publicado y `technicalEntitlements` vacío. Catálogo vacío, cargando o con error no revela tarifas placeholder. El formulario crea solicitudes comerciales; no crea tenants, cuentas, suscripciones, pagos ni entitlements. Se eliminaron CTAs directas de creación de empresa de las secciones comerciales tocadas.
 
