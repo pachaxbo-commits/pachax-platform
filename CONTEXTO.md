@@ -1,5 +1,14 @@
 # Continuidad del proyecto PACHAX
 
+## Candidata mínima: demos Hamburger y Retail en pachax-app (25/10/2026)
+
+- Rama local `codex/demo-public-main-minimal`, creada directamente desde `origin/main` `3b67ffdfb8a01ee4e1b6740d16271d79158ac9e7`. Se conservan intactos los worktrees D5 e integración (`codex/demo-hosting-d5`, `codex/demo-app-integration`) y sus commits. No se hizo push, Preview, merge ni despliegue.
+- Se portó solo el entrypoint de D5 para empaquetar Restaurante Rápido y Comercio bajo `/demo-isolated.html` y `/demo-assets/`, con guard de build, CSP `connect-src 'none'`, manifiesto de hashes y navegación de refresh. La dependencia funcional encontrada fue el aislamiento de almacenamiento/reinicio de Restaurante; no hizo falta importar componentes de los 64 commits acumulados.
+- Las rutas de Vercel para `/demo/hamburger` y `/demo/retail` preceden el fallback `/demo/(.*)`. Las CTAs gratuitas de esos dos rubros ignoran únicamente el gate comercial/de demo publicada; `provisioningStatus` permanece `coming_soon` y el test confirma que no se habilita onboarding.
+- `build:emulator`, typecheck, guard negativo Firebase, test focal de rutas, prueba de configuración y Chrome estático aprobaron. Chrome verificó las cuatro variantes Full/Empty en 390×844 y 1440×900, refresh, roles, reinicio, CTA desde landing, Studio/Admin/login/legacy demo, CSP, 404 de asset y cero tráfico Firebase desde las demos. La landing emitió tres conexiones rechazadas a Firebase Emulator apagado durante la condición catálogo no disponible; no hubo tráfico productivo. No se probó el caso de catálogo publicado con Firestore Emulator activo.
+- ESLint focal queda limpio tras sustituir el destructuring vacío heredado en `HeroSection`. El build convencional de Vercel no se ejecutó: esta copia carece de seis variables Firebase; no se tomaron valores de Production. No desplegar el artefacto de `build:emulator`.
+- Ver informe y evidencias en `docs/DEMO-APP-INTEGRATION-MINIMAL.md` y `docs/demo-app-integration-evidence/`. Siguiente paso es revisión y autorización explícita antes de publicar `pachax-app`; no se inicia Billing Core.
+
 ## Nightclub: estabilización integral de tutoriales (23/10/2026)
 
 - Trabajo conservado en `feature/tutoriales-discoteca`, inicialmente sobre el mismo commit que `origin/main` (`958cbac52f6394467e75106fb6605eb4c84b674e`). Este checkpoint reemplaza la indicación anterior de que la Jarra de Coca-Cola estaba desactivada.

@@ -1,0 +1,116 @@
+{
+  "result": "PASS",
+  "server": "127.0.0.1:62683",
+  "routes": [
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "1440x900",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "390x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "1440x900",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "390x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "1440x900",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "390x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "1440x900",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "390x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    }
+  ],
+  "landingNavigation": [
+    {
+      "label": "Hamburger",
+      "route": "/demo/hamburger?data=full",
+      "result": "PASS"
+    },
+    {
+      "label": "Retail",
+      "route": "/demo/retail?data=full",
+      "result": "PASS"
+    }
+  ],
+  "otherEntrypoints": "demo.html, studio.html, and app fallback served",
+  "missingAsset": "404",
+  "isolatedDemoExternalRequests": 0,
+  "isolatedDemoBrowserErrors": 0,
+  "productionFirebaseRequests": 0,
+  "landingConsoleErrorsWithEmulatorsStopped": [
+    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+  ]
+}

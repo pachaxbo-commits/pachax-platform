@@ -1,0 +1,399 @@
+{
+  "format": 1,
+  "buildCommand": "npm run build:demos-only",
+  "outputDirectory": "dist-demo-isolated",
+  "totalFiles": 78,
+  "totalBytes": 21167124,
+  "files": [
+    {
+      "path": "brand/pachax-app-icon.png",
+      "bytes": 8623,
+      "sha256": "f35262859c241a136a1f4da1d7118210dc2c5ed3cfba8219da48d1000a7ad47e"
+    },
+    {
+      "path": "brand/pachax-logo.png",
+      "bytes": 10333,
+      "sha256": "b451ae5141de88ad21fff1063229a4003567bea59f2f0ff1e5b8f1f9510e1ddf"
+    },
+    {
+      "path": "brand/pachax-platform-logo.png",
+      "bytes": 54438,
+      "sha256": "08c3ec1c3a652631b145ca1c5a448f4d191816b6f5df20451f04c4f044828b86"
+    },
+    {
+      "path": "brand/showcase/custom-concept.jpg",
+      "bytes": 267050,
+      "sha256": "acefb356bcb7361a8002fd5d4be7f600063521101f7d48c0fa178da35df8e5b8"
+    },
+    {
+      "path": "brand/showcase/custom-concept.webp",
+      "bytes": 197592,
+      "sha256": "10ccd1718832dcc6478b81b02e1beb286dbdd669dad7a6991a556363b6e57dec"
+    },
+    {
+      "path": "brand/showcase/custom-showcase.svg",
+      "bytes": 5267,
+      "sha256": "5d8e46faf1c4c39e2f38ced64d1810eb74f8ab705850740c2f268266d7f9156f"
+    },
+    {
+      "path": "brand/showcase/distribution-concept.jpg",
+      "bytes": 377674,
+      "sha256": "84a4b6a1293f914816a040610c7a9991419604c7c4162042891b132164983fb9"
+    },
+    {
+      "path": "brand/showcase/distribution-concept.webp",
+      "bytes": 336570,
+      "sha256": "2e259850470de1b2f91e113e6ae261d756496c955cd5617bdce8495c083f6ea4"
+    },
+    {
+      "path": "brand/showcase/distribution-showcase.svg",
+      "bytes": 5987,
+      "sha256": "17a812aebac4ab856efeb0c6353357523e260563cab874d5335b9e940c4eed49"
+    },
+    {
+      "path": "brand/showcase/nightclub-concept.jpg",
+      "bytes": 242907,
+      "sha256": "b14541ba1d77c48293eba5aded7559cf8a8b6e1d68da8aebf9a14e45bdf4d28a"
+    },
+    {
+      "path": "brand/showcase/nightclub-concept.webp",
+      "bytes": 177680,
+      "sha256": "017dbce331361057f39e4b60b98ac01f3bcc6e7a753993447e2f8dde33e40ab8"
+    },
+    {
+      "path": "brand/showcase/nightclub-showcase.svg",
+      "bytes": 5265,
+      "sha256": "41c8e31609584e51ba4b102ec813f60b734cc0bd63e501f1b10061b6813d9d82"
+    },
+    {
+      "path": "brand/showcase/restaurant-concept.jpg",
+      "bytes": 193596,
+      "sha256": "456e7ebe8e821d2e71b96b805d61c1b79c28064fd2beb46f6cf2d1adc3c0689a"
+    },
+    {
+      "path": "brand/showcase/restaurant-concept.webp",
+      "bytes": 130708,
+      "sha256": "2d919770869748643e67f975b780efb37fb8c5276c8eb706cdbfb00f408df18d"
+    },
+    {
+      "path": "brand/showcase/restaurant-showcase.svg",
+      "bytes": 7524,
+      "sha256": "dde90f0bf4c980dd06f5ba5cae20eabf87ab411a3eb5c34010e80e528e85e814"
+    },
+    {
+      "path": "brand/showcase/retail-concept.jpg",
+      "bytes": 269327,
+      "sha256": "96ff2a6ca1fc783faea1b1a97dd1128ba5e0a42f22d2dfb66eb680d5c6b73b00"
+    },
+    {
+      "path": "brand/showcase/retail-concept.webp",
+      "bytes": 197358,
+      "sha256": "77fa16ffe3564703628e71710fd8acea73c033a6fc97b77dadb3398a5f64e353"
+    },
+    {
+      "path": "brand/showcase/retail-showcase.svg",
+      "bytes": 6336,
+      "sha256": "65f48db451b057663ae2b1620dc6a2c74995996dd99626536c8380ba29f76931"
+    },
+    {
+      "path": "brand/verification/admin-clients.png",
+      "bytes": 83490,
+      "sha256": "155f5f71416802931352d43044c6d10f842c67bef5d1facaa7836442a4ffe089"
+    },
+    {
+      "path": "brand/verification/admin-content.png",
+      "bytes": 76415,
+      "sha256": "f24b6cda3604e7706affcc4f3e420bab2f0c4d9aefdb54a0be3c204867251dc7"
+    },
+    {
+      "path": "brand/verification/admin-dashboard.png",
+      "bytes": 82678,
+      "sha256": "692b5858fd85d03c66faaebd15417ee8ae999ec22eb4cf73c384e12402b490a1"
+    },
+    {
+      "path": "brand/verification/admin-extras.png",
+      "bytes": 106057,
+      "sha256": "6747803a2af3ed556b9873aa97a7e19f4b9a45986d649033bde2f34835537fbe"
+    },
+    {
+      "path": "brand/verification/admin-login.png",
+      "bytes": 46139,
+      "sha256": "362a04618bcbb795f2aa1137fe1647ba2aca6fc1c9d9bcb0a6e9fb7f035dc40b"
+    },
+    {
+      "path": "brand/verification/admin-media.png",
+      "bytes": 797082,
+      "sha256": "67f94878b68c5584a432398e0e693d6e0f63c9aa6fbf9b6ea9171b8e341f02ad"
+    },
+    {
+      "path": "brand/verification/admin-plans.png",
+      "bytes": 97087,
+      "sha256": "a49424b1afd7ab2210f8047d470c40b79714b10a3756fe21897393d047c39fa7"
+    },
+    {
+      "path": "brand/verification/admin-studio.png",
+      "bytes": 117102,
+      "sha256": "5caf3df4dba3094c88a8b0a89997c91b9fad7daf74150e14f75e019008503a1b"
+    },
+    {
+      "path": "brand/verification/admin-templates.png",
+      "bytes": 224621,
+      "sha256": "f1aa7e6a8620189e5afddcadc284f0836943373ff279aeed8d61f947a0a574a2"
+    },
+    {
+      "path": "brand/verification/landing-1440-full.png",
+      "bytes": 2683331,
+      "sha256": "05df5076cf81065e43ace699d6d4f9b6941d69bfe69cf1dd3c2b1f69f9f806d4"
+    },
+    {
+      "path": "brand/verification/landing-1440x900.png",
+      "bytes": 446443,
+      "sha256": "7fa900df8400e157ae9e2d11ba2e7ef3fb07eff7f236af5ec18de9d5e7949971"
+    },
+    {
+      "path": "brand/verification/landing-1920-full.png",
+      "bytes": 2762761,
+      "sha256": "e7ed35b34223ddbc4ceda3307939dcc8969d097d8d517ff6e339e8d221b60c28"
+    },
+    {
+      "path": "brand/verification/landing-1920x1080.png",
+      "bytes": 483059,
+      "sha256": "5dfacd27f885532dc34a6f9961d5728ee012d4e42de02a7c57569c20bdb71256"
+    },
+    {
+      "path": "brand/verification/landing-360x800.png",
+      "bytes": 202598,
+      "sha256": "e14f708ac1a71decc3307576fc2aba7e0dc948d25faf186c8a50a9ed8847f18f"
+    },
+    {
+      "path": "brand/verification/landing-390-full.png",
+      "bytes": 2372952,
+      "sha256": "9e48d4ad38a97b925f3e1f6b08a7806ba64dfb430d8e97a1f9494ac6001b0be6"
+    },
+    {
+      "path": "brand/verification/landing-390x844.png",
+      "bytes": 237550,
+      "sha256": "cdf9c70e84687ed77b02159256123540eec2e3900514c9cfdbf43a56176af20f"
+    },
+    {
+      "path": "brand/verification/landing-430-full.png",
+      "bytes": 2681711,
+      "sha256": "3753cc68bf84d3f1774faa4f9ad817b3790721327a00d0cd94ab765740fba0db"
+    },
+    {
+      "path": "brand/verification/landing-430x932.png",
+      "bytes": 301979,
+      "sha256": "39f4049aeaa50b9027dd1a6fe3d4290f0511d77f975da8011acddee65b5d27cb"
+    },
+    {
+      "path": "brand/verification/landing-768x1024.png",
+      "bytes": 341975,
+      "sha256": "e44bcd6873a3f2ff0d294ccf89687f52c6aecec7772f8e0978e765e435e27593"
+    },
+    {
+      "path": "brand/verification/landing-mobile-tall-360.png",
+      "bytes": 320531,
+      "sha256": "634c1004e79c4b867659b7a6eee39177eb4635e5a6204f9c908ffd1df676c330"
+    },
+    {
+      "path": "brand/verification/landing-mobile-tall-390.png",
+      "bytes": 330853,
+      "sha256": "eb5f3ff4839909850f0c68ca91e0e8f7f68f509737282197bb90c05a5dd5184c"
+    },
+    {
+      "path": "brand/verification/seccion-1-plantillas.png",
+      "bytes": 168965,
+      "sha256": "c7d9655da2de7359ee5335611b90b47aa5a1d180b43b81db66fa19e1f232ad68"
+    },
+    {
+      "path": "brand/verification/seccion-2-planes.png",
+      "bytes": 118908,
+      "sha256": "b23dc7dfcbb4ba315c509057efaeb03ed0d908afa032c42d9d7d6a5ca6a48a35"
+    },
+    {
+      "path": "brand/verification/seccion-2-plantillas-detalle.png",
+      "bytes": 1000187,
+      "sha256": "df6b4c38627afc84cd51e1568e2f2a21daf84ad590026bbd6874329ad7e72247"
+    },
+    {
+      "path": "brand/verification/seccion-3-extras.png",
+      "bytes": 84600,
+      "sha256": "9b44c6274a4911309e583ec4ef8750f1bc548d8f24addcd965cf347bf9d74f17"
+    },
+    {
+      "path": "brand/verification/seccion-3-planes-por-plantilla.png",
+      "bytes": 101235,
+      "sha256": "a68285f165971c93106abb0711164230e71c1a8b3cea32d6e70d7e20c61f92d5"
+    },
+    {
+      "path": "brand/verification/seccion-4-configura-5-minutos.png",
+      "bytes": 81108,
+      "sha256": "49751efcbc3ba2f5084a528308aee7f7382f9d50641569c9c48f2f239ca73e17"
+    },
+    {
+      "path": "brand/verification/seccion-4-onboarding.png",
+      "bytes": 75951,
+      "sha256": "d8c2fc4e90d7f3f048b90645d8c39771297aabe6a33f0d8af71dff65b6b5e903"
+    },
+    {
+      "path": "brand/verification/seccion-5-tutoriales-guiados.png",
+      "bytes": 58014,
+      "sha256": "3b5a1bd6af1b55b128356a04ddbb21775288e43506cf1eeaab053b0231f733b8"
+    },
+    {
+      "path": "brand/verification/seccion-5-tutoriales.png",
+      "bytes": 58604,
+      "sha256": "f8ef9798e029b8331709015324eb32d5611fc249f585fb8db98bc19b965002d2"
+    },
+    {
+      "path": "brand/verification/seccion-6-extras-y-desarrollo.png",
+      "bytes": 130329,
+      "sha256": "61d4a90e97d9ed26c23a3fdd3260a83598ee20e68f9755f67e44e48294b4a620"
+    },
+    {
+      "path": "brand/verification/verification-summary.json",
+      "bytes": 8746,
+      "sha256": "a1047e13b7053faafcd9e732ff191b6ccc6aa64274c6687263f0fc36afd2dbfb"
+    },
+    {
+      "path": "demo-assets/chunk-Bh1tDfsg.js",
+      "bytes": 567,
+      "sha256": "1b13387cb23dc39bf70e31677c21f6db5cad3377b96f286b6ee444496e5bfea7"
+    },
+    {
+      "path": "demo-assets/datasets-Yqw9fzqF.js",
+      "bytes": 21718,
+      "sha256": "5bbc82219c04a18010219b50da0cd7641b2b6ce4f93fffa8f06db28787a59b26"
+    },
+    {
+      "path": "demo-assets/demo-BhnHYXcO.js",
+      "bytes": 201786,
+      "sha256": "6a13ae381bba67c87ffa15799064a5bda5812a83210707b3b37ac39af71599f4"
+    },
+    {
+      "path": "demo-assets/demo-CDGjPctY.css",
+      "bytes": 131785,
+      "sha256": "db6189389d616d827a95d04390990e63bf05068d7ac6202617ac243cc56fe2a8"
+    },
+    {
+      "path": "demo-assets/dist-BcvA-GRa.js",
+      "bytes": 7749,
+      "sha256": "f4d084abb55d5e2f8b9f0a0f604c11caab2b9d3e9eac9854addf254df5903b65"
+    },
+    {
+      "path": "demo-assets/esm-BnZ_sDeW.js",
+      "bytes": 345,
+      "sha256": "2cea356e45a8cbf4ff1be42bc86dd53502ea41da516ea6f3ff5b262fae6ddf3a"
+    },
+    {
+      "path": "demo-assets/esm-C3Y0cvua.js",
+      "bytes": 1389,
+      "sha256": "086bbd7f18a6da3ff86a712d740c55f4bc6e9533f3cd73ee8b7789d5506fc813"
+    },
+    {
+      "path": "demo-assets/html2canvas-BzFc_22V.js",
+      "bytes": 199568,
+      "sha256": "4503bcc0323d1b0c97590d0a28830883df4039f41193daf81b3feb09b57750b1"
+    },
+    {
+      "path": "demo-assets/index.es-D8BmEKhX.js",
+      "bytes": 151530,
+      "sha256": "c731aa518ae51297856e57c66d47f5fa88836f41ff3c923697b4cb753288365a"
+    },
+    {
+      "path": "demo-assets/jspdf.es.min-CqXrGCVJ.js",
+      "bytes": 399346,
+      "sha256": "49c952972f438357f8152a50c9f3e8450e092b876ca69355d840ae46e24fd8ec"
+    },
+    {
+      "path": "demo-assets/purify.es-CJ-rlsNn.js",
+      "bytes": 26921,
+      "sha256": "edf235b10be724f7897f3220cde61e3b28f76491c6f085830a0b4a132ed9068d"
+    },
+    {
+      "path": "demo-assets/QuickRetailDemo-b0PdFnVs.js",
+      "bytes": 47621,
+      "sha256": "f48c82e90fb47e9fc6d0a320f351fb1e66bf7ce7b60c0ae6256c2040dfb50ce9"
+    },
+    {
+      "path": "demo-assets/RestaurantDemo-BZeJcFpa.css",
+      "bytes": 16475,
+      "sha256": "12fce8c6039bcbf9b286711936f19bff901b8a0a2685191404bc8f17750fc89b"
+    },
+    {
+      "path": "demo-assets/RestaurantDemo-DMcCGRNA.js",
+      "bytes": 484253,
+      "sha256": "ae3de200dd7e84b371835f719676453abae4f9f0d7a30b2c2177f13588f972cd"
+    },
+    {
+      "path": "demo-assets/typeof-B5XbjTb1.js",
+      "bytes": 271,
+      "sha256": "a018c0f2b55a5dbeeb62334a5437c26a040d27303c72982b08859b3e12c9d2f6"
+    },
+    {
+      "path": "demo-assets/web-42bFWLO7.js",
+      "bytes": 8492,
+      "sha256": "1ae567b4a4c835813f14fd51c9c5254de0b1c52eba8eba75372d56ff542066a1"
+    },
+    {
+      "path": "demo-assets/web-BDHGbk52.js",
+      "bytes": 364,
+      "sha256": "289f83e5a73a4355a6b27d021ba666e210c1fea436247d90431a8e487732b841"
+    },
+    {
+      "path": "demo-assets/web-CTN4TO-D.js",
+      "bytes": 843,
+      "sha256": "78e59e7e9126afc07a60c408b11f4bd89a511e54d6442c381355f02fe4c55bba"
+    },
+    {
+      "path": "demo-isolated.html",
+      "bytes": 926,
+      "sha256": "aa631356b8256689cdf6dd020cd1e65fbfc2cae395c526f0e312fd2dcd337d60"
+    },
+    {
+      "path": "demo-isolation-network-guard.js",
+      "bytes": 2774,
+      "sha256": "e3c33aeef21a2e57fd1f917751c0fd10666de82af0205738965ebe5793a859a9"
+    },
+    {
+      "path": "favicon.png",
+      "bytes": 977,
+      "sha256": "1b845e7775c40dec87b5622c01cc030aacccfdf2c74f544d238585709e611734"
+    },
+    {
+      "path": "images/nightclub/beer.svg",
+      "bytes": 369,
+      "sha256": "65fe271771dcaefdb3e1e50f4271f51592f317043b1da618df38852d556c51d1"
+    },
+    {
+      "path": "images/nightclub/bottle.svg",
+      "bytes": 439,
+      "sha256": "f7952c59abd447c756ce0ca08fe88d2e9fd2ae9a00e56b56e06c910204696709"
+    },
+    {
+      "path": "images/nightclub/cocktail.svg",
+      "bytes": 398,
+      "sha256": "4cc9337b5e6acafa3955c7fc90b170eef029249a27eda442f68b452c051bf04c"
+    },
+    {
+      "path": "images/nightclub/snack.svg",
+      "bytes": 339,
+      "sha256": "27d24f2afefdf28c30ad110dc3b70b2cf6716d59c288475df4c0510adde9e966"
+    },
+    {
+      "path": "images/restaurant/drink.svg",
+      "bytes": 437,
+      "sha256": "619808bacbd177dced496ce1c2baaa8e82b546cca88cac3995ea4c43935ba8ba"
+    },
+    {
+      "path": "images/restaurant/plate.svg",
+      "bytes": 442,
+      "sha256": "426ae4dbffa2fb7f998815d4c5e280ca33db05de539372a57b037e63465e5b0a"
+    },
+    {
+      "path": "notificacion.mp3",
+      "bytes": 281704,
+      "sha256": "b0e5388f500e1b18504c4779f715ab966423b2afacb5b4130383622f0d4003ff"
+    }
+  ]
+}

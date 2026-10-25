@@ -34,3 +34,5 @@ tmp/
 output/
 docs/qa-*/
 .unique_debug_profile/
+dist-demo-isolated/
+docs/demo-isolation-d5-evidence/artifact-manifest.json

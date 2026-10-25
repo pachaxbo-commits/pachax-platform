@@ -8,7 +8,7 @@ import {
   SELF_SERVICE_SHOWCASE_TEMPLATES,
   type CommercialTemplateItem,
 } from '../config/commercialShowcase'
-import { canLaunchCommercialDemo, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
 import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 
 interface HeroSectionProps {
@@ -16,7 +16,8 @@ interface HeroSectionProps {
   onChangeActiveIndex?: (index: number) => void
 }
 
-export function HeroSection({}: HeroSectionProps) {
+export function HeroSection(props: HeroSectionProps) {
+  void props
   const { navigate } = usePublicRouter()
 
   // Estados independientes para cada carrusel
@@ -38,6 +39,11 @@ export function HeroSection({}: HeroSectionProps) {
 
   // Manejo de Demo para Especializadas (Carrusel A)
   const handleLaunchSpecializedDemo = (template: CommercialTemplateItem) => {
+    const demoPath = freeDemoPath(template.id) || freeDemoPath(template.templateId || '')
+    if (demoPath) {
+      window.location.assign(demoPath)
+      return
+    }
     if (template.id === 'restaurant' || template.templateId === 'restaurant') {
       setSelectedForModal(template)
       return
@@ -75,7 +81,7 @@ export function HeroSection({}: HeroSectionProps) {
 
   const isSpecializedDemoAvailable = canLaunchCommercialDemo(activeSpecialized) || activeSpecialized.id === 'restaurant'
   const isSelfServiceAvailable = isTemplateProvisioningAvailable(activeSelfService.canonicalTemplateId || activeSelfService.templateId || activeSelfService.id)
-  const isSelfServiceDemoAvailable = canLaunchCommercialDemo(activeSelfService)
+  const isSelfServiceDemoAvailable = Boolean(freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '')) || canLaunchCommercialDemo(activeSelfService)
 
   return (
     <section id="hero" className="relative w-full pt-4 pb-10 sm:pt-8 sm:pb-16 overflow-hidden z-10">
@@ -302,7 +308,7 @@ export function HeroSection({}: HeroSectionProps) {
                         className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
                         <Play className="w-3.5 h-3.5 text-slate-600" />
-                        <span>Ver demo</span>
+                        <span>{freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '') ? 'Probar demo' : 'Ver demo'}</span>
                       </button>
                     ) : (
                       <button

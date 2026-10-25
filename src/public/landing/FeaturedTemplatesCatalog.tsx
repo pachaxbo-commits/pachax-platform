@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowRight, Eye, CheckCircle2 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../admin/types'
-import { canLaunchCommercialDemo, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 
@@ -28,6 +28,11 @@ export function FeaturedTemplatesCatalog() {
   const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
 
   const handleLaunchDemo = (tpl: CommercialTemplateItem) => {
+    const demoPath = freeDemoPath(tpl.id) || freeDemoPath(tpl.templateId || '')
+    if (demoPath) {
+      window.location.assign(demoPath)
+      return
+    }
     if (!canLaunchCommercialDemo(tpl)) return
     if (tpl.id === 'restaurant' || tpl.templateId === 'restaurant') {
       setSelectedForModal(tpl)
@@ -181,7 +186,7 @@ export function FeaturedTemplatesCatalog() {
               {/* Acciones de Tarjeta: Probar demo y Comenzar */}
               <div className="p-6 pt-0">
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
-                  {canLaunchCommercialDemo(template) ? (
+                  {freeDemoPath(template.id) || freeDemoPath(template.templateId || '') || canLaunchCommercialDemo(template) ? (
                     <button
                       type="button"
                       data-demo-path={template.demoRoute}

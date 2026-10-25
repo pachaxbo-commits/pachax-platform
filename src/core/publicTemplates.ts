@@ -76,6 +76,15 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
 export const OFFICIAL_COMMERCIAL_TEMPLATES = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', 'custom'] as const)
 export const PLAN_ELIGIBLE_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail'] as const)
 
+/** Static public demos are independent of commercial and tenant provisioning state. */
+const FREE_DEMO_TEMPLATE_IDS = Object.freeze(['hamburger', 'retail'] as const)
+export type FreeDemoTemplateId = (typeof FREE_DEMO_TEMPLATE_IDS)[number]
+
+export function freeDemoPath(id: string, data: 'full' | 'empty' = 'full'): string | null {
+  if (!FREE_DEMO_TEMPLATE_IDS.includes(id as FreeDemoTemplateId)) return null
+  return `/demo/${id}?data=${data}`
+}
+
 export function getPublicTemplate(idOrBusinessType: string): PublicTemplateDefinition {
   const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
   if (!template) throw new Error('Plantilla pública no reconocida.')
