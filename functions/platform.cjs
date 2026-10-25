@@ -1015,6 +1015,7 @@ async function platformGateway(db, request) {
   switch (request.data?.action) {
     case 'listCommercialIntents': return commercialOnboarding.listCommercialIntents(db, request);
     case 'prepareCommercialProposal': return commercialOnboarding.prepareCommercialProposal(db, request);
+    case 'updateCommercialIntentStatus': return commercialOnboarding.updateCommercialIntentStatus(db, request);
     case 'validateOperator': return validateOperator(db, request);
     case 'listTenants': return listTenants(db, request);
     case 'tenantDetail': return tenantDetail(db, request);
@@ -1046,6 +1047,7 @@ module.exports = {
   platformGateway,
   listCommercialIntents: commercialOnboarding.listCommercialIntents,
   prepareCommercialProposal: commercialOnboarding.prepareCommercialProposal,
+  updateCommercialIntentStatus: commercialOnboarding.updateCommercialIntentStatus,
   validateOperator,
   listTenants,
   tenantDetail,

@@ -16,13 +16,12 @@ import {
 } from '../../public/config/pricingConfig'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
+import { getPublicCommercialCatalog } from '../../services/commercialOnboarding'
 import {
   doc,
   getDoc,
   getDocs,
   collection,
-  query,
-  where,
 } from 'firebase/firestore'
 
 const STORAGE_KEY = 'pachax_commercial_config_v2'
@@ -227,9 +226,8 @@ let isPublicSyncing = false
 let isAdminSyncing = false
 
 /**
- * Consulta pública a Firestore.
- * Ejecuta ÚNICAMENTE queries con filter status == 'published'
- * para respetar estrictamente las Firestore Security Rules públicas.
+ * Consulta pública por callable con proyección permitida. Firestore Rules no
+ * pueden ocultar campos individuales, así que el cliente no lee estos docs.
  */
 export async function syncPublicPublishedFromFirestore(): Promise<void> {
   if (isPublicSyncing || typeof window === 'undefined' || window.location.pathname.startsWith('/admin')) return
@@ -244,38 +242,24 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
       return
     }
 
-    const [landingSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap] = await Promise.all([
-      getDoc(doc(ctx.db, 'platformConfig', 'publicLanding')),
-      getDocs(query(collection(ctx.db, 'platformTemplates'), where('status', '==', 'published'))),
-      getDocs(query(collection(ctx.db, 'platformPlans'), where('status', '==', 'published'))),
-      getDocs(query(collection(ctx.db, 'platformExtras'), where('status', '==', 'published'))),
-      getDocs(query(collection(ctx.db, 'platformMedia'), where('status', '==', 'published'))),
-    ])
+    const catalog = await getPublicCommercialCatalog()
 
     if (window.location.pathname.startsWith('/admin')) return
 
-    const templates = templatesSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem)
-      .filter((template) => template.status === 'published' && template.id !== 'custom')
-    const plans = filterPublicCommercialPlans(plansSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan)
-    )
-    const extras = filterPublishedCommercialRecords(extrasSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() }) as CommercialExtraService)
-    )
-    const landingContent = landingSnap.exists()
-      ? { ...DEFAULT_LANDING_CONTENT, ...(landingSnap.data() as Partial<LandingContentConfig>) }
-      : DEFAULT_LANDING_CONTENT
+    const templates = catalog.templates as unknown as CommercialTemplateItem[]
+    const plans = filterPublicCommercialPlans(catalog.plans as unknown as TemplateTierPlan[])
+    const extras = filterPublishedCommercialRecords(catalog.extras as unknown as CommercialExtraService[])
+    const landingContent = { ...DEFAULT_LANDING_CONTENT, ...(catalog.landingContent as Partial<LandingContentConfig>) }
     publicConfig = {
       ...getDefaultConfig(),
       templates,
       plans,
       extras,
       landingContent,
-      mediaAssets: mediaSnap.empty
+      mediaAssets: catalog.mediaAssets.length === 0
         ? getDefaultConfig().mediaAssets
-        : mediaSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as MediaAssetItem),
-      lastModified: new Date().toISOString(),
+        : catalog.mediaAssets as unknown as MediaAssetItem[],
+      lastModified: catalog.fetchedAt,
     }
     publicCatalogStatus = 'ready'
     notifyUpdate()
@@ -767,7 +751,7 @@ export function useCommercialConfig() {
     ? (publicConfig?.templates || [])
     : config.templates.filter((t) => t.status === 'published')
   const publishedPlansByTemplate = (templateKey: TemplateKey) =>
-    (isPublicPage ? (publicConfig?.plans || []) : config.plans).filter((p) => p.templateId === templateKey && p.status === 'published')
+    (isPublicPage && publicState !== 'ready' ? [] : filterPublicCommercialPlans(isPublicPage ? (publicConfig?.plans ?? []) : config.plans)).filter((p) => p.templateId === templateKey)
   const publishedExtras = (isPublicPage ? (publicConfig?.extras || []) : config.extras).filter((e) => e.status === 'published')
 
   return {

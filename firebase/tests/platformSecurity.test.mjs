@@ -19,6 +19,7 @@ const { getAuth } = require('firebase-admin/auth')
 const { createTenant } = require('./tenants.cjs')
 const { bootstrapFirstOwner } = require('./platformBootstrap.cjs')
 const platform = require('./platform.cjs')
+const commercialOnboarding = require('./commercialOnboarding.cjs')
 const { PACHAX_FUNCTIONS_REGION } = require('./regions.cjs')
 
 const suffix = Date.now().toString(36)
@@ -63,6 +64,12 @@ async function callTenantGateway(uid, data) {
   const response = await fetch(`${functionsOrigin}/${projectId}/southamerica-west1/tenantGateway`, {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify({ data }),
+  })
+  return { response, body: await response.json() }
+}
+async function callPublicCommercialGateway(data) {
+  const response = await fetch(`${functionsOrigin}/${projectId}/southamerica-west1/publicCommercialGateway`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data }),
   })
   return { response, body: await response.json() }
 }
@@ -163,8 +170,8 @@ try {
   const unauthenticatedClient = env.unauthenticatedContext().firestore()
   await db.doc('platformTemplates/t_pub').set({ status: 'published', name: 'Plantilla Pública' })
   await db.doc('platformTemplates/t_draft').set({ status: 'draft', name: 'Plantilla Borrador' })
-  assert.equal((await getDoc(doc(unauthenticatedClient, 'platformTemplates', 't_pub'))).data().name, 'Plantilla Pública')
-  pass('cliente público puede leer plantillas publicadas')
+  await assertFails(getDoc(doc(unauthenticatedClient, 'platformTemplates', 't_pub')))
+  pass('cliente público no lee documentos de plantillas directamente; usa proyección server-side')
   await assertFails(getDoc(doc(unauthenticatedClient, 'platformTemplates', 't_draft')))
   pass('cliente público NO puede leer plantillas en borrador (draft)')
   await assertFails(setDoc(doc(unauthenticatedClient, 'platformTemplates', 't_pub'), { name: 'Hack' }))
@@ -176,12 +183,10 @@ try {
   await db.doc('platformPlans/p_pub_query').set({ status: 'published', name: 'Plan Público QA' })
   await db.doc('platformPlans/p_draft_query').set({ status: 'draft', name: 'Plan Borrador QA' })
 
-  // 1. Query pública con where('status', '==', 'published') es permitida:
+  // 1. La query pública directa se rechaza: Rules no hacen field redaction.
   const pubQuery = query(collection(unauthenticatedClient, 'platformPlans'), where('status', '==', 'published'))
-  const pubDocs = await getDocs(pubQuery)
-  assert(pubDocs.docs.some(d => d.id === 'p_pub_query'))
-  assert(!pubDocs.docs.some(d => d.id === 'p_draft_query'))
-  pass('query pública con where(status == published) se evalúa y resuelve exitosamente')
+  await assertFails(getDocs(pubQuery))
+  pass('query pública directa falla incluso filtrada por published')
 
   // 2. Query pública abierta / sin filtro a la colección entera falla con permission-denied:
   await assertFails(getDocs(collection(unauthenticatedClient, 'platformPlans')))
@@ -230,10 +235,7 @@ try {
   const savedHamburger = await platform.saveTemplate(db, request(ids.owner, { action: 'saveTemplate', template: hamburgerTemplate }))
   assert.equal(savedHamburger.templateId, 'hamburger')
   assert.equal((await db.doc('platformTemplates/hamburger').get()).data().canonicalTemplateId, 'hamburger')
-  const publicHamburger = await getDoc(doc(unauthenticatedClient, 'platformTemplates', 'hamburger'))
-  assert.equal(publicHamburger.data()?.commercialName, 'Restaurante Rápido')
-  assert.equal(publicHamburger.data()?.features[0], 'Ventas y caja')
-  assert.equal(publicHamburger.data()?.commercialMode, 'self_service')
+  assert((await db.doc('platformTemplates/hamburger').get()).exists)
   pass('Admin guarda Restaurante Rápido con identidad técnica hamburger independiente')
   await assert.rejects(() => platform.saveTemplate(db, request(ids.content, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, implementationBasePriceUSD: 999 },
@@ -288,11 +290,65 @@ try {
   await platform.saveExtra(db, request(ids.owner, { action: 'saveExtra', extra: qaExtra }))
   assert.equal((await db.doc(`platformExtras/${qaExtra.id}`).get()).data().status, 'draft')
   pass('precio y publicación de extras requieren permiso comercial, y el Owner puede guardar borrador')
-  const publicPlanSnapshot = await getDocs(query(collection(unauthenticatedClient, 'platformPlans'), where('status', '==', 'published')))
-  assert(publicPlanSnapshot.docs.some(snapshot => snapshot.id === publishedAdminPlan.id
-    && snapshot.data().monthlyPriceUSD === 35
-    && snapshot.data().includedFeatures[0] === 'Ventas y caja verificadas'))
-  pass('un plan aprobado desde Admin queda consultable por la landing pública')
+  await db.doc(`platformPlans/${publishedAdminPlan.id}`).set({ privateAdminNotes: 'NO EXPONER', internalApproverUid: ids.owner }, { merge: true })
+  const publicCatalogResult = await callPublicCommercialGateway({ action: 'getCatalog' })
+  assert.equal(publicCatalogResult.response.status, 200)
+  const publicCatalog = publicCatalogResult.body.result?.data || publicCatalogResult.body.result
+  const projectedTemplate = publicCatalog.templates.find(item => item.id === 'hamburger')
+  const projectedPlan = publicCatalog.plans.find(item => item.id === publishedAdminPlan.id)
+  assert.equal(projectedTemplate.commercialName, 'Restaurante Rápido')
+  assert.equal(projectedPlan.monthlyPriceUSD, 35)
+  assert.equal(projectedPlan.includedFeatures[0], 'Ventas y caja verificadas')
+  assert.equal('privateAdminNotes' in projectedPlan, false)
+  assert.deepEqual(projectedPlan.technicalEntitlements, [])
+  assert.equal(projectedPlan.priceApproval, 'approved')
+  assert.equal('internalApproverUid' in projectedPlan, false)
+  assert(!publicCatalog.plans.some(item => item.id === hamburgerPlan.id))
+  pass('callable público entrega solo campos aprobados del catálogo Admin')
+
+  const publicInterestInput = {
+    action: 'submitInterest', requestId: `public-interest-${suffix}`, contactName: 'Ana QA',
+    companyName: 'Café Ficticio QA', email: 'ana@example.test', templateId: 'hamburger',
+    businessType: 'Cafetería', needs: 'Caja rápida', branchCount: 2, planId: publishedAdminPlan.id, consent: true,
+  }
+  const publicInterestResult = await callPublicCommercialGateway(publicInterestInput)
+  assert.equal(publicInterestResult.response.status, 200)
+  const publicInterest = publicInterestResult.body.result?.data || publicInterestResult.body.result
+  assert.equal(publicInterest.status, 'accepted')
+  assert.equal(publicInterest.idempotent, false)
+  const publicIntentQuery = await db.collection('platformCommercialIntents').where('companyName', '==', 'Café Ficticio QA').get()
+  assert.equal(publicIntentQuery.size, 1)
+  const publicIntent = publicIntentQuery.docs[0].data()
+  assert.equal(publicIntent.email, 'ana@example.test')
+  assert.equal(publicIntent.businessType, 'Cafetería')
+  assert.equal(publicIntent.planSnapshot.planId, publishedAdminPlan.id)
+  assert.equal(publicIntent.tenantId, null)
+  assert.equal(publicIntent.subscriptionStatus, null)
+  assert.equal(publicIntent.entitlements, null)
+  const publicRetry = await callPublicCommercialGateway(publicInterestInput)
+  const publicRetryData = publicRetry.body.result?.data || publicRetry.body.result
+  assert.equal(publicRetryData.idempotent, true)
+  pass('visitante sin sesión crea intención privada validada; reintento estable no duplica')
+  const invalidPublicInterest = await callPublicCommercialGateway({ ...publicInterestInput, requestId: `bad-${suffix}`, consent: false })
+  assert.equal(invalidPublicInterest.body.error?.status, 'INVALID_ARGUMENT')
+  const forgedPublicInterest = await callPublicCommercialGateway({ ...publicInterestInput, requestId: `bad-field-${suffix}`, tenantId })
+  assert.equal(forgedPublicInterest.body.error?.status, 'INVALID_ARGUMENT')
+  pass('servidor rechaza consentimiento faltante y campos privados/forjados')
+  await assertFails(setDoc(doc(unauthenticatedClient, 'platformCommercialIntents', 'direct-write'), { companyName: 'Hack' }))
+  await assertFails(getDocs(collection(unauthenticatedClient, 'platformCommercialRateLimits')))
+  pass('cliente no puede escribir solicitudes ni leer rate limits directamente')
+  const rateSecret = 'emulator-only-c1-3-rate-secret-32-bytes-minimum'
+  for (let index = 0; index < 8; index++) {
+    await commercialOnboarding.submitPublicCommercialInterest(db, {
+      data: { ...publicInterestInput, requestId: `rate-limit-${suffix}-${index}`, companyName: `QA rate ${index}`, planId: undefined },
+      rawRequest: { ip: '198.51.100.44' },
+    }, rateSecret, { emulator: true })
+  }
+  await assert.rejects(() => commercialOnboarding.submitPublicCommercialInterest(db, {
+    data: { ...publicInterestInput, requestId: `rate-over-limit-${suffix}`, companyName: 'QA rate over', planId: undefined },
+    rawRequest: { ip: '198.51.100.44' },
+  }, rateSecret, { emulator: true }), error => error.code === 'resource-exhausted')
+  pass('rate limit HMAC limita envíos repetidos por IP sin guardar la IP en claro')
 
   const interestUid = `commercial_interest_${suffix}`
   await auth.createUser({ uid: interestUid, email: `${interestUid}@example.test`, password: 'Emulator123!' })
@@ -336,7 +392,7 @@ try {
   const listedIntents = await callPlatform(ids.owner, { action: 'listCommercialIntents', limit: 50 })
   assert.equal(listedIntents.response.status, 200)
   const listed = listedIntents.body.result?.data || listedIntents.body.result
-  assert(listed.intents.some(row => row.id === interest.intentId))
+  assert(listed.intents.some(row => row.companyName === 'Café Ficticio QA'))
   const proposalRequest = {
     action: 'prepareCommercialProposal', intentId: interest.intentId,
     requestId: `proposal-${suffix}`, implementationOneTime: 450, monthlyPrice: 35, annualPrice: 350,
@@ -352,12 +408,41 @@ try {
   assert.equal(proposalRetryBody.commercialVersion, proposalBody.commercialVersion)
   assert.equal(proposalRetryBody.idempotent, true)
   pass('Owner prepara propuesta versionada e idempotente separando implementación de mensualidad')
+  const statusResult = await callPlatform(ids.owner, {
+    action: 'updateCommercialIntentStatus', intentId: publicIntentQuery.docs[0].id, status: 'contacted', requestId: `status-${suffix}`,
+  })
+  assert.equal(statusResult.response.status, 200)
+  assert.equal((await publicIntentQuery.docs[0].ref.get()).data().status, 'contacted')
+  const repeatedStatus = await callPlatform(ids.owner, {
+    action: 'updateCommercialIntentStatus', intentId: publicIntentQuery.docs[0].id, status: 'contacted', requestId: `status-${suffix}`,
+  })
+  const repeatedStatusData = repeatedStatus.body.result?.data || repeatedStatus.body.result
+  assert.equal(repeatedStatusData.idempotent, true)
+  const supportStatus = await callPlatform(ids.support, {
+    action: 'updateCommercialIntentStatus', intentId: publicIntentQuery.docs[0].id, status: 'closed', requestId: `support-status-${suffix}`,
+  })
+  assert.equal(supportStatus.body.error?.status, 'PERMISSION_DENIED')
+  pass('Owner cambia estado de seguimiento con auditoría e idempotencia; Support es rechazado')
+  const publicProposal = await callPlatform(ids.owner, {
+    action: 'prepareCommercialProposal', intentId: publicIntentQuery.docs[0].id,
+    requestId: `public-proposal-${suffix}`, implementationOneTime: 300, monthlyPrice: 30, annualPrice: 300,
+    currency: 'USD', extraIds: [],
+  })
+  assert.equal(publicProposal.response.status, 200)
+  assert.equal((await publicIntentQuery.docs[0].ref.get()).data().proposal.status, 'draft')
+  pass('Admin recibe la solicitud anónima y prepara una propuesta separada en borrador')
   const supportIntents = await callPlatform(ids.support, { action: 'listCommercialIntents', limit: 5 })
   assert.equal(supportIntents.body.error?.status, 'PERMISSION_DENIED')
   pass('Support sin plans.manage no puede leer prospectos ni preparar propuestas')
   const platformLead = await callTenantGateway(ids.owner, { ...interestInput, requestId: `platform-interest-${suffix}` })
   assert.equal(platformLead.body.error?.status, 'PERMISSION_DENIED')
   pass('operador Platform no usa el flujo de prospectos para eludir onboarding tenant')
+
+  await platform.publishPlan(db, request(ids.owner, { action: 'publishPlan', planId: publishedAdminPlan.id, status: 'draft' }))
+  const afterUnpublish = await callPublicCommercialGateway({ action: 'getCatalog' })
+  const catalogAfterUnpublish = afterUnpublish.body.result?.data || afterUnpublish.body.result
+  assert(!catalogAfterUnpublish.plans.some(item => item.id === publishedAdminPlan.id))
+  pass('despublicar una oferta la retira de la proyección pública inmediatamente')
 
   // === PROVISIONING GATE EN TENANTGATEWAY (SERVER-AUTHORITATIVE) ===
   const ordinaryUid = `user_prov_${suffix}`
@@ -450,7 +535,7 @@ try {
   assert(onbNight.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con nightclub_lounge es PERMITIDO y converge')
 
-  assert.equal(checks, 61)
+  assert.equal(checks, 68)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()

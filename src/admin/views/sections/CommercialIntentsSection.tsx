@@ -7,7 +7,10 @@ interface CommercialIntent {
   id: string
   email: string
   companyName: string
+  contactName?: string
   templateId: string
+  businessType?: string
+  branchCount?: number | null
   contactPhone?: string
   needs?: string
   status: string
@@ -21,6 +24,7 @@ export function CommercialIntentsSection() {
   const [intents, setIntents] = useState<CommercialIntent[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState('')
+  const [nextStatus, setNextStatus] = useState<'new' | 'contacted' | 'qualified' | 'closed'>('new')
   const [implementation, setImplementation] = useState('')
   const [monthly, setMonthly] = useState('')
   const [annual, setAnnual] = useState('')
@@ -74,6 +78,24 @@ export function CommercialIntentsSection() {
     }
   }
 
+  const updateStatus = async () => {
+    if (!selected) return
+    setSaving(true)
+    setMessage('')
+    setError('')
+    try {
+      await gateway('platformGateway', {
+        action: 'updateCommercialIntentStatus', intentId: selected.id, status: nextStatus, requestId: crypto.randomUUID(),
+      })
+      setMessage('Estado de solicitud actualizado.')
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo actualizar el estado.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (!['platform_owner', 'platform_admin'].includes(user?.role || '')) {
     return <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Tu rol no puede gestionar solicitudes comerciales.</div>
   }
@@ -100,6 +122,7 @@ export function CommercialIntentsSection() {
                   <li key={intent.id}>
                     <button type="button" onClick={() => {
                       setSelectedId(intent.id)
+                      setNextStatus(['new', 'contacted', 'qualified', 'closed'].includes(intent.status) ? intent.status as 'new' | 'contacted' | 'qualified' | 'closed' : 'new')
                       setImplementation(String(intent.proposal?.implementationOneTime ?? ''))
                       setMonthly(String(intent.proposal?.monthlyPrice ?? ''))
                       setAnnual(String(intent.proposal?.annualPrice ?? ''))
@@ -111,7 +134,7 @@ export function CommercialIntentsSection() {
                     }}
                       className={`w-full p-4 text-left hover:bg-slate-50 ${selectedId === intent.id ? 'bg-blue-50' : ''}`}>
                       <span className="block font-semibold text-slate-900">{intent.companyName}</span>
-                      <span className="mt-1 block text-xs text-slate-700">{intent.templateId} · {intent.email || 'Sin correo'}</span>
+                      <span className="mt-1 block text-xs text-slate-700">{intent.templateId} · {intent.email || intent.contactPhone || 'Sin contacto'}</span>
                       <span className="mt-1 block text-xs text-slate-600">{intent.status}{intent.proposal?.status === 'draft' ? ' · propuesta en borrador' : ''}</span>
                     </button>
                   </li>
@@ -123,9 +146,14 @@ export function CommercialIntentsSection() {
         <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
           {!selected ? <p className="text-sm text-slate-600">Selecciona una solicitud para preparar una propuesta.</p> : <>
             <h3 className="font-bold text-slate-900">{selected.companyName}</h3>
+            <p className="mt-1 text-xs text-slate-700">Contacto: {selected.contactName || 'No indicado'} · {selected.businessType || 'Tipo de negocio no indicado'}{selected.branchCount ? ` · ${selected.branchCount} sucursales` : ''}</p>
             <p className="mt-1 text-xs text-slate-700">{selected.email} {selected.contactPhone ? `· ${selected.contactPhone}` : ''}</p>
             <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{selected.needs || 'No se registraron necesidades adicionales.'}</p>
             {selected.planSnapshot && <p className="mt-3 text-xs text-slate-700">Plan consultado: {selected.planSnapshot.name || selected.planSnapshot.planId} · {selected.planSnapshot.monthlyPrice} {selected.planSnapshot.currency}/mes (referencia guardada)</p>}
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <label className="flex-1 text-xs font-semibold text-slate-800">Estado de seguimiento<select value={nextStatus} onChange={(event) => setNextStatus(event.target.value as typeof nextStatus)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="new">Nueva</option><option value="contacted">Contactada</option><option value="qualified">Calificada</option><option value="closed">Cerrada</option></select></label>
+              <button type="button" disabled={saving || nextStatus === selected.status} onClick={() => void updateStatus()} className="self-end rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 disabled:opacity-50">Actualizar estado</button>
+            </div>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="text-xs font-semibold text-slate-800">Implementación única<input inputMode="decimal" value={implementation} onChange={(event) => setImplementation(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
               <label className="text-xs font-semibold text-slate-800">Mensualidad<input inputMode="decimal" value={monthly} onChange={(event) => setMonthly(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>

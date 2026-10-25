@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
@@ -57,6 +58,20 @@ exports.tenantGateway = onCall(options, async request => {
       if (!request.data?.tenantId) throw new HttpsError('invalid-argument', 'Empresa requerida.');
       return request.data.action === 'prepareCleanDelivery' ? prepareCleanDelivery(db, request) : executeCleanDelivery(db, request);
     default: throw new HttpsError('invalid-argument', 'Acción no reconocida.');
+  }
+});
+const publicCommercialRateLimitSecret = defineSecret('PUBLIC_COMMERCIAL_RATE_LIMIT_SECRET');
+exports.publicCommercialGateway = onCall({
+  ...options,
+  // Firebase App Check has no local emulator; only bypass verification inside emulator runtime.
+  enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== 'true',
+  secrets: [publicCommercialRateLimitSecret],
+}, async request => {
+  const db = getFirestore();
+  switch (request.data?.action) {
+    case 'getCatalog': return commercialOnboarding.getPublicCommercialCatalog(db);
+    case 'submitInterest': return commercialOnboarding.submitPublicCommercialInterest(db, request, publicCommercialRateLimitSecret.value(), { emulator: process.env.FUNCTIONS_EMULATOR === 'true' });
+    default: throw new HttpsError('invalid-argument', 'Acción pública comercial no reconocida.');
   }
 });
 exports.platformGateway = onCall(options, request => platform.platformGateway(getFirestore(), request));
