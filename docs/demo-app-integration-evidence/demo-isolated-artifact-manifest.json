@@ -2,8 +2,8 @@
   "format": 1,
   "buildCommand": "npm run build:demos-only",
   "outputDirectory": "dist-demo-isolated",
-  "totalFiles": 78,
-  "totalBytes": 21167124,
+  "totalFiles": 92,
+  "totalBytes": 22375294,
   "files": [
     {
       "path": "brand/pachax-app-icon.png",
@@ -261,19 +261,19 @@
       "sha256": "1b13387cb23dc39bf70e31677c21f6db5cad3377b96f286b6ee444496e5bfea7"
     },
     {
-      "path": "demo-assets/datasets-Yqw9fzqF.js",
+      "path": "demo-assets/datasets-BhQt-sVu.js",
       "bytes": 21718,
-      "sha256": "5bbc82219c04a18010219b50da0cd7641b2b6ce4f93fffa8f06db28787a59b26"
+      "sha256": "633b393c5b31111b3e13ebcca20c1913d852278217815de36a3a84b68af7a047"
     },
     {
-      "path": "demo-assets/demo-BhnHYXcO.js",
-      "bytes": 201786,
-      "sha256": "6a13ae381bba67c87ffa15799064a5bda5812a83210707b3b37ac39af71599f4"
+      "path": "demo-assets/demo-cnfXnTV9.css",
+      "bytes": 133033,
+      "sha256": "5e060a8a06878254b4ffa562ea4281602cfe7e4c1fd5c667ac2fe9a6b26f76b0"
     },
     {
-      "path": "demo-assets/demo-CDGjPctY.css",
-      "bytes": 131785,
-      "sha256": "db6189389d616d827a95d04390990e63bf05068d7ac6202617ac243cc56fe2a8"
+      "path": "demo-assets/demo-q6O6-0fc.js",
+      "bytes": 205592,
+      "sha256": "e5b338c2e1c998ca87cee602b9b0c71f88d8086e007084736a5bb2c942c9478f"
     },
     {
       "path": "demo-assets/dist-BcvA-GRa.js",
@@ -281,14 +281,14 @@
       "sha256": "f4d084abb55d5e2f8b9f0a0f604c11caab2b9d3e9eac9854addf254df5903b65"
     },
     {
-      "path": "demo-assets/esm-BnZ_sDeW.js",
+      "path": "demo-assets/esm-CLh9OkkJ.js",
       "bytes": 345,
-      "sha256": "2cea356e45a8cbf4ff1be42bc86dd53502ea41da516ea6f3ff5b262fae6ddf3a"
+      "sha256": "61ca133c146bbfe39bc3807b0bf917282af3d670cd63cd1b32e2c323320134ee"
     },
     {
-      "path": "demo-assets/esm-C3Y0cvua.js",
+      "path": "demo-assets/esm-D87lvWql.js",
       "bytes": 1389,
-      "sha256": "086bbd7f18a6da3ff86a712d740c55f4bc6e9533f3cd73ee8b7789d5506fc813"
+      "sha256": "a1b5029c6ec1bbd07ee3a87a95c30ad9249e439cda2fb764eda4e9438965b6d4"
     },
     {
       "path": "demo-assets/html2canvas-BzFc_22V.js",
@@ -301,9 +301,9 @@
       "sha256": "c731aa518ae51297856e57c66d47f5fa88836f41ff3c923697b4cb753288365a"
     },
     {
-      "path": "demo-assets/jspdf.es.min-CqXrGCVJ.js",
+      "path": "demo-assets/jspdf.es.min-BZti3lLD.js",
       "bytes": 399346,
-      "sha256": "49c952972f438357f8152a50c9f3e8450e092b876ca69355d840ae46e24fd8ec"
+      "sha256": "4575d24c119d44e92301f20a417d62fb7b20b0da9d2cc1b07eb96f03cfd16519"
     },
     {
       "path": "demo-assets/purify.es-CJ-rlsNn.js",
@@ -311,19 +311,19 @@
       "sha256": "edf235b10be724f7897f3220cde61e3b28f76491c6f085830a0b4a132ed9068d"
     },
     {
-      "path": "demo-assets/QuickRetailDemo-b0PdFnVs.js",
+      "path": "demo-assets/QuickRetailDemo-BxF5NNF8.js",
       "bytes": 47621,
-      "sha256": "f48c82e90fb47e9fc6d0a320f351fb1e66bf7ce7b60c0ae6256c2040dfb50ce9"
+      "sha256": "f5406843d4130dfcebd8a3707ab86dac6df413dc13a6b97b2ecb4211dc8f8d70"
     },
     {
-      "path": "demo-assets/RestaurantDemo-BZeJcFpa.css",
-      "bytes": 16475,
-      "sha256": "12fce8c6039bcbf9b286711936f19bff901b8a0a2685191404bc8f17750fc89b"
+      "path": "demo-assets/RestaurantDemo-BLO4p97i.css",
+      "bytes": 16666,
+      "sha256": "9b714f73af6d40396970e6e48f76a7bed914f61ab8a73da3669a9bd975e53711"
     },
     {
-      "path": "demo-assets/RestaurantDemo-DMcCGRNA.js",
-      "bytes": 484253,
-      "sha256": "ae3de200dd7e84b371835f719676453abae4f9f0d7a30b2c2177f13588f972cd"
+      "path": "demo-assets/RestaurantDemo-Do-NcH5f.js",
+      "bytes": 537353,
+      "sha256": "0b8d9670334694bf4048a586a8da629faabab3b2466f35e16c0c5d5db7f1f5b3"
     },
     {
       "path": "demo-assets/typeof-B5XbjTb1.js",
@@ -331,9 +331,9 @@
       "sha256": "a018c0f2b55a5dbeeb62334a5437c26a040d27303c72982b08859b3e12c9d2f6"
     },
     {
-      "path": "demo-assets/web-42bFWLO7.js",
+      "path": "demo-assets/web-BaN38u7C.js",
       "bytes": 8492,
-      "sha256": "1ae567b4a4c835813f14fd51c9c5254de0b1c52eba8eba75372d56ff542066a1"
+      "sha256": "32326b90bbba438defca54415fd9f0c53d4102790a5ea657f9870b8824470d65"
     },
     {
       "path": "demo-assets/web-BDHGbk52.js",
@@ -347,18 +347,88 @@
     },
     {
       "path": "demo-isolated.html",
-      "bytes": 926,
-      "sha256": "aa631356b8256689cdf6dd020cd1e65fbfc2cae395c526f0e312fd2dcd337d60"
+      "bytes": 941,
+      "sha256": "e0378c45bbc98f50a50c82ea55e04f81cb867547d2e9624ca928288969ac9d73"
     },
     {
       "path": "demo-isolation-network-guard.js",
-      "bytes": 2774,
-      "sha256": "e3c33aeef21a2e57fd1f917751c0fd10666de82af0205738965ebe5793a859a9"
+      "bytes": 2850,
+      "sha256": "42bdc5c531c1a3fa47b38449314c8ccea164f69869a28253d4d924211ad714b7"
     },
     {
       "path": "favicon.png",
       "bytes": 977,
       "sha256": "1b845e7775c40dec87b5622c01cc030aacccfdf2c74f544d238585709e611734"
+    },
+    {
+      "path": "images/fastfood/burger-combo.jpg",
+      "bytes": 94137,
+      "sha256": "1284e0d5f0a30db7a99eb6cc94adb8c41db7367b3f53168195ed1fd01973f27e"
+    },
+    {
+      "path": "images/fastfood/burger-combo.webp",
+      "bytes": 66896,
+      "sha256": "e2e32a11f3043d5d085c30445cc0ebac6d4234e2424302c61f8e231f0819c722"
+    },
+    {
+      "path": "images/fastfood/chocolate-brownie.jpg",
+      "bytes": 96600,
+      "sha256": "160982db0f35385518fc93972f22442c48475a64f0ae8834587ff8de9f2c81b0"
+    },
+    {
+      "path": "images/fastfood/chocolate-brownie.webp",
+      "bytes": 68334,
+      "sha256": "0151327315d216fffa9add7b5cf1a91723370382fdeb29565222149fdc70e45a"
+    },
+    {
+      "path": "images/fastfood/classic-burger.jpg",
+      "bytes": 95159,
+      "sha256": "e166ed70c9f8104894ff7d909b8ae18cd604ef584494f5dd46d7a867a9855a7d"
+    },
+    {
+      "path": "images/fastfood/classic-burger.webp",
+      "bytes": 72934,
+      "sha256": "e47fb4d3228d3b9ffa3bee16f0aaa133c35b23cefab50b81c9fe5edb7c1144db"
+    },
+    {
+      "path": "images/fastfood/double-burger.jpg",
+      "bytes": 91447,
+      "sha256": "7624c0808a279e434a7b2eaa9caa9b86b73be790e4887f3a6e18e70df10b058e"
+    },
+    {
+      "path": "images/fastfood/double-burger.webp",
+      "bytes": 65932,
+      "sha256": "246df3b0f63a81bd627b2ec2713091021d8827c9722bbb10aa7a5b4741b8b272"
+    },
+    {
+      "path": "images/fastfood/french-fries.jpg",
+      "bytes": 88764,
+      "sha256": "9466ec1e24ba90dd7416b1bfe746da43e2d97fee4f3dc86f6c763dedcd8b21db"
+    },
+    {
+      "path": "images/fastfood/french-fries.webp",
+      "bytes": 61818,
+      "sha256": "37332e522ce91bb6de479235db1de423ab35bdfdb120a47ba5b429a1c4c899da"
+    },
+    {
+      "path": "images/fastfood/lemonade.jpg",
+      "bytes": 95072,
+      "sha256": "7a739e439ad0e58bd8ef16eac438122d2cc9fe7144c05917741cea72357d1f03"
+    },
+    {
+      "path": "images/fastfood/lemonade.webp",
+      "bytes": 66768,
+      "sha256": "60d211fdfc4869746a9e35b634892c634272b0f708054ae2ff0bbb96ed4e9097"
+    },
+    {
+      "path": "images/fastfood/soda-glass.jpg",
+      "bytes": 104771,
+      "sha256": "a074e0b2ceda004827bd2d875a46e6a96322520d4427cc286b425b016e7acd63"
+    },
+    {
+      "path": "images/fastfood/soda-glass.webp",
+      "bytes": 81102,
+      "sha256": "686af51924d23539313bb788c8bc9b0e012a30eb6bdd4071a2e7a43b1541b1c5"
     },
     {
       "path": "images/nightclub/beer.svg",
