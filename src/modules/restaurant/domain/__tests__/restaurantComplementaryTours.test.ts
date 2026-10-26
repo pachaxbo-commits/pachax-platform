@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment -- Node test types are outside the browser TypeScript configuration. */
 // @ts-nocheck
 import assert from 'node:assert/strict'
 import test from 'node:test'
