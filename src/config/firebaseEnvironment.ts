@@ -4,6 +4,11 @@ export const FIREBASE_ENV_KEYS = [
   'VITE_FIREBASE_MESSAGING_SENDER_ID', 'VITE_FIREBASE_APP_ID',
 ] as const
 
+const ALLOWED_EMULATOR_PROJECT_IDS = new Set([
+  'demo-pachax-platform',
+  'demo-pachax-learning-validation',
+])
+
 /** Pure validation, shared by the build and Firebase initialization. Never logs values. */
 export function validateFirebaseEnvironment(env: Record<string, unknown>, production: boolean): void {
   const missing = FIREBASE_ENV_KEYS.filter(key => typeof env[key] !== 'string' || !String(env[key]).trim())
@@ -12,8 +17,8 @@ export function validateFirebaseEnvironment(env: Record<string, unknown>, produc
     throw new Error(`Configuración Firebase incompleta: ${missing.join(', ')}. Configura el nuevo proyecto PACHAX.`)
   }
   const emulator = env.VITE_USE_FIREBASE_EMULATOR === 'true'
-  if (emulator && env.VITE_FIREBASE_PROJECT_ID !== 'demo-pachax-platform') {
-    throw new Error('Las pruebas deben usar exclusivamente demo-pachax-platform.')
+  if (emulator && !ALLOWED_EMULATOR_PROJECT_IDS.has(String(env.VITE_FIREBASE_PROJECT_ID || ''))) {
+    throw new Error('Las pruebas deben usar exclusivamente un proyecto ficticio autorizado para Firebase Emulator.')
   }
   if (!emulator && String(env.VITE_FIREBASE_PROJECT_ID || '').startsWith('demo-')) {
     throw new Error('Un proyecto demo requiere VITE_USE_FIREBASE_EMULATOR=true.')

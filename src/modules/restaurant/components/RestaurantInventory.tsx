@@ -18,6 +18,7 @@ type Props = {
   movements: InventoryMovement[]
   onSaveProducts: (products: Product[]) => void
   onInventoryMovement?: (productId: string, nextStock: number, type: ManualType, reason: string) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
+  onStartTour?: () => void
 }
 
 const movementNames: Record<InventoryMovementType, string> = {
@@ -61,7 +62,7 @@ function MovementBadge({ type }: { type: InventoryMovementType }) {
   return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold ${neutral ? 'bg-slate-100 text-slate-700' : positive ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{positive ? <ArrowDownRight size={13} /> : neutral ? <SlidersHorizontal size={13} /> : <ArrowUpRight size={13} />}{movementNames[type]}</span>
 }
 
-export function RestaurantInventory({ products, catalogCategories, shift, movements, onSaveProducts, onInventoryMovement }: Props) {
+export function RestaurantInventory({ products, catalogCategories, shift, movements, onSaveProducts, onInventoryMovement, onStartTour }: Props) {
   const items = products.filter(item => item.stockBase !== undefined)
   const [view, setView] = useState<'current' | 'movements'>('current')
   const [query, setQuery] = useState('')
@@ -158,14 +159,15 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
   </div>
   const sortButton = (label: string, key: SortKey) => <button type="button" onClick={() => chooseSort(key)} aria-label={`Ordenar por ${label}`} className="inline-flex items-center gap-1 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600">{label}{sort.key === key ? sort.direction === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : null}</button>
 
-  return <div className="w-full space-y-5 pb-8 text-slate-900">
+  return <div data-tour="inventory-board" className="w-full space-y-5 pb-8 text-slate-900">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-teal-700">Operación y existencias</p>
         <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Inventario de Cocina & Barra</h1>
         <p className="mt-1 text-sm text-slate-500">Insumos, recetas, mermas y movimientos del restaurante.</p>
       </div>
-      <button type="button" onClick={() => openProduct()} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 shadow-xs">
+      {onStartTour && <button type="button" onClick={onStartTour} className="inline-flex min-h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50">&#191;C&#243;mo funciona?</button>}
+      <button data-tour="inventory-new-item" type="button" onClick={() => openProduct()} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 shadow-xs">
         <Plus size={16} />
         Nuevo insumo
       </button>
@@ -175,7 +177,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
 
     <section aria-label="Resumen de inventario" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <SummaryCard label="Total insumos" value={String(items.length)} icon={Boxes} active={view === 'current' && statusFilter === 'all'} onClick={() => chooseStatus('all')} />
-      <SummaryCard label="Stock bajo" value={String(low.length)} icon={AlertTriangle} active={view === 'current' && statusFilter === 'low'} onClick={() => chooseStatus('low')} tone="amber" />
+      <div data-tour="inventory-low-stock"><SummaryCard label="Stock bajo" value={String(low.length)} icon={AlertTriangle} active={view === 'current' && statusFilter === 'low'} onClick={() => chooseStatus('low')} tone="amber" /></div>
       <SummaryCard label="Sin stock" value={String(out.length)} icon={CircleOff} active={view === 'current' && statusFilter === 'out'} onClick={() => chooseStatus('out')} tone="rose" />
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
         <div className="flex items-center justify-between gap-2">
@@ -206,6 +208,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
           type="button"
           role="tab"
           aria-selected={view === id}
+          data-tour={id === 'current' ? 'inventory-current-tab' : 'inventory-history-tab'}
           onClick={() => setView(id)}
           className={`border-b-2 px-4 py-2.5 text-sm font-bold transition ${view === id ? 'border-teal-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
         >
@@ -219,6 +222,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
         <Search size={16} className="pointer-events-none absolute left-3 top-3.5 text-slate-400" />
         <span className="sr-only">Buscar {view === 'current' ? 'insumos' : 'movimientos'}</span>
         <input
+          data-tour="inventory-search"
           type="search"
           value={query}
           onChange={event => setQuery(event.target.value)}
@@ -243,7 +247,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
     </div>
 
     {view === 'current' ? (
-      <section aria-label="Inventario actual">
+      <section data-tour="inventory-current" aria-label="Inventario actual">
         {shown.length ? (
           <>
             <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white md:block shadow-xs">
@@ -316,7 +320,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
         )}
       </section>
     ) : (
-      <section aria-label="Movimientos de inventario" className="space-y-3">
+      <section data-tour="inventory-movements-panel" aria-label="Movimientos de inventario" className="space-y-3">
         <div className="flex flex-wrap gap-2">
           <input type="date" aria-label="Fecha" value={dateFilter} onChange={event => setDateFilter(event.target.value)} className={inputClass} />
           <select aria-label="Producto" value={productFilter} onChange={event => setProductFilter(event.target.value)} className={inputClass}>
@@ -435,6 +439,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
           <footer className="flex gap-2 border-t border-slate-200 p-4">
             <button
               type="button"
+              data-tour="inventory-create-movement"
               onClick={() => { setSelectedId(null); openMovement(selected) }}
               className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-slate-800 transition"
             >
@@ -453,7 +458,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
     )}
 
     <Modal isOpen={!!editing} onClose={() => setEditing(null)} title={form.id ? 'Editar insumo' : 'Nuevo insumo'} size="lg" footer={<button type="button" onClick={saveProduct} className="w-full rounded-xl bg-slate-900 p-3 text-sm font-bold text-white transition hover:bg-slate-800">Guardar insumo</button>}>
-      <div className="space-y-4">
+      <div data-tour="inventory-item-form-fields" className="space-y-4">
         <section>
           <h3 className="mb-3 text-xs font-extrabold uppercase tracking-wide text-slate-700">Información del insumo</h3>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -536,7 +541,7 @@ export function RestaurantInventory({ products, catalogCategories, shift, moveme
     </Modal>
 
     <Modal isOpen={!!movementProduct} onClose={() => setMovementProduct(null)} title={`Movimiento · ${movementProduct?.name || ''}`} footer={<button type="button" disabled={savingMovement} onClick={saveMovement} className="w-full rounded-xl bg-slate-900 p-3 font-bold text-white shadow-xs disabled:opacity-50">{savingMovement ? 'Registrando...' : 'Registrar movimiento'}</button>}>
-      <div className="grid gap-3">
+      <div data-tour="inventory-movement-fields" className="grid gap-3">
         <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
           Stock actual: <strong className="tabular-nums text-slate-900">{movementProduct ? stockText(movementProduct) : '—'}</strong>
         </p>

@@ -12,8 +12,14 @@ test('partial development configuration fails instead of falling back', () => {
   assert.throws(() => validateFirebaseEnvironment({ VITE_FIREBASE_API_KEY: 'x' }, false), /incompleta/)
 })
 test('isolated emulator build is allowed', () => validateFirebaseEnvironment(demo, true))
+test('learning validation uses its own isolated emulator project', () => {
+  validateFirebaseEnvironment({ ...demo, VITE_FIREBASE_PROJECT_ID: 'demo-pachax-learning-validation' }, true)
+})
 test('emulator configuration rejects a real project', () => {
   assert.throws(() => validateFirebaseEnvironment({ ...demo, VITE_FIREBASE_PROJECT_ID: 'real-project' }, false), /exclusivamente/)
+})
+test('emulator configuration rejects unapproved demo projects', () => {
+  assert.throws(() => validateFirebaseEnvironment({ ...demo, VITE_FIREBASE_PROJECT_ID: 'demo-other-project' }, false), /ficticio autorizado/)
 })
 test('demo cannot silently reach remote Firebase', () => {
   assert.throws(() => validateFirebaseEnvironment({ ...demo, VITE_USE_FIREBASE_EMULATOR: 'false' }, false), /requiere/)

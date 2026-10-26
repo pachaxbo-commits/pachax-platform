@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import type { RestaurantModuleId } from '../views/RestaurantExperience'
 import type { RestaurantTourStep } from '../domain/restaurantPosTour'
+import { resolveRestaurantTourStepIndex, resolveRestaurantTourTarget, RESTAURANT_TOUR_TARGET_WAIT_MS } from '../domain/restaurantTourTarget'
 
 type Rect = { top: number; left: number; width: number; height: number }
 
@@ -9,15 +10,21 @@ function sameRect(left: Rect | null, right: Rect | null) {
   return left?.top === right?.top && left?.left === right?.left && left?.width === right?.width && left?.height === right?.height
 }
 
-function rectFor(selector: string): Rect | null {
-  const element = Array.from(document.querySelectorAll<HTMLElement>(selector)).find((candidate) => {
-    const bounds = candidate.getBoundingClientRect()
-    return Boolean(bounds.width && bounds.height)
-  })
-  if (!element) return null
-  const bounds = element.getBoundingClientRect()
-  return { top: bounds.top, left: bounds.left, width: bounds.width, height: bounds.height }
+function rectFor(selector: string): { rect: Rect | null; invalidSelector: boolean } {
+  try {
+    const element = Array.from(document.querySelectorAll<HTMLElement>(selector)).find((candidate) => {
+      const bounds = candidate.getBoundingClientRect()
+      return Boolean(bounds.width && bounds.height)
+    })
+    if (!element) return { rect: null, invalidSelector: false }
+    const bounds = element.getBoundingClientRect()
+    return { rect: { top: bounds.top, left: bounds.left, width: bounds.width, height: bounds.height }, invalidSelector: false }
+  } catch {
+    return { rect: null, invalidSelector: true }
+  }
 }
+
+type TourTargetState = { stepId: string; status: 'waiting' | 'primary' | 'fallback' | 'missing' | 'invalid-selector'; rect: Rect | null; description?: string }
 
 export function RestaurantInteractiveTour({
   steps,
@@ -37,10 +44,13 @@ export function RestaurantInteractiveTour({
   const activeSteps = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches && mobileSteps?.length
     ? mobileSteps
     : steps
-  const [index, setIndex] = useState(0)
-  const [rect, setRect] = useState<Rect | null>(null)
-  const [missingTarget, setMissingTarget] = useState(false)
+  const [activeStepId, setActiveStepId] = useState(activeSteps[0]?.id ?? '')
+  const index = resolveRestaurantTourStepIndex(activeSteps, activeStepId)
   const step = activeSteps[index]
+  const [targetState, setTargetState] = useState<TourTargetState>({ stepId: step.id, status: 'waiting', rect: null })
+  const currentTargetState = targetState.stepId === step.id ? targetState : { stepId: step.id, status: 'waiting' as const, rect: null }
+  const rect = currentTargetState.rect
+  const missingTarget = currentTargetState.status === 'fallback' || currentTargetState.status === 'missing' || currentTargetState.status === 'invalid-selector'
 
   useEffect(() => {
     const onTargetClick = (event: MouseEvent) => {
@@ -49,31 +59,83 @@ export function RestaurantInteractiveTour({
       if (!target) return
       window.setTimeout(() => {
         if (document.querySelector(step.advanceWhen || '[data-tour="pos-catalog"]')) {
-          setIndex((current) => Math.min(current + 1, activeSteps.length - 1))
+          setActiveStepId(activeSteps[Math.min(index + 1, activeSteps.length - 1)]?.id ?? step.id)
         }
       }, 50)
     }
     document.addEventListener('click', onTargetClick, true)
     return () => document.removeEventListener('click', onTargetClick, true)
-  }, [activeSteps.length, step])
+  }, [activeSteps, index, step])
 
   useLayoutEffect(() => {
     let hasScrolledToTarget = false
-    const refresh = () => {
-      const next = rectFor(step.target)
-      setRect((current) => sameRect(current, next) ? current : next)
-      setMissingTarget((current) => current === !next ? current : !next)
-      if (next && !hasScrolledToTarget) {
+    let waitExpired = false
+    let errorLogged = false
+    const commit = (status: TourTargetState['status'], rect: Rect | null, description?: string) => {
+      setTargetState((current) => current.stepId === step.id && current.status === status && sameRect(current.rect, rect) && current.description === description
+        ? current
+        : { stepId: step.id, status, rect, description })
+      if (rect && !hasScrolledToTarget) {
         hasScrolledToTarget = true
-        document.querySelector<HTMLElement>(step.target)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+        const target = status === 'fallback' ? step.missingTarget?.fallbackTarget : step.target
+        if (target) document.querySelector<HTMLElement>(target)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
       }
     }
-    refresh()
+    const refresh = () => {
+      const primary = rectFor(step.target)
+      if (primary.invalidSelector) {
+        if (!errorLogged) {
+          errorLogged = true
+          console.error(`[RestaurantInteractiveTour] Selector inválido en el paso "${step.id}": ${step.target}`)
+        }
+        commit('invalid-selector', null)
+        return
+      }
+      if (primary.rect) {
+        commit('primary', primary.rect)
+        return
+      }
+      if (!waitExpired) {
+        commit('waiting', null)
+        return
+      }
+
+      const fallback = step.missingTarget ? rectFor(step.missingTarget.fallbackTarget) : null
+      if (fallback?.invalidSelector) {
+        if (!errorLogged) {
+          errorLogged = true
+          console.error(`[RestaurantInteractiveTour] Selector alternativo inválido en el paso "${step.id}": ${step.missingTarget?.fallbackTarget}`)
+        }
+        commit('invalid-selector', null)
+        return
+      }
+      const resolution = resolveRestaurantTourTarget(step, {
+        primaryFound: false,
+        fallbackFound: Boolean(fallback?.rect),
+      })
+      if (resolution.status === 'fallback') commit('fallback', fallback?.rect || null, resolution.description)
+      else {
+        if (!step.missingTarget && !errorLogged) {
+          errorLogged = true
+          console.error(`[RestaurantInteractiveTour] No se encontró el objetivo esperado en el paso "${step.id}": ${step.target}`)
+        } else if (step.missingTarget && !errorLogged) {
+          errorLogged = true
+          console.error(`[RestaurantInteractiveTour] No se encontró el objetivo ni su alternativa en el paso "${step.id}": ${step.target} / ${step.missingTarget.fallbackTarget}`)
+        }
+        commit('missing', null)
+      }
+    }
+    const timeout = window.setTimeout(() => {
+      waitExpired = true
+      refresh()
+    }, RESTAURANT_TOUR_TARGET_WAIT_MS)
     window.addEventListener('resize', refresh)
     window.addEventListener('scroll', refresh, true)
     const observer = new MutationObserver(refresh)
-    observer.observe(document.body, { childList: true, subtree: true })
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-tour'] })
+    refresh()
     return () => {
+      window.clearTimeout(timeout)
       window.removeEventListener('resize', refresh)
       window.removeEventListener('scroll', refresh, true)
       observer.disconnect()
@@ -94,16 +156,28 @@ export function RestaurantInteractiveTour({
   }
   const next = () => {
     if (index === activeSteps.length - 1) finish()
-    else setIndex((current) => current + 1)
+    else setActiveStepId(activeSteps[index + 1]?.id ?? step.id)
   }
-  const missingTargetMessage = step.id === 'tables'
-    ? 'Ahora no hay una mesa ocupada para abrir. Revisa el estado del sal\u00f3n y contin\u00faa cuando quieras.'
-    : step.id === 'ticket'
-      ? 'No hay comandas activas ahora. Aqu\u00ed aparecer\u00e1n cuando llegue un pedido. Puedes continuar.'
-      : step.id === 'prepare' || step.id === 'ready'
-        ? 'No hay una comanda en este estado ahora. Cuando llegue, este control aparecer\u00e1 aqu\u00ed.'
-        : 'Esta pantalla a\u00fan est\u00e1 preparando el control. Puedes esperar o volver al paso anterior.'
-  const cardTop = rect ? Math.max(12, step.placement === 'top' ? rect.top - 210 : rect.top + rect.height + 14) : 80
+  const missingTargetMessage = currentTargetState.status === 'fallback'
+    ? currentTargetState.description
+    : currentTargetState.status === 'invalid-selector' || currentTargetState.status === 'missing'
+      ? 'No pudimos ubicar el control de este paso. Vuelve al m\u00f3dulo o contin\u00faa con el siguiente paso.'
+      : null
+  const estimatedCardHeight = 240
+  const cardBelow = rect ? rect.top + rect.height + 14 : 80
+  const cardAbove = rect ? rect.top - estimatedCardHeight - 14 : 80
+  const hasRoomBelow = rect ? cardBelow + estimatedCardHeight <= window.innerHeight - 12 : false
+  const hasRoomAbove = rect ? cardAbove >= 12 : false
+  const preferredCardTop = step.placement === 'top' ? cardAbove : cardBelow
+  const cardTop = rect
+    ? hasRoomBelow && hasRoomAbove
+      ? preferredCardTop
+      : hasRoomBelow
+        ? cardBelow
+        : hasRoomAbove
+          ? cardAbove
+          : Math.min(Math.max(12, preferredCardTop), Math.max(12, window.innerHeight - estimatedCardHeight - 12))
+    : 80
   const cardLeft = rect ? Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 372)) : 12
 
   return (
@@ -129,11 +203,11 @@ export function RestaurantInteractiveTour({
           <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{tourLabel} · Paso {index + 1} de {activeSteps.length}</p><h2 className="mt-1 text-base font-extrabold text-slate-900">{step.title}</h2></div>
           <button type="button" onClick={onDismiss} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Omitir tutorial"><X size={18} /></button>
         </div>
-        <p className="mt-3 text-sm leading-5 text-slate-600">{missingTarget ? missingTargetMessage : step.description}</p>
-        {step.interaction === 'navigate' && !missingTarget && activeModule === step.module && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{step.id === 'open-menu' ? 'Esperando que abras el menú con el botón resaltado.' : step.id === 'open-tables' ? 'Esperando que abras Mesas con el botón resaltado.' : step.id === 'open-kitchen' ? 'Esperando que abras Cocina con el bot\u00f3n resaltado.' : step.id === 'tables' ? 'Esperando que abras una mesa ocupada.' : 'Esperando que abras POS con el botón resaltado.'}</p>}
+        <p className="mt-3 text-sm leading-5 text-slate-600">{currentTargetState.status === 'waiting' ? 'Estamos buscando este control. Puedes esperar un momento.' : missingTarget ? missingTargetMessage : step.description}</p>
+        {step.interaction === 'navigate' && !missingTarget && activeModule === step.module && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{step.id === 'open-menu' ? 'Esperando que abras el menú con el botón resaltado.' : step.id === 'open-tables' ? 'Esperando que abras Mesas con el botón resaltado.' : step.id === 'open-kitchen' ? 'Esperando que abras Cocina con el bot\u00f3n resaltado.' : step.id === 'open-cash' ? 'Esperando que abras Caja con el botón resaltado.' : step.id === 'open-customers' ? 'Esperando que abras Clientes con el botón resaltado.' : step.id === 'open-customer-form' ? 'Esperando que abras el formulario con el botón resaltado.' : step.id === 'open-customer-profile' ? 'Esperando que abras la ficha del cliente.' : step.id === 'tables' ? 'Esperando que abras una mesa ocupada.' : 'Esperando que abras POS con el botón resaltado.'}</p>}
         <div className="mt-4 flex items-center justify-between gap-2">
-          <button type="button" disabled={index === 0} onClick={() => setIndex((current) => Math.max(0, current - 1))} className="inline-flex min-h-10 items-center gap-1 rounded-xl px-3 text-sm font-bold text-slate-600 disabled:opacity-40"><ArrowLeft size={16} />Anterior</button>
-          {step.interaction === 'navigate' && !missingTarget && activeModule === step.module ? null : <button type="button" onClick={next} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white hover:bg-slate-800">{index === activeSteps.length - 1 ? 'Finalizar' : 'Siguiente'}<ArrowRight size={16} /></button>}
+          <button type="button" disabled={index === 0} onClick={() => setActiveStepId(activeSteps[Math.max(0, index - 1)]?.id ?? step.id)} className="inline-flex min-h-10 items-center gap-1 rounded-xl px-3 text-sm font-bold text-slate-600 disabled:opacity-40"><ArrowLeft size={16} />Anterior</button>
+          {step.interaction === 'navigate' && !missingTarget && activeModule === step.module ? null : <button type="button" disabled={currentTargetState.status === 'waiting'} onClick={next} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50">{index === activeSteps.length - 1 ? 'Finalizar' : 'Siguiente'}<ArrowRight size={16} /></button>}
         </div>
       </div>
     </div>

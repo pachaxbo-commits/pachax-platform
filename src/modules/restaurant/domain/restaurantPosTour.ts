@@ -11,6 +11,10 @@ export type RestaurantTourStep = {
   placement: RestaurantTourPlacement
   interaction: 'informative' | 'navigate'
   advanceWhen?: string
+  missingTarget?: {
+    fallbackTarget: string
+    description: string
+  }
 }
 
 /**

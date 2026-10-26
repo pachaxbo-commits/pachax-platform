@@ -32,6 +32,7 @@ export function RestaurantCash({
   onCloseShift,
   onCountInventoryItem,
   onViewTables,
+  onStartTour,
 }: {
   shift: Shift | null
   orders: Order[]
@@ -49,6 +50,7 @@ export function RestaurantCash({
   onCloseShift: (countedCash?: number) => boolean | Promise<boolean>
   onCountInventoryItem?: (productId: string, physical: number, note?: string) => void
   onViewTables?: () => void
+  onStartTour?: () => void
 }) {
   const [opening, setOpening] = useState('')
   const [localMovements, setLocalMovements] = useState<CashMovement[]>([])
@@ -201,16 +203,19 @@ export function RestaurantCash({
       setIsClosingShift(false)
     }
   }
-  return <div className="w-full space-y-5 pb-8 text-slate-900">
+  return <div data-tour="cash-board" className="w-full space-y-5 pb-8 text-slate-900">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p className="mb-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[var(--primary)]">Operación del turno</p>
         <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Caja & Control de Turnos</h1>
         <p className="mt-1 text-sm text-slate-500">Ventas, movimientos y arqueo en un solo lugar.</p>
       </div>
-      <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-extrabold ${shift ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' : 'bg-slate-100 text-slate-700'}`}>
+      <div className="flex flex-wrap items-center gap-2">
+      {onStartTour && <button data-tour="cash-start-tour" type="button" onClick={onStartTour} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50">¿Cómo funciona?</button>}
+      <span data-tour="cash-shift-status" className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-extrabold ${shift ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' : 'bg-slate-100 text-slate-700'}`}>
         {shift ? <Unlock size={14} /> : <Lock size={14} />}{shift ? 'Turno abierto' : 'Turno cerrado'}
       </span>
+      </div>
     </header>
     {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{notice}</p>}
     {shift && summary ? <>
@@ -220,7 +225,7 @@ export function RestaurantCash({
         {paidOrders.length > 0 && <span>Ticket promedio <strong className="tabular-nums text-slate-900">{money(summary.totalSales / paidOrders.length)}</strong></span>}
       </div>
 
-      <section aria-labelledby="sales-heading" className="space-y-3">
+      <section data-tour="cash-sales-summary" aria-labelledby="sales-heading" className="space-y-3">
         <SectionHeading id="sales-heading" eyebrow="01 / Ventas" title="Ventas del turno" />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="Total ventas" value={money(summary.totalSales)} icon={ChartNoAxesColumn} featured />
@@ -240,7 +245,7 @@ export function RestaurantCash({
               </div>)}
             </div> : <p className="mt-6 rounded-xl bg-slate-50 p-5 text-center text-sm text-slate-500">Aún no hay cobros con hora registrada en este turno.</p>}
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+          <div data-tour="cash-payment-methods" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
             <h3 className="text-sm font-bold">Métodos de pago</h3>
             <p className="mt-0.5 text-xs text-slate-500">Distribución del total vendido</p>
             <div className="mt-5 space-y-4">
@@ -264,7 +269,7 @@ export function RestaurantCash({
           <Metric label="Salidas efectivo" value={money(summary.cashOutflow)} icon={ArrowUpRight} />
           <Metric label="Gastos totales" value={money(summary.totalExpenses)} icon={ReceiptText} />
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-white sm:p-6">
+        <div data-tour="cash-expected" className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-white sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-400">Efectivo esperado en caja</p><strong className="mt-1 block text-3xl font-extrabold tabular-nums tracking-tight sm:text-4xl">{money(summary.expectedCash)}</strong></div><Wallet size={24} className="text-emerald-400" /></div>
           <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/15 pt-4 text-xs sm:grid-cols-4">
             <FormulaPart operator="" label="Fondo inicial" value={money(shift.openingFloat)} />
@@ -275,10 +280,10 @@ export function RestaurantCash({
         </div>
       </section>
 
-      <section aria-labelledby="movements-heading" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+      <section data-tour="cash-movements" aria-labelledby="movements-heading" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h2 id="movements-heading" className="text-base font-bold">Movimientos de caja</h2><p className="text-xs text-slate-500">Registros del turno, editables antes del cierre.</p></div>
-          <button type="button" onClick={() => { setForm(blank()); setEditing(blank()) }} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold shadow-xs transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><Plus size={16} />Registrar movimiento</button>
+          <button data-tour="cash-create-movement" type="button" onClick={() => { setForm(blank()); setEditing(blank()) }} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold shadow-xs transition hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"><Plus size={16} />Registrar movimiento</button>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="Filtrar movimientos">
@@ -296,9 +301,9 @@ export function RestaurantCash({
         <SectionHeading id="close-heading" eyebrow="03 / Finalizar" title="Cierre del turno" />
         <p className="mt-1 text-sm text-slate-500">Revisa el resumen, cuenta el efectivo y confirma el arqueo al terminar.</p>
         {openTables.length > 0 && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900" role="alert"><div className="flex items-start gap-2"><CircleAlert size={18} className="mt-0.5 shrink-0" /><div><strong className="text-sm">{openTables.length} {openTables.length === 1 ? 'cuenta abierta' : 'cuentas abiertas'}</strong><p className="text-xs">Cierra las mesas pendientes antes de realizar el arqueo.</p></div></div>{onViewTables && <button type="button" onClick={onViewTables} className="inline-flex items-center gap-1 text-xs font-bold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]">Ver mesas pendientes <ArrowRight size={14} /></button>}</div>}
-        <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={printClosure} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"><Printer size={16} />Imprimir resumen de caja</button><button type="button" onClick={() => setClosing(true)} disabled={openTables.length > 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-40"><Lock size={15} />Arqueo y cierre de caja</button></div>
+        <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={printClosure} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"><Printer size={16} />Imprimir resumen de caja</button><button data-tour="cash-close-shift" type="button" onClick={() => setClosing(true)} disabled={openTables.length > 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-40"><Lock size={15} />Arqueo y cierre de caja</button></div>
       </section>
-    </> : <section className="rounded-2xl border border-slate-200 bg-white p-5"><p className="mb-4 text-sm text-slate-600">Debes iniciar un turno antes de realizar operaciones.</p><Field label="Fondo inicial / cambio en caja"><NumberInput min="0" value={opening} onChange={event => setOpening(event.target.value)} /></Field><button disabled={isStartingShift} onClick={async () => { const amount = Number(opening); if (Number.isFinite(amount) && amount >= 0 && !isStartingShift) { setIsStartingShift(true); try { await onStartShift(amount, new Date().toISOString(), userName) } finally { setIsStartingShift(false) } } }} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="mt-3 w-full rounded-xl p-3 font-bold shadow-xs disabled:opacity-50">{isStartingShift ? 'Iniciando turno...' : 'Confirmar e iniciar turno'}</button></section>}
+    </> : <section data-tour="cash-open-shift" className="rounded-2xl border border-slate-200 bg-white p-5"><p className="mb-4 text-sm text-slate-600">Debes iniciar un turno antes de realizar operaciones.</p><Field label="Fondo inicial / cambio en caja"><NumberInput min="0" value={opening} onChange={event => setOpening(event.target.value)} /></Field><button disabled={isStartingShift} onClick={async () => { const amount = Number(opening); if (Number.isFinite(amount) && amount >= 0 && !isStartingShift) { setIsStartingShift(true); try { await onStartShift(amount, new Date().toISOString(), userName) } finally { setIsStartingShift(false) } } }} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="mt-3 w-full rounded-xl p-3 font-bold shadow-xs disabled:opacity-50">{isStartingShift ? 'Iniciando turno...' : 'Confirmar e iniciar turno'}</button></section>}
 <Modal isOpen={!!editing} onClose={() => setEditing(null)} title={form.id ? 'Editar movimiento' : 'Registrar movimiento'} footer={<button onClick={submit} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="w-full rounded-xl p-3 font-bold shadow-xs">Guardar movimiento</button>}><div className="grid gap-3"><Field label="Tipo"><SelectInput value={form.type} onChange={event => { const type = event.target.value as CashMovementType; setForm({ ...form, type, category: categories[type][0] }) }}><option value="expense">Salida / gasto</option><option value="income">Entrada</option></SelectInput></Field><Field label="Categoría"><SelectInput value={form.category} onChange={event => setForm({ ...form, category: event.target.value as CashMovementCategory })}>{categories[form.type].map(item => <option key={item} value={item}>{label[item]}</option>)}</SelectInput></Field>{form.category === 'worker_payment' && <Field label="Trabajador"><SelectInput value={form.workerId || ''} onChange={event => setForm({ ...form, workerId: event.target.value })}><option value="">Seleccionar trabajador</option>{staffMembers && staffMembers.length > 0 ? staffMembers.filter(worker => worker.active !== false).map(worker => <option key={worker.id} value={worker.id}>{worker.name}</option>) : <option value="" disabled>Sin trabajadores disponibles</option>}</SelectInput></Field>}<Field label="Concepto / descripción" required><TextInput value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder={form.category === 'supply_purchase' ? 'Carne, papa, refrescos…' : 'Motivo del movimiento'} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Monto" required><NumberInput min="0.01" step="0.01" value={form.amount || ''} onChange={event => setForm({ ...form, amount: Number(event.target.value) })} /></Field><Field label="Método de pago"><SelectInput value={form.paymentMethod} onChange={event => setForm({ ...form, paymentMethod: event.target.value as CashMovement['paymentMethod'] })}><option value="cash">Efectivo de caja</option><option value="qr">QR</option><option value="card">Tarjeta</option><option value="other">Otro</option></SelectInput></Field></div>{form.category === 'supply_purchase' && <Field label="Proveedor (opcional)"><TextInput value={form.supplier || ''} onChange={event => setForm({ ...form, supplier: event.target.value })} /></Field>}<Field label="Observación (opcional)"><TextArea value={form.note || ''} onChange={event => setForm({ ...form, note: event.target.value })} /></Field></div></Modal><Modal isOpen={!!removing} onClose={() => setRemoving(null)} title="Eliminar movimiento" footer={<div className="grid grid-cols-2 gap-2"><button onClick={() => setRemoving(null)} className="rounded-xl border p-3 font-bold">Cancelar</button><button onClick={handleRemove} className="rounded-xl bg-rose-700 p-3 font-bold text-white">Eliminar</button></div>}><p className="text-sm">¿Seguro que deseas eliminar este movimiento?</p></Modal><Modal isOpen={closing} onClose={() => setClosing(false)} title="Arqueo y cierre de caja" subtitle="Verifica el efectivo físico antes de confirmar." size="lg" footer={<div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setClosing(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-bold">Cancelar</button><button type="button" onClick={printClosure} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 px-4 text-sm font-bold"><Printer size={15} /> Imprimir</button><button type="button" disabled={difference === null || openTables.length > 0 || pendingInventory || isClosingShift} onClick={close} style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }} className="min-h-11 rounded-xl px-4 text-sm font-bold shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">{isClosingShift ? 'Cerrando turno...' : 'Confirmar cierre'}</button></div>}>
   <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4"><Line label="Fondo inicial" value={money(shift?.openingFloat || 0)} /><Line label="Ventas efectivo" value={money(summary?.cashSales || 0)} /><Line label="Ventas QR" value={money(summary?.qrSales || 0)} /><Line label="Ventas tarjeta" value={money(summary?.cardSales || 0)} /><Line label="Total ventas" value={money(summary?.totalSales || 0)} /><Line label="Entradas efectivo" value={money(summary?.cashIncome || 0)} /><Line label="Salidas efectivo" value={money(summary?.cashOutflow || 0)} /><Line label="Gastos totales" value={money(summary?.totalExpenses || 0)} /></div>
   <div className="mt-5 grid gap-2 sm:grid-cols-3">

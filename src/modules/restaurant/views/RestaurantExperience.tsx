@@ -18,6 +18,7 @@ import {
   Menu,
   ChevronDown,
   MoreHorizontal,
+  BookOpen,
 } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
 import { useBackButtonBridge } from '../../../hooks/useBackHandler'
@@ -58,6 +59,12 @@ import { getRestaurantSetupSteps, mayManageRestaurantSetup, restaurantSetupGuide
 import { restaurantPosMobileTourSteps, restaurantPosTourPreferenceKey, restaurantPosTourSteps } from '../domain/restaurantPosTour'
 import { restaurantTablesMobileTourSteps, restaurantTablesTourPreferenceKey, restaurantTablesTourSteps } from '../domain/restaurantTablesTour'
 import { restaurantKitchenMobileTourSteps, restaurantKitchenTourPreferenceKey, restaurantKitchenTourSteps } from '../domain/restaurantKitchenTour'
+import { restaurantCashMobileTourSteps, restaurantCashTourPreferenceKey, restaurantCashTourSteps } from '../domain/restaurantCashTour'
+import { restaurantProductsMobileTourSteps, restaurantProductsTourPreferenceKey, restaurantProductsTourSteps } from '../domain/restaurantProductsTour'
+import { restaurantInventoryMobileTourSteps, restaurantInventoryTourPreferenceKey, restaurantInventoryTourSteps } from '../domain/restaurantInventoryTour'
+import { buildRestaurantCustomersTourSteps, restaurantCustomersMobileTourSteps, restaurantCustomersTourPreferenceKey } from '../domain/restaurantCustomersTour'
+import { buildRestaurantLearningTutorials, restaurantTutorialStatusFromStorage, type RestaurantTutorialId, type RestaurantTutorialStatus } from '../domain/restaurantLearningCenter'
+import { RestaurantLearningCenter } from '../components/RestaurantLearningCenter'
 
 import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
 import './restaurantKiosk.css'
@@ -304,6 +311,19 @@ export function RestaurantExperience({
   const posTourStorageKey = restaurantPosTourPreferenceKey(session.tenantId, session.uid)
   const tablesTourStorageKey = restaurantTablesTourPreferenceKey(session.tenantId, session.uid)
   const kitchenTourStorageKey = restaurantKitchenTourPreferenceKey(session.tenantId, session.uid)
+  const cashTourStorageKey = restaurantCashTourPreferenceKey(session.tenantId, session.uid)
+  const productsTourStorageKey = restaurantProductsTourPreferenceKey(session.tenantId, session.uid)
+  const inventoryTourStorageKey = restaurantInventoryTourPreferenceKey(session.tenantId, session.uid)
+  const customersTourStorageKey = restaurantCustomersTourPreferenceKey(session.tenantId, session.uid)
+  const learningStorageKeys: Record<RestaurantTutorialId, string> = {
+    pos: posTourStorageKey,
+    tables: tablesTourStorageKey,
+    kitchen: kitchenTourStorageKey,
+    cash: cashTourStorageKey,
+    products: productsTourStorageKey,
+    inventory: inventoryTourStorageKey,
+    customers: customersTourStorageKey,
+  }
   const [isSetupGuideOpen, setIsSetupGuideOpen] = useState(() => {
     if (typeof window === 'undefined') return true
     return window.localStorage.getItem(setupGuideStorageKey) === null
@@ -311,8 +331,20 @@ export function RestaurantExperience({
   const [isPosTourOpen, setIsPosTourOpen] = useState(false)
   const [isTablesTourOpen, setIsTablesTourOpen] = useState(false)
   const [isKitchenTourOpen, setIsKitchenTourOpen] = useState(false)
+  const [isCashTourOpen, setIsCashTourOpen] = useState(false)
+  const [isProductsTourOpen, setIsProductsTourOpen] = useState(false)
+  const [isInventoryTourOpen, setIsInventoryTourOpen] = useState(false)
+  const [isCustomersTourOpen, setIsCustomersTourOpen] = useState(false)
+  const [isLearningCenterOpen, setIsLearningCenterOpen] = useState(false)
+  const [learningStatuses, setLearningStatuses] = useState<Partial<Record<RestaurantTutorialId, RestaurantTutorialStatus>>>({})
+  const learningCenterOriginRef = useRef(false)
   const moreDropdownRef = useRef<HTMLDivElement>(null)
   const saleProducts = useMemo(() => stockAwareProducts(products), [products])
+  const fallbackCustomerManager = ['owner', 'admin', 'team'].includes(session.role)
+  const canViewCustomerHistory = session.can ? session.can('orders.read') || session.can('sales.read') || session.can('cash.close') : fallbackCustomerManager
+  const canManageCustomers = session.can ? session.can('customers.manage') : fallbackCustomerManager
+  const canCreateCustomer = Boolean(onSaveCustomer) && (session.can ? session.can('sales.create') : true)
+  const customersTourSteps = useMemo(() => buildRestaurantCustomersTourSteps({ canManage: canManageCustomers, canViewHistory: canViewCustomerHistory, canCreate: canCreateCustomer, hasCustomers: customers.length > 0, hasWhatsAppContact: customers.some((customer) => Boolean(customer.normalizedPhone)) }), [canViewCustomerHistory, canManageCustomers, canCreateCustomer, customers])
 
   useEffect(() => {
     if (!isSetupGuideOpen || typeof window === 'undefined') return
@@ -324,6 +356,34 @@ export function RestaurantExperience({
   const setupRole = session.setupRole ?? session.role
   const canManageSetup = mayManageRestaurantSetup(setupRole, session.can?.('settings.manage'))
   const hasSetupAdminRole = ['owner', 'admin', 'team'].includes(setupRole)
+  const readLearningStatuses = () => Object.fromEntries(
+    Object.entries(learningStorageKeys).map(([id, key]) => [id, restaurantTutorialStatusFromStorage(typeof window === 'undefined' ? null : window.localStorage.getItem(key))]),
+  ) as Partial<Record<RestaurantTutorialId, RestaurantTutorialStatus>>
+  const openLearningCenter = () => {
+    setLearningStatuses(readLearningStatuses())
+    setIsLearningCenterOpen(true)
+  }
+  const writeTutorialStatus = (id: RestaurantTutorialId, status: RestaurantTutorialStatus) => {
+    if (typeof window !== 'undefined') {
+      const storageValue = status === 'in-progress' ? 'started' : status === 'not-started' ? null : status
+      const key = learningStorageKeys[id]
+      if (storageValue) window.localStorage.setItem(key, storageValue)
+      else window.localStorage.removeItem(key)
+    }
+    setLearningStatuses((current) => ({ ...current, [id]: status }))
+  }
+  const finishLearningLaunchedTour = () => {
+    if (!learningCenterOriginRef.current) return
+    learningCenterOriginRef.current = false
+    openLearningCenter()
+  }
+  const dismissTutorial = (id: RestaurantTutorialId, close: (open: boolean) => void) => {
+    if (typeof window === 'undefined' || window.localStorage.getItem(learningStorageKeys[id]) !== 'completed') {
+      writeTutorialStatus(id, 'skipped')
+    }
+    close(false)
+    finishLearningLaunchedTour()
+  }
   const setupSteps = useMemo(() => getRestaurantSetupSteps({
     hasBusinessIdentity: Boolean(businessIdentity?.tradeName?.trim()),
     sectors,
@@ -489,52 +549,113 @@ export function RestaurantExperience({
   }
 
   const startPosTour = () => {
-    window.localStorage.setItem(posTourStorageKey, 'started')
+    writeTutorialStatus('pos', 'in-progress')
     setIsSetupGuideOpen(false)
     selectModule('dashboard')
     setIsPosTourOpen(true)
   }
 
   const dismissPosTour = () => {
-    window.localStorage.setItem(posTourStorageKey, 'skipped')
-    setIsPosTourOpen(false)
+    dismissTutorial('pos', setIsPosTourOpen)
   }
 
   const completePosTour = () => {
-    window.localStorage.setItem(posTourStorageKey, 'completed')
+    writeTutorialStatus('pos', 'completed')
   }
 
   const startTablesTour = () => {
-    window.localStorage.setItem(tablesTourStorageKey, 'started')
+    writeTutorialStatus('tables', 'in-progress')
     setIsSetupGuideOpen(false)
     selectModule('dashboard')
     setIsTablesTourOpen(true)
   }
 
   const dismissTablesTour = () => {
-    window.localStorage.setItem(tablesTourStorageKey, 'skipped')
-    setIsTablesTourOpen(false)
+    dismissTutorial('tables', setIsTablesTourOpen)
   }
 
   const completeTablesTour = () => {
-    window.localStorage.setItem(tablesTourStorageKey, 'completed')
+    writeTutorialStatus('tables', 'completed')
   }
 
   const startKitchenTour = () => {
-    window.localStorage.setItem(kitchenTourStorageKey, 'started')
+    writeTutorialStatus('kitchen', 'in-progress')
     setIsSetupGuideOpen(false)
     selectModule('dashboard')
     setIsKitchenTourOpen(true)
   }
 
   const dismissKitchenTour = () => {
-    window.localStorage.setItem(kitchenTourStorageKey, 'skipped')
-    setIsKitchenTourOpen(false)
+    dismissTutorial('kitchen', setIsKitchenTourOpen)
   }
 
   const completeKitchenTour = () => {
-    window.localStorage.setItem(kitchenTourStorageKey, 'completed')
+    writeTutorialStatus('kitchen', 'completed')
   }
+
+  const startCashTour = () => {
+    writeTutorialStatus('cash', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    setIsCashTourOpen(true)
+  }
+
+  const dismissCashTour = () => {
+    dismissTutorial('cash', setIsCashTourOpen)
+  }
+
+  const completeCashTour = () => {
+    writeTutorialStatus('cash', 'completed')
+  }
+
+  const startProductsTour = () => {
+    writeTutorialStatus('products', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    if (window.matchMedia('(max-width: 1023px)').matches) setIsMoreOpen(false)
+    else if (secondaryModules.some((module) => module.id === 'products')) setIsMoreDesktopOpen(true)
+    setIsProductsTourOpen(true)
+  }
+
+  const dismissProductsTour = () => {
+    dismissTutorial('products', setIsProductsTourOpen)
+  }
+
+  const completeProductsTour = () => {
+    writeTutorialStatus('products', 'completed')
+  }
+
+  const startInventoryTour = () => {
+    writeTutorialStatus('inventory', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    if (window.matchMedia('(max-width: 1023px)').matches) setIsMoreOpen(false)
+    else if (secondaryModules.some((module) => module.id === 'inventory')) setIsMoreDesktopOpen(true)
+    setIsInventoryTourOpen(true)
+  }
+
+  const dismissInventoryTour = () => {
+    dismissTutorial('inventory', setIsInventoryTourOpen)
+  }
+
+  const completeInventoryTour = () => {
+    writeTutorialStatus('inventory', 'completed')
+  }
+
+  const startCustomersTour = () => {
+    writeTutorialStatus('customers', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    setIsMoreOpen(false)
+    if (!window.matchMedia('(max-width: 1023px)').matches && secondaryModules.some((module) => module.id === 'customers')) setIsMoreDesktopOpen(true)
+    setIsCustomersTourOpen(true)
+  }
+
+  const dismissCustomersTour = () => {
+    dismissTutorial('customers', setIsCustomersTourOpen)
+  }
+
+  const completeCustomersTour = () => writeTutorialStatus('customers', 'completed')
 
   const roleLabel =
     session.role === 'owner'
@@ -554,6 +675,66 @@ export function RestaurantExperience({
   const canRunPosTour = visibleModules.some((module) => module.id === 'pos')
   const canRunTablesTour = visibleModules.some((module) => module.id === 'tables')
   const canRunKitchenTour = visibleModules.some((module) => module.id === 'kitchen')
+  const canRunCashTour = visibleModules.some((module) => module.id === 'cash')
+  const canRunProductsTour = visibleModules.some((module) => module.id === 'products')
+  const canRunInventoryTour = visibleModules.some((module) => module.id === 'inventory')
+  const canRunCustomersTour = visibleModules.some((module) => module.id === 'customers')
+  const availableLearningIds: RestaurantTutorialId[] = [
+    ...(canRunPosTour ? ['pos' as const] : []),
+    ...(canRunTablesTour ? ['tables' as const] : []),
+    ...(canRunKitchenTour ? ['kitchen' as const] : []),
+    ...(canRunCashTour ? ['cash' as const] : []),
+    ...(canRunProductsTour ? ['products' as const] : []),
+    ...(canRunInventoryTour ? ['inventory' as const] : []),
+    ...(canRunCustomersTour ? ['customers' as const] : []),
+  ]
+  const learningTutorials = buildRestaurantLearningTutorials(availableLearningIds, learningStatuses)
+  const canOpenSetupFromLearning = !isCounterService && hasSetupAdminRole && canManageSetup
+  const showLearningCenter = learningTutorials.length > 0 || canOpenSetupFromLearning
+  const startTutorialFromLearning = (id: RestaurantTutorialId) => {
+    const startById: Record<RestaurantTutorialId, () => void> = {
+      pos: startPosTour,
+      tables: startTablesTour,
+      kitchen: startKitchenTour,
+      cash: startCashTour,
+      products: startProductsTour,
+      inventory: startInventoryTour,
+      customers: startCustomersTour,
+    }
+    learningCenterOriginRef.current = true
+    setIsLearningCenterOpen(false)
+    startById[id]()
+  }
+  const openSetupGuideFromLearning = () => {
+    learningCenterOriginRef.current = false
+    setIsLearningCenterOpen(false)
+    openSetupGuide()
+  }
+  const startAvailableTour = activeModule === 'tables' && canRunTablesTour
+    ? startTablesTour
+    : activeModule === 'kitchen' && canRunKitchenTour
+      ? startKitchenTour
+      : activeModule === 'cash' && canRunCashTour
+        ? startCashTour
+        : activeModule === 'products' && canRunProductsTour
+          ? startProductsTour
+          : activeModule === 'inventory' && canRunInventoryTour
+            ? startInventoryTour
+            : activeModule === 'customers' && canRunCustomersTour
+              ? startCustomersTour
+            : canRunPosTour
+              ? startPosTour
+              : canRunTablesTour
+                ? startTablesTour
+                : canRunKitchenTour
+                  ? startKitchenTour
+                  : canRunCashTour
+                    ? startCashTour
+                    : canRunProductsTour
+                      ? startProductsTour
+                      : canRunInventoryTour
+                        ? startInventoryTour
+                        : startCustomersTour
 
   return (
     <div
@@ -588,20 +769,28 @@ export function RestaurantExperience({
               <button
                 type="button"
                 onClick={openSetupGuide}
-                className="inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+                className="restaurant-header-setup inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
               >
                 Guía inicial
               </button>
             )}
-            {canRunPosTour && (
+            {(canRunPosTour || canRunTablesTour || canRunKitchenTour || canRunCashTour || canRunProductsTour || canRunInventoryTour || canRunCustomersTour) && (
               <button
                 type="button"
-                onClick={activeModule === 'tables' && canRunTablesTour ? startTablesTour : activeModule === 'kitchen' && canRunKitchenTour ? startKitchenTour : startPosTour}
-                className="inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+                onClick={startAvailableTour}
+                className="restaurant-header-tour inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
               >
                 ¿Cómo funciona?
               </button>
             )}
+            {showLearningCenter && <button
+              type="button"
+              onClick={openLearningCenter}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+              aria-haspopup="dialog"
+              aria-label="Abrir Centro de aprendizaje"
+              title="Aprender a usar PACHAX"
+            ><BookOpen size={14} /><span className="hidden sm:inline">Aprender</span></button>}
 
             {onSignOut && (
               <button
@@ -644,7 +833,7 @@ export function RestaurantExperience({
                   aria-current={isActive ? 'page' : undefined}
                   onClick={() => selectModule(module.id)}
                   className={`restaurant-nav-btn ${isActive ? 'is-active' : ''}`}
-                  data-tour={module.id === 'pos' ? 'restaurant-nav-pos' : module.id === 'tables' ? 'restaurant-nav-tables' : module.id === 'kitchen' ? 'restaurant-nav-kitchen' : undefined}
+                  data-tour={module.id === 'pos' ? 'restaurant-nav-pos' : module.id === 'tables' ? 'restaurant-nav-tables' : module.id === 'kitchen' ? 'restaurant-nav-kitchen' : module.id === 'cash' ? 'restaurant-nav-cash' : module.id === 'products' ? 'restaurant-nav-products' : module.id === 'inventory' ? 'restaurant-nav-inventory' : module.id === 'customers' ? 'restaurant-nav-customers' : undefined}
                 >
                   <Icon size={15} />
                   <span>{module.label}</span>
@@ -683,6 +872,7 @@ export function RestaurantExperience({
                           }}
                           className={`restaurant-dropdown-item ${isActive ? 'is-active' : ''}`}
                           aria-current={isActive ? 'page' : undefined}
+                          data-tour={module.id === 'products' ? 'restaurant-nav-products' : module.id === 'inventory' ? 'restaurant-nav-inventory' : module.id === 'customers' ? 'restaurant-nav-customers' : undefined}
                         >
                           <Icon size={15} />
                           <span>{module.label}</span>
@@ -799,9 +989,10 @@ export function RestaurantExperience({
               onCreateMovement={onCreateCashMovement}
               onCancelMovement={onCancelCashMovement}
               onUpdateMovement={onUpdateCashMovement}
+              onStartTour={canRunCashTour ? startCashTour : undefined}
             />
           )}
-          {activeModule === 'inventory' && <RestaurantInventory products={products} catalogCategories={categories} shift={shift} movements={stockMovements} onInventoryMovement={onInventoryMovement} onSaveProducts={onSaveProducts || (() => {})} />}
+          {activeModule === 'inventory' && <RestaurantInventory products={products} catalogCategories={categories} shift={shift} movements={stockMovements} onInventoryMovement={onInventoryMovement} onSaveProducts={onSaveProducts || (() => {})} onStartTour={canRunInventoryTour ? startInventoryTour : undefined} />}
           {activeModule === 'products' && (
             <RestaurantProducts
               categories={categories}
@@ -810,9 +1001,10 @@ export function RestaurantExperience({
               onSaveProducts={onSaveProducts || (() => {})}
               onArchiveProduct={onArchiveProduct}
               onDeleteProduct={onDeleteProduct}
+              onStartTour={canRunProductsTour ? startProductsTour : undefined}
             />
           )}
-          {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={['owner', 'admin', 'team'].includes(session.role)} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} />}
+          {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={canManageCustomers} canViewHistory={canViewCustomerHistory} canCreateCustomer={canCreateCustomer} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} onStartTour={canRunCustomersTour ? startCustomersTour : undefined} />}
           {activeModule === 'users' && (
             <RestaurantUsers
               currentRole={session.role}
@@ -890,7 +1082,7 @@ export function RestaurantExperience({
                 type="button"
                 onClick={() => selectModule(m.id)}
                 aria-current={isActive ? 'page' : undefined}
-                data-tour={m.id === 'pos' ? 'restaurant-mobile-nav-pos' : m.id === 'tables' ? 'restaurant-mobile-nav-tables' : m.id === 'kitchen' ? 'restaurant-mobile-nav-kitchen' : undefined}
+                data-tour={m.id === 'pos' ? 'restaurant-mobile-nav-pos' : m.id === 'tables' ? 'restaurant-mobile-nav-tables' : m.id === 'kitchen' ? 'restaurant-mobile-nav-kitchen' : m.id === 'cash' ? 'restaurant-mobile-nav-cash' : m.id === 'products' ? 'restaurant-mobile-nav-products' : m.id === 'inventory' ? 'restaurant-mobile-nav-inventory' : m.id === 'customers' ? 'restaurant-mobile-nav-customers' : undefined}
                 className={`flex min-h-[56px] items-center gap-2.5 rounded-2xl border px-3 text-left text-xs font-extrabold ${
                   isActive
                     ? 'border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]'
@@ -957,6 +1149,59 @@ export function RestaurantExperience({
           onComplete={completeKitchenTour}
         />
       )}
+
+      {isCashTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantCashTourSteps}
+          mobileSteps={restaurantCashMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Caja"
+          onDismiss={dismissCashTour}
+          onComplete={completeCashTour}
+        />
+      )}
+
+      {isProductsTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantProductsTourSteps}
+          mobileSteps={restaurantProductsMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Productos"
+          onDismiss={dismissProductsTour}
+          onComplete={completeProductsTour}
+        />
+      )}
+
+      {isInventoryTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantInventoryTourSteps}
+          mobileSteps={restaurantInventoryMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Inventario"
+          onDismiss={dismissInventoryTour}
+          onComplete={completeInventoryTour}
+        />
+      )}
+
+      {isCustomersTourOpen && (
+        <RestaurantInteractiveTour
+          steps={customersTourSteps}
+          mobileSteps={restaurantCustomersMobileTourSteps(customersTourSteps)}
+          activeModule={activeModule}
+          tourLabel="Tutorial Clientes"
+          onDismiss={dismissCustomersTour}
+          onComplete={completeCustomersTour}
+        />
+      )}
+
+      <RestaurantLearningCenter
+        isOpen={isLearningCenterOpen}
+        tutorials={learningTutorials}
+        canOpenSetupGuide={canOpenSetupFromLearning}
+        onClose={() => setIsLearningCenterOpen(false)}
+        onStartTutorial={startTutorialFromLearning}
+        onOpenSetupGuide={openSetupGuideFromLearning}
+      />
 
       {viewingReceiptOrder && (
         <CanonicalReceiptModal
