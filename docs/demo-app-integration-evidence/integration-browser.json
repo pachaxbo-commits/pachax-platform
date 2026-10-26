@@ -1,6 +1,6 @@
 {
   "result": "PASS",
-  "server": "127.0.0.1:62052",
+  "server": "127.0.0.1:53000",
   "routes": [
     {
       "route": "/demo/hamburger?data=full",
@@ -108,5 +108,12 @@
   "isolatedDemoExternalRequests": 0,
   "isolatedDemoBrowserErrors": 0,
   "productionFirebaseRequests": 0,
-  "landingConsoleErrorsWithEmulatorsStopped": []
+  "landingConsoleErrorsWithEmulatorsStopped": [
+    "Access to fetch at 'http://127.0.0.1:5101/demo-pachax-platform/southamerica-west1/publicCommercialGateway' from origin 'http://127.0.0.1:53000' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+    "Failed to load resource: net::ERR_FAILED",
+    "Access to fetch at 'http://127.0.0.1:5101/demo-pachax-platform/southamerica-west1/publicCommercialGateway' from origin 'http://127.0.0.1:53000' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+    "Failed to load resource: net::ERR_FAILED",
+    "Access to fetch at 'http://127.0.0.1:5101/demo-pachax-platform/southamerica-west1/publicCommercialGateway' from origin 'http://127.0.0.1:53000' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+    "Failed to load resource: net::ERR_FAILED"
+  ]
 }

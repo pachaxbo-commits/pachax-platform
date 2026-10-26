@@ -116,6 +116,14 @@ async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
       const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
       const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
       const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY
+      const localAppCheckDebug = import.meta.env.DEV
+        && import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG === 'true'
+        && firebaseConfig.projectId !== 'pachax-platform'
+      if (!useEmulator && localAppCheckDebug) {
+        // Opt-in only for local development against a non-production project.
+        // Never add an App Check debug token to a tracked file or Vercel env.
+        ;(self as typeof self & { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = true
+      }
       if (!useEmulator && appCheckSiteKey && !appCheckInitialized) {
         try {
           initializeAppCheck(app, {

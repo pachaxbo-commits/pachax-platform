@@ -3,12 +3,12 @@
   "buildCommand": "npm run build:demos-only",
   "outputDirectory": "dist-demo-isolated",
   "totalFiles": 79,
-  "totalBytes": 21171412,
+  "totalBytes": 21172942,
   "files": [
     {
       "path": "aviso-privacidad-solicitud-comercial.html",
-      "bytes": 3720,
-      "sha256": "0744bb36c8978abf7e4ba5cb3531e8e0d67d97fbfc2fe51422e1ef4258546442"
+      "bytes": 5250,
+      "sha256": "6ea383e81b0137a5e197e5f0ce4bd16198768406ad9217b981a8b2b5ba42ff7c"
     },
     {
       "path": "brand/pachax-app-icon.png",
