@@ -30,6 +30,11 @@ import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeCol
 import { buildKitchenTicketPrintDocument, buildKitchenTicketText, type KitchenTicketJob } from '../../modules/restaurant/domain/kitchenPrint'
 import { DEFAULT_KITCHEN_PRINTER_CONFIG, type KitchenPrinterConfig } from './kitchenPrinterConfig'
 import { normalizeBusinessIdentity, type BusinessIdentity } from '../../core/businessIdentity'
+import {
+  saveDemoProductImage,
+  deleteDemoProductImage,
+  loadDemoProductImages,
+} from './demoProductImageStorage'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -54,17 +59,37 @@ const HAMBURGER_CATEGORIES = [
   { id: 'cat-postres', name: 'Postres', emoji: '', sortOrder: 4, isVisible: true, isActive: true },
 ]
 
+const FASTFOOD_IMAGES: Record<string, string> = {
+  'prod-1': '/images/fastfood/classic-burger.webp',
+  'prod-2': '/images/fastfood/double-burger.webp',
+  'prod-3': '/images/fastfood/burger-combo.webp',
+  'prod-4': '/images/fastfood/soda-glass.webp',
+  'prod-5': '/images/fastfood/lemonade.webp',
+  'prod-6': '/images/fastfood/chocolate-brownie.webp',
+  'prod-7': '/images/fastfood/french-fries.webp',
+}
+
 function hamburgerCatalog(products: Product[]): Product[] {
   const names: Record<string, Partial<Product>> = {
-    'prod-1': { name: 'Hamburguesa cl\u00e1sica', description: 'Carne, queso, vegetales y papas', price: 38, categoryId: 'cat-fuertes' },
-    'prod-2': { name: 'Hamburguesa doble', description: 'Doble carne, queso y papas', price: 48, categoryId: 'cat-fuertes' },
-    'prod-3': { name: 'Combo hamburguesa', description: 'Hamburguesa, papas y bebida', price: 55, categoryId: 'cat-fuertes' },
-    'prod-4': { name: 'Gaseosa', description: 'Bebida fr\u00eda', price: 12, categoryId: 'cat-bebidas', preparationArea: 'Barra' },
-    'prod-5': { name: 'Limonada', description: 'Limonada fresca', price: 15, categoryId: 'cat-bebidas', preparationArea: 'Barra' },
-    'prod-6': { name: 'Brownie', description: 'Postre de chocolate', price: 18, categoryId: 'cat-postres' },
-    'prod-7': { name: 'Papas extra', description: 'Porci\u00f3n de papas', price: 10, categoryId: 'cat-entradas' },
+    'prod-1': { name: 'Hamburguesa clásica', description: 'Carne, queso, vegetales y papas', price: 38, categoryId: 'cat-fuertes', image: FASTFOOD_IMAGES['prod-1'] },
+    'prod-2': { name: 'Hamburguesa doble', description: 'Doble carne, queso y papas', price: 48, categoryId: 'cat-fuertes', image: FASTFOOD_IMAGES['prod-2'] },
+    'prod-3': { name: 'Combo hamburguesa', description: 'Hamburguesa, papas y bebida', price: 55, categoryId: 'cat-fuertes', image: FASTFOOD_IMAGES['prod-3'] },
+    'prod-4': { name: 'Gaseosa', description: 'Bebida fría', price: 12, categoryId: 'cat-bebidas', preparationArea: 'Barra', image: FASTFOOD_IMAGES['prod-4'] },
+    'prod-5': { name: 'Limonada', description: 'Limonada fresca', price: 15, categoryId: 'cat-bebidas', preparationArea: 'Barra', image: FASTFOOD_IMAGES['prod-5'] },
+    'prod-6': { name: 'Brownie', description: 'Postre de chocolate', price: 18, categoryId: 'cat-postres', image: FASTFOOD_IMAGES['prod-6'] },
+    'prod-7': { name: 'Papas extra', description: 'Porción de papas', price: 10, categoryId: 'cat-entradas', image: FASTFOOD_IMAGES['prod-7'] },
   }
-  return products.map((product) => names[product.id] ? { ...product, ...names[product.id] } : product)
+  return products.map((product) => {
+    const override = names[product.id]
+    if (!override) return product
+    const currentImg = product.image
+    const isPlaceholder = !currentImg || currentImg.includes('plate.svg') || currentImg.includes('drink.svg')
+    return {
+      ...product,
+      ...override,
+      image: isPlaceholder ? (override.image || '') : (currentImg || ''),
+    }
+  })
 }
 
 function hamburgerOrders(orders: Order[], products: Product[]): Order[] {
@@ -337,6 +362,19 @@ export function RestaurantDemo({
   const [kitchenPrinterConfig, setKitchenPrinterConfig] = useState<KitchenPrinterConfig>(() => readSaved<KitchenPrinterConfig>(`${storageKey}:kitchen-printer:v1`, DEFAULT_KITCHEN_PRINTER_CONFIG))
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>(() => readSaved<KitchenTicketJob[]>(`${storageKey}:kitchen-print-jobs:v1`, []))
   void resetKey
+    useEffect(() => {
+    let cancelled = false
+    loadDemoProductImages(storageKey).then((savedImages) => {
+      if (cancelled || !savedImages || Object.keys(savedImages).length === 0) return
+      setProducts((current) =>
+        current.map((p) => (savedImages[p.id] ? { ...p, image: savedImages[p.id] } : p))
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [storageKey])
+
   const [cashierName, setCashierName] = useState(
     `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'}`
   )
@@ -521,6 +559,13 @@ export function RestaurantDemo({
   }
 
   const handleSaveProducts = (nextCatalog: Product[]) => {
+    for (const prod of nextCatalog) {
+      if (prod.image && prod.image.startsWith('data:')) {
+        void saveDemoProductImage(storageKey, prod.id, prod.image)
+      } else if (!prod.image) {
+        void deleteDemoProductImage(storageKey, prod.id)
+      }
+    }
     let nextMovements = inventoryRef.current.movements
     const now = new Date().toISOString()
     const nextProducts = nextCatalog.map(candidate => {

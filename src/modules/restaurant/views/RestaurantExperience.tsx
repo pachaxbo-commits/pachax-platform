@@ -856,6 +856,7 @@ export function RestaurantExperience({
                 <button
                   type="button"
                   data-tour="restaurant-nav-more"
+                  data-testid="restaurant-more-btn"
                   onClick={() => setIsMoreDesktopOpen((prev) => !prev)}
                   className={`restaurant-nav-btn restaurant-nav-more ${isSecondaryActive ? 'is-active' : ''}`}
                   aria-expanded={isMoreDesktopOpen}

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, RotateCcw, ShieldCheck } from 'lucide-react'
 import { clearRestaurantDemoStorage } from '../demo/restaurant/restaurantStorage'
+import { clearDemoProductImages } from '../demo/restaurant/demoProductImageStorage'
 import type { DemoDatasetMode } from '../demo/datasets/types'
 
 const RestaurantDemo = lazy(() => import('../demo/restaurant/RestaurantDemo').then((module) => ({ default: module.RestaurantDemo })))
@@ -72,11 +73,16 @@ export function DemoOnlyApp() {
     navigate(routeUrl(route.template, dataset))
   }
 
-  const resetDemo = () => {
-    if (route.template === 'hamburger') clearRestaurantDemoStorage('hamburger')
-    if (route.template === 'retail') {
-      // Comercio guarda el estado únicamente en el árbol React de esta pestaña.
+  const resetDemo = async () => {
+    if (route.template === 'hamburger') {
+      clearRestaurantDemoStorage('hamburger')
+      await clearDemoProductImages('pachax:hamburger-demo:operations:v1')
     }
+    if (route.template === 'retail') {
+      window.localStorage.removeItem('pachax:quick-retail-demo:operations:v1')
+      await clearDemoProductImages('retail')
+    }
+    setRole('admin')
     setResetKey((value) => value + 1)
   }
 
@@ -84,13 +90,22 @@ export function DemoOnlyApp() {
     return (
       <main data-demo-only-ready="true" className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900 sm:px-8">
         <div className="mx-auto max-w-5xl">
-          <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-teal-700">PACHAX · entorno aislado</p>
-              <h1 className="mt-2 text-3xl font-extrabold sm:text-4xl">Demostraciones interactivas</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-600">Explora flujos simulados con datos ficticios. Los cambios se mantienen en esta sesión y no se conectan a empresas reales.</p>
+          <header className="mb-8">
+            <button
+              type="button"
+              onClick={() => window.location.assign('/')}
+              className="mb-4 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition cursor-pointer"
+            >
+              <ArrowLeft size={15} /> Volver a PACHAX
+            </button>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-teal-700">PACHAX · entorno aislado</p>
+                <h1 className="mt-2 text-3xl font-extrabold sm:text-4xl">Demostraciones interactivas</h1>
+                <p className="mt-2 max-w-2xl text-sm text-slate-600">Explora flujos simulados con datos ficticios. Los cambios se mantienen en esta sesión y no se conectan a empresas reales.</p>
+              </div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800"><ShieldCheck size={16} /> Sin conexión a servicios de negocio</span>
             </div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800"><ShieldCheck size={16} /> Sin conexión a servicios de negocio</span>
           </header>
 
           <section aria-label="Plantillas demo" className="grid gap-4 md:grid-cols-2">
@@ -107,7 +122,8 @@ export function DemoOnlyApp() {
     <div className="min-h-screen bg-slate-100">
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 px-3 py-2.5 backdrop-blur sm:px-5">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-2 sm:gap-3">
-          <button type="button" onClick={() => navigate('/')} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"><ArrowLeft size={16} /> Galería</button>
+          <button type="button" onClick={() => window.location.assign('/')} className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"><ArrowLeft size={14} /> Volver a PACHAX</button>
+          <button type="button" onClick={() => navigate('/')} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">Galería</button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold uppercase tracking-wider text-slate-500">{template === 'hamburger' ? 'Restaurante Rápido' : 'Comercio / Venta Rápida'}</p>
             <p className="text-[11px] font-medium text-emerald-700">Entorno de demostración · datos ficticios</p>
