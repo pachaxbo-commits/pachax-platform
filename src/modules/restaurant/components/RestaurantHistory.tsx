@@ -15,7 +15,7 @@ export function RestaurantHistory({
   onCancelOrder: (orderId: string, cancelledBy: string, reason?: string) => Promise<boolean>
 }) {
   return (
-    <div className="restaurant-history space-y-5">
+    <div data-tour="history-board" className="restaurant-history space-y-5">
       <header>
         <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Historial de Operaciones</h1>
         <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Auditoría de comandas pasadas y registros de turnos cerrados.</p>

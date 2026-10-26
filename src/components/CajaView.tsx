@@ -1598,6 +1598,7 @@ export function CajaView({
         <button
           type="button"
           className="restaurant-mobile-cart-bar"
+          data-tour="pos-mobile-cart"
           onClick={() => setShowCheckoutModal(true)}
         >
           <ShoppingCart size={23} /><span className="restaurant-mobile-cart-count">{totalUnits}</span>
@@ -1645,6 +1646,7 @@ export function CajaView({
                   onClick={() => setShowCheckoutModal(false)}
                   aria-label="Cerrar pedido"
                   data-cart-close
+                  data-tour="pos-cart-close"
                 >
                   <X size={17} />
                 </button>
@@ -1678,7 +1680,7 @@ export function CajaView({
                       const hasModifiers = selectedExtras.length > 0 || selectedOptions.length > 0 || Boolean(item.modifiers.note)
 
                       return (
-                        <div key={item.lineId} className="py-2.5 first:pt-0 last:pb-1">
+                        <div key={item.lineId} data-tour="pos-item-controls" className="py-2.5 first:pt-0 last:pb-1">
                           <div className="flex items-start gap-2.5">
                             {isImageUrl(product.image) ? (
                               <img alt={product.name} className="h-11 w-11 rounded-xl object-cover shrink-0 border border-border/60" src={product.image} />
@@ -2117,7 +2119,7 @@ export function CajaView({
                   {paymentStatus === 'paid' ? (
                     <div className="mt-2 border-t border-dashed border-border/60 pt-2 space-y-1.5">
                       <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Método de Pago</div>
-                      <div className="grid grid-cols-4 gap-1.5">
+                      <div data-tour="pos-payment-methods" className="grid grid-cols-4 gap-1.5">
                         {[
                           { id: 'cash', label: 'Efectivo', icon: Coins },
                           { id: 'qr', label: 'QR', icon: QrCode },

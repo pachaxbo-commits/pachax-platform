@@ -2,11 +2,18 @@
 // @ts-nocheck
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildRestaurantLearningTutorials, restaurantLearningProgress, restaurantTutorialActionLabel, restaurantTutorialStatusFromStorage, restaurantTutorialStatusLabel } from '../restaurantLearningCenter.ts'
+import { buildRestaurantLearningTutorials, restaurantLearningProgress, restaurantLearningTutorialIdsForProfile, restaurantTutorialActionLabel, restaurantTutorialStatusFromStorage, restaurantTutorialStatusLabel } from '../restaurantLearningCenter.ts'
 
 test('el catálogo solo muestra los tutoriales autorizados y conserva los estados', () => {
   const tutorials = buildRestaurantLearningTutorials(['kitchen', 'pos'], { kitchen: 'completed', pos: 'in-progress', inventory: 'skipped' })
   assert.deepEqual(tutorials.map(({ id, status }) => [id, status]), [['kitchen', 'completed'], ['pos', 'in-progress']])
+})
+
+test('Restaurante Rápido usa progreso POS independiente y no ofrece el tutorial de Mesas', () => {
+  const ids = restaurantLearningTutorialIdsForProfile(['pos', 'tables', 'kitchen', 'cash'], 'counter_service')
+  assert.deepEqual(ids, ['kitchen', 'cash', 'counter_pos'])
+  assert.deepEqual(buildRestaurantLearningTutorials(ids).map(({ id }) => id), ['kitchen', 'cash', 'counter_pos'])
+  assert.deepEqual(restaurantLearningTutorialIdsForProfile(['pos', 'counter_pos', 'tables'], 'restaurant'), ['pos', 'tables'])
 })
 
 test('omitido no cuenta como completado en el progreso general', () => {

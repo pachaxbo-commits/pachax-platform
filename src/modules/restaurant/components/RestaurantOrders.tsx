@@ -34,7 +34,7 @@ export function RestaurantOrders({
   })
 
   return (
-    <div className="space-y-5">
+    <div data-tour="orders-board" className="space-y-5">
       {/* Encabezado compacto */}
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -56,7 +56,7 @@ export function RestaurantOrders({
       </header>
 
       {/* Selector de estados en píldoras */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+      <div data-tour="orders-status-filters" className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
         {(
           [
             ['all', 'Todos', counts.all],
@@ -103,6 +103,7 @@ export function RestaurantOrders({
           return (
             <article
               key={ord.id}
+              data-tour="orders-order-card"
               className={`bg-white rounded-2xl border p-4.5 shadow-xs flex flex-col justify-between transition hover:shadow-md ${
                 isPreparing
                   ? 'border-amber-300 ring-1 ring-amber-300/40'
@@ -201,6 +202,7 @@ export function RestaurantOrders({
                   {isReady && (
                     <button
                       type="button"
+                      data-tour="orders-delivery-control"
                       onClick={() => onAdvanceStatus(ord.id, 'delivered')}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-extrabold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
                     >

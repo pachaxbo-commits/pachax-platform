@@ -57,13 +57,14 @@ import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import type { CatalogCategory, Order, OrderStatus, Product, ProductExtra } from '../../../types'
 import { getRestaurantSetupSteps, mayManageRestaurantSetup, restaurantSetupGuidePreferenceKey } from '../domain/restaurantSetupGuide'
 import { restaurantPosMobileTourSteps, restaurantPosTourPreferenceKey, restaurantPosTourSteps } from '../domain/restaurantPosTour'
+import { buildRestaurantCounterServiceTourSteps, restaurantCounterServiceTourPreferenceKey } from '../domain/restaurantCounterServiceTour'
 import { restaurantTablesMobileTourSteps, restaurantTablesTourPreferenceKey, restaurantTablesTourSteps } from '../domain/restaurantTablesTour'
 import { restaurantKitchenMobileTourSteps, restaurantKitchenTourPreferenceKey, restaurantKitchenTourSteps } from '../domain/restaurantKitchenTour'
 import { restaurantCashMobileTourSteps, restaurantCashTourPreferenceKey, restaurantCashTourSteps } from '../domain/restaurantCashTour'
 import { restaurantProductsMobileTourSteps, restaurantProductsTourPreferenceKey, restaurantProductsTourSteps } from '../domain/restaurantProductsTour'
 import { restaurantInventoryMobileTourSteps, restaurantInventoryTourPreferenceKey, restaurantInventoryTourSteps } from '../domain/restaurantInventoryTour'
 import { buildRestaurantCustomersTourSteps, restaurantCustomersMobileTourSteps, restaurantCustomersTourPreferenceKey } from '../domain/restaurantCustomersTour'
-import { buildRestaurantLearningTutorials, restaurantTutorialStatusFromStorage, type RestaurantTutorialId, type RestaurantTutorialStatus } from '../domain/restaurantLearningCenter'
+import { buildRestaurantLearningTutorials, restaurantLearningTutorialIdsForProfile, restaurantTutorialStatusFromStorage, type RestaurantTutorialId, type RestaurantTutorialStatus } from '../domain/restaurantLearningCenter'
 import { RestaurantLearningCenter } from '../components/RestaurantLearningCenter'
 
 import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
@@ -309,6 +310,7 @@ export function RestaurantExperience({
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
   const setupGuideStorageKey = restaurantSetupGuidePreferenceKey(session.tenantId, session.uid)
   const posTourStorageKey = restaurantPosTourPreferenceKey(session.tenantId, session.uid)
+  const counterPosTourStorageKey = restaurantCounterServiceTourPreferenceKey(session.tenantId, session.uid)
   const tablesTourStorageKey = restaurantTablesTourPreferenceKey(session.tenantId, session.uid)
   const kitchenTourStorageKey = restaurantKitchenTourPreferenceKey(session.tenantId, session.uid)
   const cashTourStorageKey = restaurantCashTourPreferenceKey(session.tenantId, session.uid)
@@ -317,6 +319,7 @@ export function RestaurantExperience({
   const customersTourStorageKey = restaurantCustomersTourPreferenceKey(session.tenantId, session.uid)
   const learningStorageKeys: Record<RestaurantTutorialId, string> = {
     pos: posTourStorageKey,
+    counter_pos: counterPosTourStorageKey,
     tables: tablesTourStorageKey,
     kitchen: kitchenTourStorageKey,
     cash: cashTourStorageKey,
@@ -549,18 +552,19 @@ export function RestaurantExperience({
   }
 
   const startPosTour = () => {
-    writeTutorialStatus('pos', 'in-progress')
+    const tutorialId: RestaurantTutorialId = isCounterService ? 'counter_pos' : 'pos'
+    writeTutorialStatus(tutorialId, 'in-progress')
     setIsSetupGuideOpen(false)
-    selectModule('dashboard')
+    selectModule(isCounterService ? 'pos' : 'dashboard')
     setIsPosTourOpen(true)
   }
 
   const dismissPosTour = () => {
-    dismissTutorial('pos', setIsPosTourOpen)
+    dismissTutorial(isCounterService ? 'counter_pos' : 'pos', setIsPosTourOpen)
   }
 
   const completePosTour = () => {
-    writeTutorialStatus('pos', 'completed')
+    writeTutorialStatus(isCounterService ? 'counter_pos' : 'pos', 'completed')
   }
 
   const startTablesTour = () => {
@@ -679,7 +683,7 @@ export function RestaurantExperience({
   const canRunProductsTour = visibleModules.some((module) => module.id === 'products')
   const canRunInventoryTour = visibleModules.some((module) => module.id === 'inventory')
   const canRunCustomersTour = visibleModules.some((module) => module.id === 'customers')
-  const availableLearningIds: RestaurantTutorialId[] = [
+  const availableLearningIds: RestaurantTutorialId[] = restaurantLearningTutorialIdsForProfile([
     ...(canRunPosTour ? ['pos' as const] : []),
     ...(canRunTablesTour ? ['tables' as const] : []),
     ...(canRunKitchenTour ? ['kitchen' as const] : []),
@@ -687,13 +691,19 @@ export function RestaurantExperience({
     ...(canRunProductsTour ? ['products' as const] : []),
     ...(canRunInventoryTour ? ['inventory' as const] : []),
     ...(canRunCustomersTour ? ['customers' as const] : []),
-  ]
+  ], isCounterService ? 'counter_service' : 'restaurant')
   const learningTutorials = buildRestaurantLearningTutorials(availableLearningIds, learningStatuses)
+  const counterServiceTour = useMemo(() => buildRestaurantCounterServiceTourSteps({
+    canViewKitchen: canRunKitchenTour,
+    canViewOrders: visibleModules.some((module) => module.id === 'orders'),
+    canViewHistory: visibleModules.some((module) => module.id === 'history'),
+  }), [canRunKitchenTour, visibleModules])
   const canOpenSetupFromLearning = !isCounterService && hasSetupAdminRole && canManageSetup
   const showLearningCenter = learningTutorials.length > 0 || canOpenSetupFromLearning
   const startTutorialFromLearning = (id: RestaurantTutorialId) => {
     const startById: Record<RestaurantTutorialId, () => void> = {
       pos: startPosTour,
+      counter_pos: startPosTour,
       tables: startTablesTour,
       kitchen: startKitchenTour,
       cash: startCashTour,
@@ -833,7 +843,7 @@ export function RestaurantExperience({
                   aria-current={isActive ? 'page' : undefined}
                   onClick={() => selectModule(module.id)}
                   className={`restaurant-nav-btn ${isActive ? 'is-active' : ''}`}
-                  data-tour={module.id === 'pos' ? 'restaurant-nav-pos' : module.id === 'tables' ? 'restaurant-nav-tables' : module.id === 'kitchen' ? 'restaurant-nav-kitchen' : module.id === 'cash' ? 'restaurant-nav-cash' : module.id === 'products' ? 'restaurant-nav-products' : module.id === 'inventory' ? 'restaurant-nav-inventory' : module.id === 'customers' ? 'restaurant-nav-customers' : undefined}
+                  data-tour={module.id === 'pos' ? 'restaurant-nav-pos' : module.id === 'orders' ? 'restaurant-nav-orders' : module.id === 'tables' ? 'restaurant-nav-tables' : module.id === 'kitchen' ? 'restaurant-nav-kitchen' : module.id === 'cash' ? 'restaurant-nav-cash' : module.id === 'products' ? 'restaurant-nav-products' : module.id === 'inventory' ? 'restaurant-nav-inventory' : module.id === 'customers' ? 'restaurant-nav-customers' : undefined}
                 >
                   <Icon size={15} />
                   <span>{module.label}</span>
@@ -845,6 +855,7 @@ export function RestaurantExperience({
               <div className="restaurant-more-container relative" ref={moreDropdownRef}>
                 <button
                   type="button"
+                  data-tour="restaurant-nav-more"
                   onClick={() => setIsMoreDesktopOpen((prev) => !prev)}
                   className={`restaurant-nav-btn restaurant-nav-more ${isSecondaryActive ? 'is-active' : ''}`}
                   aria-expanded={isMoreDesktopOpen}
@@ -872,7 +883,7 @@ export function RestaurantExperience({
                           }}
                           className={`restaurant-dropdown-item ${isActive ? 'is-active' : ''}`}
                           aria-current={isActive ? 'page' : undefined}
-                          data-tour={module.id === 'products' ? 'restaurant-nav-products' : module.id === 'inventory' ? 'restaurant-nav-inventory' : module.id === 'customers' ? 'restaurant-nav-customers' : undefined}
+                          data-tour={module.id === 'products' ? 'restaurant-nav-products' : module.id === 'inventory' ? 'restaurant-nav-inventory' : module.id === 'customers' ? 'restaurant-nav-customers' : module.id === 'history' ? 'restaurant-nav-history' : undefined}
                         >
                           <Icon size={15} />
                           <span>{module.label}</span>
@@ -1082,7 +1093,7 @@ export function RestaurantExperience({
                 type="button"
                 onClick={() => selectModule(m.id)}
                 aria-current={isActive ? 'page' : undefined}
-                data-tour={m.id === 'pos' ? 'restaurant-mobile-nav-pos' : m.id === 'tables' ? 'restaurant-mobile-nav-tables' : m.id === 'kitchen' ? 'restaurant-mobile-nav-kitchen' : m.id === 'cash' ? 'restaurant-mobile-nav-cash' : m.id === 'products' ? 'restaurant-mobile-nav-products' : m.id === 'inventory' ? 'restaurant-mobile-nav-inventory' : m.id === 'customers' ? 'restaurant-mobile-nav-customers' : undefined}
+                data-tour={m.id === 'pos' ? 'restaurant-mobile-nav-pos' : m.id === 'orders' ? 'restaurant-mobile-nav-orders' : m.id === 'tables' ? 'restaurant-mobile-nav-tables' : m.id === 'kitchen' ? 'restaurant-mobile-nav-kitchen' : m.id === 'cash' ? 'restaurant-mobile-nav-cash' : m.id === 'products' ? 'restaurant-mobile-nav-products' : m.id === 'inventory' ? 'restaurant-mobile-nav-inventory' : m.id === 'customers' ? 'restaurant-mobile-nav-customers' : m.id === 'history' ? 'restaurant-mobile-nav-history' : undefined}
                 className={`flex min-h-[56px] items-center gap-2.5 rounded-2xl border px-3 text-left text-xs font-extrabold ${
                   isActive
                     ? 'border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]'
@@ -1119,10 +1130,10 @@ export function RestaurantExperience({
 
       {isPosTourOpen && (
         <RestaurantInteractiveTour
-          steps={restaurantPosTourSteps}
-          mobileSteps={restaurantPosMobileTourSteps}
+          steps={isCounterService ? counterServiceTour.steps : restaurantPosTourSteps}
+          mobileSteps={isCounterService ? counterServiceTour.mobileSteps : restaurantPosMobileTourSteps}
           activeModule={activeModule}
-          tourLabel="Tutorial POS"
+          tourLabel={isCounterService ? 'Tutorial Restaurante Rápido' : 'Tutorial POS'}
           onDismiss={dismissPosTour}
           onComplete={completePosTour}
         />
