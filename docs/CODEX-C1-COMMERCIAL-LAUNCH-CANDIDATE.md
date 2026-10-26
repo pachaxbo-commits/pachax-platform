@@ -115,3 +115,43 @@ El primer intento de navegador se configuró con un nombre de variable de puerto
 - Build Emulator y pruebas focales se ejecutaron con Node 22.23.4. `npm run build` estándar queda no aprobado por ausencia de seis variables Firebase; no se usaron valores de Vercel. No se verificó App Check con una clave real, la cuenta/tier de Billing ni el proveedor/enforcement actualmente guardado. La prueba pública de navegador de las demos volvió a pasar con cero peticiones externas/Firebase desde esos entrypoints. No se hizo escritura Firebase Production, push, Preview o deploy.
 - Verificación final posterior al cambio de consentimiento: `build:functions-core` PASS y `firebase/tests/platformSecurity.test.mjs` PASS, 72/72, con Auth/Firestore/Functions Emulators aislados y secreto aleatorio temporal sólo local. `build:rules`, `typecheck`, `build:emulator`, build demo-only (79 archivos, 0 sourcemaps, 0 referencias prohibidas), contrato comercial, ESLint focal y `git diff --check` PASS. `npm run build` completo se detuvo en la validación Vite porque faltan `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID` y `VITE_FIREBASE_APP_ID`; no se sustituyeron por valores ficticios ni se extrajeron de Production.
 - Decisión: **NO-GO para publicar el formulario** hasta: confirmar tier y costos; verificar app/provider actuales; crear/registrar site key permitida; agregar solo la variable Production; crear el secreto mediante Secret Manager y verificar acceso exclusivo; aprobar aviso y completar identidad/contacto; revisar budget/alertas y decisión de retención; luego autorizar `publicCommercialGateway` + `platformGateway`, frontend y el Ruleset indicado con smoke controlado. No activar enforcement global, TTL, onboarding de empresas o Billing Core.
+# Candidata consolidada con el main vigente — 26/10/2026
+
+## Estado
+
+La rama de revisión es `codex/commercial-launch-final`, creada desde `origin/main` `775867bb633f98420dd70fb74ce4d57f77eb9e8d`. Se portaron los diez commits de la candidata C1 comercial anterior, preservando los tres commits actuales de tutoriales de Restaurante que avanzaron `main` desde la base histórica. El port no incluyó ramas sin publicar de Gemini ni Darío. Las pruebas reportadas en las secciones anteriores siguen siendo el baseline de navegador/Admin; para esta candidata se volvió a ejecutar el contrato comercial, seguridad de Platform, builds y lint focal. No se hizo push, Preview, merge o deploy.
+
+## Configuración remota comprobada en modo lectura
+
+- **Vercel:** `pachax-app` del equipo `team_dSUAcgsFrTlXwYciKdxiig1i`, dominio `pachax-app.vercel.app`. La variable `VITE_FIREBASE_APPCHECK_SITE_KEY` está creada con target `Production`; no se leyó ni incluyó su valor.
+- **Firebase:** proyecto `pachax-platform`, Web App `1:107345443064:web:3a7d4cb80413f2776ce30d`. Secret Manager informa que `PUBLIC_COMMERCIAL_RATE_LIMIT_SECRET` tiene una versión `1` ENABLED. No se leyó el valor. El fuente lo vincula únicamente a `publicCommercialGateway`.
+- **Sin verificación disponible:** el proveedor Enterprise registrado para la Web App, la coincidencia de la clave de sitio, enforcement, IAM efectivo del secreto y configuración de facturación/presupuesto. El CLI de Firebase no expone esos datos; `gcloud` no está instalado y el navegador no permitió recuperar una URL verificable de consola. No se asumieron configurados por el reporte del propietario. No se modificó ninguna configuración remota.
+
+Firebase documenta reCAPTCHA Enterprise para App Check Web, exige una clave score-based y recomienda no incluir localhost en claves productivas; el SDK debe inicializar App Check antes de consumir servicios y habilitar auto-refresh. Su cuota publicada incluye hasta 10.000 assessments mensuales sin costo; el nivel Premium publica $8 de 10.001 a 100.000 y $1 por cada 1.000 adicionales. Debe confirmarse la modalidad y volumen aplicables en la cuenta antes de abrir el formulario: [guía Firebase](https://firebase.google.com/docs/app-check/web/recaptcha-enterprise-provider), [precios de reCAPTCHA](https://cloud.google.com/security/products/recaptcha).
+
+## Aviso y consentimiento
+
+`public/aviso-privacidad-solicitud-comercial.html` sigue siendo un borrador no publicable sin aprobación legal. Identifica PACHAX como marca en formalización y a Fabrizio Alejandro Salamanca Suarez como persona natural responsable, con ubicación de contacto general Cochabamba, Bolivia y `pachax.bo@gmail.com`. No publica domicilio residencial. El responsable debe validar documentalmente su identidad y aprobar base jurídica, proveedores/transferencias, solicitudes de derechos y política final. Retención propuesta: revisión de solicitudes inactivas a 90 días; eliminación/anonimización de cerradas a 12 meses tras revisión legal; marcadores antispam a 30 días. No hay TTL ni borrado automático declarado.
+
+La versión vigente guardada por el servidor es `public-commercial-2026-10-v4`, sincronizada con el aviso actualizado. La casilla continúa explícita y no premarcada.
+
+## Verificación local de esta candidata
+
+- Node `22.23.4`; `npm run typecheck`, `build:functions-core`, `build:rules`, `build:emulator`, contrato de catálogo, paletas `4/4`, ESLint focal y `git diff --check`: PASS.
+- `firebase/tests/platformSecurity.test.mjs`: `72/72` con Auth, Firestore y Functions Emulator, proyecto demo aislado `demo-commercial-c1-4`, puertos 19195/18785/18797. Incluye catálogo, publicación/despublicación, intención anónima, antiabuso concurrente, idempotencia, autorizaciones y ausencia de alta de tenant, pago o entitlements.
+- El secreto de emulador fue aleatorio y efímero, nunca se guardó en Git ni se mostró y se eliminó al terminar. La compilación incluyó las demos; el guard reportó 79 archivos, cero sourcemaps y cero referencias prohibidas. No se usó Firebase Production para pruebas.
+- `npm ci` informó 12 vulnerabilidades en dependencias raíz y 4 en `functions`; no se ejecutó una remediación general. El build Vite conserva los avisos de chunks grandes registrados previamente.
+
+## Secuencia necesaria antes de publicar
+
+1. En Firebase/Google Cloud confirmar que la Web App citada usa reCAPTCHA Enterprise y que el dominio `pachax-app.vercel.app` está permitido. Comparar la clave de Firebase con el valor existente en el target Production de Vercel sin compartirla. Verificar que el servicio App Check se aplica solo a `publicCommercialGateway`; no activar enforcement global.
+2. En Secret Manager comprobar que `PUBLIC_COMMERCIAL_RATE_LIMIT_SECRET` mantiene una versión activa y que el runtime de `publicCommercialGateway` es el único principal autorizado. El código ya liga el secret exclusivamente a esa callable. No copiarlo a Vercel.
+3. Confirmar tier/costo de reCAPTCHA, presupuesto y alertas en la cuenta de facturación; las alertas no limitan el gasto. Aprobar legalmente aviso/consentimiento y política de retención. No activar TTL en esta salida.
+4. Con autorizaciones de publicación separadas, compilar `build:functions-core` y `build:rules`; desplegar primero `publicCommercialGateway` y `platformGateway`, luego frontend `pachax-app` con la site key ya verificada, y al final únicamente `firestore:rules` si el ruleset cambia respecto a producción. Nunca desplegar Storage Rules ni `tenantGateway` sin consumidor confirmado.
+5. Smoke controlado anónimo de catálogo/formulario, comprobación de App Check válido y faltante, recepción desde Admin, no creación de empresa/suscripción/pago/entitlements, y eliminación de la solicitud ficticia por procedimiento autorizado. Monitorear Functions, Firestore, App Check y errores.
+
+Rollback: conservar la revisión activa de Rules y deployment Vercel previos. Si el frontend falla tras Rules, restaurar Rules anterior antes del deployment anterior; las Functions pueden permanecer desplegadas mientras no se invoquen. No borrar prospectos reales como rollback.
+
+### Decisión
+
+**GO técnico local para revisión; NO-GO para habilitar a visitantes o publicar hasta cerrar la verificación remota de App Check/secreto/IAM, confirmar costos/alertas y aprobar legalmente aviso y retención.** No se hicieron escrituras productivas ni cambios en Vercel/Firebase/IAM.

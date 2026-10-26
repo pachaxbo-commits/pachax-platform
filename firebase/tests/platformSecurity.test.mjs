@@ -354,7 +354,7 @@ try {
   assert.equal(publicIntent.email, 'ana@example.test')
   assert.equal(publicIntent.businessType, 'Cafetería')
   assert.equal(publicIntent.planSnapshot.planId, publishedAdminPlan.id)
-  assert.equal(publicIntent.consentVersion, 'public-commercial-2026-10-v3')
+  assert.equal(publicIntent.consentVersion, 'public-commercial-2026-10-v4')
   assert.equal(publicIntent.tenantId, null)
   assert.equal(publicIntent.subscriptionStatus, null)
   assert.equal(publicIntent.entitlements, null)

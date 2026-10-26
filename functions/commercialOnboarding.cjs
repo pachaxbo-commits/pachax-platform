@@ -10,7 +10,7 @@ const MAX_PUBLIC_CATALOG_PLANS = 50;
 const MAX_PUBLIC_CATALOG_EXTRAS = 100;
 const PUBLIC_CATALOG_PER_MINUTE_LIMIT = 20;
 const PUBLIC_CATALOG_PER_DAY_LIMIT = 300;
-const PUBLIC_COMMERCIAL_CONSENT_VERSION = 'public-commercial-2026-10-v3';
+const PUBLIC_COMMERCIAL_CONSENT_VERSION = 'public-commercial-2026-10-v4';
 
 function publicString(value, max = 240) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
