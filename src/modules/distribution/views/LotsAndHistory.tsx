@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Field, TextInput, NumberInput } from "../../../components/ui/Form";
 import { Modal } from "../../../components/ui/Modal";
-import { PrimaryButton, SectionCard, formatQty } from "./shared";
+import { PrimaryButton, SectionCard } from "./shared";
+import { formatQty } from "./sharedFormatters";
 import { submitOperation } from "../data/operationQueue";
 import { newOperationId } from "../data/distributionRepository";
 import { toDayKey } from "../domain/engine";

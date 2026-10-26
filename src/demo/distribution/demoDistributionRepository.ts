@@ -1,4 +1,5 @@
 import type { DistributionData } from '../../modules/distribution/state/useDistributionStore.ts'
+import type { DistributionIndustryProfile } from '../../modules/distribution/types.ts'
 import { createFullDistributionDataset, createEmptyDistributionDataset } from '../datasets/distribution/distributionDatasets.ts'
 import type { DemoDatasetMode } from '../datasets/types.ts'
 import { getDemoItem, setDemoItem, clearDemoState } from '../core/demoContext.ts'
@@ -53,24 +54,26 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
   private listeners: ListenerMap = {}
   private allListeners = new Set<(data: DistributionData) => void>()
 
-  constructor(initialMode: DemoDatasetMode = 'full') {
-    this.data = this.loadOrSeed(initialMode)
+  constructor(initialMode: DemoDatasetMode = 'full', initialProfile?: DistributionIndustryProfile) {
+    this.data = this.loadOrSeed(initialMode, initialProfile)
   }
 
-  private loadOrSeed(mode: DemoDatasetMode): DistributionData {
+  private loadOrSeed(mode: DemoDatasetMode, profile?: DistributionIndustryProfile): DistributionData {
     const raw = getDemoItem(BUSINESS_TYPE, DATA_STORAGE_KEY)
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as DistributionData
         if (parsed && Array.isArray(parsed.products) && Array.isArray(parsed.customers)) {
-          if (!parsed.catalogSettings) parsed.catalogSettings = { id: 'catalog', tenantId: 'preview-distribution', industryProfile: 'mixed', categories: [{ id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: new Date().toISOString() }
-          return parsed
+          if (!profile || parsed.catalogSettings?.industryProfile === profile) {
+            if (!parsed.catalogSettings) parsed.catalogSettings = { id: 'catalog', tenantId: 'preview-distribution', industryProfile: profile || 'mixed', categories: [{ id: 'general', name: 'General', active: true }, { id: 'other', name: 'Otros', active: true }], updatedAt: new Date().toISOString() }
+            return parsed
+          }
         }
       } catch {
         // Fallback to seed on parse error
       }
     }
-    const seed = mode === 'empty' ? createEmptyDistributionDataset().data : createFullDistributionDataset().data
+    const seed = mode === 'empty' ? createEmptyDistributionDataset().data : createFullDistributionDataset(profile).data
     this.persist(seed)
     return seed
   }
@@ -80,10 +83,14 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
     setDemoItem(BUSINESS_TYPE, DATA_STORAGE_KEY, JSON.stringify(newData))
   }
 
-  public reset(mode: DemoDatasetMode = 'full'): void {
+  public reset(mode: DemoDatasetMode = 'full', profile?: DistributionIndustryProfile): void {
     clearDemoState(BUSINESS_TYPE)
-    this.data = this.loadOrSeed(mode)
+    this.data = this.loadOrSeed(mode, profile)
     this.notifyAll()
+  }
+
+  public switchProfile(profile: DistributionIndustryProfile): void {
+    this.reset('full', profile)
   }
 
   public getData(): DistributionData {
@@ -104,8 +111,7 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
       const val = this.data[key]
       set.forEach(cb => {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (cb as any)(val)
+          cb(val)
         } catch (e) {
           console.error('Error in demo listener', e)
         }
@@ -125,19 +131,19 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
   }
 
   private addListener<K extends keyof DistributionData>(key: K, cb: (data: DistributionData[K]) => void): () => void {
-    if (!this.listeners[key]) {
-      ;(this.listeners as any)[key] = new Set()
+    let set = this.listeners[key] as Set<(data: DistributionData[K]) => void> | undefined
+    if (!set) {
+      set = new Set<(data: DistributionData[K]) => void>()
+      ;(this.listeners as Record<string, unknown>)[key] = set
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.listeners[key]!.add(cb as any)
+    set.add(cb)
     try {
       cb(this.data[key])
     } catch {
       // Ignore
     }
     return () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.listeners[key]?.delete(cb as any)
+      set.delete(cb)
     }
   }
 
@@ -222,9 +228,6 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
   async declareRouteReturn(
     dispatch: DistDispatch,
     payloadOrQuantities: DeclareRouteReturnPayload | Record<string, number | DistPhysicalReturnBreakdown>,
-    _declaredReturnMermas?: Record<string, number>,
-    _declaredReturnNonSellables?: Record<string, number>,
-    _declaredReturnNonSellableReasons?: Record<string, string>,
   ): Promise<void> {
     const dispatchId = typeof payloadOrQuantities === 'object' && 'dispatchId' in payloadOrQuantities
       ? payloadOrQuantities.dispatchId
@@ -294,14 +297,14 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
     return this.addListener('expenses', filterFn)
   }
 
-  subscribeReceivables(routeId: string | null, onData: (rows: DistReceivable[]) => void, _onError?: (error: Error) => void, _distributorUid?: string): () => void {
+  subscribeReceivables(routeId: string | null, onData: (rows: DistReceivable[]) => void): () => void {
     const filterFn = (all: DistReceivable[]) => {
       onData(routeId ? all.filter(r => r.routeId === routeId) : all)
     }
     return this.addListener('receivables', filterFn)
   }
 
-  subscribeClosures(dayKeys: string[], routeId: string | null, onData: (rows: DistClosure[]) => void, _onError?: (error: Error) => void, _distributorUid?: string): () => void {
+  subscribeClosures(dayKeys: string[], routeId: string | null, onData: (rows: DistClosure[]) => void): () => void {
     const filterFn = (all: DistClosure[]) => {
       onData(all.filter(c => (!routeId || c.routeId === routeId) && (!dayKeys.length || dayKeys.includes(c.dayKey || ''))))
     }
@@ -644,6 +647,9 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
   async registerSale(input: RegisterSaleInput): Promise<DistSale> {
     const now = new Date().toISOString()
     const id = input.operationId || `sale_${Date.now()}`
+    if (this.data.sales.some(s => s.id === id || s.operationId === id)) {
+      throw new Error(`Ya existe una venta con esta operacion: ${id}`)
+    }
     const total = input.total !== undefined ? round2(input.total) : round2(input.lines.reduce((s, l) => s + l.subtotal, 0))
     const dayKey = toDayKey(new Date())
 
@@ -832,7 +838,7 @@ export class DemoDistributionRepository implements DistributionRepositoryAdapter
       ? this.data.closures.map(c => (c.id === id ? { ...closure, id } : c))
       : [{ ...closure, id }, ...this.data.closures]
 
-    let updatedBalances = [...this.data.balances]
+    const updatedBalances = [...this.data.balances]
     if (input.applyStockReturn && Array.isArray(closure.products)) {
       for (const p of closure.products) {
         const returned = p.actualReturn || 0

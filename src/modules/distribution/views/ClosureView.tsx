@@ -6,7 +6,8 @@ import { Modal } from '../../../components/ui/Modal'
 import { EmptyBlock, Screen } from '../../../components/ui/Screen'
 import { buildReconciliation, computeMoneySummary, isSaleForDispatch, round2, toDayKey } from '../domain/engine'
 import { declareRouteReturn, newOperationId, reopenClosure, saveAdministrativeCashClosure, saveClosure, subscribeSales, subscribeCollections, subscribeExpenses } from '../data/distributionRepository'
-import { KpiCard, PrimaryButton, SecondaryButton, SectionCard, VarianceBadge, formatBs, formatQty } from './shared'
+import { KpiCard, PrimaryButton, SecondaryButton, SectionCard, VarianceBadge } from './shared'
+import { formatBs, formatQty } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistSale, DistCollection, DistExpense, DistClosure, DistPhysicalReturnBreakdown } from '../types'
 
@@ -285,9 +286,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
     ? parsedWarehouseBreakdown
     : parsedDeclarationBreakdown
 
-  const productRows = useMemo(() => {
-    return buildReconciliation(dispatch, routeSales, activeBreakdown)
-  }, [dispatch, routeSales, activeBreakdown])
+  const productRows = buildReconciliation(dispatch, routeSales, activeBreakdown)
 
   const moneySummary = computeMoneySummary(routeSales, routeCollections, routeExpenses)
   const claimCash = data.claims.filter(c => c.routeId === dispatchRoute && c.createdAt >= dispatchCreated).reduce((n,c)=>n+c.cashIn-c.cashOut,0)
@@ -569,6 +568,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
         {/* =========================================================================
             SECCIÓN 1: PRODUCTOS EN RUTA Y CONCILIACIÓN FÍSICA
            ========================================================================= */}
+        <div data-tutorial-target="closure-physical-reconciliation">
         <SectionCard title="Conciliación física de productos">
           <div className="grid gap-3">
             {productRows.map((row) => {
@@ -852,14 +852,17 @@ export function ClosureView({ session, data }: DistributionViewProps) {
             })}
           </div>
         </SectionCard>
+        </div>
 
         {/* =========================================================================
             BOTÓN ACCIÓN PASO 1: DECLARAR RETORNO PARA ALMACÉN
            ========================================================================= */}
         {!isReturnDeclared && (isDistributor || session.role === 'admin') && (
-          <SecondaryButton full disabled={isSubmitting || !loaded} onClick={handleDeclareReturn}>
-            <ClipboardCheck size={16} /> Declarar retorno para almacén
-          </SecondaryButton>
+          <div data-tutorial-target="closure-returns-card" className="w-full">
+            <SecondaryButton full disabled={isSubmitting || !loaded} onClick={handleDeclareReturn}>
+              <ClipboardCheck size={16} /> Declarar retorno para almacén
+            </SecondaryButton>
+          </div>
         )}
 
         {/* =========================================================================
@@ -875,7 +878,8 @@ export function ClosureView({ session, data }: DistributionViewProps) {
             SECCIÓN 2: ARQUEO DE DINERO Y CIERRE FINAL
            ========================================================================= */}
         {session.role !== 'warehouse' && (
-          <SectionCard title="Arqueo de dinero">
+          <div data-tutorial-target="closure-cash-reconciliation" className="w-full">
+            <SectionCard title="Arqueo de dinero">
             {!returnsAlreadyApplied ? (
               <p className="rounded-xl bg-slate-100 p-3 text-xs font-semibold text-slate-600">
                 El arqueo y cierre final del dinero se habilitará en cuanto Almacén confirme la recepción física del retorno.
@@ -931,7 +935,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
 
                 {canCloseMoney && existingClosure?.status !== 'closed' && (
                   <div className="mt-3">
-                    <PrimaryButton full disabled={isSubmitting || !loaded || !returnsAlreadyApplied} onClick={() => void submit('closed')}>
+                    <PrimaryButton data-tutorial-target="closure-submit-btn" full disabled={isSubmitting || !loaded || !returnsAlreadyApplied} onClick={() => void submit('closed')}>
                       <Lock size={16} /> Cerrar ruta
                     </PrimaryButton>
                   </div>
@@ -939,6 +943,7 @@ export function ClosureView({ session, data }: DistributionViewProps) {
               </>
             )}
           </SectionCard>
+          </div>
         )}
 
         {error && <p role="alert" className="text-xs font-bold text-rose-600">{error}</p>}

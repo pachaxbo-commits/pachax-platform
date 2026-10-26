@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { doc, getDoc } from 'firebase/firestore'
 import { getFirebaseContext } from '../../../lib/firebase'
 import type { DistSaleLine } from '../types'
-import { formatBs, formatQty } from './shared'
+import { formatBs, formatQty } from './sharedFormatters'
 
 export function CreditProducts({ lines, saleId }: { lines?: DistSaleLine[]; saleId?: string }) {
   const [historical, setHistorical] = useState<DistSaleLine[]>([])
