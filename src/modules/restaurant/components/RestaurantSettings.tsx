@@ -134,7 +134,6 @@ export function RestaurantSettings({
               }}
               className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:outline-none focus:border-slate-400"
             />
-      </div>
             <button
               type="button"
               disabled={!newTableName.trim()}

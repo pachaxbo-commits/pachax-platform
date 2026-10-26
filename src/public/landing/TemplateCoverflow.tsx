@@ -62,7 +62,7 @@ export function TemplateCoverflow({
     onChangeActiveIndex(nextIdx)
   }, [visibleIndex, total, onChangeActiveIndex])
 
-  // Navegación accesible por teclado (ArrowLeft / ArrowRight)
+  // Navegación accesible por teclado (ArrowLeft / ArrowRight / Enter / Space)
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') {
       e.preventDefault()
@@ -70,6 +70,12 @@ export function TemplateCoverflow({
     } else if (e.key === 'ArrowRight') {
       e.preventDefault()
       handleNext()
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      const currentActive = templates[visibleIndex]
+      if (currentActive && onSelectActiveCard) {
+        onSelectActiveCard(currentActive)
+      }
     }
   }
 
