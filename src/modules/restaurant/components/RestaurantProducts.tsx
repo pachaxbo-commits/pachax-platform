@@ -34,7 +34,7 @@ export function RestaurantProducts({
   categories: CatalogCategory[]
   products: Product[]
   orders?: Order[]
-  onSaveProducts: (products: Product[]) => void
+  onSaveProducts: (products: Product[]) => Promise<void> | void
   onArchiveProduct?: (productId: string) => Promise<void> | void
   onDeleteProduct?: (productId: string) => Promise<void> | void
   onStartTour?: () => void
@@ -150,7 +150,7 @@ export function RestaurantProducts({
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.name.trim() || !Number.isFinite(form.price) || form.price < 0) {
       setNotice('Completa nombre y un precio válido.')
       return
@@ -180,18 +180,31 @@ export function RestaurantProducts({
       categoryId: form.categoryId || categories[0]?.id || 'cat-entradas',
     }
 
-    save(
-      form.id
+    setIsProcessing(true)
+    setImageError('')
+    try {
+      const nextCatalog = form.id
         ? catalog.map((item) => (item.id === product.id ? product : item))
         : [...catalog, product]
-    )
 
-    setEditing(null)
-    setNotice(
-      form.id
-        ? 'Producto actualizado correctamente.'
-        : 'Producto creado correctamente.'
-    )
+      await save(nextCatalog)
+
+      setEditing(null)
+      setNotice(
+        form.id
+          ? 'Producto actualizado correctamente.'
+          : 'Producto creado correctamente.'
+      )
+    } catch (err) {
+      setImageError(
+        err instanceof Error
+          ? err.message
+          : 'Error al persistir el producto o la fotografía.'
+      )
+      setNotice('No se pudo guardar el producto.')
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   const handleArchive = async (product: Product) => {
@@ -424,11 +437,12 @@ export function RestaurantProducts({
           <button
             type="button"
             data-tour="products-save"
+            disabled={isProcessing || isCompressingImage}
             onClick={submit}
             style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
-            className="w-full rounded-xl p-3 font-bold shadow-xs hover:opacity-95 transition cursor-pointer"
+            className="w-full rounded-xl p-3 font-bold shadow-xs hover:opacity-95 transition cursor-pointer disabled:opacity-50"
           >
-            Guardar producto
+            {isProcessing ? 'Guardando producto…' : 'Guardar producto'}
           </button>
         }
       >

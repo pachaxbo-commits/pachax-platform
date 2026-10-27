@@ -36,6 +36,7 @@ import {
   loadDemoProductImages,
   clearDemoProductImages,
   buildDemoImageScopeKey,
+  sanitizeProductsForStorage,
 } from './demoProductImageStorage'
 import { createDemoProductImageAdapter } from './demoProductImageAdapter'
 
@@ -208,9 +209,10 @@ function loadInitialState(datasetMode: DemoDatasetMode, storageKey: string, lega
     const linked = reconcileTableOrders(initialDataset.orders, initialDataset.tables)
     const state = { ...linked, sectors: initialDataset.sectors, products: initialDataset.products, shift: initialDataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
     for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
-      restaurantStorage.setItem(`${storageKey}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
+      const storageName = key === 'stockMovements' ? 'stock-movements' : key
+      restaurantStorage.setItem(`${storageKey}:${storageName}`, JSON.stringify(key === 'products' ? sanitizeProductsForStorage(state[key]) : state[key]))
     }
-    restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+    restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: sanitizeProductsForStorage(state.products), movements: state.stockMovements }))
     restaurantStorage.setItem(`${storageKey}:schemaVersion`, '6')
     restaurantStorage.setItem(`${storageKey}:dataset-mode`, datasetMode)
     restaurantStorage.setItem(`${storageKey}:seeded`, 'false')
@@ -268,7 +270,7 @@ function loadInitialState(datasetMode: DemoDatasetMode, storageKey: string, lega
     restaurantStorage.setItem(`${storageKey}:sectors`, JSON.stringify(state.sectors))
     restaurantStorage.setItem(`${storageKey}:schemaVersion`, '6')
   }
-  restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+  restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: sanitizeProductsForStorage(state.products), movements: state.stockMovements }))
   restaurantStorage.setItem(`${storageKey}:stock-movements`, JSON.stringify(state.stockMovements))
   if (shift && (JSON.stringify(shift) !== JSON.stringify(savedShift))) restaurantStorage.setItem(`${storageKey}:shift`, JSON.stringify(shift))
   restaurantStorage.setItem(`${storageKey}:dataset-mode`, datasetMode)
@@ -370,18 +372,22 @@ export function RestaurantDemo({
   const [kitchenPrinterConfig, setKitchenPrinterConfig] = useState<KitchenPrinterConfig>(() => readSaved<KitchenPrinterConfig>(`${storageKey}:kitchen-printer:v1`, DEFAULT_KITCHEN_PRINTER_CONFIG))
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>(() => readSaved<KitchenTicketJob[]>(`${storageKey}:kitchen-print-jobs:v1`, []))
   void resetKey
-    useEffect(() => {
+  useEffect(() => {
     let cancelled = false
-    loadDemoProductImages(storageKey).then((savedImages) => {
+    loadDemoProductImages(imageScopeKey).then((savedImages) => {
       if (cancelled || !savedImages || Object.keys(savedImages).length === 0) return
       setProducts((current) =>
         current.map((p) => (savedImages[p.id] ? { ...p, image: savedImages[p.id] } : p))
       )
+      inventoryRef.current = {
+        ...inventoryRef.current,
+        products: inventoryRef.current.products.map((p) => (savedImages[p.id] ? { ...p, image: savedImages[p.id] } : p)),
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [storageKey])
+  }, [imageScopeKey])
 
   const [cashierName, setCashierName] = useState(
     `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'}`
@@ -553,39 +559,76 @@ export function RestaurantDemo({
     const next = updater(inventoryRef.current.products)
     inventoryRef.current = { ...inventoryRef.current, products: next }
     setProducts(next)
-    persist('products', next)
-    persist('inventory-store:v1', inventoryRef.current)
+    persist('products', sanitizeProductsForStorage(next))
+    persist('inventory-store:v1', {
+      ...inventoryRef.current,
+      products: sanitizeProductsForStorage(next),
+    })
   }
 
   const saveInventory = (nextProducts: Product[], nextMovements: RestaurantStockMovement[]) => {
     inventoryRef.current = { products: nextProducts, movements: nextMovements }
     setProducts(nextProducts)
     setStockMovements(nextMovements)
-    persist('products', nextProducts)
+    persist('products', sanitizeProductsForStorage(nextProducts))
     persist('stock-movements', nextMovements)
-    persist('inventory-store:v1', inventoryRef.current)
+    persist('inventory-store:v1', {
+      products: sanitizeProductsForStorage(nextProducts),
+      movements: nextMovements,
+    })
   }
 
-  const handleSaveProducts = (nextCatalog: Product[]) => {
-    for (const prod of nextCatalog) {
-      if (prod.image && prod.image.startsWith('data:')) {
-        void saveDemoProductImage(storageKey, prod.id, prod.image)
-      } else if (!prod.image) {
-        void deleteDemoProductImage(storageKey, prod.id)
+  const handleSaveProducts = async (nextCatalog: Product[]): Promise<void> => {
+    const previousProducts = inventoryRef.current.products
+    const nextProductIds = new Set(nextCatalog.map((p) => p.id))
+
+    // 1. Eliminar fotografías de productos que fueron removidos del catálogo
+    const deletePromises: Promise<void>[] = []
+    for (const prev of previousProducts) {
+      if (!nextProductIds.has(prev.id)) {
+        deletePromises.push(deleteDemoProductImage(imageScopeKey, prev.id))
       }
     }
+
+    // 2. Persistir nuevas fotografías o eliminar las que fueron desasociadas
+    const imagePromises: Promise<void>[] = []
+    for (const prod of nextCatalog) {
+      if (prod.image && prod.image.startsWith('data:')) {
+        imagePromises.push(saveDemoProductImage(imageScopeKey, prod.id, prod.image))
+      } else if (!prod.image) {
+        imagePromises.push(deleteDemoProductImage(imageScopeKey, prod.id))
+      }
+    }
+
+    // Esperar confirmación real de escrituras y transacciones en IndexedDB
+    await Promise.all([...deletePromises, ...imagePromises])
+
     let nextMovements = inventoryRef.current.movements
     const now = new Date().toISOString()
-    const nextProducts = nextCatalog.map(candidate => {
-      const previous = inventoryRef.current.products.find(product => product.id === candidate.id)
+    const nextProducts = nextCatalog.map((candidate) => {
+      const previous = previousProducts.find((product) => product.id === candidate.id)
       if (candidate.stockBase === undefined || candidate.stockBase === previous?.stockBase) return candidate
       const base = previous ? { ...candidate, stockBase: previous.stockBase } : { ...candidate, stockBase: 0 }
-      const changed = changeInventoryStock(base, candidate.stockBase, nextMovements, previous ? 'manual_adjustment' : 'initial_stock', previous ? 'Ajuste desde productos o inventario' : 'Stock inicial', now, cashierName, shift?.id)
+      const changed = changeInventoryStock(
+        base,
+        candidate.stockBase,
+        nextMovements,
+        previous ? 'manual_adjustment' : 'initial_stock',
+        previous ? 'Ajuste desde productos o inventario' : 'Stock inicial',
+        now,
+        cashierName,
+        shift?.id
+      )
       nextMovements = changed.movements
       return changed.product
     })
-    for (const previous of inventoryRef.current.products) {
-      if (!nextProducts.some(product => product.id === previous.id) && (previous.stockBase !== undefined || inventoryRef.current.movements.some(movement => movement.productId === previous.id))) nextProducts.push({ ...previous, isActive: false, isVisible: false })
+    for (const previous of previousProducts) {
+      if (
+        !nextProducts.some((product) => product.id === previous.id) &&
+        (previous.stockBase !== undefined || inventoryRef.current.movements.some((movement) => movement.productId === previous.id))
+      ) {
+        nextProducts.push({ ...previous, isActive: false, isVisible: false })
+      }
     }
     saveInventory(nextProducts, nextMovements)
   }
