@@ -4,7 +4,6 @@ import {
   Play,
   Clock,
   RotateCcw,
-  ArrowRight,
   Boxes,
   Truck,
   ShoppingCart,
@@ -31,6 +30,10 @@ interface DistributionTutorialCenterProps {
   progressMap: Record<string, DistributionTutorialProgress>
   onStartPlan: (plan: DistributionTutorialPlan) => void
   onResetData?: () => void
+  hasResumableSequence?: boolean
+  resumableTargetInfo?: { sectionTitle: string; stepNumber: number } | null
+  onResumeSequence?: () => void
+  onRestartAllTutorials?: () => void
   role: string
   companyName: string
   isDemo?: boolean
@@ -54,6 +57,10 @@ export function DistributionTutorialCenter({
   progressMap,
   onStartPlan,
   onResetData,
+  hasResumableSequence,
+  resumableTargetInfo,
+  onResumeSequence,
+  onRestartAllTutorials,
   role,
   companyName,
   isDemo = true,
@@ -138,30 +145,27 @@ export function DistributionTutorialCenter({
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                           <span
                             className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full"
-                            style={{
-                              backgroundColor: `${item.accentColor}18`,
-                              color: item.accentColor,
-                            }}
+                            style={{ backgroundColor: `${item.accentColor}18`, color: item.accentColor }}
                           >
                             {item.label}
                           </span>
                           {isSelected && (
-                            <span className="text-[10px] font-bold text-sky-600 bg-sky-100 px-1.5 py-0.2 rounded-md">
+                            <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded-md">
                               Activo
                             </span>
                           )}
                         </div>
-                        <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                          {item.companyName}
+                        <h4 className="text-sm font-extrabold text-slate-900 tracking-tight leading-tight">
+                          {item.commercialName}
                         </h4>
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
                           {item.description}
                         </p>
                       </div>
 
-                      <div className="pt-2 text-[11px] font-semibold text-slate-400 border-t border-slate-100 flex items-center justify-between mt-2">
-                        <span>{item.primaryUnitHint.split(',')[0]}</span>
-                        <ArrowRight size={13} className="text-slate-400" />
+                      <div className="pt-3 border-t border-slate-100/80 mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                        <span className="truncate">{item.sampleProducts[0]} · {item.primaryUnitHint}</span>
+                        <span className="font-bold text-sky-600 shrink-0">Elegir →</span>
                       </div>
                     </button>
                   )
@@ -170,23 +174,22 @@ export function DistributionTutorialCenter({
             </div>
           ) : (
             /* ========================================================================= */
-            /* VISTA DE RECORRIDOS GUIADOS SEGÚN EL ROL AUTORIZADO                       */
+            /* VISTA DE RECORRIDOS OPERATIVOS DEL SECTOR ACTIVO                          */
             /* ========================================================================= */
-            <div className="space-y-5">
-              {/* Resumen del Contexto Comercial Actual */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white shrink-0 shadow-xs"
-                    style={{ backgroundColor: meta.accentColor }}
-                  >
-                    {meta.label.slice(0, 2).toUpperCase()}
+            <div className="space-y-6">
+              {/* Tarjeta Informativa del Sector */}
+              <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-300 tracking-wide">
+                    <span>{meta.commercialName}</span>
+                    <span>·</span>
+                    <span className="capitalize">{companyName}</span>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-950">
-                      {companyName || meta.companyName}
-                    </h3>
-                    <p className="text-xs text-slate-500">
+                  <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
+                    {meta.description}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <p className="text-xs text-slate-300">
                       Sector: <strong>{meta.label}</strong> · Rol activo: <span className="capitalize font-semibold text-sky-700">{role}</span>
                     </p>
                   </div>
@@ -216,15 +219,52 @@ export function DistributionTutorialCenter({
                 )}
               </div>
 
+              {/* Banner de continuación si hay recorrido pausado */}
+              {hasResumableSequence && onResumeSequence && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 shadow-2xs">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
+                      <Play size={20} />
+                    </span>
+                    <div>
+                      <h4 className="font-extrabold text-amber-950 text-sm">Continuar donde lo dejaste</h4>
+                      <p className="mt-0.5 text-xs text-amber-800">
+                        {resumableTargetInfo
+                          ? `Recorrido pendiente: ${resumableTargetInfo.sectionTitle} · Paso ${resumableTargetInfo.stepNumber}`
+                          : 'Tienes un recorrido en pausa listo para continuar.'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose()
+                      onResumeSequence()
+                    }}
+                    className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-900 px-4 text-xs font-bold text-white hover:bg-amber-800 transition cursor-pointer shrink-0"
+                  >
+                    <span>Continuar recorrido</span>
+                    <Play size={14} />
+                  </button>
+                </div>
+              )}
+
               {/* Lista de Recorridos Disponibles */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
                     Recorridos disponibles para tu rol ({plans.length})
                   </h4>
-                  <span className="text-[11px] text-slate-400">
-                    Interactúa con los controles reales del sistema
-                  </span>
+                  {onRestartAllTutorials && (
+                    <button
+                      type="button"
+                      onClick={onRestartAllTutorials}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                    >
+                      <RotateCcw size={12} />
+                      <span>Reiniciar tutorial completo</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-2.5">
