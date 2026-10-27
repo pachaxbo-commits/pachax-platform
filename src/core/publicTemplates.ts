@@ -97,7 +97,9 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     studioTemplateId: 'nightclub',
     status: 'coming_soon',
     provisioningStatus: 'available',
-    demoStatus: 'coming_soon',
+    // The isolated public Nightclub demo is implemented at /demo/nightclub;
+    // provisioning remains a separate commercial/tenant capability.
+    demoStatus: 'available',
   },
 ])
 

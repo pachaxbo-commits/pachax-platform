@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canLaunchCommercialDemo, freeDemoPath, isPublicDemoEnabled, isTemplateProvisioningAvailable, isTechnicalDemoAvailable, PUBLIC_COMMERCIAL_INTEREST_ENABLED, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, setPublicDemoConfiguration } from '../src/core/publicTemplates.ts'
+import { canLaunchCommercialDemo, freeDemoPath, getPublicTemplate, isPublicDemoEnabled, isTemplateProvisioningAvailable, isTechnicalDemoAvailable, PUBLIC_COMMERCIAL_INTEREST_ENABLED, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, setPublicDemoConfiguration } from '../src/core/publicTemplates.ts'
 import { COMMERCIAL_TEMPLATES } from '../src/public/config/commercialShowcase.ts'
+import { getTemplateContactUrl, getTemplateSecondaryAction } from '../src/public/landing/templateActionPolicy.ts'
 
 test('Public demo availability stays independent from commercial provisioning', () => {
   assert.equal(freeDemoPath('hamburger'), '/demo/hamburger?data=full')
@@ -16,6 +17,10 @@ test('Public demo availability stays independent from commercial provisioning', 
   assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
   assert.equal(isTemplateProvisioningAvailable('distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), true)
+  assert.equal(isPublicDemoEnabled('nightclub'), true)
+  assert.equal(getPublicTemplate('nightclub').demoPath, '/demo/nightclub')
+  assert.equal(canLaunchCommercialDemo(COMMERCIAL_TEMPLATES.find(template => template.id === 'nightclub')!), true)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('retail'), false)
   assert.equal(canLaunchCommercialDemo(COMMERCIAL_TEMPLATES.find(template => template.id === 'restaurant')!), true)
@@ -34,7 +39,12 @@ test('Public demo availability stays independent from commercial provisioning', 
     status: 'published',
     demoEnabled: true,
     canonicalTemplateId: 'nightclub',
-  }), false)
+  }), true)
+  setPublicDemoConfiguration([{ id: 'nightclub', demoEnabledConfigured: true, demoEnabled: false }])
+  assert.equal(isTechnicalDemoAvailable('nightclub'), true)
+  assert.equal(isPublicDemoEnabled('nightclub'), false)
+  assert.equal(canLaunchCommercialDemo({ id: 'nightclub', canonicalTemplateId: 'nightclub' }), false)
+  setPublicDemoConfiguration(null)
   setPublicDemoConfiguration([{ id: 'restaurant', demoEnabledConfigured: true, demoEnabled: false }])
   assert.equal(isTechnicalDemoAvailable('restaurant'), true)
   assert.equal(isPublicDemoEnabled('restaurant'), false)
@@ -45,4 +55,25 @@ test('Public demo availability stays independent from commercial provisioning', 
   assert.equal(isPublicDemoEnabled('hamburger'), false)
   assert.equal(freeDemoPath('hamburger'), null)
   setPublicDemoConfiguration(null)
+})
+
+test('catalog CTAs contact PACHAX instead of promising blocked self-service', () => {
+  assert.deepEqual(getTemplateSecondaryAction('nightclub', true, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED), {
+    kind: 'contact', label: 'Solicitar implementación',
+  })
+  assert.deepEqual(getTemplateSecondaryAction('retail', false, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED), {
+    kind: 'contact', label: 'Solicitar implementación',
+  })
+  assert.deepEqual(getTemplateSecondaryAction('distribution', true, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED), {
+    kind: 'contact', label: 'Solicitar información',
+  })
+  assert.deepEqual(getTemplateSecondaryAction('custom', false, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED), {
+    kind: 'quote', label: 'Cotizar a medida',
+  })
+  const implementationUrl = new URL(getTemplateContactUrl('Nightclub & Lounge', getTemplateSecondaryAction('nightclub', true, false)))
+  assert.equal(implementationUrl.origin + implementationUrl.pathname, 'https://wa.me/59177987776')
+  assert.match(implementationUrl.searchParams.get('text') || '', /implementación de Nightclub & Lounge/)
+  const quoteUrl = new URL(getTemplateContactUrl('Solución a medida', getTemplateSecondaryAction('custom', false, false)))
+  assert.equal(quoteUrl.origin + quoteUrl.pathname, 'https://wa.me/59177987776')
+  assert.match(quoteUrl.searchParams.get('text') || '', /desarrollo a medida/)
 })

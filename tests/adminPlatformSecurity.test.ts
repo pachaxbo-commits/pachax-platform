@@ -464,13 +464,13 @@ test('18. canLaunchCommercialDemo: disponibilidad técnica, comercial y decisió
     canonicalTemplateId: 'restaurant',
   }), true)
 
-  // 7. Nightclub con demoEnabled=true -> coming_soon -> DENEGADO
+  // 7. Nightclub demo is technically available; Admin can still disable it explicitly.
   assert.equal(canLaunchCommercialDemo({
     id: 'nightclub',
     status: 'published',
     demoEnabled: true,
     canonicalTemplateId: 'nightclub',
-  }), false)
+  }), true)
 
   // Retail tiene ruta demo técnica lista aunque su estado comercial siga coming_soon.
   assert.equal(canLaunchCommercialDemo({
@@ -483,7 +483,7 @@ test('18. canLaunchCommercialDemo: disponibilidad técnica, comercial y decisió
   // 9. isTechnicalDemoAvailable verifica directamente la disponibilidad técnica del código
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
   assert.equal(isTechnicalDemoAvailable('restaurant'), true)
-  assert.equal(isTechnicalDemoAvailable('nightclub'), false)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), true)
   assert.equal(isTechnicalDemoAvailable('retail'), true)
   assert.equal(isTechnicalDemoAvailable('custom'), false)
 })
@@ -554,13 +554,13 @@ test('22. Seed de configuración oficial: preserva estado oficial y no auto-publ
 test('23. El cierre de altas públicas no afecta demos ni disponibilidad por plantilla', () => {
   assert.equal(PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, false)
 
-  // Demo técnica desacoplada de aprovisionamiento: Distribution y Restaurant disponibles; Nightclub sigue coming_soon
+  // Disponibilidad técnica de demo independiente del aprovisionamiento: Nightclub también tiene demo pública.
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
   assert.equal(isTechnicalDemoAvailable('route_distribution'), true)
   assert.equal(isTechnicalDemoAvailable('restaurant'), true)
   assert.equal(isTechnicalDemoAvailable('restaurant_pos'), true)
-  assert.equal(isTechnicalDemoAvailable('nightclub'), false)
-  assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), false)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), true)
+  assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), true)
 
   // Coming-soon bloqueados para creación de empresas
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
