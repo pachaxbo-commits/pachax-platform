@@ -8,7 +8,6 @@ import type {
 import {
   loadTutorialOrchestratorState,
   saveTutorialOrchestratorState,
-  clearTutorialOrchestratorState,
 } from './tutorialOrchestratorStorage.ts'
 
 interface UseTutorialOrchestratorOptions {
@@ -17,6 +16,7 @@ interface UseTutorialOrchestratorOptions {
   onNavigateToModule: (moduleId: string) => void
   onOpenSectionTour: (sectionId: string, initialStepIndex?: number) => void
   onCloseSectionTour: (sectionId: string) => void
+  onResetAllStatuses?: () => void
 }
 
 export function useTutorialOrchestrator({
@@ -25,15 +25,27 @@ export function useTutorialOrchestrator({
   onNavigateToModule,
   onOpenSectionTour,
   onCloseSectionTour,
+  onResetAllStatuses,
 }: UseTutorialOrchestratorOptions) {
-  const [state, setState] = useState<TutorialOrchestratorState>(() =>
-    loadTutorialOrchestratorState(scope)
-  )
+  const [state, setState] = useState<TutorialOrchestratorState>(() => {
+    const loaded = loadTutorialOrchestratorState(scope)
+    // On page reload: if sequence was active, pause it gracefully without losing cursor or causing duplicate runners
+    if (loaded.isContinuousActive) {
+      const paused: TutorialOrchestratorState = {
+        ...loaded,
+        isContinuousActive: false,
+        isPaused: true,
+      }
+      saveTutorialOrchestratorState(scope, paused)
+      return paused
+    }
+    return loaded
+  })
   const [transitionState, setTransitionState] = useState<ContinuousTransitionState | null>(null)
   const [isSummaryOpen, setIsSummaryOpen] = useState(false)
   const transitionTimerRef = useRef<number | null>(null)
 
-  // Scope tracking for dynamic role / template / dataset switching
+  // Scope tracking for dynamic role / template / dataset / uid switching
   const prevScopeRef = useRef(scope)
   useEffect(() => {
     const prev = prevScopeRef.current
@@ -42,7 +54,8 @@ export function useTutorialOrchestrator({
       prev.role !== scope.role ||
       prev.profile !== scope.profile ||
       prev.datasetMode !== scope.datasetMode ||
-      prev.tenantId !== scope.tenantId
+      prev.tenantId !== scope.tenantId ||
+      prev.uid !== scope.uid
     ) {
       prevScopeRef.current = scope
       if (transitionTimerRef.current) {
@@ -51,10 +64,14 @@ export function useTutorialOrchestrator({
       }
       setTransitionState(null)
       setIsSummaryOpen(false)
+      // Close previous tour when role / scope changes
+      if (state.currentSectionId) {
+        onCloseSectionTour(state.currentSectionId)
+      }
       const reloaded = loadTutorialOrchestratorState(scope)
       setState(reloaded)
     }
-  }, [scope])
+  }, [scope, state.currentSectionId, onCloseSectionTour])
 
   // Sync state changes to storage
   const updateState = useCallback(
@@ -66,6 +83,21 @@ export function useTutorialOrchestrator({
       })
     },
     [scope]
+  )
+
+  // Real-time step cursor tracking within active tour
+  const updateStepIndex = useCallback(
+    (stepIndex: number) => {
+      const safeStep = Math.max(0, Number.isFinite(stepIndex) ? stepIndex : 0)
+      updateState((prev) => {
+        if (prev.currentStepIndex === safeStep) return prev
+        return {
+          ...prev,
+          currentStepIndex: safeStep,
+        }
+      })
+    },
+    [updateState]
   )
 
   // Sections by ID mapping
@@ -93,25 +125,30 @@ export function useTutorialOrchestrator({
   }, [])
 
   // Start continuous sequence from beginning or first incomplete
-  const startContinuousSequence = useCallback(() => {
-    if (sections.length === 0) return
-    const firstSection = sections[0]
-    updateState((prev) => ({
-      ...prev,
-      welcomeDismissed: true,
-      welcomeSkipped: false,
-      isContinuousActive: true,
-      isPaused: false,
-      currentSectionId: firstSection.id,
-      currentStepIndex: 0,
-      completedAll: false,
-    }))
+  const startContinuousSequence = useCallback(
+    (initialSectionId?: string, initialStepIndex = 0) => {
+      if (sections.length === 0) return
+      const targetSection = (initialSectionId ? sectionsById.get(initialSectionId) : null) || sections[0]
+      const targetStep = Math.max(0, initialStepIndex)
 
-    onNavigateToModule(firstSection.module)
-    window.setTimeout(() => {
-      onOpenSectionTour(firstSection.id, 0)
-    }, 150)
-  }, [sections, updateState, onNavigateToModule, onOpenSectionTour])
+      updateState((prev) => ({
+        ...prev,
+        welcomeDismissed: true,
+        welcomeSkipped: false,
+        isContinuousActive: true,
+        isPaused: false,
+        currentSectionId: targetSection.id,
+        currentStepIndex: targetStep,
+        completedAll: false,
+      }))
+
+      onNavigateToModule(targetSection.module)
+      window.setTimeout(() => {
+        onOpenSectionTour(targetSection.id, targetStep)
+      }, 150)
+    },
+    [sections, sectionsById, updateState, onNavigateToModule, onOpenSectionTour]
+  )
 
   // Skip welcome
   const skipWelcome = useCallback(() => {
@@ -169,11 +206,15 @@ export function useTutorialOrchestrator({
         if (transitionTimerRef.current) {
           window.clearTimeout(transitionTimerRef.current)
         }
+        // Unified 3.5s transition (or 1.2s if prefers-reduced-motion)
+        const isReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        const delayMs = isReducedMotion ? 1200 : 3500
+
         transitionTimerRef.current = window.setTimeout(() => {
           setTransitionState(null)
           onOpenSectionTour(nextSection.id, 0)
           transitionTimerRef.current = null
-        }, 850)
+        }, delayMs)
       } else {
         // All sections finished!
         updateState((prev) => ({
@@ -200,13 +241,15 @@ export function useTutorialOrchestrator({
       transitionTimerRef.current = null
     }
     const targetSectionId = transitionState.nextSectionId
+    const targetModule = transitionState.nextModule
     setTransitionState(null)
+    onNavigateToModule(targetModule)
     onOpenSectionTour(targetSectionId, 0)
-  }, [transitionState, onOpenSectionTour])
+  }, [transitionState, onNavigateToModule, onOpenSectionTour])
 
-  // Pause sequence
+  // Pause sequence with exact step cursor
   const pauseSequence = useCallback(
-    (currentStepIndex = 0) => {
+    (currentStepIndex?: number) => {
       if (transitionTimerRef.current) {
         window.clearTimeout(transitionTimerRef.current)
         transitionTimerRef.current = null
@@ -217,17 +260,21 @@ export function useTutorialOrchestrator({
         onCloseSectionTour(state.currentSectionId)
       }
 
+      const stepIndex = typeof currentStepIndex === 'number' && Number.isFinite(currentStepIndex)
+        ? Math.max(0, currentStepIndex)
+        : (state.currentStepIndex || 0)
+
       updateState((prev) => ({
         ...prev,
         isContinuousActive: false,
         isPaused: true,
-        currentStepIndex,
+        currentStepIndex: stepIndex,
       }))
     },
-    [state.currentSectionId, updateState, onCloseSectionTour]
+    [state.currentSectionId, state.currentStepIndex, updateState, onCloseSectionTour]
   )
 
-  // Resume paused sequence
+  // Resume paused sequence at exact step
   const resumeSequence = useCallback(() => {
     if (sections.length === 0) return
 
@@ -240,7 +287,7 @@ export function useTutorialOrchestrator({
       targetSection = sections.find((s) => !state.completedSectionIds.includes(s.id)) || sections[0]
     }
 
-    const stepIndex = state.currentSectionId === targetSection.id ? state.currentStepIndex : 0
+    const stepIndex = state.currentSectionId === targetSection.id ? (state.currentStepIndex || 0) : 0
 
     updateState((prev) => ({
       ...prev,
@@ -256,18 +303,43 @@ export function useTutorialOrchestrator({
     }, 150)
   }, [sections, sectionsById, state.currentSectionId, state.currentStepIndex, state.completedSectionIds, updateState, onNavigateToModule, onOpenSectionTour])
 
-  // Restart all tutorial progress
+  // Complete restart: resets in-memory React state, cleans completed IDs, resets storage and legacy statuses
   const restartAll = useCallback(() => {
-    clearTutorialOrchestratorState(scope)
-    setIsSummaryOpen(false)
-    setTransitionState(null)
     if (transitionTimerRef.current) {
       window.clearTimeout(transitionTimerRef.current)
       transitionTimerRef.current = null
     }
+    setTransitionState(null)
+    setIsSummaryOpen(false)
 
-    startContinuousSequence()
-  }, [scope, startContinuousSequence])
+    const firstSection = sections[0]
+    const resetState: TutorialOrchestratorState = {
+      welcomeDismissed: true,
+      welcomeSkipped: false,
+      isContinuousActive: Boolean(firstSection),
+      isPaused: false,
+      currentSectionId: firstSection ? firstSection.id : null,
+      currentStepIndex: 0,
+      completedSectionIds: [],
+      completedAll: false,
+      lastUpdated: new Date().toISOString(),
+    }
+
+    // 1. Explicitly overwrite in-memory React state
+    setState(resetState)
+    // 2. Explicitly overwrite storage
+    saveTutorialOrchestratorState(scope, resetState)
+    // 3. Clear legacy individual tour statuses in parent component (Restaurant / Distribution)
+    onResetAllStatuses?.()
+
+    // 4. Start first tour cleanly
+    if (firstSection) {
+      onNavigateToModule(firstSection.module)
+      window.setTimeout(() => {
+        onOpenSectionTour(firstSection.id, 0)
+      }, 150)
+    }
+  }, [scope, sections, onResetAllStatuses, onNavigateToModule, onOpenSectionTour])
 
   // Replay a specific individual section
   const replaySection = useCallback(
@@ -283,15 +355,17 @@ export function useTutorialOrchestrator({
     [sectionsById, onNavigateToModule, onOpenSectionTour]
   )
 
-  // Has a resumable sequence?
+  // Has a resumable sequence? Evaluates true whenever any progress exists or sequence was paused / refreshed
   const hasResumableSequence = useMemo(() => {
     if (state.completedAll) return false
     if (state.isPaused) return true
+    if (state.isContinuousActive) return true
+    if (state.currentSectionId !== null) return true
     if (state.completedSectionIds.length > 0 && state.completedSectionIds.length < sections.length) {
       return true
     }
     return false
-  }, [state.completedAll, state.isPaused, state.completedSectionIds.length, sections.length])
+  }, [state.completedAll, state.isPaused, state.isContinuousActive, state.currentSectionId, state.completedSectionIds.length, sections.length])
 
   // Resumable section label for UI
   const resumableTargetInfo = useMemo(() => {
@@ -324,6 +398,7 @@ export function useTutorialOrchestrator({
     resumeSequence,
     restartAll,
     replaySection,
+    updateStepIndex,
     dismissSummary: () => setIsSummaryOpen(false),
   }
 }

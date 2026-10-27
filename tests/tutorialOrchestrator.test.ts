@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildTutorialOrchestratorStorageKey,
+  buildLegacyTutorialOrchestratorStorageKey,
   createDefaultOrchestratorState,
   loadTutorialOrchestratorState,
   saveTutorialOrchestratorState,
@@ -22,13 +23,24 @@ function createMockStorage() {
   })
 }
 
-test('G6.1 — Storage Key Generation & Strict Scope Isolation', () => {
-  const scopeSalon: TutorialStorageScope = {
+test('G6.1 — Storage Key Generation, User UID Isolation & Strict Scope Isolation', () => {
+  const scopeSalonUserA: TutorialStorageScope = {
     template: 'restaurant',
     role: 'owner',
     datasetMode: 'full',
     profile: 'restaurant',
     tenantId: 'demo-tenant-restaurant',
+    uid: 'user_alpha',
+    isDemo: true,
+  }
+
+  const scopeSalonUserB: TutorialStorageScope = {
+    template: 'restaurant',
+    role: 'owner',
+    datasetMode: 'full',
+    profile: 'restaurant',
+    tenantId: 'demo-tenant-restaurant',
+    uid: 'user_beta',
     isDemo: true,
   }
 
@@ -38,6 +50,7 @@ test('G6.1 — Storage Key Generation & Strict Scope Isolation', () => {
     datasetMode: 'full',
     profile: 'counter_service',
     tenantId: 'demo-tenant-restaurant',
+    uid: 'user_cashier',
     isDemo: true,
   }
 
@@ -46,7 +59,7 @@ test('G6.1 — Storage Key Generation & Strict Scope Isolation', () => {
     datasetMode: 'empty',
   }
 
-  const scopeDistFood: TutorialStorageScope = {
+  const scopeDistFoodAnon: TutorialStorageScope = {
     template: 'distribution',
     role: 'seller',
     datasetMode: 'full',
@@ -61,6 +74,7 @@ test('G6.1 — Storage Key Generation & Strict Scope Isolation', () => {
     datasetMode: 'full',
     profile: 'beverages',
     tenantId: 'demo-distribution-tenant',
+    uid: 'seller_1',
     isDemo: true,
   }
 
@@ -70,30 +84,97 @@ test('G6.1 — Storage Key Generation & Strict Scope Isolation', () => {
     datasetMode: 'full',
     profile: 'restaurant',
     tenantId: 'empresa-real-bolivia-123',
+    uid: 'owner_prod',
     isDemo: false,
   }
 
-  const keySalon = buildTutorialOrchestratorStorageKey(scopeSalon)
+  const keySalonUserA = buildTutorialOrchestratorStorageKey(scopeSalonUserA)
+  const keySalonUserB = buildTutorialOrchestratorStorageKey(scopeSalonUserB)
   const keyFastFood = buildTutorialOrchestratorStorageKey(scopeFastFood)
   const keyFastFoodEmpty = buildTutorialOrchestratorStorageKey(scopeFastFoodEmpty)
-  const keyDistFood = buildTutorialOrchestratorStorageKey(scopeDistFood)
+  const keyDistFoodAnon = buildTutorialOrchestratorStorageKey(scopeDistFoodAnon)
   const keyDistBeverages = buildTutorialOrchestratorStorageKey(scopeDistBeverages)
   const keyProd = buildTutorialOrchestratorStorageKey(scopeProdTenant)
 
-  // Verify structure
-  assert.equal(keySalon, 'pachax:tutorial-orchestrator:demo:demo-tenant-restaurant:restaurant:full:restaurant:owner:v1')
-  assert.equal(keyFastFood, 'pachax:tutorial-orchestrator:demo:demo-tenant-restaurant:hamburger:full:counter_service:cashier:v1')
-  assert.equal(keyFastFoodEmpty, 'pachax:tutorial-orchestrator:demo:demo-tenant-restaurant:hamburger:empty:counter_service:cashier:v1')
-  assert.equal(keyDistFood, 'pachax:tutorial-orchestrator:demo:demo-distribution-tenant:distribution:full:food:seller:v1')
-  assert.equal(keyDistBeverages, 'pachax:tutorial-orchestrator:demo:demo-distribution-tenant:distribution:full:beverages:seller:v1')
-  assert.equal(keyProd, 'pachax:tutorial-orchestrator:tenant:empresa-real-bolivia-123:restaurant:full:restaurant:owner:v1')
+  // Verify structure with uid (or fallback to 'anon')
+  assert.equal(keySalonUserA, 'pachax:tutorial-orchestrator:demo:demo-tenant-restaurant:user_alpha:restaurant:full:restaurant:owner:v1')
+  assert.equal(keySalonUserB, 'pachax:tutorial-orchestrator:demo:demo-tenant-restaurant:user_beta:restaurant:full:restaurant:owner:v1')
+  assert.equal(keyFastFood, 'pachax:tutorial-orchestrator:demo:demo-tenant-restaurant:user_cashier:hamburger:full:counter_service:cashier:v1')
+  assert.equal(keyFastFoodEmpty, 'pachax:tutorial-orchestrator:demo:demo-tenant-restaurant:user_cashier:hamburger:empty:counter_service:cashier:v1')
+  assert.equal(keyDistFoodAnon, 'pachax:tutorial-orchestrator:demo:demo-distribution-tenant:anon:distribution:full:food:seller:v1')
+  assert.equal(keyDistBeverages, 'pachax:tutorial-orchestrator:demo:demo-distribution-tenant:seller_1:distribution:full:beverages:seller:v1')
+  assert.equal(keyProd, 'pachax:tutorial-orchestrator:tenant:empresa-real-bolivia-123:owner_prod:restaurant:full:restaurant:owner:v1')
+
+  // Verify multi-user isolation on same tenant
+  assert.notEqual(keySalonUserA, keySalonUserB, 'Different users on same tenant must have distinct storage keys')
 
   // Verify all keys are strictly distinct (no cross-contamination)
-  const allKeys = new Set([keySalon, keyFastFood, keyFastFoodEmpty, keyDistFood, keyDistBeverages, keyProd])
-  assert.equal(allKeys.size, 6, 'All tutorial scopes must produce strictly isolated storage keys')
+  const allKeys = new Set([keySalonUserA, keySalonUserB, keyFastFood, keyFastFoodEmpty, keyDistFoodAnon, keyDistBeverages, keyProd])
+  assert.equal(allKeys.size, 7, 'All tutorial scopes must produce strictly isolated storage keys')
 })
 
-test('G6.2 — Storage Persistence, Fallbacks & Error Recovery', () => {
+test('G6.2 — Transparent Legacy Storage Key Migration', () => {
+  const previousWindow = (globalThis as any).window
+  const previousLocalStorage = (globalThis as any).localStorage
+  const mockStorage = createMockStorage()
+
+  try {
+    ;(globalThis as any).localStorage = mockStorage
+    ;(globalThis as any).window = { localStorage: mockStorage }
+
+    const scope: TutorialStorageScope = {
+      template: 'restaurant',
+      role: 'owner',
+      datasetMode: 'full',
+      profile: 'restaurant',
+      tenantId: 'demo-tenant-migration',
+      uid: 'user_migrated',
+      isDemo: true,
+    }
+
+    const legacyKey = buildLegacyTutorialOrchestratorStorageKey(scope)
+    const modernKey = buildTutorialOrchestratorStorageKey(scope)
+
+    assert.equal(legacyKey, 'pachax:tutorial-orchestrator:demo:demo-tenant-migration:restaurant:full:restaurant:owner:v1')
+    assert.equal(modernKey, 'pachax:tutorial-orchestrator:demo:demo-tenant-migration:user_migrated:restaurant:full:restaurant:owner:v1')
+
+    // Simulate pre-existing legacy state in localStorage
+    const legacySavedState: TutorialOrchestratorState = {
+      welcomeDismissed: true,
+      welcomeSkipped: false,
+      isContinuousActive: true,
+      isPaused: true,
+      currentSectionId: 'tables',
+      currentStepIndex: 2,
+      completedSectionIds: ['pos'],
+      completedAll: false,
+      lastUpdated: new Date().toISOString(),
+    }
+    mockStorage.setItem(legacyKey, JSON.stringify(legacySavedState))
+
+    // Modern key does not exist yet
+    assert.equal(mockStorage.getItem(modernKey), null)
+
+    // Load state: transparent fallback must load legacy data and migrate it forward to modern key
+    const loaded = loadTutorialOrchestratorState(scope)
+    assert.equal(loaded.welcomeDismissed, true)
+    assert.equal(loaded.currentSectionId, 'tables')
+    assert.equal(loaded.currentStepIndex, 2)
+    assert.deepEqual(loaded.completedSectionIds, ['pos'])
+
+    // Modern key must now contain the migrated state
+    const modernRaw = mockStorage.getItem(modernKey)
+    assert.notEqual(modernRaw, null, 'State should be transparently migrated to modern key')
+    const migratedObj = JSON.parse(modernRaw!)
+    assert.equal(migratedObj.currentSectionId, 'tables')
+    assert.equal(migratedObj.currentStepIndex, 2)
+  } finally {
+    ;(globalThis as any).window = previousWindow
+    ;(globalThis as any).localStorage = previousLocalStorage
+  }
+})
+
+test('G6.3 — Storage Persistence, Fallbacks & Error Recovery', () => {
   const previousWindow = (globalThis as any).window
   const previousLocalStorage = (globalThis as any).localStorage
   const mockStorage = createMockStorage()
@@ -168,7 +249,7 @@ test('G6.2 — Storage Persistence, Fallbacks & Error Recovery', () => {
   }
 })
 
-test('G6.3 — Continuous Progression State Transitions Invariants', () => {
+test('G6.4 — Continuous Progression State Transitions Invariants', () => {
   const sections = [
     { id: 'pos', title: 'Punto de Venta', module: 'pos' },
     { id: 'tables', title: 'Salón y Mesas', module: 'tables' },
@@ -267,7 +348,7 @@ test('G6.3 — Continuous Progression State Transitions Invariants', () => {
   assert.equal(state.completedAll, false)
 })
 
-test('G6.4 — Real Tenant Security Invariant', () => {
+test('G6.5 — Real Tenant Security Invariant', () => {
   // Production tenant configuration
   const realTenantScope: TutorialStorageScope = {
     template: 'restaurant',

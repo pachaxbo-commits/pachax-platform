@@ -3,6 +3,17 @@ import type { TutorialStorageScope, TutorialOrchestratorState } from './tutorial
 export function buildTutorialOrchestratorStorageKey(scope: TutorialStorageScope): string {
   const env = scope.isDemo ? 'demo' : 'tenant'
   const tenant = scope.tenantId || 'default'
+  const uid = scope.uid || 'anon'
+  const tpl = scope.template || 'default'
+  const dataMode = scope.datasetMode || 'full'
+  const prof = scope.profile || 'default'
+  const role = scope.role || 'default'
+  return `pachax:tutorial-orchestrator:${env}:${tenant}:${uid}:${tpl}:${dataMode}:${prof}:${role}:v1`
+}
+
+export function buildLegacyTutorialOrchestratorStorageKey(scope: TutorialStorageScope): string {
+  const env = scope.isDemo ? 'demo' : 'tenant'
+  const tenant = scope.tenantId || 'default'
   const tpl = scope.template || 'default'
   const dataMode = scope.datasetMode || 'full'
   const prof = scope.profile || 'default'
@@ -28,7 +39,22 @@ export function loadTutorialOrchestratorState(scope: TutorialStorageScope): Tuto
   if (typeof window === 'undefined') return createDefaultOrchestratorState()
   try {
     const key = buildTutorialOrchestratorStorageKey(scope)
-    const raw = window.localStorage.getItem(key)
+    let raw = window.localStorage.getItem(key)
+
+    // Transparent migration from legacy key without uid
+    if (!raw) {
+      const legacyKey = buildLegacyTutorialOrchestratorStorageKey(scope)
+      const legacyRaw = window.localStorage.getItem(legacyKey)
+      if (legacyRaw) {
+        raw = legacyRaw
+        try {
+          window.localStorage.setItem(key, legacyRaw)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
     if (!raw) return createDefaultOrchestratorState()
     const parsed = JSON.parse(raw) as Partial<TutorialOrchestratorState>
     return {
@@ -37,7 +63,7 @@ export function loadTutorialOrchestratorState(scope: TutorialStorageScope): Tuto
       isContinuousActive: Boolean(parsed.isContinuousActive),
       isPaused: Boolean(parsed.isPaused),
       currentSectionId: typeof parsed.currentSectionId === 'string' ? parsed.currentSectionId : null,
-      currentStepIndex: typeof parsed.currentStepIndex === 'number' && Number.isFinite(parsed.currentStepIndex) ? parsed.currentStepIndex : 0,
+      currentStepIndex: typeof parsed.currentStepIndex === 'number' && Number.isFinite(parsed.currentStepIndex) ? Math.max(0, parsed.currentStepIndex) : 0,
       completedSectionIds: Array.isArray(parsed.completedSectionIds) ? parsed.completedSectionIds.filter((id): id is string => typeof id === 'string') : [],
       completedAll: Boolean(parsed.completedAll),
       lastUpdated: typeof parsed.lastUpdated === 'string' ? parsed.lastUpdated : new Date().toISOString(),
@@ -53,6 +79,7 @@ export function saveTutorialOrchestratorState(scope: TutorialStorageScope, state
     const key = buildTutorialOrchestratorStorageKey(scope)
     const sanitized: TutorialOrchestratorState = {
       ...state,
+      currentStepIndex: Math.max(0, state.currentStepIndex || 0),
       lastUpdated: new Date().toISOString(),
     }
     window.localStorage.setItem(key, JSON.stringify(sanitized))
