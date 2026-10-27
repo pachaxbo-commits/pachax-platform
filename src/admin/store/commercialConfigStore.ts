@@ -7,6 +7,7 @@ import type {
   MediaAssetItem,
 } from '../types'
 import { mergeOfficialTemplates } from './templateDefaults.ts'
+import { resolvePublicTemplateCatalog } from './publicTemplateCatalog.ts'
 import { COMMERCIAL_PLAN_TEMPLATE_IDS, filterPublicCommercialPlans, filterPublishedCommercialRecords } from './commercialCatalogContract.ts'
 import {
   PLANS_BY_TEMPLATE,
@@ -223,8 +224,19 @@ export function saveCommercialConfig(config: StoredCommercialConfig): void {
 
 let publicConfig: StoredCommercialConfig | null = null
 let publicCatalogStatus: 'loading' | 'ready' | 'error' = 'loading'
+let hasReceivedPublicCatalog = false
 let isPublicSyncing = false
 let isAdminSyncing = false
+
+function setPublicEditorialFallback(): void {
+  const defaults = getDefaultConfig()
+  publicConfig = {
+    ...defaults,
+    templates: resolvePublicTemplateCatalog({ kind: 'unavailable' }),
+    plans: [],
+    extras: [],
+  }
+}
 
 /**
  * Consulta pública por callable con proyección permitida. Firestore Rules no
@@ -237,7 +249,7 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
   try {
     const ctx = await getFirebaseContext()
     if (!ctx) {
-      publicConfig = { ...getDefaultConfig(), templates: [], plans: [], extras: [] }
+      if (!hasReceivedPublicCatalog) setPublicEditorialFallback()
       publicCatalogStatus = 'error'
       notifyUpdate()
       return
@@ -247,7 +259,11 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
 
     if (window.location.pathname.startsWith('/admin')) return
 
-    const templates = catalog.templates as unknown as CommercialTemplateItem[]
+    const templates = resolvePublicTemplateCatalog({
+      kind: 'available',
+      templates: catalog.templates as unknown as CommercialTemplateItem[],
+    })
+    hasReceivedPublicCatalog = true
     setPublicDemoConfiguration(Array.isArray(catalog.demoConfiguration)
       ? catalog.demoConfiguration as { id: string; demoEnabled?: boolean; demoEnabledConfigured?: boolean }[]
       : templates)
@@ -268,7 +284,9 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
     publicCatalogStatus = 'ready'
     notifyUpdate()
   } catch (err) {
-    publicConfig = { ...getDefaultConfig(), templates: [], plans: [], extras: [] }
+    // Preserve a prior valid Admin snapshot. If this is the first request,
+    // show only the approved public editorial fallback (never cached drafts).
+    if (!hasReceivedPublicCatalog) setPublicEditorialFallback()
     publicCatalogStatus = 'error'
     console.warn('No se pudo consultar la configuración comercial publicada:', err)
     notifyUpdate()

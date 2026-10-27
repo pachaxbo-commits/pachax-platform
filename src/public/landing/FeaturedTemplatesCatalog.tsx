@@ -8,7 +8,7 @@ import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 
 export function FeaturedTemplatesCatalog() {
   const { navigate } = usePublicRouter()
-  const { publishedTemplates, landingContent } = useCommercialConfig()
+  const { publishedTemplates, landingContent, publicCatalogStatus } = useCommercialConfig()
   const [selectedFilter, setSelectedFilter] = useState<string>('all')
 
   const filterOptions = [
@@ -101,6 +101,17 @@ export function FeaturedTemplatesCatalog() {
             )
           })}
         </div>
+
+        {publicCatalogStatus === 'error' && (
+          <p role="status" className="mb-5 text-sm text-slate-600" data-catalog-state="fallback">
+            No pudimos actualizar el catálogo. Las fichas visibles son información pública de referencia; los precios y ofertas requieren confirmación del servidor.
+          </p>
+        )}
+        {publicCatalogStatus === 'loading' && (
+          <p role="status" className="mb-5 text-sm text-slate-500" data-catalog-state="loading">
+            Cargando plantillas publicadas…
+          </p>
+        )}
 
         {/* Grilla Editorial de Plantillas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch">
@@ -241,6 +252,11 @@ export function FeaturedTemplatesCatalog() {
               </div>
             </div>
           ))}
+          {publicCatalogStatus !== 'loading' && filteredTemplates.length === 0 && (
+            <p role="status" className="col-span-full rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600" data-catalog-state="empty">
+              No hay plantillas publicadas para esta categoría en el catálogo confirmado.
+            </p>
+          )}
         </div>
       </div>
 
