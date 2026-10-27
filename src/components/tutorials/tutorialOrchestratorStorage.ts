@@ -41,14 +41,19 @@ export function loadTutorialOrchestratorState(scope: TutorialStorageScope): Tuto
     const key = buildTutorialOrchestratorStorageKey(scope)
     let raw = window.localStorage.getItem(key)
 
-    // Transparent migration from legacy key without uid
-    if (!raw) {
+    // Safe migration from legacy key without uid (DEMO ONLY)
+    // In real tenants (isDemo === false), ownership of legacy key cannot be established per user;
+    // prior isolation demands starting fresh per tenantId + uid.
+    // In demos (isDemo === true), migrate once safely and consume/remove legacy key to prevent repeated imports by other users.
+    if (!raw && scope.isDemo) {
       const legacyKey = buildLegacyTutorialOrchestratorStorageKey(scope)
       const legacyRaw = window.localStorage.getItem(legacyKey)
       if (legacyRaw) {
         raw = legacyRaw
         try {
           window.localStorage.setItem(key, legacyRaw)
+          // Crucial: remove/consume legacy key so another user cannot inherit it
+          window.localStorage.removeItem(legacyKey)
         } catch {
           /* ignore */
         }

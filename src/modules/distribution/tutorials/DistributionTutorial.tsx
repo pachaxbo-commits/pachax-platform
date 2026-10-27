@@ -155,10 +155,15 @@ export function DistributionTutorial({
         ? activeModule === step.module
         : isDataOperationCompleted || domActionCompleted
 
-  // Notificar cambio de paso
+  // Notificar cambio de paso solo cuando el índice cambia efectivamente
+  const onStepChangeRef = useRef(onStepChange)
   useEffect(() => {
-    onStepChange?.(index)
-  }, [index, onStepChange])
+    onStepChangeRef.current = onStepChange
+  })
+
+  useEffect(() => {
+    onStepChangeRef.current?.(index)
+  }, [index])
 
   // Medir dimensiones reales de la tarjeta para cálculo exacto de posición
   useLayoutEffect(() => {

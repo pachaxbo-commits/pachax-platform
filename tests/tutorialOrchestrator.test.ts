@@ -113,30 +113,39 @@ test('G6.1 — Storage Key Generation, User UID Isolation & Strict Scope Isolati
   assert.equal(allKeys.size, 7, 'All tutorial scopes must produce strictly isolated storage keys')
 })
 
-test('G6.2 — Transparent Legacy Storage Key Migration', () => {
-  const previousWindow = (globalThis as any).window
-  const previousLocalStorage = (globalThis as any).localStorage
+test('G6.2 — Safe Legacy Migration (Demo) & Strict Isolation (Real Tenants and Multi-User)', () => {
+  const globalScope = globalThis as unknown as { window?: unknown; localStorage?: unknown }
+  const previousWindow = globalScope.window
+  const previousLocalStorage = globalScope.localStorage
   const mockStorage = createMockStorage()
 
   try {
-    ;(globalThis as any).localStorage = mockStorage
-    ;(globalThis as any).window = { localStorage: mockStorage }
+    globalScope.localStorage = mockStorage
+    globalScope.window = { localStorage: mockStorage }
 
-    const scope: TutorialStorageScope = {
+    // --- Scenario A: Demo Migration with Legacy Key Consumption ---
+    const scopeUserA: TutorialStorageScope = {
       template: 'restaurant',
       role: 'owner',
       datasetMode: 'full',
       profile: 'restaurant',
       tenantId: 'demo-tenant-migration',
-      uid: 'user_migrated',
+      uid: 'user_alpha',
       isDemo: true,
     }
 
-    const legacyKey = buildLegacyTutorialOrchestratorStorageKey(scope)
-    const modernKey = buildTutorialOrchestratorStorageKey(scope)
+    const scopeUserB: TutorialStorageScope = {
+      ...scopeUserA,
+      uid: 'user_beta',
+    }
 
-    assert.equal(legacyKey, 'pachax:tutorial-orchestrator:demo:demo-tenant-migration:restaurant:full:restaurant:owner:v1')
-    assert.equal(modernKey, 'pachax:tutorial-orchestrator:demo:demo-tenant-migration:user_migrated:restaurant:full:restaurant:owner:v1')
+    const legacyKeyDemo = buildLegacyTutorialOrchestratorStorageKey(scopeUserA)
+    const modernKeyUserA = buildTutorialOrchestratorStorageKey(scopeUserA)
+    const modernKeyUserB = buildTutorialOrchestratorStorageKey(scopeUserB)
+
+    assert.equal(legacyKeyDemo, 'pachax:tutorial-orchestrator:demo:demo-tenant-migration:restaurant:full:restaurant:owner:v1')
+    assert.equal(modernKeyUserA, 'pachax:tutorial-orchestrator:demo:demo-tenant-migration:user_alpha:restaurant:full:restaurant:owner:v1')
+    assert.equal(modernKeyUserB, 'pachax:tutorial-orchestrator:demo:demo-tenant-migration:user_beta:restaurant:full:restaurant:owner:v1')
 
     // Simulate pre-existing legacy state in localStorage
     const legacySavedState: TutorialOrchestratorState = {
@@ -150,38 +159,70 @@ test('G6.2 — Transparent Legacy Storage Key Migration', () => {
       completedAll: false,
       lastUpdated: new Date().toISOString(),
     }
-    mockStorage.setItem(legacyKey, JSON.stringify(legacySavedState))
+    mockStorage.setItem(legacyKeyDemo, JSON.stringify(legacySavedState))
 
-    // Modern key does not exist yet
-    assert.equal(mockStorage.getItem(modernKey), null)
+    // 1. User A loads: migrates legacy data forward and consumes/invalidates legacyKey
+    const loadedUserA = loadTutorialOrchestratorState(scopeUserA)
+    assert.equal(loadedUserA.welcomeDismissed, true)
+    assert.equal(loadedUserA.currentSectionId, 'tables')
+    assert.equal(loadedUserA.currentStepIndex, 2)
+    assert.deepEqual(loadedUserA.completedSectionIds, ['pos'])
 
-    // Load state: transparent fallback must load legacy data and migrate it forward to modern key
-    const loaded = loadTutorialOrchestratorState(scope)
-    assert.equal(loaded.welcomeDismissed, true)
-    assert.equal(loaded.currentSectionId, 'tables')
-    assert.equal(loaded.currentStepIndex, 2)
-    assert.deepEqual(loaded.completedSectionIds, ['pos'])
+    // User A's modern key now holds the migrated state
+    const modernRawUserA = mockStorage.getItem(modernKeyUserA)
+    assert.notEqual(modernRawUserA, null, 'User A should receive migrated state under modern key')
 
-    // Modern key must now contain the migrated state
-    const modernRaw = mockStorage.getItem(modernKey)
-    assert.notEqual(modernRaw, null, 'State should be transparently migrated to modern key')
-    const migratedObj = JSON.parse(modernRaw!)
-    assert.equal(migratedObj.currentSectionId, 'tables')
-    assert.equal(migratedObj.currentStepIndex, 2)
+    // Legacy key MUST be consumed/removed to prevent other users from inheriting it
+    assert.equal(mockStorage.getItem(legacyKeyDemo), null, 'Legacy key must be consumed/removed after first migration')
+
+    // 2. User B (same tenant, same role, same demo) loads:
+    // MUST NOT inherit User A's progress! Must start fresh with default state
+    const loadedUserB = loadTutorialOrchestratorState(scopeUserB)
+    assert.equal(loadedUserB.welcomeDismissed, false, 'User B must not inherit User A welcome state')
+    assert.equal(loadedUserB.currentSectionId, null)
+    assert.equal(loadedUserB.currentStepIndex, 0)
+    assert.deepEqual(loadedUserB.completedSectionIds, [], 'User B must start with empty completedSectionIds')
+
+    // --- Scenario B: Real Enterprise Tenant (isDemo === false) ---
+    // In real tenants, ownership cannot be established per-user for un-attributed legacy keys.
+    // Prioritizing isolation: real tenant users NEVER import un-attributed legacy keys.
+    const realTenantUser1: TutorialStorageScope = {
+      template: 'restaurant',
+      role: 'owner',
+      datasetMode: 'full',
+      profile: 'restaurant',
+      tenantId: 'empresa-real-bolivia',
+      uid: 'real_user_1',
+      isDemo: false,
+    }
+
+    const legacyKeyRealTenant = buildLegacyTutorialOrchestratorStorageKey(realTenantUser1)
+    const modernKeyRealUser1 = buildTutorialOrchestratorStorageKey(realTenantUser1)
+
+    // Put legacy data under real tenant's legacy key
+    mockStorage.setItem(legacyKeyRealTenant, JSON.stringify(legacySavedState))
+
+    // Real tenant User 1 loads: isolation requires starting clean without importing unverified legacy key
+    const loadedRealUser1 = loadTutorialOrchestratorState(realTenantUser1)
+    assert.equal(loadedRealUser1.welcomeDismissed, false, 'Real tenant user must not import un-owned legacy key')
+    assert.equal(loadedRealUser1.currentSectionId, null)
+    assert.deepEqual(loadedRealUser1.completedSectionIds, [])
+    assert.equal(mockStorage.getItem(modernKeyRealUser1), null, 'Modern key should not be created from unverified legacy key for real tenants')
   } finally {
-    ;(globalThis as any).window = previousWindow
-    ;(globalThis as any).localStorage = previousLocalStorage
+    globalScope.window = previousWindow
+    globalScope.localStorage = previousLocalStorage
   }
 })
 
 test('G6.3 — Storage Persistence, Fallbacks & Error Recovery', () => {
-  const previousWindow = (globalThis as any).window
-  const previousLocalStorage = (globalThis as any).localStorage
+  const globalScope = globalThis as unknown as { window?: unknown; localStorage?: unknown }
+  const previousWindow = globalScope.window
+  const previousLocalStorage = globalScope.localStorage
   const mockStorage = createMockStorage()
 
   try {
-    ;(globalThis as any).localStorage = mockStorage
-    ;(globalThis as any).window = { localStorage: mockStorage }
+    globalScope.localStorage = mockStorage
+    globalScope.window = { localStorage: mockStorage }
 
     const scope: TutorialStorageScope = {
       template: 'restaurant',
@@ -244,8 +285,8 @@ test('G6.3 — Storage Persistence, Fallbacks & Error Recovery', () => {
     assert.equal(afterClear.isContinuousActive, false)
     assert.equal(afterClear.completedAll, false)
   } finally {
-    ;(globalThis as any).window = previousWindow
-    ;(globalThis as any).localStorage = previousLocalStorage
+    globalScope.window = previousWindow
+    globalScope.localStorage = previousLocalStorage
   }
 })
 

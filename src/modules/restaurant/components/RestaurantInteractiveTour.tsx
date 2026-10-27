@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState, useRef } from 'react'
 import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import type { RestaurantModuleId } from '../views/RestaurantExperience'
 import type { RestaurantTourStep } from '../domain/restaurantPosTour'
@@ -62,9 +62,14 @@ export function RestaurantInteractiveTour({
   const missingTarget = currentTargetState.status === 'fallback' || currentTargetState.status === 'missing' || currentTargetState.status === 'invalid-selector'
 
   // Notify parent of step change to persist cursor in real time
+  const onStepChangeRef = useRef(onStepChange)
   useEffect(() => {
-    onStepChange?.(index)
-  }, [index, onStepChange])
+    onStepChangeRef.current = onStepChange
+  })
+
+  useEffect(() => {
+    onStepChangeRef.current?.(index)
+  }, [index])
 
   // Click on target element triggers next step for navigation interactions
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import {
   Boxes,
   ClipboardList,
@@ -159,11 +159,7 @@ export function DistributionExperience({
   initialOpenTour = false,
   isDemo,
 }: DistributionExperienceProps) {
-  const effectiveIsDemo = isDemo ?? (
-    Boolean(onResetPractice || onSelectProfile) ||
-    session.tenantId.startsWith('preview-') ||
-    session.tenantId.startsWith('demo-')
-  )
+  const effectiveIsDemo = Boolean(isDemo)
   const modules = useMemo(
     () => getVisibleModules('mobile_distribution', session.can, session.role),
     [session.can, session.role]
@@ -183,15 +179,18 @@ export function DistributionExperience({
     profile: currentProfile,
   }), [effectiveIsDemo, session.tenantId, session.uid, session.role, currentProfile])
 
-  const [prevContext, setPrevContext] = useState(progressContext)
+  const contextKey = `${effectiveIsDemo}:${session.tenantId}:${session.uid}:${session.role}:${currentProfile}`
+  const prevContextKeyRef = useRef(contextKey)
   const [progressMap, setProgressMap] = useState<Record<string, DistributionTutorialProgress>>(() =>
     loadTutorialProgress(progressContext)
   )
 
-  if (progressContext !== prevContext) {
-    setPrevContext(progressContext)
-    setProgressMap(loadTutorialProgress(progressContext))
-  }
+  useEffect(() => {
+    if (prevContextKeyRef.current !== contextKey) {
+      prevContextKeyRef.current = contextKey
+      setProgressMap(loadTutorialProgress(progressContext))
+    }
+  }, [contextKey, progressContext])
 
   const tutorialPlans = useMemo(
     () =>
@@ -435,7 +434,10 @@ export function DistributionExperience({
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsTutorialCenterOpen(true)}
+              onClick={() => {
+                setProgressMap(loadTutorialProgress(progressContext))
+                setIsTutorialCenterOpen(true)
+              }}
               data-tutorial-target="tutorial-trigger-btn"
               className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-bold text-sky-800 transition hover:bg-sky-100 cursor-pointer shadow-xs"
             >
@@ -451,7 +453,10 @@ export function DistributionExperience({
             </span>
             <button
             type="button"
-            onClick={() => setIsTutorialCenterOpen(true)}
+            onClick={() => {
+              setProgressMap(loadTutorialProgress(progressContext))
+              setIsTutorialCenterOpen(true)
+            }}
             data-tutorial-target="sidebar-tutorial-btn"
             className="mt-2 flex min-h-[44px] items-center gap-2.5 rounded-2xl border border-sky-200 bg-sky-50/70 px-3 text-left text-xs font-bold text-sky-800 hover:bg-sky-100 transition cursor-pointer"
           >
@@ -713,7 +718,6 @@ export function DistributionExperience({
               stepIndex: newStepIndex,
               lastUpdated: new Date().toISOString(),
             })
-            setProgressMap(loadTutorialProgress(progressContext))
           }}
           onPause={(stepIdx) => {
             if (activeTourPlan) {

@@ -66,7 +66,9 @@ export function DistributionTutorialCenter({
   isDemo = true,
 }: DistributionTutorialCenterProps) {
   // En empresas reales nunca se abre en selección de sectores, sino directamente en sus recorridos
-  const [view, setView] = useState<'sectors' | 'tracks'>(isDemo ? 'sectors' : 'tracks')
+  const [userSelectedView, setUserSelectedView] = useState<'sectors' | 'tracks' | null>(null)
+  const defaultView: 'sectors' | 'tracks' = hasResumableSequence ? 'tracks' : isDemo ? 'sectors' : 'tracks'
+  const view = userSelectedView ?? defaultView
   const meta = PROFILE_METADATA[currentProfile] || PROFILE_METADATA.mixed
 
   if (!isOpen) return null
@@ -105,6 +107,36 @@ export function DistributionTutorialCenter({
 
         {/* Contenido con scroll independiente */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-6">
+          {/* Banner de continuación si hay recorrido pausado (visible en ambas vistas) */}
+          {hasResumableSequence && onResumeSequence && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
+                  <Play size={20} />
+                </span>
+                <div>
+                  <h4 className="font-extrabold text-amber-950 text-sm">Continuar donde lo dejaste</h4>
+                  <p className="mt-0.5 text-xs text-amber-800">
+                    {resumableTargetInfo
+                      ? `Recorrido pendiente: ${resumableTargetInfo.sectionTitle} · Paso ${resumableTargetInfo.stepNumber}`
+                      : 'Tienes un recorrido en pausa listo para continuar.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose()
+                  onResumeSequence()
+                }}
+                className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-900 px-4 text-xs font-bold text-white hover:bg-amber-800 transition cursor-pointer shrink-0"
+              >
+                <span>Continuar recorrido</span>
+                <Play size={14} />
+              </button>
+            </div>
+          )}
+
           {view === 'sectors' && isDemo ? (
             /* ========================================================================= */
             /* VISTA DE SELECCIÓN DE LOS 9 SECTORES COMERCIALES (Solo en modo Demo)       */
@@ -116,7 +148,7 @@ export function DistributionTutorialCenter({
                 </p>
                 <button
                   type="button"
-                  onClick={() => setView('tracks')}
+                  onClick={() => setUserSelectedView('tracks')}
                   className="text-xs font-bold text-sky-600 hover:text-sky-700 underline shrink-0 ml-3"
                 >
                   Volver a recorridos
@@ -133,7 +165,7 @@ export function DistributionTutorialCenter({
                       data-sector-id={item.id}
                       onClick={() => {
                         onSelectProfile?.(item.id)
-                        setView('tracks')
+                        setUserSelectedView('tracks')
                       }}
                       className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between min-h-[140px] ${
                         isSelected
@@ -199,7 +231,7 @@ export function DistributionTutorialCenter({
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setView('sectors')}
+                      onClick={() => setUserSelectedView('sectors')}
                       className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer"
                     >
                       Cambiar sector comercial
@@ -219,35 +251,7 @@ export function DistributionTutorialCenter({
                 )}
               </div>
 
-              {/* Banner de continuación si hay recorrido pausado */}
-              {hasResumableSequence && onResumeSequence && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 shadow-2xs">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
-                      <Play size={20} />
-                    </span>
-                    <div>
-                      <h4 className="font-extrabold text-amber-950 text-sm">Continuar donde lo dejaste</h4>
-                      <p className="mt-0.5 text-xs text-amber-800">
-                        {resumableTargetInfo
-                          ? `Recorrido pendiente: ${resumableTargetInfo.sectionTitle} · Paso ${resumableTargetInfo.stepNumber}`
-                          : 'Tienes un recorrido en pausa listo para continuar.'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose()
-                      onResumeSequence()
-                    }}
-                    className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-900 px-4 text-xs font-bold text-white hover:bg-amber-800 transition cursor-pointer shrink-0"
-                  >
-                    <span>Continuar recorrido</span>
-                    <Play size={14} />
-                  </button>
-                </div>
-              )}
+
 
               {/* Lista de Recorridos Disponibles */}
               <div className="space-y-3">
