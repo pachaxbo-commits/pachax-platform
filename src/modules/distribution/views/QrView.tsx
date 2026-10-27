@@ -7,7 +7,8 @@ import { Modal } from '../../../components/ui/Modal'
 import { Field, TextInput } from '../../../components/ui/Form'
 import { RangePicker } from './RangePicker'
 import { verifyQr } from '../data/distributionRepository'
-import { KpiCard, PrimaryButton, formatBs } from './shared'
+import { KpiCard, PrimaryButton } from './shared'
+import { formatBs } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 
 export function QrView({ session, data }: DistributionViewProps) {

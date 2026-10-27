@@ -12,8 +12,10 @@ import {
   computeSoldPackages,
   round2,
 } from '../domain/engine'
-import { KpiCard, SectionCard, VarianceBadge, formatBs, formatQty } from './shared'
-import { RangePicker, describeRange } from './RangePicker'
+import { KpiCard, SectionCard, VarianceBadge } from './shared'
+import { formatBs, formatQty } from './sharedFormatters'
+import { RangePicker } from './RangePicker'
+import { describeRange } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistCollection, DistExpense, DistSale } from '../types'
 
@@ -112,7 +114,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
   return (
     <Screen title="Reportes" subtitle={describeRange(session.dayKeys)}>
       <div className="grid w-full min-w-0 gap-3">
-        <div className="flex flex-wrap gap-2">{(['Excel','PDF'] as const).map(kind=><button key={kind} disabled={exporting} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold" onClick={async()=>{setExporting(true);setExportError('');try{if(data.operations.some(o=>o.status==='queued'))throw new Error('Espera la confirmación de las operaciones pendientes antes de exportar.');const sheets=reportSheets(data,session.dayKeys,routeFilter,sellerFilter);const routeName=routeFilter?reportRecordName(data.routes.find(route=>route.id===routeFilter)?.name,'Ruta seleccionada'):'Todas las rutas';const sellerName=sellerFilter?reportPersonName(allSellers.find(seller=>seller.sellerUid===sellerFilter)?.sellerName):'Todos los vendedores';const description=`${describeRange(session.dayKeys)} · ruta: ${routeName} · vendedor: ${sellerName} · inventario: existencias actuales`;if(kind==='Excel')await exportExcel(sheets,description);else await exportPdf(sheets,description)}catch(e){setExportError((e as Error).message)}finally{setExporting(false)}}}>{exporting?'Preparando...':kind==='Excel'?'Descargar Excel':'PDF para imprimir / compartir'}</button>)}</div>
+        <div className="flex flex-wrap gap-2" data-tutorial-target="reports-export-actions">{(['Excel','PDF'] as const).map(kind=><button key={kind} disabled={exporting} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold" onClick={async()=>{setExporting(true);setExportError('');try{if(data.operations.some(o=>o.status==='queued'))throw new Error('Espera la confirmación de las operaciones pendientes antes de exportar.');const sheets=reportSheets(data,session.dayKeys,routeFilter,sellerFilter);const routeName=routeFilter?reportRecordName(data.routes.find(route=>route.id===routeFilter)?.name,'Ruta seleccionada'):'Todas las rutas';const sellerName=sellerFilter?reportPersonName(allSellers.find(seller=>seller.sellerUid===sellerFilter)?.sellerName):'Todos los vendedores';const description=`${describeRange(session.dayKeys)} · ruta: ${routeName} · vendedor: ${sellerName} · inventario: existencias actuales`;if(kind==='Excel')await exportExcel(sheets,description);else await exportPdf(sheets,description)}catch(e){setExportError((e as Error).message)}finally{setExporting(false)}}}>{exporting?'Preparando...':kind==='Excel'?'Descargar Excel':'PDF para imprimir / compartir'}</button>)}</div>
         {exportError&&<p role="alert">{exportError}</p>}
         <SectionCard title="Costos y resultado del periodo"><div className="grid gap-2 text-xs">{reportSheets(data,session.dayKeys,routeFilter,sellerFilter)[0].rows.map((row,i)=><p key={i} className="flex justify-between gap-3"><span>{row[0]}</span><strong>{typeof row[1]==='number'?formatBs(row[1]):row[1]===null?'Sin costo completo':row[1]}</strong></p>)}</div></SectionCard>
         <RangePicker
@@ -129,7 +131,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
           </Field>
         )}
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-tutorial-target="reports-summary-cards">
           <KpiCard label="Ventas" value={formatBs(money.salesTotal)} tone="primary" hint={`${sales.length} operaciones`} />
           <KpiCard label="Efectivo esperado" value={formatBs(money.expectedCash)} tone="positive" hint="Ventas + cobros - gastos" />
           <KpiCard label="Credito generado" value={formatBs(money.creditGenerated)} tone="warning" />

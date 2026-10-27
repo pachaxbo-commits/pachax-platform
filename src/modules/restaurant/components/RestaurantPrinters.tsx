@@ -249,7 +249,7 @@ export function RestaurantPrinters({
   const lastJob = useMemo(() => jobs[0], [jobs])
 
   return (
-    <div className="restaurant-printers max-w-4xl space-y-6">
+    <div data-tour="printers-board" className="restaurant-printers max-w-4xl space-y-6">
       {/* Encabezado */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Impresoras del restaurante</h1>
@@ -321,7 +321,7 @@ export function RestaurantPrinters({
       </div>
 
       {/* Formulario de Configuración */}
-      <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
+      <section data-tour="printers-config-form" className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
         <h2 className="text-base font-bold text-slate-900">
           {selectedProfileId ? 'Editar impresora' : 'Configurar nueva impresora'}
         </h2>
@@ -555,6 +555,7 @@ export function RestaurantPrinters({
         <div className="flex flex-wrap gap-2.5">
           <button
             type="button"
+            data-tour="printers-test-btn"
             onClick={handleTestPrint}
             disabled={testStatus.type === 'testing'}
             className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-300 px-4 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"

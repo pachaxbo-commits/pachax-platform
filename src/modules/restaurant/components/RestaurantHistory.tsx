@@ -81,7 +81,7 @@ export function RestaurantHistory({
         </section>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+      <div data-tour="history-filters" className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
         <HistorialView
           orders={orders}
           onAdvanceStatus={onAdvanceStatus}

@@ -1,5 +1,5 @@
 import { restaurantStorage, restaurantStorageKey } from './restaurantStorage'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import {
   RESTAURANT_CATEGORIES,
   RESTAURANT_PRODUCTS,
@@ -30,6 +30,15 @@ import { DEFAULT_RESTAURANT_THEME, validRestaurantColor, type RestaurantThemeCol
 import { buildKitchenTicketPrintDocument, buildKitchenTicketText, type KitchenTicketJob } from '../../modules/restaurant/domain/kitchenPrint'
 import { DEFAULT_KITCHEN_PRINTER_CONFIG, type KitchenPrinterConfig } from './kitchenPrinterConfig'
 import { normalizeBusinessIdentity, type BusinessIdentity } from '../../core/businessIdentity'
+import {
+  saveDemoProductImage,
+  deleteDemoProductImage,
+  loadDemoProductImages,
+  clearDemoProductImages,
+  buildDemoImageScopeKey,
+  sanitizeProductsForStorage,
+} from './demoProductImageStorage'
+import { createDemoProductImageAdapter } from './demoProductImageAdapter'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -54,17 +63,37 @@ const HAMBURGER_CATEGORIES = [
   { id: 'cat-postres', name: 'Postres', emoji: '', sortOrder: 4, isVisible: true, isActive: true },
 ]
 
+const FASTFOOD_IMAGES: Record<string, string> = {
+  'prod-1': '/images/fastfood/classic-burger.webp',
+  'prod-2': '/images/fastfood/double-burger.webp',
+  'prod-3': '/images/fastfood/burger-combo.webp',
+  'prod-4': '/images/fastfood/soda-glass.webp',
+  'prod-5': '/images/fastfood/lemonade.webp',
+  'prod-6': '/images/fastfood/chocolate-brownie.webp',
+  'prod-7': '/images/fastfood/french-fries.webp',
+}
+
 function hamburgerCatalog(products: Product[]): Product[] {
   const names: Record<string, Partial<Product>> = {
-    'prod-1': { name: 'Hamburguesa cl\u00e1sica', description: 'Carne, queso, vegetales y papas', price: 38, categoryId: 'cat-fuertes' },
-    'prod-2': { name: 'Hamburguesa doble', description: 'Doble carne, queso y papas', price: 48, categoryId: 'cat-fuertes' },
-    'prod-3': { name: 'Combo hamburguesa', description: 'Hamburguesa, papas y bebida', price: 55, categoryId: 'cat-fuertes' },
-    'prod-4': { name: 'Gaseosa', description: 'Bebida fr\u00eda', price: 12, categoryId: 'cat-bebidas', preparationArea: 'Barra' },
-    'prod-5': { name: 'Limonada', description: 'Limonada fresca', price: 15, categoryId: 'cat-bebidas', preparationArea: 'Barra' },
-    'prod-6': { name: 'Brownie', description: 'Postre de chocolate', price: 18, categoryId: 'cat-postres' },
-    'prod-7': { name: 'Papas extra', description: 'Porci\u00f3n de papas', price: 10, categoryId: 'cat-entradas' },
+    'prod-1': { name: 'Hamburguesa clásica', description: 'Carne, queso, vegetales y papas', price: 38, categoryId: 'cat-fuertes', image: FASTFOOD_IMAGES['prod-1'] },
+    'prod-2': { name: 'Hamburguesa doble', description: 'Doble carne, queso y papas', price: 48, categoryId: 'cat-fuertes', image: FASTFOOD_IMAGES['prod-2'] },
+    'prod-3': { name: 'Combo hamburguesa', description: 'Hamburguesa, papas y bebida', price: 55, categoryId: 'cat-fuertes', image: FASTFOOD_IMAGES['prod-3'] },
+    'prod-4': { name: 'Gaseosa', description: 'Bebida fría', price: 12, categoryId: 'cat-bebidas', preparationArea: 'Barra', image: FASTFOOD_IMAGES['prod-4'] },
+    'prod-5': { name: 'Limonada', description: 'Limonada fresca', price: 15, categoryId: 'cat-bebidas', preparationArea: 'Barra', image: FASTFOOD_IMAGES['prod-5'] },
+    'prod-6': { name: 'Brownie', description: 'Postre de chocolate', price: 18, categoryId: 'cat-postres', image: FASTFOOD_IMAGES['prod-6'] },
+    'prod-7': { name: 'Papas extra', description: 'Porción de papas', price: 10, categoryId: 'cat-entradas', image: FASTFOOD_IMAGES['prod-7'] },
   }
-  return products.map((product) => names[product.id] ? { ...product, ...names[product.id] } : product)
+  return products.map((product) => {
+    const override = names[product.id]
+    if (!override) return product
+    const currentImg = product.image
+    const isPlaceholder = !currentImg || currentImg.includes('plate.svg') || currentImg.includes('drink.svg')
+    return {
+      ...product,
+      ...override,
+      image: isPlaceholder ? (override.image || '') : (currentImg || ''),
+    }
+  })
 }
 
 function hamburgerOrders(orders: Order[], products: Product[]): Order[] {
@@ -180,9 +209,10 @@ function loadInitialState(datasetMode: DemoDatasetMode, storageKey: string, lega
     const linked = reconcileTableOrders(initialDataset.orders, initialDataset.tables)
     const state = { ...linked, sectors: initialDataset.sectors, products: initialDataset.products, shift: initialDataset.shift, stockMovements: [] as RestaurantStockMovement[], audit: [] as AuditEvent[], seeded: false }
     for (const key of ['orders', 'tables', 'sectors', 'products', 'shift', 'stockMovements', 'audit'] as const) {
-      restaurantStorage.setItem(`${storageKey}:${key === 'stockMovements' ? 'stock-movements' : key}`, JSON.stringify(state[key]))
+      const storageName = key === 'stockMovements' ? 'stock-movements' : key
+      restaurantStorage.setItem(`${storageKey}:${storageName}`, JSON.stringify(key === 'products' ? sanitizeProductsForStorage(state[key]) : state[key]))
     }
-    restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+    restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: sanitizeProductsForStorage(state.products), movements: state.stockMovements }))
     restaurantStorage.setItem(`${storageKey}:schemaVersion`, '6')
     restaurantStorage.setItem(`${storageKey}:dataset-mode`, datasetMode)
     restaurantStorage.setItem(`${storageKey}:seeded`, 'false')
@@ -240,7 +270,7 @@ function loadInitialState(datasetMode: DemoDatasetMode, storageKey: string, lega
     restaurantStorage.setItem(`${storageKey}:sectors`, JSON.stringify(state.sectors))
     restaurantStorage.setItem(`${storageKey}:schemaVersion`, '6')
   }
-  restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: state.products, movements: state.stockMovements }))
+  restaurantStorage.setItem(`${storageKey}:inventory-store:v1`, JSON.stringify({ products: sanitizeProductsForStorage(state.products), movements: state.stockMovements }))
   restaurantStorage.setItem(`${storageKey}:stock-movements`, JSON.stringify(state.stockMovements))
   if (shift && (JSON.stringify(shift) !== JSON.stringify(savedShift))) restaurantStorage.setItem(`${storageKey}:shift`, JSON.stringify(shift))
   restaurantStorage.setItem(`${storageKey}:dataset-mode`, datasetMode)
@@ -294,6 +324,11 @@ export function RestaurantDemo({
   const storageKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:v1' : STORAGE_KEY
   const legacyKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:legacy' : LEGACY_KEY
   const themeKey = profile === 'counter_service' ? 'pachax:hamburger-demo:theme:v1' : THEME_KEY
+  const imageScopeKey = useMemo(() => {
+    const template = profile === 'counter_service' ? 'hamburger' : 'restaurant'
+    return buildDemoImageScopeKey({ template, datasetMode })
+  }, [profile, datasetMode])
+  const demoImageAdapter = useMemo(() => createDemoProductImageAdapter(), [])
   const urlModule = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('module') as import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId | null) : null
   const effectiveInitialModule = initialModule || urlModule || undefined
   const [initial] = useState(() => loadInitialState(datasetMode, storageKey, legacyKey, profile))
@@ -337,6 +372,23 @@ export function RestaurantDemo({
   const [kitchenPrinterConfig, setKitchenPrinterConfig] = useState<KitchenPrinterConfig>(() => readSaved<KitchenPrinterConfig>(`${storageKey}:kitchen-printer:v1`, DEFAULT_KITCHEN_PRINTER_CONFIG))
   const [kitchenPrintJobs, setKitchenPrintJobs] = useState<KitchenTicketJob[]>(() => readSaved<KitchenTicketJob[]>(`${storageKey}:kitchen-print-jobs:v1`, []))
   void resetKey
+  useEffect(() => {
+    let cancelled = false
+    loadDemoProductImages(imageScopeKey).then((savedImages) => {
+      if (cancelled || !savedImages || Object.keys(savedImages).length === 0) return
+      setProducts((current) =>
+        current.map((p) => (savedImages[p.id] ? { ...p, image: savedImages[p.id] } : p))
+      )
+      inventoryRef.current = {
+        ...inventoryRef.current,
+        products: inventoryRef.current.products.map((p) => (savedImages[p.id] ? { ...p, image: savedImages[p.id] } : p)),
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [imageScopeKey])
+
   const [cashierName, setCashierName] = useState(
     `Cajero ${simulatedRole === 'waiter' ? 'Ana' : profile === 'counter_service' ? 'Servicio R\u00e1pido Demo' : 'Bistr\u00f3 Demo'}`
   )
@@ -507,32 +559,76 @@ export function RestaurantDemo({
     const next = updater(inventoryRef.current.products)
     inventoryRef.current = { ...inventoryRef.current, products: next }
     setProducts(next)
-    persist('products', next)
-    persist('inventory-store:v1', inventoryRef.current)
+    persist('products', sanitizeProductsForStorage(next))
+    persist('inventory-store:v1', {
+      ...inventoryRef.current,
+      products: sanitizeProductsForStorage(next),
+    })
   }
 
   const saveInventory = (nextProducts: Product[], nextMovements: RestaurantStockMovement[]) => {
     inventoryRef.current = { products: nextProducts, movements: nextMovements }
     setProducts(nextProducts)
     setStockMovements(nextMovements)
-    persist('products', nextProducts)
+    persist('products', sanitizeProductsForStorage(nextProducts))
     persist('stock-movements', nextMovements)
-    persist('inventory-store:v1', inventoryRef.current)
+    persist('inventory-store:v1', {
+      products: sanitizeProductsForStorage(nextProducts),
+      movements: nextMovements,
+    })
   }
 
-  const handleSaveProducts = (nextCatalog: Product[]) => {
+  const handleSaveProducts = async (nextCatalog: Product[]): Promise<void> => {
+    const previousProducts = inventoryRef.current.products
+    const nextProductIds = new Set(nextCatalog.map((p) => p.id))
+
+    // 1. Eliminar fotografías de productos que fueron removidos del catálogo
+    const deletePromises: Promise<void>[] = []
+    for (const prev of previousProducts) {
+      if (!nextProductIds.has(prev.id)) {
+        deletePromises.push(deleteDemoProductImage(imageScopeKey, prev.id))
+      }
+    }
+
+    // 2. Persistir nuevas fotografías o eliminar las que fueron desasociadas
+    const imagePromises: Promise<void>[] = []
+    for (const prod of nextCatalog) {
+      if (prod.image && prod.image.startsWith('data:')) {
+        imagePromises.push(saveDemoProductImage(imageScopeKey, prod.id, prod.image))
+      } else if (!prod.image) {
+        imagePromises.push(deleteDemoProductImage(imageScopeKey, prod.id))
+      }
+    }
+
+    // Esperar confirmación real de escrituras y transacciones en IndexedDB
+    await Promise.all([...deletePromises, ...imagePromises])
+
     let nextMovements = inventoryRef.current.movements
     const now = new Date().toISOString()
-    const nextProducts = nextCatalog.map(candidate => {
-      const previous = inventoryRef.current.products.find(product => product.id === candidate.id)
+    const nextProducts = nextCatalog.map((candidate) => {
+      const previous = previousProducts.find((product) => product.id === candidate.id)
       if (candidate.stockBase === undefined || candidate.stockBase === previous?.stockBase) return candidate
       const base = previous ? { ...candidate, stockBase: previous.stockBase } : { ...candidate, stockBase: 0 }
-      const changed = changeInventoryStock(base, candidate.stockBase, nextMovements, previous ? 'manual_adjustment' : 'initial_stock', previous ? 'Ajuste desde productos o inventario' : 'Stock inicial', now, cashierName, shift?.id)
+      const changed = changeInventoryStock(
+        base,
+        candidate.stockBase,
+        nextMovements,
+        previous ? 'manual_adjustment' : 'initial_stock',
+        previous ? 'Ajuste desde productos o inventario' : 'Stock inicial',
+        now,
+        cashierName,
+        shift?.id
+      )
       nextMovements = changed.movements
       return changed.product
     })
-    for (const previous of inventoryRef.current.products) {
-      if (!nextProducts.some(product => product.id === previous.id) && (previous.stockBase !== undefined || inventoryRef.current.movements.some(movement => movement.productId === previous.id))) nextProducts.push({ ...previous, isActive: false, isVisible: false })
+    for (const previous of previousProducts) {
+      if (
+        !nextProducts.some((product) => product.id === previous.id) &&
+        (previous.stockBase !== undefined || inventoryRef.current.movements.some((movement) => movement.productId === previous.id))
+      ) {
+        nextProducts.push({ ...previous, isActive: false, isVisible: false })
+      }
     }
     saveInventory(nextProducts, nextMovements)
   }
@@ -1254,6 +1350,7 @@ export function RestaurantDemo({
       onSaveCustomer={saveCustomer}
       onArchiveCustomer={archiveCustomer}
       onAssignCustomer={assignCustomer}
+      imageAdapter={demoImageAdapter}
       onSaveProducts={handleSaveProducts}
       stockMovements={stockMovements}
       kitchenPrinterConfig={kitchenPrinterConfig}
@@ -1264,8 +1361,9 @@ export function RestaurantDemo({
       onReprintLatestKitchenTicket={reprintLatestKitchenTicket}
       onInventoryMovement={handleInventoryMovement}
       onCountInventoryItem={handleCountInventoryItem}
-      onResetDemo={() => {
+      onResetDemo={async () => {
         if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return
+        await clearDemoProductImages(imageScopeKey)
         for (const key of restaurantStorage.keys()) if (key.startsWith(storageKey.slice(0, storageKey.lastIndexOf(':operations:') + 1))) restaurantStorage.removeItem(key)
         restaurantStorage.removeItem('cocina-tickets-impresos')
         try {

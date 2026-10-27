@@ -1,26 +1,9 @@
 import type { ReactNode } from 'react'
 import { CloudOff, Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
-import { describeVariance, round2 } from '../domain/engine'
+import { describeVariance } from '../domain/engine'
 import type { DistSyncState } from '../data/distributionRepository'
 import type { UnitType } from '../types'
-
-/** Formato monetario de la demo: Bs con dos decimales. */
-export function formatBs(value: number): string {
-  return `Bs ${round2(value).toFixed(2)}`
-}
-
-export function formatQty(value: number, unitType: UnitType): string {
-  const amount = round2(value)
-  if (unitType === 'kg') return `${amount} kg`
-  if (unitType === 'package') return `${amount} paq`
-  return `${amount} u`
-}
-
-export function unitLabel(unitType: UnitType): string {
-  if (unitType === 'kg') return 'Granel (kg)'
-  if (unitType === 'package') return 'Paquete'
-  return 'Unidad'
-}
+import { formatBs, formatQty } from './sharedFormatters'
 
 /** Tarjeta de indicador: el numero manda, la etiqueta acompana. */
 export function KpiCard({
@@ -97,12 +80,14 @@ export function PrimaryButton({
   disabled,
   type = 'button',
   full,
+  ...props
 }: {
   children: ReactNode
   onClick?: () => void
   disabled?: boolean
   type?: 'button' | 'submit'
   full?: boolean
+  [key: string]: unknown
 }) {
   return (
     <button
@@ -113,6 +98,7 @@ export function PrimaryButton({
         full ? 'w-full' : ''
       }`}
       style={{ backgroundColor: 'var(--primary)' }}
+      {...props}
     >
       {children}
     </button>
@@ -124,11 +110,13 @@ export function SecondaryButton({
   onClick,
   disabled,
   full,
+  ...props
 }: {
   children: ReactNode
   onClick?: () => void
   disabled?: boolean
   full?: boolean
+  [key: string]: unknown
 }) {
   return (
     <button
@@ -138,6 +126,7 @@ export function SecondaryButton({
       className={`inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 ${
         full ? 'w-full' : ''
       }`}
+      {...props}
     >
       {children}
     </button>

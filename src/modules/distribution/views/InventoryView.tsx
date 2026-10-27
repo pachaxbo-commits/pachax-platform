@@ -8,11 +8,13 @@ import { EmptyBlock, Screen } from '../../../components/ui/Screen'
 import { round2, toDayKey } from '../domain/engine'
 import { newOperationId, registerAdjustment, registerIntake, warehouseBalanceId } from '../data/distributionRepository'
 import { useRouteStock, useStockIndex } from '../state/useDistributionStore'
-import { PrimaryButton, SectionCard, formatQty } from './shared'
+import { PrimaryButton, SectionCard } from './shared'
+import { formatQty } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistProduct } from '../types'
 import { visiblePersonName, visibleRecordText } from './displayText'
-import { RangePicker, describeRange } from './RangePicker'
+import { RangePicker } from './RangePicker'
+import { describeRange } from './sharedFormatters'
 import { exportPdf } from '../data/reportExports'
 import { reportDateTime, reportMovementLabel, reportPersonName, reportUnitLabel } from '../domain/reportLabels'
 import { getInventoryCapabilities } from '../domain/inventoryPermissions'
@@ -177,7 +179,7 @@ export function InventoryView({ session, data }: DistributionViewProps) {
         {tab === 'central' && !isDistributor && (
           <>
             <TextInput value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar producto..." />
-            <div className="grid w-full min-w-0 gap-2 sm:grid-cols-2">
+            <div className="grid w-full min-w-0 gap-2 sm:grid-cols-2" data-tutorial-target="inventory-balances-table">
               {filteredProducts.map((product) => {
                 const stock = central.get(product.id) ?? 0
                 return (
