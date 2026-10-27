@@ -1,0 +1,88 @@
+{
+  "timestamp": "2026-10-27T03:31:24.376Z",
+  "branch": "integration/gemini-selective-post-dario",
+  "worktree": "C:/PACHAX-worktrees/integration-gemini-post-dario",
+  "viewportsTested": [
+    {
+      "width": 360,
+      "height": 800,
+      "mobile": true,
+      "name": "360x800"
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "mobile": true,
+      "name": "390x844"
+    },
+    {
+      "width": 430,
+      "height": 932,
+      "mobile": true,
+      "name": "430x932"
+    },
+    {
+      "width": 768,
+      "height": 1024,
+      "mobile": false,
+      "name": "768x1024"
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "mobile": false,
+      "name": "1440x900"
+    }
+  ],
+  "verifiedModules": {
+    "fastfoodFull": {
+      "title": "Demostraciones PACHAX — entorno local",
+      "interactiveButtons": 48,
+      "moreBtnPresent": true,
+      "ready": true
+    },
+    "fastfoodEmpty": {
+      "ready": true,
+      "buttonCountEmpty": 34
+    },
+    "restaurantSalon": {
+      "ready": true,
+      "restaurantButtons": 53
+    },
+    "distribution": {
+      "title": "PACHAX • Demostraciones",
+      "ready": true,
+      "profile": "beverages"
+    },
+    "retail": {
+      "ready": true,
+      "retailButtons": 15
+    }
+  },
+  "networkSecurity": {
+    "zeroProdFirebase": true,
+    "forbiddenRequests": []
+  },
+  "screenshots": [
+    {
+      "filename": "g5-1-fastfood-mobile-390x844.png",
+      "size": 136466
+    },
+    {
+      "filename": "g5-1-fastfood-empty-390x844.png",
+      "size": 113792
+    },
+    {
+      "filename": "g5-1-restaurant-salon-desktop-1440x900.png",
+      "size": 96636
+    },
+    {
+      "filename": "g5-1-distribution-desktop-1440x900.png",
+      "size": 88922
+    },
+    {
+      "filename": "g5-1-retail-full-1440x900.png",
+      "size": 164459
+    }
+  ]
+}
