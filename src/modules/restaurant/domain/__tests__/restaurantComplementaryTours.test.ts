@@ -1,6 +1,6 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment -- Node test types are outside the browser TypeScript configuration. */
-// @ts-nocheck
+// @ts-expect-error Node test types are intentionally absent from the browser tsconfig.
 import assert from 'node:assert/strict'
+// @ts-expect-error Node test types are intentionally absent from the browser tsconfig.
 import test from 'node:test'
 import {
   restaurantHistoryMobileTourSteps,
@@ -21,7 +21,7 @@ import {
   restaurantPrintersMobileTourSteps,
   restaurantPrintersTourPreferenceKey,
   restaurantPrintersTourSteps,
-} from '../domain/../restaurantPrintersTour.ts'
+} from '../restaurantPrintersTour.ts'
 import {
   buildRestaurantLearningTutorials,
   restaurantLearningProgress,
