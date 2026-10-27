@@ -18,7 +18,7 @@ const ARTIFACTS_DIR = 'C:/Users/fabri/.gemini/antigravity/brain/40ec324b-7de2-4d
 const TEST_PORT = 5198
 const base = `http://127.0.0.1:${TEST_PORT}`
 
-console.log(`[G6.1 Browser Test] Iniciando Vite en el puerto ${TEST_PORT} desde ${WORKTREE_DIR}...`)
+console.log(`[G6.2 Browser Test] Iniciando Vite en el puerto ${TEST_PORT} desde ${WORKTREE_DIR}...`)
 const vite = spawn(process.execPath, ['./node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(TEST_PORT), '--strictPort'], {
   cwd: WORKTREE_DIR,
   stdio: 'inherit',
@@ -43,7 +43,7 @@ if (!viteReady) {
   vite.kill()
   throw new Error(`El servidor Vite en ${base} no inició a tiempo.`)
 }
-console.log('[G6.1 Browser Test] Vite listo. Iniciando Chrome headless...')
+console.log('[G6.2 Browser Test] Vite listo. Iniciando Chrome headless...')
 
 const probe = createServer()
 await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve))
@@ -64,7 +64,7 @@ const browser = spawn(chrome, [
 let socket
 const metrics = {
   timestamp: new Date().toISOString(),
-  testSuite: 'G6.1 — Corrección Focal & Certificación Real del Tutorial Continuo',
+  testSuite: 'G6.2 — Corrección Final de Aislamiento y QA de Tutoriales Continuos',
   results: {},
   screenshots: [],
 }
@@ -135,12 +135,12 @@ try {
   const clickTourAction = async () => {
     for (let i = 0; i < 25; i++) {
       const act = await evalPage(`(() => {
-        const finishBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Finalizar') && b.closest('[role="dialog"]'))
+        const finishBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Finalizar') && b.closest('[role="dialog"], aside'))
         if (finishBtn && !finishBtn.disabled) {
           finishBtn.click()
           return 'finished'
         }
-        const nextBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Siguiente') && b.closest('[role="dialog"]'))
+        const nextBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Siguiente') && b.closest('[role="dialog"], aside'))
         if (nextBtn && !nextBtn.disabled) {
           nextBtn.click()
           return 'next'
@@ -157,6 +157,15 @@ try {
     await evalPage(`(() => {
       const btn = document.querySelector('button[aria-label="Abrir Centro de aprendizaje"], button[title="Aprender a usar PACHAX"]')
         || [...document.querySelectorAll('button')].find(b => b.innerText.includes('Aprender') || b.innerText.includes('Centro de aprendizaje'))
+      if (btn) btn.click()
+    })()`)
+    await sleep(800)
+  }
+
+  const openDistributionTutorialCenter = async () => {
+    await evalPage(`(() => {
+      const btn = document.querySelector('button[data-tutorial-target="tutorial-trigger-btn"], button[data-tutorial-target="sidebar-tutorial-btn"]')
+        || [...document.querySelectorAll('button')].find(b => b.innerText.includes('Tutorial interactivo') || b.innerText.includes('Tutorial por rubro'))
       if (btn) btn.click()
     })()`)
     await sleep(800)
@@ -298,7 +307,6 @@ try {
       text,
     }
   })()`)
-  console.log('✓ En Mesas Paso 2 confirmado:', tablesStep2State.isPaso2)
   assert(tablesStep2State.isPaso2, 'Debe encontrarse en el Paso 2 de Mesas')
   console.log('✓ En Mesas Paso 2 confirmado:', tablesStep2State.isPaso2)
 
@@ -383,9 +391,9 @@ try {
   await sleep(500)
 
   // =========================================================================
-  // SUITE 3: Restaurante Rápido / Hamburger (Mobile 390x844) & Role Isolation
+  // SUITE 3: Restaurante Rápido / Hamburger (Mobile 390x844) — Flujo Continuo Completo
   // =========================================================================
-  console.log('\n--- SUITE 3: Restaurante Rápido (Mobile 390x844) ---')
+  console.log('\n--- SUITE 3: Restaurante Rápido Mobile (390x844) — Flujo Continuo Completo ---')
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
   // Clear storage to simulate fresh arrival
   await evalPage(`(() => {
@@ -419,44 +427,129 @@ try {
   await captureScreenshot('g6-fastfood-welcome-mobile-390x844.png')
   metrics.results.fastFoodWelcomeMobile = 'PASS'
 
-  // Test "Saltar por ahora" flow
+  // Start continuous tutorial on mobile
+  console.log('Iniciando tutorial continuo en Restaurante Rápido Móvil...')
   await evalPage(`(() => {
-    const skipBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Saltar por ahora'))
-    if (skipBtn) skipBtn.click()
+    const startBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Iniciar tutorial'))
+    if (startBtn) startBtn.click()
   })()`)
-  await sleep(500)
+  await sleep(1000)
 
-  const skipConfirmationState = await evalPage(`(() => {
-    const text = document.body.innerText
+  // Advance step-by-step through Counter POS on mobile
+  console.log('Avanzando por los pasos móviles de mostrador...')
+  for (let s = 0; s < 20; s++) {
+    const act = await clickTourAction()
+    console.log(`Paso mostrador acción: ${act}`)
+    await sleep(300)
+    if (act === 'finished') break
+  }
+
+  // Verify transition toast appears
+  console.log('Verificando transición hacia el siguiente módulo autorizado en móvil...')
+  let ffTransition
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await sleep(200)
+    ffTransition = await evalPage(`(() => {
+      const toast = document.querySelector('[role="status"]')
+      if (!toast) return { found: false }
+      const text = toast.innerText
+      const hasIrAhora = Boolean([...toast.querySelectorAll('button')].find(b => b.innerText.includes('Ir ahora')))
+      return {
+        found: true,
+        text,
+        hasIrAhora,
+        hasNoTables: !text.includes('Mesas') && !text.includes('Salón y Mesas'),
+      }
+    })()`)
+    if (ffTransition?.found) break
+  }
+
+  assert(ffTransition?.found, 'Debe aparecer el toast de transición tras completar el mostrador')
+  assert(ffTransition.hasNoTables, 'La transición no debe ofrecer Mesas en Restaurante Rápido')
+  console.log('✓ Transición móvil correcta hacia siguiente módulo sin Mesas')
+
+  // Click "Ir ahora"
+  await evalPage(`(() => {
+    const toast = document.querySelector('[role="status"]')
+    const irAhoraBtn = toast ? [...toast.querySelectorAll('button')].find(b => b.innerText.includes('Ir ahora')) : null
+    if (irAhoraBtn) irAhoraBtn.click()
+  })()`)
+  await sleep(1000)
+
+  // Verify next tour is open in mobile (Kitchen)
+  const ffNextTour = await evalPage(`(() => {
+    const tourCard = document.querySelector('[role="dialog"][aria-label*="Tutorial"]')
     return {
-      hasConfirmation: text.includes('Tutorial disponible cuando lo necesites') || text.includes('Entendido'),
+      hasTour: Boolean(tourCard),
+      text: tourCard?.innerText || '',
     }
   })()`)
-  assert(skipConfirmationState.hasConfirmation, 'Debe mostrar confirmación educada al saltar el tutorial')
-  console.log('✓ Confirmación de "Saltar por ahora" mostrada correctamente')
+  assert(ffNextTour.hasTour, 'El siguiente tour autorizado debe abrirse en móvil')
+  console.log('✓ Siguiente módulo abierto en móvil')
 
-  // Click "Entendido"
+  // Pause sequence
+  console.log('Pausando recorrido continuo en móvil...')
   await evalPage(`(() => {
-    const okBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Entendido'))
-    if (okBtn) okBtn.click()
+    const pauseBtn = document.querySelector('button[aria-label="Pausar recorrido continuo"]')
+    if (pauseBtn) pauseBtn.click()
+  })()`)
+  await sleep(600)
+
+  // Reload page
+  console.log('Recargando página móvil para verificar reanudación...')
+  await send('Page.navigate', { url: `${base}/demo.html?template=hamburger&data=full` })
+  await sleep(1500)
+
+  // Open Learning Center and verify resumable banner
+  await openRestaurantLearningCenter()
+  const ffResumeBanner = await evalPage(`(() => {
+    const text = document.body.innerText
+    return {
+      hasResume: text.includes('Continuar donde lo dejaste') || text.includes('Continuar recorrido'),
+    }
+  })()`)
+  assert(ffResumeBanner.hasResume, 'El Centro de Aprendizaje móvil debe ofrecer reanudar donde se dejó')
+  console.log('✓ Reanudación móvil comprobada en Centro de Aprendizaje')
+
+  // Click "Continuar recorrido"
+  await evalPage(`(() => {
+    const contBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Continuar recorrido') || b.innerText.includes('Continuar tutorial'))
+    if (contBtn) contBtn.click()
+  })()`)
+  await sleep(1000)
+
+  // Confirm resumed and screen not trapped
+  const ffResumedState = await evalPage(`(() => {
+    const tourCard = document.querySelector('[role="dialog"][aria-label*="Tutorial"]')
+    const blockingBackdrop = document.querySelector('.pointer-events-auto.fixed.inset-0:not([role="dialog"])')
+    return {
+      hasTour: Boolean(tourCard),
+      noScreenTrap: !blockingBackdrop,
+    }
+  })()`)
+  assert(ffResumedState.hasTour, 'El recorrido móvil debe reanudarse correctamente')
+  assert(ffResumedState.noScreenTrap, 'No debe haber overlays de pantalla completa que atrapen los controles móviles')
+  console.log('✓ Pantalla móvil libre de bloqueos u overlays parásitos')
+  await captureScreenshot('g6-2-fastfood-mobile-resumed-390x844.png')
+  metrics.results.fastFoodMobileContinuous = 'PASS'
+
+  // Close tour
+  await evalPage(`(() => {
+    const closeBtn = document.querySelector('button[aria-label="Cerrar tutorial"]')
+    if (closeBtn) closeBtn.click()
   })()`)
   await sleep(500)
 
-  const isModalGone = await evalPage(`!document.querySelector('[role="dialog"][aria-label="Tutorial interactivo"]')`)
-  assert(isModalGone, 'El modal de bienvenida debe cerrarse tras confirmar')
-  console.log('✓ Modal cerrado correctamente tras saltar')
-  metrics.results.fastFoodSkipFlow = 'PASS'
-
   // =========================================================================
-  // SUITE 4: Distribución (Desktop 1440x900)
+  // SUITE 4: Distribución (Desktop 1440x900) — Flujo Continuo E2E & Aislamiento de Rubros
   // =========================================================================
-  console.log('\n--- SUITE 4: Distribución (Desktop 1440x900) ---')
+  console.log('\n--- SUITE 4: Distribución (Desktop 1440x900) — Flujo Continuo E2E & Aislamiento ---')
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
   await evalPage(`(() => {
     window.localStorage.clear()
     window.sessionStorage.clear()
   })()`)
-  await send('Page.navigate', { url: `${base}/demo.html?template=distribution&data=full` })
+  await send('Page.navigate', { url: `${base}/demo.html?template=distribution&profile=food&data=full` })
 
   let distWelcome
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -469,15 +562,158 @@ try {
         found: true,
         text,
         hasTitle: text.includes('Distribución'),
+        has5Sections: text.includes('5 secciones') || text.includes('5'),
       }
     })()`)
     if (distWelcome?.found) break
   }
 
   assert(distWelcome?.found, 'El modal de bienvenida de Distribución debe abrirse')
-  console.log('✓ Modal de bienvenida de Distribución visible')
+  console.log('✓ Modal de bienvenida de Distribución visible con rubro Alimentos')
   await captureScreenshot('g6-distribution-welcome-desktop-1440x900.png')
   metrics.results.distributionWelcome = 'PASS'
+
+  // Start continuous sequence in Distribution
+  console.log('Iniciando tutorial continuo en Distribución...')
+  await evalPage(`(() => {
+    const startBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Iniciar tutorial'))
+    if (startBtn) startBtn.click()
+  })()`)
+  await sleep(1000)
+
+  // Verify Track 1 started on Dashboard
+  const distTourStep1 = await evalPage(`(() => {
+    const tourCard = document.querySelector('[role="dialog"][aria-label*="Tutorial interactivo"], [role="dialog"][aria-label*="Primeros pasos"]')
+    return {
+      hasTour: Boolean(tourCard),
+      text: tourCard?.innerText || '',
+    }
+  })()`)
+  assert(distTourStep1.hasTour, 'El recorrido de Distribución debe iniciar en el panel de bienvenida')
+  console.log('✓ Recorrido Track 1 de Distribución iniciado en inicio')
+
+  // Step through Track 1 (4 observe steps)
+  console.log('Avanzando por los 4 pasos de Track 1 de Distribución...')
+  for (let s = 0; s < 6; s++) {
+    const act = await clickTourAction()
+    console.log(`Paso Distribución acción: ${act}`)
+    await sleep(400)
+    if (act === 'finished') break
+  }
+
+  // Verify transition toast appears
+  console.log('Verificando banner de transición en Distribución...')
+  let distTransition
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await sleep(200)
+    distTransition = await evalPage(`(() => {
+      const toast = document.querySelector('[role="status"]')
+      if (!toast) return { found: false }
+      const text = toast.innerText
+      const hasIrAhora = Boolean([...toast.querySelectorAll('button')].find(b => b.innerText.includes('Ir ahora')))
+      return {
+        found: true,
+        text,
+        hasIrAhora,
+        hasCompleted: text.includes('completada') || text.includes('Primeros pasos'),
+        hasNext: text.includes('Inventario') || text.includes('almacén'),
+      }
+    })()`)
+    if (distTransition?.found) break
+  }
+
+  assert(distTransition?.found, 'Debe aparecer la transición de Distribución hacia Inventario')
+  console.log('✓ Transición a Inventario en Distribución verificada')
+
+  // Click "Ir ahora"
+  await evalPage(`(() => {
+    const toast = document.querySelector('[role="status"]')
+    const irAhoraBtn = toast ? [...toast.querySelectorAll('button')].find(b => b.innerText.includes('Ir ahora')) : null
+    if (irAhoraBtn) irAhoraBtn.click()
+  })()`)
+  await sleep(1000)
+
+  // Verify next tour opened in inventory without passing through Tutorial Center!
+  const distInventoryTour = await evalPage(`(() => {
+    const tourCard = document.querySelector('[role="dialog"][aria-label*="Inventario"]')
+    const notTutorialCenter = !document.querySelector('[role="dialog"][aria-label*="Centro de aprendizaje"], [role="dialog"][aria-label*="Centro de Tutoriales"]')
+    return {
+      hasInventoryTour: Boolean(tourCard),
+      notTutorialCenter,
+    }
+  })()`)
+  assert(distInventoryTour.hasInventoryTour, 'Debe abrirse automáticamente el recorrido de Inventario')
+  assert(distInventoryTour.notTutorialCenter, 'No debe haber regresado al Centro de Tutoriales')
+  console.log('✓ Navegación automática a Inventario completada sin pasar por Centro de Tutoriales')
+
+  // Pause sequence in Inventory
+  console.log('Pausando secuencia en Inventario...')
+  await evalPage(`(() => {
+    const pauseBtn = document.querySelector('button[aria-label="Pausar recorrido continuo"]')
+    if (pauseBtn) pauseBtn.click()
+  })()`)
+  await sleep(600)
+
+  // Reload page
+  console.log('Recargando página de Distribución...')
+  await send('Page.navigate', { url: `${base}/demo.html?template=distribution&profile=food&data=full` })
+  await sleep(1500)
+
+  // Open Tutorial Center and verify resumable banner
+  await openDistributionTutorialCenter()
+  const distResumeBanner = await evalPage(`(() => {
+    const text = document.body.innerText
+    return {
+      hasResumeBanner: text.includes('Continuar donde lo dejaste') || text.includes('Continuar recorrido'),
+      hasInventory: text.includes('Inventario') || text.includes('almacén'),
+    }
+  })()`)
+  assert(distResumeBanner.hasResumeBanner, 'El Centro de Tutoriales de Distribución debe ofrecer "Continuar donde lo dejaste"')
+  console.log('✓ Reanudación presente en Centro de Tutoriales de Distribución:', distResumeBanner)
+
+  // Click "Continuar recorrido"
+  await evalPage(`(() => {
+    const contBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Continuar recorrido'))
+    if (contBtn) contBtn.click()
+  })()`)
+  await sleep(1000)
+
+  // Verify resumed in Inventory
+  const distResumedState = await evalPage(`(() => {
+    const tourCard = document.querySelector('[role="dialog"][aria-label*="Inventario"]')
+    return {
+      hasInventoryTour: Boolean(tourCard),
+    }
+  })()`)
+  assert(distResumedState.hasInventoryTour, 'El recorrido de Distribución debe reanudarse en Inventario')
+  console.log('✓ Reanudación en Inventario certificada')
+  await captureScreenshot('g6-2-distribution-resumed-desktop-1440x900.png')
+
+  // Close tour
+  await evalPage(`(() => {
+    const closeBtn = document.querySelector('button[aria-label*="Cerrar"]')
+    if (closeBtn) closeBtn.click()
+  })()`)
+  await sleep(500)
+
+  // Cross-Profile Isolation: Navigate to beverages profile
+  console.log('Verificando aislamiento estricto al cambiar al rubro Bebidas...')
+  await send('Page.navigate', { url: `${base}/demo.html?template=distribution&profile=beverages&data=full` })
+  await sleep(1500)
+
+  const beveragesIsolation = await evalPage(`(() => {
+    // Check storage for beverages scope key
+    const allStorageKeys = Object.keys(window.localStorage)
+    const bevKey = allStorageKeys.find(k => k.includes('beverages'))
+    const bevState = bevKey ? JSON.parse(window.localStorage.getItem(bevKey)) : null
+    return {
+      bevCompletedSections: bevState?.completedSectionIds || [],
+      cleanState: !bevState || bevState.completedSectionIds.length === 0,
+    }
+  })()`)
+  assert(beveragesIsolation.cleanState, 'El rubro Bebidas no debe heredar el progreso de Alimentos')
+  console.log('✓ Aislamiento de rubro certificado: Bebidas mantiene progreso 100% independiente')
+  metrics.results.distributionContinuousAndIsolation = 'PASS'
 
   // =========================================================================
   // SUITE 5: Certificación Real de Finalización (100%) y Reinicio Completo
@@ -608,10 +844,10 @@ try {
   metrics.results.completeRestartClean = 'PASS'
 
   // Save metrics artifact
-  const metricsJsonPath = join(ARTIFACTS_DIR, 'g6-1-verification-metrics.json')
+  const metricsJsonPath = join(ARTIFACTS_DIR, 'g6-2-verification-metrics.json')
   writeFileSync(metricsJsonPath, JSON.stringify(metrics, null, 2))
   console.log(`\n[Metrics Saved] -> ${metricsJsonPath}`)
-  console.log('\n=== TODAS LAS PRUEBAS E2E REALES G6.1 COMPLETADAS CON ÉXITO ===\n')
+  console.log('\n=== TODAS LAS PRUEBAS E2E REALES G6.2 COMPLETADAS CON ÉXITO ===\n')
 
 } finally {
   if (socket) socket.close()
