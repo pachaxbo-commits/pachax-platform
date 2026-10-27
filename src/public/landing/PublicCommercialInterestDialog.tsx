@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { X } from 'lucide-react'
-import { getPublicTemplate } from '../../core/publicTemplates'
+import { getPublicTemplate, PUBLIC_COMMERCIAL_INTEREST_ENABLED } from '../../core/publicTemplates'
 import { submitPublicCommercialInterest } from '../../services/commercialOnboarding'
 
 interface Props {
@@ -64,6 +64,12 @@ export function PublicCommercialInterestDialog({ templateId, planId, onClose }: 
             <h2 id="commercial-interest-title" className="text-xl font-bold text-slate-950">Solicitud recibida</h2>
             <p className="mt-3 text-sm text-slate-600">Un asesor de PACHAX podrá contactarte. Esto no crea una empresa, suscripción ni pago.</p>
             <button type="button" onClick={onClose} className="mt-6 min-h-11 rounded-xl bg-slate-900 px-5 font-semibold text-white">Listo</button>
+          </div>
+        ) : !PUBLIC_COMMERCIAL_INTEREST_ENABLED ? (
+          <div className="py-7 text-center">
+            <h2 id="commercial-interest-title" className="text-xl font-bold text-slate-950">Solicitudes comerciales temporalmente cerradas</h2>
+            <p className="mt-3 text-sm text-slate-600">El catálogo y las demostraciones siguen disponibles. La recepción de solicitudes se habilitará cuando el aviso de privacidad esté aprobado.</p>
+            <button type="button" onClick={onClose} className="mt-6 min-h-11 rounded-xl bg-slate-900 px-5 font-semibold text-white">Cerrar</button>
           </div>
         ) : (
           <>

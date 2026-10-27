@@ -39,6 +39,7 @@ export function HeroSection(props: HeroSectionProps) {
 
   // Manejo de Demo para Especializadas (Carrusel A)
   const handleLaunchSpecializedDemo = (template: CommercialTemplateItem) => {
+    if (!canLaunchCommercialDemo(template)) return
     const demoPath = freeDemoPath(template.id) || freeDemoPath(template.templateId || '')
     if (demoPath) {
       window.location.assign(demoPath)

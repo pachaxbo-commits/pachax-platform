@@ -19,6 +19,7 @@ export interface CommercialTemplateItem {
   demoRoute: string
   demoPath: string
   demoEnabled?: boolean
+  demoEnabledConfigured?: boolean
   detailAnchor: string
   badge?: string
   status: 'published' | 'draft'

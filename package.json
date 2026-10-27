@@ -8,6 +8,7 @@
     "build:demos-only": "vite build --config vite.demo-isolated.config.ts --mode demo-isolated && node scripts/audit-demo-isolated-artifact.mjs && node scripts/write-demo-isolated-manifest.mjs docs/demo-app-integration-evidence/demo-isolated-artifact-manifest.json",
     "test:demos-only:guard": "node scripts/test-demo-isolated-build-guard.mjs",
     "test:free-demo-routes": "node --experimental-strip-types --test tests/freeDemoRoutes.test.ts",
+    "test:public-commercial-closed": "node --test functions/tests/publicCommercialClosed.test.cjs",
     "build:demos-app-assets": "npm run build:demos-only",
     "studio": "vite --open /studio",
     "dev:emulator": "vite --mode emulator",

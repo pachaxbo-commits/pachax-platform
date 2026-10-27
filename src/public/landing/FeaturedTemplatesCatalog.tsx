@@ -28,6 +28,7 @@ export function FeaturedTemplatesCatalog() {
   const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
 
   const handleLaunchDemo = (tpl: CommercialTemplateItem) => {
+    if (!canLaunchCommercialDemo(tpl)) return
     if (tpl.id === 'restaurant' || tpl.templateId === 'restaurant') {
       setSelectedForModal(tpl)
       return
@@ -186,7 +187,7 @@ export function FeaturedTemplatesCatalog() {
               {/* Acciones de Tarjeta: Probar demo y Comenzar */}
               <div className="p-6 pt-0">
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
-                  {template.id === 'restaurant' || freeDemoPath(template.id) || freeDemoPath(template.templateId || '') || canLaunchCommercialDemo(template) ? (
+                  {canLaunchCommercialDemo(template) ? (
                     <button
                       type="button"
                       data-demo-path={template.demoRoute}

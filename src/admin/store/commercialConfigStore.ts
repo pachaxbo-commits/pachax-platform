@@ -17,6 +17,7 @@ import {
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
 import { getPublicCommercialCatalog } from '../../services/commercialOnboarding'
+import { setPublicDemoConfiguration } from '../../core/publicTemplates.ts'
 import {
   doc,
   getDoc,
@@ -247,6 +248,9 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
     if (window.location.pathname.startsWith('/admin')) return
 
     const templates = catalog.templates as unknown as CommercialTemplateItem[]
+    setPublicDemoConfiguration(Array.isArray(catalog.demoConfiguration)
+      ? catalog.demoConfiguration as { id: string; demoEnabled?: boolean; demoEnabledConfigured?: boolean }[]
+      : templates)
     const plans = filterPublicCommercialPlans(catalog.plans as unknown as TemplateTierPlan[])
     const extras = filterPublishedCommercialRecords(catalog.extras as unknown as CommercialExtraService[])
     const landingContent = { ...DEFAULT_LANDING_CONTENT, ...(catalog.landingContent as Partial<LandingContentConfig>) }

@@ -33,6 +33,7 @@ export interface PublicCommercialInterestRequest {
 
 export interface PublicCommercialCatalog {
   templates: Array<Record<string, unknown> & { id: string; status: 'published' }>
+  demoConfiguration?: Array<{ id: string; demoEnabled: boolean; demoEnabledConfigured: boolean }>
   plans: Array<Record<string, unknown> & { id: string; templateId: string; status: 'published' }>
   extras: Array<Record<string, unknown> & { id: string; status: 'published' }>
   mediaAssets: Array<Record<string, unknown> & { id: string }>

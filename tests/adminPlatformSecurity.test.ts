@@ -417,7 +417,7 @@ test('17. Whitelist de Plantillas Oficiales: templateId arbitrario es rechazado'
   assert.equal(OFFICIAL_TEMPLATES.includes('arbitrary_pos'), false)
 })
 
-test('18. canLaunchCommercialDemo: gating por publicación y disponibilidad técnica canónica', () => {
+test('18. canLaunchCommercialDemo: disponibilidad técnica, comercial y decisión Admin independientes', () => {
   // La disponibilidad técnica canónica no depende de contratación ni del booleano comercial legacy.
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
@@ -441,13 +441,13 @@ test('18. canLaunchCommercialDemo: gating por publicación y disponibilidad téc
     canonicalTemplateId: 'distribution',
   }), true)
 
-  // 4. Distribución con status=draft -> DENEGADO
+  // La publicación comercial no controla la disponibilidad técnica de la demo.
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'draft',
     demoEnabled: true,
     canonicalTemplateId: 'distribution',
-  }), false)
+  }), true)
 
   // 5. Restaurante con demoEnabled=false legacy -> ruta pública verificada -> PERMITIDO
   assert.equal(canLaunchCommercialDemo({
@@ -472,19 +472,19 @@ test('18. canLaunchCommercialDemo: gating por publicación y disponibilidad téc
     canonicalTemplateId: 'nightclub',
   }), false)
 
-  // 8. Retail con demoEnabled=true -> coming_soon -> DENEGADO
+  // Retail tiene ruta demo técnica lista aunque su estado comercial siga coming_soon.
   assert.equal(canLaunchCommercialDemo({
     id: 'retail',
     status: 'published',
     demoEnabled: true,
     canonicalTemplateId: 'retail',
-  }), false)
+  }), true)
 
   // 9. isTechnicalDemoAvailable verifica directamente la disponibilidad técnica del código
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
   assert.equal(isTechnicalDemoAvailable('restaurant'), true)
   assert.equal(isTechnicalDemoAvailable('nightclub'), false)
-  assert.equal(isTechnicalDemoAvailable('retail'), false)
+  assert.equal(isTechnicalDemoAvailable('retail'), true)
   assert.equal(isTechnicalDemoAvailable('custom'), false)
 })
 

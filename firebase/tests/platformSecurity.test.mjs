@@ -239,6 +239,39 @@ try {
   assert.equal((await db.doc('platformTemplates/hamburger').get()).data().canonicalTemplateId, 'hamburger')
   assert((await db.doc('platformTemplates/hamburger').get()).exists)
   pass('Admin guarda Restaurante Rápido con identidad técnica hamburger independiente')
+  await assert.rejects(() => platform.saveTemplate(db, request(ids.owner, {
+    action: 'saveTemplate', template: { ...hamburgerTemplate, demoEnabledConfigured: true },
+  })), error => error.code === 'invalid-argument')
+  pass('backend exige un valor explícito al configurar el interruptor de demo')
+  await platform.saveTemplate(db, request(ids.owner, {
+    action: 'saveTemplate', template: { ...hamburgerTemplate, demoEnabled: false, demoEnabledConfigured: true },
+  }))
+  const savedDemoSetting = (await db.doc('platformTemplates/hamburger').get()).data()
+  assert.equal(savedDemoSetting.demoEnabled, false)
+  assert.equal(savedDemoSetting.demoEnabledConfigured, true)
+  const hamburgerDemoCatalog = (await db.doc('platformConfig/publicCommercialCatalog').get()).data().catalog
+  assert.deepEqual(hamburgerDemoCatalog.demoConfiguration.find(item => item.id === 'hamburger'), {
+    id: 'hamburger', demoEnabled: false, demoEnabledConfigured: true,
+  })
+  pass('Admin deshabilita Hamburger y el snapshot público conserva esa decisión sin cambiar su estado comercial')
+  const restaurantTemplate = {
+    ...hamburgerTemplate,
+    id: 'restaurant', canonicalTemplateId: 'restaurant', templateId: 'restaurant',
+    commercialName: 'Restaurante con salón', commercialMode: 'specialized',
+    demoRoute: '/demo/restaurant', demoPath: '/demo/restaurant',
+    demoEnabled: false,
+  }
+  await platform.saveTemplate(db, request(ids.owner, { action: 'saveTemplate', template: restaurantTemplate }))
+  let restaurantDemoSetting = (await db.doc('platformConfig/publicCommercialCatalog').get()).data().catalog.demoConfiguration
+    .find(item => item.id === 'restaurant')
+  assert.deepEqual(restaurantDemoSetting, { id: 'restaurant', demoEnabled: true, demoEnabledConfigured: false })
+  await platform.saveTemplate(db, request(ids.owner, {
+    action: 'saveTemplate', template: { ...restaurantTemplate, demoEnabledConfigured: true },
+  }))
+  restaurantDemoSetting = (await db.doc('platformConfig/publicCommercialCatalog').get()).data().catalog.demoConfiguration
+    .find(item => item.id === 'restaurant')
+  assert.deepEqual(restaurantDemoSetting, { id: 'restaurant', demoEnabled: false, demoEnabledConfigured: true })
+  pass('Restaurante con salón conserva ruta técnica disponible, pero Admin puede deshabilitar su acceso público explícitamente')
   await assert.rejects(() => platform.saveTemplate(db, request(ids.content, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, implementationBasePriceUSD: 999 },
   })), error => error.code === 'permission-denied')
@@ -609,7 +642,7 @@ try {
   assert(onbNight.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con nightclub_lounge es PERMITIDO y converge')
 
-    assert.equal(checks, 73)
+  assert.equal(checks, 76)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()

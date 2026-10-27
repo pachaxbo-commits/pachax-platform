@@ -656,6 +656,15 @@ async function saveTemplate(db, request) {
   if (template.status !== undefined && !['published', 'draft'].includes(template.status)) {
     throw new HttpsError('invalid-argument', 'El estado de plantilla debe ser published o draft.');
   }
+  if (template.demoEnabled !== undefined && typeof template.demoEnabled !== 'boolean') {
+    throw new HttpsError('invalid-argument', 'La disponibilidad de demo debe ser booleana.');
+  }
+  if (template.demoEnabledConfigured !== undefined && typeof template.demoEnabledConfigured !== 'boolean') {
+    throw new HttpsError('invalid-argument', 'La configuración explícita de demo debe ser booleana.');
+  }
+  if (template.demoEnabledConfigured === true && template.demoEnabled === undefined) {
+    throw new HttpsError('invalid-argument', 'Indica si la demo debe habilitarse o deshabilitarse.');
+  }
   if (template.status === 'published') {
     const requiredText = ['commercialName', 'cardSubtitle', 'description', 'detailDescription', 'targetAudience', 'problemSolved'];
     if (requiredText.some(field => typeof template[field] !== 'string' || !template[field].trim())
@@ -717,7 +726,12 @@ async function saveTemplate(db, request) {
     canonicalTemplateId: publicDef ? publicDef.id : null,
     demoRoute: publicDef ? publicDef.demoPath : (template.demoRoute || ''),
     demoPath: publicDef ? publicDef.demoPath : (template.demoPath || ''),
-    demoEnabled: templateId === 'custom' ? false : (template.demoEnabled ?? false),
+    demoEnabled: templateId === 'custom' ? false : (
+      (publicDef?.demoStatus || publicDef?.status) === 'available'
+        && (template.demoEnabled ?? previousTemplate.demoEnabled ?? false) === true
+    ),
+    demoEnabledConfigured: templateId !== 'custom'
+      && (previousTemplate.demoEnabledConfigured === true || template.demoEnabledConfigured === true),
     commercialMode: template.commercialMode || templateSnap.data()?.commercialMode || (['restaurant', 'distribution', 'nightclub'].includes(templateId) ? 'specialized' : 'self_service'),
     commercialAvailability: template.commercialAvailability || templateSnap.data()?.commercialAvailability || 'coming_soon',
     implementationBasePriceUSD: template.implementationBasePriceUSD !== undefined
@@ -749,7 +763,11 @@ async function saveTemplate(db, request) {
     },
   });
 
-  await commitCommercialBatch(db, batch, template.status === 'published' || previousTemplate.status === 'published');
+  const refreshPublicSnapshot = template.status === 'published'
+    || previousTemplate.status === 'published'
+    || template.demoEnabledConfigured === true
+    || previousTemplate.demoEnabledConfigured === true;
+  await commitCommercialBatch(db, batch, refreshPublicSnapshot);
   return { success: true, templateId };
 }
 

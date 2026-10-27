@@ -403,8 +403,10 @@ export function TemplatesSection() {
             <input
               type="checkbox"
               id="tplDemoEnabledCheck"
-              checked={formData.demoEnabled ?? isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '')}
-              onChange={(e) => setFormData({ ...formData, demoEnabled: e.target.checked })}
+              checked={formData.demoEnabledConfigured === true
+                ? formData.demoEnabled === true
+                : isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '')}
+              onChange={(e) => setFormData({ ...formData, demoEnabled: e.target.checked, demoEnabledConfigured: true })}
               className="rounded border-slate-300 text-[#0066FF] focus:ring-[#0066FF]"
             />
             <label htmlFor="tplDemoEnabledCheck" className="text-xs text-slate-700 font-semibold cursor-pointer flex flex-wrap items-center gap-1.5">

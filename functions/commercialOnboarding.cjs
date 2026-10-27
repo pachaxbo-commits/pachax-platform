@@ -11,6 +11,14 @@ const MAX_PUBLIC_CATALOG_EXTRAS = 100;
 const PUBLIC_CATALOG_PER_MINUTE_LIMIT = 20;
 const PUBLIC_CATALOG_PER_DAY_LIMIT = 300;
 const PUBLIC_COMMERCIAL_CONSENT_VERSION = 'public-commercial-2026-10-v4';
+// Keep real prospect intake closed until the privacy notice and release are approved.
+// Frontend publication alone cannot open this server-side gate.
+const PUBLIC_COMMERCIAL_INTEREST_ENABLED = false;
+
+function assertPublicCommercialInterestEnabled(options = {}) {
+  if (PUBLIC_COMMERCIAL_INTEREST_ENABLED || options.emulator === true) return true;
+  throw new HttpsError('failed-precondition', 'La recepción de solicitudes comerciales aún no está habilitada.');
+}
 
 function publicString(value, max = 240) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -26,6 +34,8 @@ function safePublicTemplate(idValue, value) {
   if (!definition || idValue === 'custom' || value.status !== 'published') return null;
   const availability = value.commercialAvailability === 'available' ? 'available' : 'coming_soon';
   const implementationPrice = Number(value.implementationBasePriceUSD);
+  const technicallyAvailable = (definition.demoStatus ?? definition.status) === 'available';
+  const demoEnabledConfigured = value.demoEnabledConfigured === true;
   return {
     id: idValue,
     canonicalTemplateId: definition.id,
@@ -43,7 +53,8 @@ function safePublicTemplate(idValue, value) {
     features: publicStringList(value.features, 20, 180),
     demoRoute: definition.demoPath,
     demoPath: definition.demoPath,
-    demoEnabled: Boolean(value.demoEnabled && definition.demoPath),
+    demoEnabled: Boolean(definition.demoPath && (demoEnabledConfigured ? value.demoEnabled === true : technicallyAvailable)),
+    demoEnabledConfigured,
     detailAnchor: publicString(value.detailAnchor, 80),
     badge: publicString(value.badge, 80),
     status: 'published',
@@ -164,17 +175,29 @@ const PUBLIC_CATALOG_META_PATH = 'platformConfig/publicCommercialCatalogMeta';
 const PUBLIC_CATALOG_SNAPSHOT_PATH = 'platformConfig/publicCommercialCatalog';
 
 async function buildPublicCommercialCatalog(db, tx) {
-  const [templates, plans, extras, media, landing] = await Promise.all([
+  const [templates, plans, extras, media, landing, demoConfigSnapshots] = await Promise.all([
     tx.get(db.collection('platformTemplates').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_TEMPLATES + 1)),
     tx.get(db.collection('platformPlans').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_PLANS + 1)),
     tx.get(db.collection('platformExtras').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_EXTRAS + 1)),
     tx.get(db.collection('platformMedia').where('status', '==', 'published').limit(51)),
     tx.get(db.doc('platformConfig/publicLanding')),
+    tx.getAll(...PUBLIC_TEMPLATES.map(template => db.doc(`platformTemplates/${template.id}`))),
   ]);
   if (templates.size > MAX_PUBLIC_CATALOG_TEMPLATES || plans.size > MAX_PUBLIC_CATALOG_PLANS || extras.size > MAX_PUBLIC_CATALOG_EXTRAS || media.size > 50) {
     throw new HttpsError('resource-exhausted', 'El catálogo comercial supera el límite seguro de publicación.');
   }
   const publicTemplates = templates.docs.map(snapshot => safePublicTemplate(snapshot.id, snapshot.data())).filter(Boolean);
+  const configuredTemplates = new Map(demoConfigSnapshots.map(snapshot => [snapshot.id, snapshot.data() || {}]));
+  const demoConfiguration = PUBLIC_TEMPLATES.map(definition => {
+    const config = configuredTemplates.get(definition.id);
+    const demoEnabledConfigured = config?.demoEnabledConfigured === true;
+    const technicallyAvailable = (definition.demoStatus ?? definition.status) === 'available';
+    return {
+      id: definition.id,
+      demoEnabled: Boolean(definition.demoPath && (demoEnabledConfigured ? config.demoEnabled === true : technicallyAvailable)),
+      demoEnabledConfigured,
+    };
+  });
   const publicPlans = plans.docs.map(snapshot => safePublicPlan(snapshot.id, snapshot.data())).filter(Boolean);
   const publicExtras = extras.docs.map(snapshot => safePublicExtra(snapshot.id, snapshot.data())).filter(Boolean);
   const publicMedia = media.docs.map(snapshot => ({
@@ -187,6 +210,7 @@ async function buildPublicCommercialCatalog(db, tx) {
   })).filter(asset => asset.name && asset.url);
   const catalog = {
     templates: publicTemplates.sort((a, b) => a.order - b.order),
+    demoConfiguration,
     plans: publicPlans.sort((a, b) => a.order - b.order),
     extras: publicExtras.sort((a, b) => a.order - b.order),
     mediaAssets: publicMedia,
@@ -296,6 +320,7 @@ function publicRequestDigest(input) {
 }
 
 async function submitPublicCommercialInterest(db, request, rateLimitSecret, options = {}) {
+  assertPublicCommercialInterestEnabled(options);
   const input = request.data || {};
   const allowed = new Set(['action', 'requestId', 'contactName', 'companyName', 'email', 'contactPhone', 'templateId', 'businessType', 'needs', 'branchCount', 'planId', 'consent', 'website']);
   if (Object.keys(input).some(key => !allowed.has(key)) || Buffer.byteLength(JSON.stringify(input)) > 8192) {
@@ -602,6 +627,7 @@ async function updateCommercialIntentStatus(db, request) {
 }
 
 module.exports = {
+  assertPublicCommercialInterestEnabled,
   getPublicCommercialCatalog,
   consumePublicCatalogQuota,
   submitPublicCommercialInterest,

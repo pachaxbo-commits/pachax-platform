@@ -3,6 +3,12 @@ import type { BusinessType } from './platform.ts'
 export type PublicTemplateStatus = 'available' | 'coming_soon'
 export type PublicTemplateId = 'restaurant' | 'hamburger' | 'distribution' | 'retail' | 'nightclub'
 
+export interface PublicDemoConfiguration {
+  id: string
+  demoEnabled?: boolean
+  demoEnabledConfigured?: boolean
+}
+
 export interface PublicTemplateDefinition {
   id: PublicTemplateId
   businessType: BusinessType
@@ -17,6 +23,23 @@ export interface PublicTemplateDefinition {
 
 /** Temporary release gate: public visitors can browse demos but cannot provision tenants. */
 export const PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED = false
+/** Closed until legal approval and an explicit release of commercial intake. */
+export const PUBLIC_COMMERCIAL_INTEREST_ENABLED = false
+
+let publicDemoOverrides: ReadonlyMap<string, boolean> | null = null
+
+/** Snapshot Admin's explicit demo decisions from the published server catalog. */
+export function setPublicDemoConfiguration(templates: readonly PublicDemoConfiguration[] | null): void {
+  if (templates === null) {
+    publicDemoOverrides = null
+    return
+  }
+  // Only an explicit Admin choice overrides the technical default. An absent
+  // commercial record must not disable an otherwise available demo.
+  publicDemoOverrides = new Map(templates
+    .filter(template => template.demoEnabledConfigured === true)
+    .map(template => [template.id, template.demoEnabled === true]))
+}
 
 export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.freeze([
   {
@@ -41,7 +64,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     studioTemplateId: 'hamburger',
     status: 'coming_soon',
     provisioningStatus: 'coming_soon',
-    demoStatus: 'coming_soon',
+    demoStatus: 'available',
   },
   {
     id: 'distribution',
@@ -63,7 +86,7 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     studioTemplateId: 'retail',
     status: 'coming_soon',
     provisioningStatus: 'coming_soon',
-    demoStatus: 'coming_soon',
+    demoStatus: 'available',
   },
   {
     id: 'nightclub',
@@ -85,8 +108,16 @@ export const PLAN_ELIGIBLE_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribu
 const FREE_DEMO_TEMPLATE_IDS = Object.freeze(['hamburger', 'retail'] as const)
 export type FreeDemoTemplateId = (typeof FREE_DEMO_TEMPLATE_IDS)[number]
 
+/** A public route is usable only when implemented and not explicitly disabled by Admin. */
+export function isPublicDemoEnabled(idOrBusinessType: string): boolean {
+  const template = PUBLIC_TEMPLATES.find(item => item.id === idOrBusinessType || item.businessType === idOrBusinessType)
+  if (!template || (template.demoStatus ?? template.status) !== 'available') return false
+  return publicDemoOverrides?.get(template.id) ?? true
+}
+
 export function freeDemoPath(id: string, data: 'full' | 'empty' = 'full'): string | null {
   if (!FREE_DEMO_TEMPLATE_IDS.includes(id as FreeDemoTemplateId)) return null
+  if (!isPublicDemoEnabled(id)) return null
   return `/demo/${id}?data=${data}`
 }
 
@@ -107,17 +138,16 @@ export function isTemplateProvisioningAvailable(idOrBusinessType: string): boole
 }
 
 export function canLaunchCommercialDemo(template: {
-  status: string
+  status?: string
   demoEnabled?: boolean
+  demoEnabledConfigured?: boolean
   canonicalTemplateId?: string | null
   templateId?: string
   id?: string
 }): boolean {
-  if (template.status !== 'published') return false
   const targetId = template.canonicalTemplateId || template.templateId || template.id || ''
-  // La disponibilidad técnica central es la fuente de verdad de las demos.
-  // demoEnabled era un booleano comercial estático y podía ocultar una ruta
-  // pública funcional aunque la contratación/provisión siguiera bloqueada.
-  if (!isTechnicalDemoAvailable(targetId)) return false
-  return true
+  if (!isPublicDemoEnabled(targetId)) return false
+  // Legacy seed values were not an explicit Admin decision. Only the marker
+  // written by the current Admin control is allowed to override the route.
+  return template.demoEnabledConfigured === true ? template.demoEnabled === true : true
 }
