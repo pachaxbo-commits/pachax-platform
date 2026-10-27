@@ -8,6 +8,7 @@ test('Hamburger and Retail demos are free without opening commercial provisionin
   assert.equal(freeDemoPath('retail'), '/demo/retail?data=full')
   assert.equal(freeDemoPath('retail', 'empty'), '/demo/retail?data=empty')
   assert.equal(freeDemoPath('restaurant'), null)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('retail'), false)
   assert.equal(isTechnicalDemoAvailable('hamburger'), false)

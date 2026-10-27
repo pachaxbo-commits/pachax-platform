@@ -79,7 +79,7 @@ export function HeroSection(props: HeroSectionProps) {
     navigate(`/register?template=${templateQuery}`)
   }
 
-  const isSpecializedDemoAvailable = canLaunchCommercialDemo(activeSpecialized) || activeSpecialized.id === 'restaurant'
+  const isSpecializedDemoAvailable = canLaunchCommercialDemo(activeSpecialized)
   const isSelfServiceAvailable = isTemplateProvisioningAvailable(activeSelfService.canonicalTemplateId || activeSelfService.templateId || activeSelfService.id)
   const isSelfServiceDemoAvailable = Boolean(freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '')) || canLaunchCommercialDemo(activeSelfService)
 
