@@ -31,26 +31,45 @@ export function RestaurantInteractiveTour({
   mobileSteps,
   activeModule,
   tourLabel = 'Tutorial',
+  initialStepIndex = 0,
+  isContinuous = false,
   onDismiss,
   onComplete,
+  onPause,
 }: {
   steps: RestaurantTourStep[]
   mobileSteps?: RestaurantTourStep[]
   activeModule: RestaurantModuleId
   tourLabel?: string
+  initialStepIndex?: number
+  isContinuous?: boolean
   onDismiss: () => void
   onComplete: () => void
+  onPause?: (stepIndex: number) => void
 }) {
   const activeSteps = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches && mobileSteps?.length
     ? mobileSteps
     : steps
-  const [activeStepId, setActiveStepId] = useState(activeSteps[0]?.id ?? '')
+  const safeInitialIndex = Math.max(0, Math.min(initialStepIndex, activeSteps.length - 1))
+  const [activeStepId, setActiveStepId] = useState(activeSteps[safeInitialIndex]?.id ?? activeSteps[0]?.id ?? '')
   const index = resolveRestaurantTourStepIndex(activeSteps, activeStepId)
   const step = activeSteps[index]
   const [targetState, setTargetState] = useState<TourTargetState>({ stepId: step.id, status: 'waiting', rect: null })
   const currentTargetState = targetState.stepId === step.id ? targetState : { stepId: step.id, status: 'waiting' as const, rect: null }
   const rect = currentTargetState.rect
   const missingTarget = currentTargetState.status === 'fallback' || currentTargetState.status === 'missing' || currentTargetState.status === 'invalid-selector'
+
+  // Automatic advance if navigation condition is already satisfied in the DOM
+  useEffect(() => {
+    if (step.interaction === 'navigate' && step.advanceWhen) {
+      if (document.querySelector(step.advanceWhen)) {
+        const nextStep = activeSteps[index + 1]
+        if (nextStep) {
+          setActiveStepId(nextStep.id)
+        }
+      }
+    }
+  }, [step, index, activeSteps])
 
   useEffect(() => {
     const onTargetClick = (event: MouseEvent) => {
@@ -144,15 +163,20 @@ export function RestaurantInteractiveTour({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onDismiss()
+      if (event.key === 'Escape') {
+        if (isContinuous && onPause) {
+          onPause(index)
+        } else {
+          onDismiss()
+        }
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onDismiss])
+  }, [onDismiss, onPause, isContinuous, index])
 
   const finish = () => {
     onComplete()
-    onDismiss()
   }
   const next = () => {
     if (index === activeSteps.length - 1) finish()
@@ -161,7 +185,7 @@ export function RestaurantInteractiveTour({
   const missingTargetMessage = currentTargetState.status === 'fallback'
     ? currentTargetState.description
     : currentTargetState.status === 'invalid-selector' || currentTargetState.status === 'missing'
-      ? 'No pudimos ubicar el control de este paso. Vuelve al m\u00f3dulo o contin\u00faa con el siguiente paso.'
+      ? 'No pudimos ubicar el control de este paso. Vuelve al módulo o continúa con el siguiente paso.'
       : null
   const estimatedCardHeight = 240
   const cardBelow = rect ? rect.top + rect.height + 14 : 80
@@ -201,13 +225,32 @@ export function RestaurantInteractiveTour({
       >
         <div className="flex items-start justify-between gap-3">
           <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{tourLabel} · Paso {index + 1} de {activeSteps.length}</p><h2 className="mt-1 text-base font-extrabold text-slate-900">{step.title}</h2></div>
-          <button type="button" onClick={onDismiss} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Omitir tutorial"><X size={18} /></button>
+          <div className="flex items-center gap-1">
+            {isContinuous && onPause && (
+              <button
+                type="button"
+                onClick={() => onPause(index)}
+                className="rounded-lg px-2 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition cursor-pointer"
+                aria-label="Pausar recorrido continuo"
+              >
+                Pausar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 cursor-pointer"
+              aria-label="Cerrar tutorial"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <p className="mt-3 text-sm leading-5 text-slate-600">{currentTargetState.status === 'waiting' ? 'Estamos buscando este control. Puedes esperar un momento.' : missingTarget ? missingTargetMessage : step.description}</p>
-        {step.interaction === 'navigate' && !missingTarget && activeModule === step.module && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{step.id === 'open-menu' ? 'Esperando que abras el menú con el botón resaltado.' : step.id === 'open-tables' ? 'Esperando que abras Mesas con el botón resaltado.' : step.id === 'open-kitchen' ? 'Esperando que abras Cocina con el bot\u00f3n resaltado.' : step.id === 'open-cash' ? 'Esperando que abras Caja con el botón resaltado.' : step.id === 'open-customers' ? 'Esperando que abras Clientes con el botón resaltado.' : step.id === 'open-customer-form' ? 'Esperando que abras el formulario con el botón resaltado.' : step.id === 'open-customer-profile' ? 'Esperando que abras la ficha del cliente.' : step.id === 'tables' ? 'Esperando que abras una mesa ocupada.' : 'Esperando que abras POS con el botón resaltado.'}</p>}
+        {step.interaction === 'navigate' && !missingTarget && activeModule === step.module && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{step.id === 'open-menu' ? 'Esperando que abras el menú con el botón resaltado.' : step.id === 'open-tables' ? 'Esperando que abras Mesas con el botón resaltado.' : step.id === 'open-kitchen' ? 'Esperando que abras Cocina con el botón resaltado.' : step.id === 'open-cash' ? 'Esperando que abras Caja con el botón resaltado.' : step.id === 'open-customers' ? 'Esperando que abras Clientes con el botón resaltado.' : step.id === 'open-customer-form' ? 'Esperando que abras el formulario con el botón resaltado.' : step.id === 'open-customer-profile' ? 'Esperando que abras la ficha del cliente.' : step.id === 'tables' ? 'Esperando que abras una mesa ocupada.' : 'Esperando que abras POS con el botón resaltado.'}</p>}
         <div className="mt-4 flex items-center justify-between gap-2">
-          <button type="button" disabled={index === 0} onClick={() => setActiveStepId(activeSteps[Math.max(0, index - 1)]?.id ?? step.id)} className="inline-flex min-h-10 items-center gap-1 rounded-xl px-3 text-sm font-bold text-slate-600 disabled:opacity-40"><ArrowLeft size={16} />Anterior</button>
-          {step.interaction === 'navigate' && !missingTarget && activeModule === step.module ? null : <button type="button" disabled={currentTargetState.status === 'waiting'} onClick={next} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50">{index === activeSteps.length - 1 ? 'Finalizar' : 'Siguiente'}<ArrowRight size={16} /></button>}
+          <button type="button" disabled={index === 0} onClick={() => setActiveStepId(activeSteps[Math.max(0, index - 1)]?.id ?? step.id)} className="inline-flex min-h-10 items-center gap-1 rounded-xl px-3 text-sm font-bold text-slate-600 disabled:opacity-40 cursor-pointer"><ArrowLeft size={16} />Anterior</button>
+          {step.interaction === 'navigate' && !missingTarget && activeModule === step.module ? null : <button type="button" disabled={currentTargetState.status === 'waiting'} onClick={next} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50 cursor-pointer">{index === activeSteps.length - 1 ? 'Finalizar' : 'Siguiente'}<ArrowRight size={16} /></button>}
         </div>
       </div>
     </div>
