@@ -61,7 +61,7 @@ const TUTORIAL_DATA: Record<TemplateId, TemplateTutorialMeta> = {
     id: 'distribution',
     name: 'Producción & Distribución',
     accentColor: '#0284C7',
-    demoRoute: '/demo/distribution',
+    demoRoute: '/demo/distribution?tour=start',
     steps: [
       {
         step: 1,

@@ -37,6 +37,7 @@ import { RestaurantHistory } from '../components/RestaurantHistory'
 import { RestaurantCash } from '../components/RestaurantCash'
 import { RestaurantInventory } from '../components/RestaurantInventory'
 import { RestaurantProducts } from '../components/RestaurantProducts'
+import type { ProductImageAdapter } from '../domain/productImageAdapter'
 import { RestaurantCustomers } from '../components/RestaurantCustomers'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
 import type { CustomerDraft } from '../components/RestaurantCustomerForm'
@@ -64,6 +65,26 @@ import { restaurantCashMobileTourSteps, restaurantCashTourPreferenceKey, restaur
 import { restaurantProductsMobileTourSteps, restaurantProductsTourPreferenceKey, restaurantProductsTourSteps } from '../domain/restaurantProductsTour'
 import { restaurantInventoryMobileTourSteps, restaurantInventoryTourPreferenceKey, restaurantInventoryTourSteps } from '../domain/restaurantInventoryTour'
 import { buildRestaurantCustomersTourSteps, restaurantCustomersMobileTourSteps, restaurantCustomersTourPreferenceKey } from '../domain/restaurantCustomersTour'
+import {
+  restaurantHistoryMobileTourSteps,
+  restaurantHistoryTourPreferenceKey,
+  restaurantHistoryTourSteps,
+} from '../domain/restaurantHistoryTour'
+import {
+  restaurantUsersMobileTourSteps,
+  restaurantUsersTourPreferenceKey,
+  restaurantUsersTourSteps,
+} from '../domain/restaurantUsersTour'
+import {
+  restaurantSettingsMobileTourSteps,
+  restaurantSettingsTourPreferenceKey,
+  restaurantSettingsTourSteps,
+} from '../domain/restaurantSettingsTour'
+import {
+  restaurantPrintersMobileTourSteps,
+  restaurantPrintersTourPreferenceKey,
+  restaurantPrintersTourSteps,
+} from '../domain/restaurantPrintersTour'
 import { buildRestaurantLearningTutorials, restaurantLearningTutorialIdsForProfile, restaurantTutorialStatusFromStorage, type RestaurantTutorialId, type RestaurantTutorialStatus } from '../domain/restaurantLearningCenter'
 import { RestaurantLearningCenter } from '../components/RestaurantLearningCenter'
 
@@ -187,6 +208,7 @@ export interface RestaurantExperienceProps {
   businessIdentity?: BusinessIdentity
   onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
   onUploadLogo?: (file: File) => Promise<string>
+  imageAdapter?: ProductImageAdapter
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -297,6 +319,7 @@ export function RestaurantExperience({
   businessIdentity,
   onSaveBusinessIdentity,
   onUploadLogo,
+  imageAdapter,
 }: RestaurantExperienceProps) {
   const isCounterService = profile === 'counter_service'
   const operationalShiftOpen = isShiftOpen !== undefined ? isShiftOpen : Boolean(shift)
@@ -317,6 +340,10 @@ export function RestaurantExperience({
   const productsTourStorageKey = restaurantProductsTourPreferenceKey(session.tenantId, session.uid)
   const inventoryTourStorageKey = restaurantInventoryTourPreferenceKey(session.tenantId, session.uid)
   const customersTourStorageKey = restaurantCustomersTourPreferenceKey(session.tenantId, session.uid)
+  const historyTourStorageKey = restaurantHistoryTourPreferenceKey(session.tenantId, session.uid)
+  const usersTourStorageKey = restaurantUsersTourPreferenceKey(session.tenantId, session.uid)
+  const settingsTourStorageKey = restaurantSettingsTourPreferenceKey(session.tenantId, session.uid)
+  const printersTourStorageKey = restaurantPrintersTourPreferenceKey(session.tenantId, session.uid)
   const learningStorageKeys: Record<RestaurantTutorialId, string> = {
     pos: posTourStorageKey,
     counter_pos: counterPosTourStorageKey,
@@ -326,6 +353,10 @@ export function RestaurantExperience({
     products: productsTourStorageKey,
     inventory: inventoryTourStorageKey,
     customers: customersTourStorageKey,
+    history: historyTourStorageKey,
+    users: usersTourStorageKey,
+    settings: settingsTourStorageKey,
+    printers: printersTourStorageKey,
   }
   const [isSetupGuideOpen, setIsSetupGuideOpen] = useState(() => {
     if (typeof window === 'undefined') return true
@@ -338,6 +369,10 @@ export function RestaurantExperience({
   const [isProductsTourOpen, setIsProductsTourOpen] = useState(false)
   const [isInventoryTourOpen, setIsInventoryTourOpen] = useState(false)
   const [isCustomersTourOpen, setIsCustomersTourOpen] = useState(false)
+  const [isHistoryTourOpen, setIsHistoryTourOpen] = useState(false)
+  const [isUsersTourOpen, setIsUsersTourOpen] = useState(false)
+  const [isSettingsTourOpen, setIsSettingsTourOpen] = useState(false)
+  const [isPrintersTourOpen, setIsPrintersTourOpen] = useState(false)
   const [isLearningCenterOpen, setIsLearningCenterOpen] = useState(false)
   const [learningStatuses, setLearningStatuses] = useState<Partial<Record<RestaurantTutorialId, RestaurantTutorialStatus>>>({})
   const learningCenterOriginRef = useRef(false)
@@ -661,6 +696,50 @@ export function RestaurantExperience({
 
   const completeCustomersTour = () => writeTutorialStatus('customers', 'completed')
 
+  const startHistoryTour = () => {
+    writeTutorialStatus('history', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    if (window.matchMedia('(max-width: 1023px)').matches) setIsMoreOpen(false)
+    else if (secondaryModules.some((module) => module.id === 'history')) setIsMoreDesktopOpen(true)
+    setIsHistoryTourOpen(true)
+  }
+  const dismissHistoryTour = () => dismissTutorial('history', setIsHistoryTourOpen)
+  const completeHistoryTour = () => writeTutorialStatus('history', 'completed')
+
+  const startUsersTour = () => {
+    writeTutorialStatus('users', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    if (window.matchMedia('(max-width: 1023px)').matches) setIsMoreOpen(false)
+    else if (secondaryModules.some((module) => module.id === 'users')) setIsMoreDesktopOpen(true)
+    setIsUsersTourOpen(true)
+  }
+  const dismissUsersTour = () => dismissTutorial('users', setIsUsersTourOpen)
+  const completeUsersTour = () => writeTutorialStatus('users', 'completed')
+
+  const startSettingsTour = () => {
+    writeTutorialStatus('settings', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    if (window.matchMedia('(max-width: 1023px)').matches) setIsMoreOpen(false)
+    else if (secondaryModules.some((module) => module.id === 'settings')) setIsMoreDesktopOpen(true)
+    setIsSettingsTourOpen(true)
+  }
+  const dismissSettingsTour = () => dismissTutorial('settings', setIsSettingsTourOpen)
+  const completeSettingsTour = () => writeTutorialStatus('settings', 'completed')
+
+  const startPrintersTour = () => {
+    writeTutorialStatus('printers', 'in-progress')
+    setIsSetupGuideOpen(false)
+    selectModule('dashboard')
+    if (window.matchMedia('(max-width: 1023px)').matches) setIsMoreOpen(false)
+    else if (secondaryModules.some((module) => module.id === 'printers')) setIsMoreDesktopOpen(true)
+    setIsPrintersTourOpen(true)
+  }
+  const dismissPrintersTour = () => dismissTutorial('printers', setIsPrintersTourOpen)
+  const completePrintersTour = () => writeTutorialStatus('printers', 'completed')
+
   const roleLabel =
     session.role === 'owner'
       ? 'Dueño'
@@ -683,6 +762,10 @@ export function RestaurantExperience({
   const canRunProductsTour = visibleModules.some((module) => module.id === 'products')
   const canRunInventoryTour = visibleModules.some((module) => module.id === 'inventory')
   const canRunCustomersTour = visibleModules.some((module) => module.id === 'customers')
+  const canRunHistoryTour = visibleModules.some((module) => module.id === 'history')
+  const canRunUsersTour = visibleModules.some((module) => module.id === 'users')
+  const canRunSettingsTour = visibleModules.some((module) => module.id === 'settings')
+  const canRunPrintersTour = visibleModules.some((module) => module.id === 'printers')
   const availableLearningIds: RestaurantTutorialId[] = restaurantLearningTutorialIdsForProfile([
     ...(canRunPosTour ? ['pos' as const] : []),
     ...(canRunTablesTour ? ['tables' as const] : []),
@@ -691,6 +774,10 @@ export function RestaurantExperience({
     ...(canRunProductsTour ? ['products' as const] : []),
     ...(canRunInventoryTour ? ['inventory' as const] : []),
     ...(canRunCustomersTour ? ['customers' as const] : []),
+    ...(canRunHistoryTour ? ['history' as const] : []),
+    ...(canRunUsersTour ? ['users' as const] : []),
+    ...(canRunSettingsTour ? ['settings' as const] : []),
+    ...(canRunPrintersTour ? ['printers' as const] : []),
   ], isCounterService ? 'counter_service' : 'restaurant')
   const learningTutorials = buildRestaurantLearningTutorials(availableLearningIds, learningStatuses)
   const counterServiceTour = useMemo(() => buildRestaurantCounterServiceTourSteps({
@@ -710,6 +797,10 @@ export function RestaurantExperience({
       products: startProductsTour,
       inventory: startInventoryTour,
       customers: startCustomersTour,
+      history: startHistoryTour,
+      users: startUsersTour,
+      settings: startSettingsTour,
+      printers: startPrintersTour,
     }
     learningCenterOriginRef.current = true
     setIsLearningCenterOpen(false)
@@ -732,6 +823,14 @@ export function RestaurantExperience({
             ? startInventoryTour
             : activeModule === 'customers' && canRunCustomersTour
               ? startCustomersTour
+            : activeModule === 'history' && canRunHistoryTour
+              ? startHistoryTour
+            : activeModule === 'users' && canRunUsersTour
+              ? startUsersTour
+            : activeModule === 'settings' && canRunSettingsTour
+              ? startSettingsTour
+            : activeModule === 'printers' && canRunPrintersTour
+              ? startPrintersTour
             : canRunPosTour
               ? startPosTour
               : canRunTablesTour
@@ -856,6 +955,7 @@ export function RestaurantExperience({
                 <button
                   type="button"
                   data-tour="restaurant-nav-more"
+                  data-testid="restaurant-more-btn"
                   onClick={() => setIsMoreDesktopOpen((prev) => !prev)}
                   className={`restaurant-nav-btn restaurant-nav-more ${isSecondaryActive ? 'is-active' : ''}`}
                   aria-expanded={isMoreDesktopOpen}
@@ -1013,6 +1113,7 @@ export function RestaurantExperience({
               onArchiveProduct={onArchiveProduct}
               onDeleteProduct={onDeleteProduct}
               onStartTour={canRunProductsTour ? startProductsTour : undefined}
+              imageAdapter={imageAdapter}
             />
           )}
           {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={canManageCustomers} canViewHistory={canViewCustomerHistory} canCreateCustomer={canCreateCustomer} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} onStartTour={canRunCustomersTour ? startCustomersTour : undefined} />}
@@ -1202,6 +1303,50 @@ export function RestaurantExperience({
           tourLabel="Tutorial Clientes"
           onDismiss={dismissCustomersTour}
           onComplete={completeCustomersTour}
+        />
+      )}
+
+      {isHistoryTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantHistoryTourSteps}
+          mobileSteps={restaurantHistoryMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Historial"
+          onDismiss={dismissHistoryTour}
+          onComplete={completeHistoryTour}
+        />
+      )}
+
+      {isUsersTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantUsersTourSteps}
+          mobileSteps={restaurantUsersMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Usuarios"
+          onDismiss={dismissUsersTour}
+          onComplete={completeUsersTour}
+        />
+      )}
+
+      {isSettingsTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantSettingsTourSteps}
+          mobileSteps={restaurantSettingsMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Configuración"
+          onDismiss={dismissSettingsTour}
+          onComplete={completeSettingsTour}
+        />
+      )}
+
+      {isPrintersTourOpen && (
+        <RestaurantInteractiveTour
+          steps={restaurantPrintersTourSteps}
+          mobileSteps={restaurantPrintersMobileTourSteps}
+          activeModule={activeModule}
+          tourLabel="Tutorial Impresoras"
+          onDismiss={dismissPrintersTour}
+          onComplete={completePrintersTour}
         />
       )}
 

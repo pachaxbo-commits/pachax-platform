@@ -19,7 +19,8 @@ import {
 import { newOperationId, registerSale, saveCustomer } from '../data/distributionRepository'
 import { distSaleToReceiptData, printSaleReceipt } from '../data/distributionReceiptService'
 import { useStockIndex } from '../state/useDistributionStore'
-import { KpiCard, PrimaryButton, SecondaryButton, formatBs, formatQty } from './shared'
+import { KpiCard, PrimaryButton, SecondaryButton } from './shared'
+import { formatBs, formatQty } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistProduct, DistSale, DistSaleLine, PaymentKind } from '../types'
 
@@ -412,6 +413,23 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
           </p>
         )}
 
+                <div className="flex w-full min-w-0 items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
+          <div className="min-w-0 flex-1">
+            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Cliente de entrega</span>
+            <span className="block truncate text-xs font-black text-slate-900">
+              {selectedCustomer ? `${selectedCustomer.name} (${selectedCustomer.customerCode || selectedCustomer.identityNumber || 'Asignado'})` : 'Venta rápida (sin cliente)'}
+            </span>
+          </div>
+          <SecondaryButton
+            data-tutorial-target="sell-customer-selector"
+            data-customer-id={customerId || undefined}
+            onClick={() => setIsCustomerOpen(true)}
+            
+          >
+            {selectedCustomer ? 'Cambiar' : 'Elegir cliente'}
+          </SecondaryButton>
+        </div>
+
         <div className="relative w-full">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <TextInput
@@ -422,13 +440,15 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
           />
         </div>
 
-        <div className="grid w-full min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid w-full min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4" data-tutorial-target="sell-products-catalog">
           {filteredProducts.map((product) => {
             const stock = availableStock.get(product.id) ?? 0
             return (
               <button
                 key={product.id}
                 type="button"
+                data-tutorial-target={`product-card-${product.id}`}
+                data-product-id={product.id}
                 onClick={() => openProduct(product)}
                 className="flex min-h-[116px] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition active:scale-[0.99] active:bg-slate-50"
               >
@@ -459,7 +479,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
 
       {cart.length > 0 && (
         <div
-          className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-3 py-2.5"
+          data-tutorial-target="sell-cart-summary" className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-3 py-2.5"
           style={{ paddingBottom: 'calc(0.625rem + var(--safe-bottom) + var(--bottom-nav-height))' }}
         >
           <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
@@ -469,7 +489,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
               </p>
               <p className="truncate text-lg font-black tabular-nums text-slate-900">{formatBs(total)}</p>
             </div>
-            <PrimaryButton onClick={() => setIsCheckoutOpen(true)}>
+            <PrimaryButton data-tutorial-target="sell-checkout-btn" onClick={() => setIsCheckoutOpen(true)}>
               <ShoppingCart size={16} /> Cobrar
             </PrimaryButton>
           </div>
@@ -494,7 +514,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
         title={editingProduct?.name ?? ''}
         subtitle={editingProduct?.presentation}
         footer={
-          <PrimaryButton full onClick={addToCart}>
+          <PrimaryButton data-tutorial-target="sell-add-to-cart-btn" full onClick={addToCart}>
             <Plus size={16} /> Agregar {formatBs(round2(Number(quantity) * Number(unitPrice)))}
           </PrimaryButton>
         }
@@ -541,7 +561,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
         title={saleKind === 'courtesy' ? 'Registrar cortesía / muestra' : 'Cobrar venta'}
         subtitle={saleKind === 'courtesy' ? 'Sin cobro comercial (Bs 0.00)' : formatBs(total)}
         footer={
-          <PrimaryButton full disabled={isSubmitting} onClick={() => void confirmSale()}>
+          <PrimaryButton data-tutorial-target="sell-confirm-btn" full disabled={isSubmitting} onClick={() => void confirmSale()}>
             {isSubmitting
               ? 'Registrando...'
               : saleKind === 'courtesy'
@@ -611,9 +631,8 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
 
           {saleKind === 'normal' && (
             <>
-              <Field label="Forma de pago">
-                <Segmented value={paymentKind} options={PAYMENT_OPTIONS} onChange={setPaymentKind} />
-              </Field>
+              <div data-tutorial-target="sell-payment-methods" className="w-full"><Field label="Forma de pago">
+                <Segmented value={paymentKind} options={PAYMENT_OPTIONS} onChange={setPaymentKind} /></Field></div>
 
               {paymentKind === 'mixed' && (
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -642,7 +661,7 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
                   : 'Opcional en venta al contado.'
             }
           >
-            <SecondaryButton full onClick={() => setIsCustomerOpen(true)}>
+            <SecondaryButton data-tutorial-target="sell-customer-selector" full onClick={() => setIsCustomerOpen(true)}>
               {selectedCustomer ? `${selectedCustomer.name} · ${selectedCustomer.customerCode || selectedCustomer.identityNumber || ''}` : 'Seleccionar cliente'}
             </SecondaryButton>
           </Field>
@@ -674,6 +693,8 @@ export function SellView({ session, data, documentContext, businessIdentity }: D
               <button
                 key={customer.id}
                 type="button"
+                data-tutorial-target={`customer-item-${customer.id}`}
+                data-customer-id={customer.id}
                 onClick={() => {
                   setCustomerId(customer.id)
                   setIsCustomerOpen(false)

@@ -48,7 +48,7 @@ export function RestaurantSettings({
     finally { setSaving(false) }
   }
   return (
-    <div className="space-y-5">
+    <div data-tour="settings-board" className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Configuración del Restaurante</h1>
         <p className="text-sm text-slate-600">Apariencia y parámetros del establecimiento.</p>
@@ -56,7 +56,7 @@ export function RestaurantSettings({
 
       {onResetDemo && <button type="button" onClick={onResetDemo} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">Restablecer datos de la demo Restaurante</button>}
 
-      <section className="restaurant-settings-panel" aria-labelledby="restaurant-theme-title">
+      <section data-tour="settings-theme" className="restaurant-settings-panel" aria-labelledby="restaurant-theme-title">
         <div className="restaurant-settings-title"><Palette size={21} /><div><h2 id="restaurant-theme-title">Apariencia / Tema</h2><p>Los colores se aplican a todas las secciones de este restaurante.</p></div></div>
         <div className="restaurant-theme-presets">
           {RESTAURANT_THEME_PRESETS.map((preset: (typeof RESTAURANT_THEME_PRESETS)[number]) => <button key={preset.id} type="button" className={draft.primary.toLowerCase() === preset.primary && draft.accent.toLowerCase() === preset.accent ? 'is-selected' : ''} onClick={() => { setDraft({ primary: preset.primary, accent: preset.accent }); setNotice('') }}><span className="restaurant-theme-chips"><i style={{ background: preset.primary }} /><i style={{ background: preset.accent }} /></span><span>{preset.name}</span></button>)}
@@ -66,7 +66,7 @@ export function RestaurantSettings({
             <label>Color principal<div><input type="color" value={validRestaurantColor(draft.primary) ? draft.primary : DEFAULT_RESTAURANT_THEME.primary} onChange={event => setDraft((value: RestaurantThemeColors) => ({ ...value, primary: event.target.value }))} aria-label="Elegir color principal" /><input type="text" value={draft.primary} onChange={event => setDraft((value: RestaurantThemeColors) => ({ ...value, primary: event.target.value }))} aria-label="Código de color principal" maxLength={7} /></div></label>
             <label>Color de acento<div><input type="color" value={validRestaurantColor(draft.accent) ? draft.accent : DEFAULT_RESTAURANT_THEME.accent} onChange={event => setDraft((value: RestaurantThemeColors) => ({ ...value, accent: event.target.value }))} aria-label="Elegir color de acento" /><input type="text" value={draft.accent} onChange={event => setDraft((value: RestaurantThemeColors) => ({ ...value, accent: event.target.value }))} aria-label="Código de color de acento" maxLength={7} /></div></label>
             {!valid && <p role="alert" className="text-sm text-rose-700">Usa códigos hexadecimales de seis dígitos, por ejemplo #1769d2.</p>}
-            <div className="restaurant-theme-actions"><button type="button" onClick={() => setDraft(DEFAULT_RESTAURANT_THEME)}>Restaurar PACHAX Light</button><button type="button" disabled={!valid || saving || !onSaveTheme} onClick={() => void saveTheme()}>{saving ? 'Guardando...' : 'Guardar apariencia'}</button></div>
+            <div className="restaurant-theme-actions"><button type="button" onClick={() => setDraft(DEFAULT_RESTAURANT_THEME)}>Restaurar PACHAX Light</button><button type="button" data-tour="settings-save-theme-btn" disabled={!valid || saving || !onSaveTheme} onClick={() => void saveTheme()}>{saving ? 'Guardando...' : 'Guardar apariencia'}</button></div>
             {notice && <p role="status" className="text-sm font-semibold">{notice}</p>}
           </div>
           <div className="restaurant-theme-preview" style={restaurantThemeStyle(draft)} aria-label="Vista previa del tema"><span>Vista previa</span><div><strong>PACHAX Restaurant</strong><span>Turno activo</span></div><div className="restaurant-theme-preview-card"><p>Producto destacado</p><strong>Bs 42,00</strong><span className="restaurant-theme-preview-button"><Check size={15} /> Agregar</span></div></div>
@@ -74,12 +74,14 @@ export function RestaurantSettings({
       </section>
 
       {/* Empresa y Documentos */}
+      <div data-tour="settings-identity">
       <BusinessIdentitySettings
         initialIdentity={businessIdentity}
         canManage={canManage}
         onSaveIdentity={onSaveBusinessIdentity || (() => {})}
         onUploadLogo={onUploadLogo}
       />
+      </div>
 
       {isCounterService && onFloorAction && (
         <div className="restaurant-settings-panel space-y-4">

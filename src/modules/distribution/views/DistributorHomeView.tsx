@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { ClipboardList, HandCoins, ShoppingCart, Wallet } from 'lucide-react'
 import { Screen } from '../../../components/ui/Screen'
 import { computeMoneySummary, computeSoldKilograms, computeSoldPackages, round2 } from '../domain/engine'
-import { KpiCard, SectionCard, formatBs, formatQty } from './shared'
+import { KpiCard, SectionCard } from './shared'
+import { formatBs, formatQty } from './sharedFormatters'
 import type { ModuleId } from '../../../config/businessTypes'
 import type { DistributionViewProps } from './DistributionApp'
 
@@ -78,6 +79,7 @@ export function DistributorHomeView({
           ))}
         </div>
 
+        <div data-tutorial-target="distributor-stock-summary">
         <SectionCard title="Mi carga">
           {routeStock.length === 0 ? (
             <p className="text-xs font-semibold text-slate-500">Almacen todavia no registro tu carga de hoy.</p>
@@ -94,6 +96,7 @@ export function DistributorHomeView({
             </div>
           )}
         </SectionCard>
+        </div>
 
         <SectionCard title="Mis movimientos de hoy">
           <div className="grid grid-cols-3 gap-2">

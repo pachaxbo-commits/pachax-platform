@@ -1,4 +1,17 @@
-export const RESTAURANT_TUTORIAL_IDS = ['pos', 'counter_pos', 'tables', 'kitchen', 'cash', 'products', 'inventory', 'customers'] as const
+export const RESTAURANT_TUTORIAL_IDS = [
+  'pos',
+  'counter_pos',
+  'tables',
+  'kitchen',
+  'cash',
+  'products',
+  'inventory',
+  'customers',
+  'history',
+  'users',
+  'settings',
+  'printers',
+] as const
 
 export type RestaurantTutorialId = typeof RESTAURANT_TUTORIAL_IDS[number]
 export type RestaurantTutorialStatus = 'not-started' | 'in-progress' | 'completed' | 'skipped'
@@ -19,6 +32,10 @@ const TUTORIAL_DETAILS: Record<RestaurantTutorialId, Omit<RestaurantLearningTuto
   products: { title: 'Productos y recetas', description: 'Consulta el catálogo, precios, recetas e ingredientes.' },
   inventory: { title: 'Inventario', description: 'Revisa existencias, movimientos y alertas.' },
   customers: { title: 'Clientes', description: 'Busca contactos, consulta actividad y conoce las opciones disponibles.' },
+  history: { title: 'Historial y reportes', description: 'Consulta ventas pasadas, cierres de caja y auditoría de pedidos.' },
+  users: { title: 'Usuarios y roles', description: 'Gestiona el personal del equipo, roles y permisos de acceso.' },
+  settings: { title: 'Configuración de negocio', description: 'Personaliza datos fiscales, nombre comercial y preferencias del restaurante.' },
+  printers: { title: 'Impresoras y comandas', description: 'Configura impresoras de cocina, tickets y estaciones de despacho.' },
 }
 
 export function restaurantLearningTutorialIdsForProfile(

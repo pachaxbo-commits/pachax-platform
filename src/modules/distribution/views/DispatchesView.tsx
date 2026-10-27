@@ -7,7 +7,8 @@ import { EmptyBlock, Screen } from '../../../components/ui/Screen'
 import { computeLoadedByProduct, round2, toDayKey, validateStockAvailability } from '../domain/engine'
 import { addDispatchLoad, confirmDispatch, newOperationId, warehouseBalanceId } from '../data/distributionRepository'
 import { useTenantMembers } from '../state/useTenantMembers'
-import { PrimaryButton, SecondaryButton, SectionCard, formatQty } from './shared'
+import { PrimaryButton, SecondaryButton, SectionCard } from './shared'
+import { formatQty } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistDispatch, DistDispatchLine } from '../types'
 
@@ -358,7 +359,7 @@ export function DispatchesView({ session, data }: DistributionViewProps) {
                 ) : undefined
               }
             >
-              <div className="grid gap-1.5">
+              <div className="grid gap-1.5" data-tutorial-target="dispatch-lines-detail">
                 {[...loaded.entries()].map(([productId, totals]) => (
                   <div key={productId} className="flex min-w-0 items-center justify-between gap-2 rounded-2xl bg-slate-50 px-3 py-2">
                     <div className="min-w-0">

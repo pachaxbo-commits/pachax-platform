@@ -86,7 +86,7 @@ export function clearDemoState(businessType: string): void {
       const keysToRemove: string[] = []
       for (let i = 0; i < window.sessionStorage.length; i++) {
         const k = window.sessionStorage.key(i)
-        if (k && k.startsWith(prefix)) {
+        if (k && k.startsWith(prefix) && !k.includes(":progress_") && !k.includes(":tut_progress:")) {
           keysToRemove.push(k)
         }
       }
@@ -98,7 +98,7 @@ export function clearDemoState(businessType: string): void {
     }
   }
   for (const k of Array.from(memoryStore.keys())) {
-    if (k.startsWith(prefix)) {
+    if (k.startsWith(prefix) && !k.includes(":progress_") && !k.includes(":tut_progress:")) {
       memoryStore.delete(k)
     }
   }

@@ -9,8 +9,10 @@ import {
   computeSoldPackages,
   round2,
 } from '../domain/engine'
-import { KpiCard, SectionCard, VarianceBadge, formatBs, formatQty } from './shared'
-import { RangePicker, describeRange } from './RangePicker'
+import { KpiCard, SectionCard, VarianceBadge } from './shared'
+import { formatBs, formatQty } from './sharedFormatters'
+import { RangePicker } from './RangePicker'
+import { describeRange } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 
 
@@ -284,7 +286,7 @@ export function DashboardView({ session, data }: DistributionViewProps) {
           onRouteFilterChange={setRouteFilter}
         />
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-tutorial-target="dashboard-kpis">
           <KpiCard label="Ventas" value={formatBs(money.salesTotal)} tone="primary" />
           <KpiCard label="Venta efectivo" value={formatBs(money.cashSales)} />
           <KpiCard label="Venta QR" value={formatBs(money.qrSales)} />
@@ -299,6 +301,7 @@ export function DashboardView({ session, data }: DistributionViewProps) {
           <KpiCard label="Rutas cerradas" value={String(closedRoutes)} />
         </div>
 
+        <div data-tutorial-target="dashboard-distributors">
         <SectionCard title="Distribuidores">
           {byDistributor.length === 0 ? (
             <p className="text-xs font-semibold text-slate-500">Sin movimiento en el periodo.</p>
@@ -347,6 +350,7 @@ export function DashboardView({ session, data }: DistributionViewProps) {
             </div>
           )}
         </SectionCard>
+        </div>
 
         <SectionCard title="Productos y conciliacion">
           {productRows.length === 0 ? (

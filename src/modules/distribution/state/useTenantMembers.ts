@@ -25,8 +25,25 @@ export function useTenantMembers() {
   }, [])
 
   useEffect(() => {
-    void reload()
-  }, [reload])
+    let isCancelled = false
+    listRestaurantMembers()
+      .then((rows) => {
+        if (isCancelled) return
+        setMembers(rows)
+        setError(null)
+      })
+      .catch((loadError) => {
+        if (isCancelled) return
+        setError((loadError as Error).message || 'No se pudieron cargar los usuarios.')
+      })
+      .finally(() => {
+        if (isCancelled) return
+        setIsLoading(false)
+      })
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   return { members, isLoading, error, reload }
 }

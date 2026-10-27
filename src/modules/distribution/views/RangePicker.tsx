@@ -7,18 +7,6 @@ import type { DistRoute } from '../types'
 
 export type RangePreset = 'today' | 'week' | 'month' | 'custom'
 
-/** 2026-08-14 -> 14/08/2026 */
-export function formatDayKey(dayKey: string): string {
-  const [year, month, day] = (dayKey || '').split('-')
-  return year ? `${day}/${month}/${year}` : dayKey
-}
-
-export function describeRange(dayKeys: string[]): string {
-  if (dayKeys.length === 0) return ''
-  if (dayKeys.length === 1) return formatDayKey(dayKeys[0])
-  return `${formatDayKey(dayKeys[0])} a ${formatDayKey(dayKeys[dayKeys.length - 1])}`
-}
-
 /**
  * Selector de periodo compartido por el panel y los reportes: la duena espera
  * elegir las fechas igual en las dos pantallas.

@@ -1,5 +1,7 @@
 import type { DemoDatasetMode, DistributionDataset } from '../types.ts'
 import type { DistributionData } from '../../../modules/distribution/state/useDistributionStore.ts'
+import type { DistributionIndustryProfile } from '../../../modules/distribution/types.ts'
+import { buildProfileDataset } from './profileDatasets.ts'
 
 const now = new Date().toISOString()
 const dayKey = now.slice(0, 10)
@@ -75,7 +77,10 @@ export function createEmptyDistributionDataset(): DistributionDataset {
  * - Gastos ruta: Bs 20
  * - Efectivo esperado: Bs 368
  */
-export function createFullDistributionDataset(): DistributionDataset {
+export function createFullDistributionDataset(profile?: DistributionIndustryProfile): DistributionDataset {
+  if (profile) {
+    return { data: buildProfileDataset(profile) }
+  }
   const data: DistributionData = {
     supportSettings: {
       companyName: 'Distribuidora Demo',
@@ -370,6 +375,6 @@ export function createFullDistributionDataset(): DistributionDataset {
   return { data }
 }
 
-export function createDistributionDataset(mode: DemoDatasetMode = 'full'): DistributionDataset {
-  return mode === 'empty' ? createEmptyDistributionDataset() : createFullDistributionDataset()
+export function createDistributionDataset(mode: DemoDatasetMode = 'full', profile?: DistributionIndustryProfile): DistributionDataset {
+  return mode === 'empty' ? createEmptyDistributionDataset() : createFullDistributionDataset(profile)
 }
