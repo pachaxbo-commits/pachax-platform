@@ -37,6 +37,7 @@ import { RestaurantHistory } from '../components/RestaurantHistory'
 import { RestaurantCash } from '../components/RestaurantCash'
 import { RestaurantInventory } from '../components/RestaurantInventory'
 import { RestaurantProducts } from '../components/RestaurantProducts'
+import type { ProductImageAdapter } from '../domain/productImageAdapter'
 import { RestaurantCustomers } from '../components/RestaurantCustomers'
 import type { RestaurantCustomer } from '../domain/restaurantCustomers'
 import type { CustomerDraft } from '../components/RestaurantCustomerForm'
@@ -207,6 +208,7 @@ export interface RestaurantExperienceProps {
   businessIdentity?: BusinessIdentity
   onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
   onUploadLogo?: (file: File) => Promise<string>
+  imageAdapter?: ProductImageAdapter
 }
 
 const MODULE_DEFINITIONS: Array<{
@@ -317,6 +319,7 @@ export function RestaurantExperience({
   businessIdentity,
   onSaveBusinessIdentity,
   onUploadLogo,
+  imageAdapter,
 }: RestaurantExperienceProps) {
   const isCounterService = profile === 'counter_service'
   const operationalShiftOpen = isShiftOpen !== undefined ? isShiftOpen : Boolean(shift)
@@ -1110,6 +1113,7 @@ export function RestaurantExperience({
               onArchiveProduct={onArchiveProduct}
               onDeleteProduct={onDeleteProduct}
               onStartTour={canRunProductsTour ? startProductsTour : undefined}
+              imageAdapter={imageAdapter}
             />
           )}
           {activeModule === 'customers' && <RestaurantCustomers orders={orders} customers={customers} restaurantName={displayName} canManage={canManageCustomers} canViewHistory={canViewCustomerHistory} canCreateCustomer={canCreateCustomer} onSaveCustomer={onSaveCustomer} onArchiveCustomer={onArchiveCustomer} onStartTour={canRunCustomersTour ? startCustomersTour : undefined} />}

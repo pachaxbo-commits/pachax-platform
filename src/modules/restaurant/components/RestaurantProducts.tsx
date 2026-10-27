@@ -18,10 +18,7 @@ import { Field, NumberInput, SelectInput, TextArea, TextInput } from '../../../c
 import type { CatalogCategory, Order, Product } from '../../../types'
 import { RestaurantProductInventoryFields } from './RestaurantProductInventoryFields'
 import { IngredientStock } from './IngredientStock'
-import {
-  validateImageFile,
-  compressProductImage,
-} from '../../../demo/restaurant/demoProductImageStorage'
+import type { ProductImageAdapter } from '../domain/productImageAdapter'
 
 type ProductType = 'prepared' | 'ingredient' | 'beverage'
 const categoryNames = ['Entradas', 'Platos principales', 'Bebidas', 'Postres']
@@ -32,6 +29,7 @@ export function RestaurantProducts({
   onSaveProducts,
   onArchiveProduct,
   onStartTour,
+  imageAdapter,
 }: {
   categories: CatalogCategory[]
   products: Product[]
@@ -40,6 +38,7 @@ export function RestaurantProducts({
   onArchiveProduct?: (productId: string) => Promise<void> | void
   onDeleteProduct?: (productId: string) => Promise<void> | void
   onStartTour?: () => void
+  imageAdapter?: ProductImageAdapter
 }) {
   const catalog = products
   const [query, setQuery] = useState('')
@@ -110,17 +109,29 @@ export function RestaurantProducts({
     const file = event.target.files?.[0]
     if (!file) return
 
-    const validation = validateImageFile(file)
-    if (!validation.ok) {
-      setImageError(validation.error || 'Archivo de imagen no válido.')
+    if (!imageAdapter || !imageAdapter.isSupported || !imageAdapter.processImage) {
+      setImageError(imageAdapter?.notice || 'El almacenamiento de fotografías no está habilitado para esta empresa.')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
 
+    if (imageAdapter.validateImage) {
+      const validation = imageAdapter.validateImage(file)
+      if (!validation.ok) {
+        setImageError(validation.error || 'Archivo de imagen no válido.')
+        if (fileInputRef.current) fileInputRef.current.value = ''
+        return
+      }
+    }
+
     setIsCompressingImage(true)
     try {
-      const compressedDataUrl = await compressProductImage(file, 800, 0.82)
-      setForm((prev) => ({ ...prev, image: compressedDataUrl }))
+      const res = await imageAdapter.processImage(file)
+      if (res.ok && res.dataUrl) {
+        setForm((prev) => ({ ...prev, image: res.dataUrl || '' }))
+      } else {
+        setImageError(res.error || 'No se pudo procesar la imagen seleccionada.')
+      }
     } catch (err) {
       setImageError(
         err instanceof Error
@@ -443,45 +454,56 @@ export function RestaurantProducts({
               )}
 
               <div className="flex-1 min-w-[200px] space-y-1.5">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={handleImageFileChange}
-                  className="hidden"
-                />
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={isCompressingImage}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
-                  >
-                    <Upload size={14} />
-                    {form.image ? 'Cambiar fotografía' : 'Subir fotografía'}
-                  </button>
-                  {form.image && (
-                    <button
-                      type="button"
-                      onClick={handleRemoveImage}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 cursor-pointer"
-                    >
-                      <X size={14} /> Quitar
-                    </button>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Formatos JPG, PNG o WebP. Se optimiza y almacena localmente en esta sesión.
-                </p>
-                {isCompressingImage && (
-                  <p className="text-[11px] font-semibold text-blue-600 animate-pulse">
-                    Optimizando fotografía...
-                  </p>
-                )}
-                {imageError && (
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-600">
-                    <AlertCircle size={13} className="shrink-0" />
-                    <span>{imageError}</span>
+                {imageAdapter?.isSupported ? (
+                  <>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleImageFileChange}
+                      className="hidden"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={isCompressingImage}
+                        onClick={() => fileInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                      >
+                        <Upload size={14} />
+                        {form.image ? 'Cambiar fotografía' : 'Subir fotografía'}
+                      </button>
+                      {form.image && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveImage}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 cursor-pointer"
+                        >
+                          <X size={14} /> Quitar
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Formatos JPG, PNG o WebP. Se optimiza y almacena localmente en esta sesión.
+                    </p>
+                    {isCompressingImage && (
+                      <p className="text-[11px] font-semibold text-blue-600 animate-pulse">
+                        Optimizando fotografía...
+                      </p>
+                    )}
+                    {imageError && (
+                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-600">
+                        <AlertCircle size={13} className="shrink-0" />
+                        <span>{imageError}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    <p className="flex items-center gap-1.5 font-medium">
+                      <AlertCircle size={14} className="text-slate-400 shrink-0" />
+                      <span>{imageAdapter?.notice || 'Almacenamiento de fotografías empresariales deshabilitado (requiere canal Cloud Storage corporativo).'}</span>
+                    </p>
                   </div>
                 )}
               </div>

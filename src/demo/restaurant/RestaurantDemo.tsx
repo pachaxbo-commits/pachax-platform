@@ -1,5 +1,5 @@
 import { restaurantStorage, restaurantStorageKey } from './restaurantStorage'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import {
   RESTAURANT_CATEGORIES,
   RESTAURANT_PRODUCTS,
@@ -34,7 +34,10 @@ import {
   saveDemoProductImage,
   deleteDemoProductImage,
   loadDemoProductImages,
+  clearDemoProductImages,
+  buildDemoImageScopeKey,
 } from './demoProductImageStorage'
+import { createDemoProductImageAdapter } from './demoProductImageAdapter'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -319,6 +322,11 @@ export function RestaurantDemo({
   const storageKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:v1' : STORAGE_KEY
   const legacyKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:legacy' : LEGACY_KEY
   const themeKey = profile === 'counter_service' ? 'pachax:hamburger-demo:theme:v1' : THEME_KEY
+  const imageScopeKey = useMemo(() => {
+    const template = profile === 'counter_service' ? 'hamburger' : 'restaurant'
+    return buildDemoImageScopeKey({ template, datasetMode })
+  }, [profile, datasetMode])
+  const demoImageAdapter = useMemo(() => createDemoProductImageAdapter(), [])
   const urlModule = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('module') as import('../../modules/restaurant/views/RestaurantExperience').RestaurantModuleId | null) : null
   const effectiveInitialModule = initialModule || urlModule || undefined
   const [initial] = useState(() => loadInitialState(datasetMode, storageKey, legacyKey, profile))
@@ -1299,6 +1307,7 @@ export function RestaurantDemo({
       onSaveCustomer={saveCustomer}
       onArchiveCustomer={archiveCustomer}
       onAssignCustomer={assignCustomer}
+      imageAdapter={demoImageAdapter}
       onSaveProducts={handleSaveProducts}
       stockMovements={stockMovements}
       kitchenPrinterConfig={kitchenPrinterConfig}
@@ -1309,8 +1318,9 @@ export function RestaurantDemo({
       onReprintLatestKitchenTicket={reprintLatestKitchenTicket}
       onInventoryMovement={handleInventoryMovement}
       onCountInventoryItem={handleCountInventoryItem}
-      onResetDemo={() => {
+      onResetDemo={async () => {
         if (!window.confirm('¿Restablecer todos los datos locales de la demo Restaurante?')) return
+        await clearDemoProductImages(imageScopeKey)
         for (const key of restaurantStorage.keys()) if (key.startsWith(storageKey.slice(0, storageKey.lastIndexOf(':operations:') + 1))) restaurantStorage.removeItem(key)
         restaurantStorage.removeItem('cocina-tickets-impresos')
         try {

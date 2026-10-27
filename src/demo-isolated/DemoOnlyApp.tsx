@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, RotateCcw, ShieldCheck } from 'lucide-react'
 import { clearRestaurantDemoStorage } from '../demo/restaurant/restaurantStorage'
-import { clearDemoProductImages } from '../demo/restaurant/demoProductImageStorage'
+import { clearDemoProductImages, buildDemoImageScopeKey } from '../demo/restaurant/demoProductImageStorage'
 import type { DemoDatasetMode } from '../demo/datasets/types'
 
 const RestaurantDemo = lazy(() => import('../demo/restaurant/RestaurantDemo').then((module) => ({ default: module.RestaurantDemo })))
@@ -76,11 +76,19 @@ export function DemoOnlyApp() {
   const resetDemo = async () => {
     if (route.template === 'hamburger') {
       clearRestaurantDemoStorage('hamburger')
-      await clearDemoProductImages('pachax:hamburger-demo:operations:v1')
+      const scopeKey = buildDemoImageScopeKey({
+        template: 'hamburger',
+        datasetMode: route.dataset || 'full',
+      })
+      await clearDemoProductImages(scopeKey)
     }
     if (route.template === 'retail') {
       window.localStorage.removeItem('pachax:quick-retail-demo:operations:v1')
-      await clearDemoProductImages('retail')
+      const scopeKey = buildDemoImageScopeKey({
+        template: 'retail',
+        datasetMode: route.dataset || 'full',
+      })
+      await clearDemoProductImages(scopeKey)
     }
     setRole('admin')
     setResetKey((value) => value + 1)
@@ -122,7 +130,7 @@ export function DemoOnlyApp() {
     <div className="min-h-screen bg-slate-100">
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 px-3 py-2.5 backdrop-blur sm:px-5">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-2 sm:gap-3">
-          <button type="button" onClick={() => window.location.assign('/')} className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"><ArrowLeft size={14} /> Volver a PACHAX</button>
+          <button type="button" onClick={() => window.location.assign('/')} className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"><ArrowLeft size={14} /> Volver a PACHAX</button>
           <button type="button" onClick={() => navigate('/')} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer">Galería</button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold uppercase tracking-wider text-slate-500">{template === 'hamburger' ? 'Restaurante Rápido' : 'Comercio / Venta Rápida'}</p>
