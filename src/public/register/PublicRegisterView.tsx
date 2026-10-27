@@ -12,7 +12,7 @@ import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import '../publicExperience.css'
 import type { BusinessType } from '../../core/platform'
-import { getPublicTemplate, PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { getPublicTemplate, PUBLIC_TEMPLATES, isTemplateProvisioningAvailable, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED } from '../../core/publicTemplates'
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
@@ -68,6 +68,10 @@ export function PublicRegisterView() {
 
   const handleCompleteRegistration = async () => {
     if (submitting) return
+    if (!PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED) {
+      setRegisterError('La creación autónoma de empresas está pausada. Contacta a PACHAX para coordinar una implementación asistida.')
+      return
+    }
     if (!selectedTemplate || !isTemplateProvisioningAvailable(selectedTemplate)) {
       setRegisterError('Por favor selecciona una plantilla disponible para creación de empresas.')
       return
@@ -163,6 +167,25 @@ export function PublicRegisterView() {
     } else {
       navigate('/')
     }
+  }
+
+  if (!PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-5 py-16 font-sans text-slate-900">
+        <section className="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm sm:p-10">
+          <BrandMark size="md" href="/" onClick={(event) => { event.preventDefault(); navigate('/') }} />
+          <h1 className="mt-8 text-2xl font-semibold">Implementación asistida</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            La creación autónoma de empresas está temporalmente pausada. Puedes coordinar una implementación con el equipo de PACHAX.
+          </p>
+          <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+            <a className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" href="mailto:pachax.bo@gmail.com">Contactar a PACHAX</a>
+            <button className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700" onClick={() => navigate('/login')} type="button">Ya tengo cuenta</button>
+          </div>
+          <button className="mt-5 text-sm text-slate-500 underline" onClick={() => navigate('/')} type="button">Volver al inicio</button>
+        </section>
+      </main>
+    )
   }
 
   return (

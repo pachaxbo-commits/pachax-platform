@@ -15,6 +15,9 @@ export interface PublicTemplateDefinition {
   demoStatus?: PublicTemplateStatus
 }
 
+/** Temporary release gate: public visitors can browse demos but cannot provision tenants. */
+export const PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED = false
+
 export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.freeze([
   {
     id: 'restaurant',

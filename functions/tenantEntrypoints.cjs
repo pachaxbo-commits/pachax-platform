@@ -13,7 +13,9 @@ const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
 const { executeRestaurantCommand } = require('./restaurant.cjs');
 const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
+const { assertPublicTenantCreationClosed } = require('./publicTenantCreation.cjs');
 const { getTemplate } = require('./generated/templates.js');
+const { authenticated } = require('./authorization.cjs');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
 const distributionEventOptions = {
   region: PACHAX_FUNCTIONS_REGION,
@@ -36,6 +38,8 @@ exports.tenantGateway = onCall(options, async request => {
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);
     case 'completeOnboarding': {
+      authenticated(request);
+      assertPublicTenantCreationClosed();
       if (Object.keys(request.data || {}).some(key => !ONBOARDING_FIELDS.has(key))) {
         throw new HttpsError('invalid-argument', 'El onboarding contiene campos no permitidos.');
       }
@@ -45,6 +49,8 @@ exports.tenantGateway = onCall(options, async request => {
     }
     case 'submitCommercialInterest': return commercialOnboarding.submitCommercialInterest(db, request);
     case 'createTenant': {
+      authenticated(request);
+      assertPublicTenantCreationClosed();
       const bType = request.data?.businessType;
       assertProvisionableTemplate(bType);
       return tenants.createTenant(db, auth, request);

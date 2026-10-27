@@ -18,6 +18,7 @@ const { initializeApp } = require('firebase-admin/app')
 const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const { getAuth } = require('firebase-admin/auth')
 const { createTenant } = require('./tenants.cjs')
+const { assertPublicTenantCreationClosed } = require('./publicTenantCreation.cjs')
 const { bootstrapFirstOwner } = require('./platformBootstrap.cjs')
 const platform = require('./platform.cjs')
 const commercialOnboarding = require('./commercialOnboarding.cjs')
@@ -511,6 +512,13 @@ try {
   pass('despublicar una oferta la retira de la proyección pública inmediatamente')
 
   // === PROVISIONING GATE EN TENANTGATEWAY (SERVER-AUTHORITATIVE) ===
+  assert.throws(
+    () => assertPublicTenantCreationClosed({ functionsEmulator: false }),
+    error => error.code === 'failed-precondition',
+  )
+  assert.doesNotThrow(() => assertPublicTenantCreationClosed({ functionsEmulator: true }))
+  pass('la política de producción cierra altas autónomas; emuladores aislados conservan onboarding de QA')
+
   const ordinaryUid = `user_prov_${suffix}`
   await auth.createUser({ uid: ordinaryUid, email: `${ordinaryUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Ordinario' })
 
@@ -601,7 +609,7 @@ try {
   assert(onbNight.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con nightclub_lounge es PERMITIDO y converge')
 
-    assert.equal(checks, 72)
+    assert.equal(checks, 73)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()

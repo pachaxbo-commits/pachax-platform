@@ -12,6 +12,7 @@ import {
   canLaunchCommercialDemo,
   isTechnicalDemoAvailable,
   isTemplateProvisioningAvailable,
+  PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED,
   PUBLIC_TEMPLATES,
 } from '../src/core/publicTemplates.ts'
 import { COMMERCIAL_PLAN_TEMPLATE_IDS as PLAN_ELIGIBLE_TEMPLATE_IDS } from '../src/admin/store/commercialCatalogContract.ts'
@@ -498,16 +499,15 @@ test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun p
   assert.equal(canPlatform(fakeRoot, 'support.read'), false)
 })
 
-test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica estricta', () => {
-  // Distribución, Restaurante y Nightclub están aprobados para aprovisionamiento real de tenants
+test('20. La política de autoservicio temporal es independiente de la disponibilidad por plantilla', () => {
+  assert.equal(PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, false)
+  // La disponibilidad técnica por plantilla se conserva; los entrypoints públicos se bloquean aparte.
   assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
-
-  // Plantillas no consolidadas para creación de empresas
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
@@ -551,14 +551,8 @@ test('22. Seed de configuración oficial: preserva estado oficial y no auto-publ
   assert.equal(filteredPlans.some(p => p.templateId === 'custom'), false)
 })
 
-test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y Restaurant habilitados, coming-soon bloqueados, Custom sin aprovisionamiento y sin fallback silencioso', () => {
-  // Aprovisionamiento habilitado para Distribution, Restaurant y Nightclub
-  assert.equal(isTemplateProvisioningAvailable('distribution'), true)
-  assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
-  assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
-  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
-  assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
-  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
+test('23. El cierre de altas públicas no afecta demos ni disponibilidad por plantilla', () => {
+  assert.equal(PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, false)
 
   // Demo técnica desacoplada de aprovisionamiento: Distribution y Restaurant disponibles; Nightclub sigue coming_soon
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
@@ -579,22 +573,18 @@ test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y R
 
   // Lógica de PublicRegisterView: cuando se recibe un templateParam en la URL
   function resolveInitialRegisterTemplate(templateParam: string | null): string {
+    if (!PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED) return ''
     const param = templateParam || ''
     return param ? (isTemplateProvisioningAvailable(param) ? param : '') : 'route_distribution'
   }
 
-  // Sin parámetro: default a 'route_distribution'
-  assert.equal(resolveInitialRegisterTemplate(null), 'route_distribution')
-  assert.equal(resolveInitialRegisterTemplate(''), 'route_distribution')
-
-  // Parámetro válido disponible: se selecciona directamente
-  assert.equal(resolveInitialRegisterTemplate('route_distribution'), 'route_distribution')
-  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), 'restaurant_pos')
-  assert.equal(resolveInitialRegisterTemplate('nightclub_lounge'), 'nightclub_lounge')
-  assert.equal(resolveInitialRegisterTemplate('nightclub'), 'nightclub')
-
-  // Parámetro no disponible / coming-soon: NO debe haber fallback silencioso a Distribution
+  // La ruta pública no preselecciona ni habilita una plantilla; sin parámetro también queda cerrada.
+  assert.equal(resolveInitialRegisterTemplate(null), '')
+  assert.equal(resolveInitialRegisterTemplate(''), '')
   assert.equal(resolveInitialRegisterTemplate('hamburger'), '')
+  assert.equal(resolveInitialRegisterTemplate('route_distribution'), '')
+  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), '')
+  assert.equal(resolveInitialRegisterTemplate('nightclub_lounge'), '')
   assert.equal(resolveInitialRegisterTemplate('retail'), '')
   assert.equal(resolveInitialRegisterTemplate('custom'), '')
   assert.equal(resolveInitialRegisterTemplate('invalid_template'), '')

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable, isTechnicalDemoAvailable } from '../src/core/publicTemplates.ts'
+import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable, isTechnicalDemoAvailable, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED } from '../src/core/publicTemplates.ts'
 import { COMMERCIAL_TEMPLATES } from '../src/public/config/commercialShowcase.ts'
 
 test('Public demo availability stays independent from commercial provisioning', () => {
@@ -10,7 +10,12 @@ test('Public demo availability stays independent from commercial provisioning', 
   assert.equal(freeDemoPath('retail', 'empty'), '/demo/retail?data=empty')
   assert.equal(freeDemoPath('restaurant'), null)
   assert.equal(isTechnicalDemoAvailable('restaurant'), true)
+  assert.equal(PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, false)
   assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
+  assert.equal(isTemplateProvisioningAvailable('distribution'), true)
+  assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
+  assert.equal(isTemplateProvisioningAvailable('retail'), false)
   assert.equal(canLaunchCommercialDemo(COMMERCIAL_TEMPLATES.find(template => template.id === 'restaurant')!), true)
   assert.equal(canLaunchCommercialDemo({
     id: 'restaurant',
