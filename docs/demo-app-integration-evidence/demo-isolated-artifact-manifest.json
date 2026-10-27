@@ -3,7 +3,7 @@
   "buildCommand": "npm run build:demos-only",
   "outputDirectory": "dist-demo-isolated",
   "totalFiles": 92,
-  "totalBytes": 22378393,
+  "totalBytes": 22379784,
   "files": [
     {
       "path": "brand/pachax-app-icon.png",
@@ -261,9 +261,14 @@
       "sha256": "1b13387cb23dc39bf70e31677c21f6db5cad3377b96f286b6ee444496e5bfea7"
     },
     {
-      "path": "demo-assets/datasets-CqmgRdFs.js",
+      "path": "demo-assets/datasets-AGWdgIqa.js",
       "bytes": 21718,
-      "sha256": "2bb7f73bdfbd3f9e34a92a356aa51f1df6dc2f4aab6b90ed3ad968835da91666"
+      "sha256": "698d69d380492144aa90eea3bee834442be7b2ca4d7ab8c9aadaac11f4ed6c5a"
+    },
+    {
+      "path": "demo-assets/demo-B8cdYHyX.js",
+      "bytes": 208063,
+      "sha256": "2f8be0029604cc717cc44a356d4129f533c293e8dbed7140840c327a597a5b2e"
     },
     {
       "path": "demo-assets/demo-cnfXnTV9.css",
@@ -271,24 +276,19 @@
       "sha256": "5e060a8a06878254b4ffa562ea4281602cfe7e4c1fd5c667ac2fe9a6b26f76b0"
     },
     {
-      "path": "demo-assets/demo-DFSNF3T4.js",
-      "bytes": 207323,
-      "sha256": "f37d9e20ee08f311ad454b1c1b0ac6e7f960967f0449bf494fbafac5de2c709f"
-    },
-    {
       "path": "demo-assets/dist-BcvA-GRa.js",
       "bytes": 7749,
       "sha256": "f4d084abb55d5e2f8b9f0a0f604c11caab2b9d3e9eac9854addf254df5903b65"
     },
     {
-      "path": "demo-assets/esm-D-jfA2rP.js",
+      "path": "demo-assets/esm-Be-Ubwer.js",
       "bytes": 1389,
-      "sha256": "7bd8c10dc9d6ba5aab790e4444882f6b60961d1d771aacdcaafd3aee746c8e38"
+      "sha256": "5f0bcb404806455a1487a119a23933ec7e3c3a5fa2e292ffca5807a6a619f27d"
     },
     {
-      "path": "demo-assets/esm-TVXoUeNu.js",
+      "path": "demo-assets/esm-u8OUjwnJ.js",
       "bytes": 345,
-      "sha256": "0655ef1704fdc38540a526c505372976284f8ea5dda06b3eff0705501661ecb3"
+      "sha256": "211b30bf8faef6ec8ebd8b2432bfb242eff7194e7dbfcf17b81e715589d89140"
     },
     {
       "path": "demo-assets/html2canvas-BzFc_22V.js",
@@ -301,9 +301,9 @@
       "sha256": "c731aa518ae51297856e57c66d47f5fa88836f41ff3c923697b4cb753288365a"
     },
     {
-      "path": "demo-assets/jspdf.es.min-DRwZjNK0.js",
+      "path": "demo-assets/jspdf.es.min-DPSDlZPZ.js",
       "bytes": 399346,
-      "sha256": "dc572ebef6d3155da8bc96c082bc61e8c4da29aab0ac2192c2cfe33b135d0b4b"
+      "sha256": "50b566c0b9e38c8d18ae987fdaea7258e3847e337f5e1419c871b936c34be9c0"
     },
     {
       "path": "demo-assets/purify.es-CJ-rlsNn.js",
@@ -311,9 +311,9 @@
       "sha256": "edf235b10be724f7897f3220cde61e3b28f76491c6f085830a0b4a132ed9068d"
     },
     {
-      "path": "demo-assets/QuickRetailDemo-CpfWjR4E.js",
+      "path": "demo-assets/QuickRetailDemo-C7nExYIF.js",
       "bytes": 47621,
-      "sha256": "be1ae2568f78014319a86aca4de07e4d2a5f94eb8e03f62a401eacec9671a3e1"
+      "sha256": "cfab759bb47504396701606a9da8ba7907b968215eb3410503afabab8b574d1d"
     },
     {
       "path": "demo-assets/RestaurantDemo-BLO4p97i.css",
@@ -321,9 +321,9 @@
       "sha256": "9b714f73af6d40396970e6e48f76a7bed914f61ab8a73da3669a9bd975e53711"
     },
     {
-      "path": "demo-assets/RestaurantDemo-BvjKgbl8.js",
-      "bytes": 538721,
-      "sha256": "7978fa481fd6ceb822b439315d7d66dec35a711a1eae6a70fb95c3f0532c8908"
+      "path": "demo-assets/RestaurantDemo-CayeUHK4.js",
+      "bytes": 539372,
+      "sha256": "6147a0aa458403cfd1bf414bb51c0877ff99f5b055149a98157d3185d70f5717"
     },
     {
       "path": "demo-assets/typeof-B5XbjTb1.js",
@@ -341,14 +341,14 @@
       "sha256": "78e59e7e9126afc07a60c408b11f4bd89a511e54d6442c381355f02fe4c55bba"
     },
     {
-      "path": "demo-assets/web-DrcmtkIX.js",
+      "path": "demo-assets/web-pM8aVRuQ.js",
       "bytes": 8492,
-      "sha256": "f4721a3c6969a25c823219d6d7d33f78e420e6be68785ae7730bd316fdf20548"
+      "sha256": "3a0d7e6175369e4dc117dca695183b7becf09cba033aa8d1f5bdc1528006eec4"
     },
     {
       "path": "demo-isolated.html",
       "bytes": 941,
-      "sha256": "c9a1bd702e09c9b82a5c73754643c3bb7ea98394a79bd6e1da9f42ce2d20c07a"
+      "sha256": "47bd25817a06f9b638d82c03fe6007f06ba7858d51a622107ea7e385e9e86199"
     },
     {
       "path": "demo-isolation-network-guard.js",

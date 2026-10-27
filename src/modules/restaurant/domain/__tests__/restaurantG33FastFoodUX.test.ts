@@ -10,6 +10,9 @@ import {
   deleteDemoProductImage,
   loadDemoProductImages,
   clearDemoProductImages,
+  getDemoSessionId,
+  getDemoImageStorageDriver,
+  sanitizeProductsForStorage,
 } from '../../../../demo/restaurant/demoProductImageStorage.ts'
 import {
   DISABLED_PRODUCT_IMAGE_ADAPTER,
@@ -161,4 +164,112 @@ test('G5.1 - Real Tenant Protection: empresas reales tienen almacenamiento de fo
 
   const invalidSvg = new File(['<svg></svg>'], 'test.svg', { type: 'image/svg+xml' })
   assert.equal(demoAdapter.validateImage?.(invalidSvg)?.ok, false)
+})
+
+test('G5.2 - sanitizeProductsForStorage: remueve Base64 data: URLs y preserva rutas relativas y metadatos', () => {
+  const products = [
+    { id: 'p1', name: 'Hamburguesa', price: 38, image: 'data:image/webp;base64,UklGRmYAAABXRUJQVlA4...', stockBase: 10 },
+    { id: 'p2', name: 'Gaseosa', price: 12, image: '/images/fastfood/soda-glass.webp', stockBase: 50 },
+    { id: 'p3', name: 'Papas', price: 15, image: '', stockBase: 25 },
+    { id: 'p4', name: 'Insumo', price: 0 },
+  ]
+
+  const sanitized = sanitizeProductsForStorage(products)
+
+  // El producto con base64 debe tener imagen vacía para no saturar sessionStorage
+  assert.equal(sanitized[0].image, '')
+  assert.equal(sanitized[0].name, 'Hamburguesa')
+  assert.equal(sanitized[0].price, 38)
+  assert.equal(sanitized[0].stockBase, 10)
+
+  // El producto con ruta relativa debe conservar su imagen exactamente
+  assert.equal(sanitized[1].image, '/images/fastfood/soda-glass.webp')
+  assert.equal(sanitized[1].name, 'Gaseosa')
+
+  // Los productos sin imagen o con cadena vacía se mantienen intactos
+  assert.equal(sanitized[2].image, '')
+  assert.equal(sanitized[3].image, undefined)
+})
+
+test('G5.2 - getDemoSessionId: preserva sesión tras recarga (F5) pero aísla pestañas clonadas o duplicadas', () => {
+  // Simulación de entorno de navegador con sessionStorage y window.name
+  const store = new Map<string, string>()
+  const fakeSessionStorage = {
+    length: 0,
+    clear: () => store.clear(),
+    key: (index: number) => Array.from(store.keys())[index] || null,
+    getItem: (key: string) => store.get(key) || null,
+    setItem: (key: string, val: string) => { store.set(key, val) },
+    removeItem: (key: string) => { store.delete(key) },
+  } as Storage
+
+  const originalWindow = globalThis.window
+  const mockWindow = {
+    sessionStorage: fakeSessionStorage,
+    name: '',
+  } as unknown as Window & typeof globalThis
+
+  globalThis.window = mockWindow
+
+  try {
+    // 1. Primera apertura de pestaña
+    const sid1 = getDemoSessionId()
+    assert.match(sid1, /^tab_/)
+    assert.equal(globalThis.window.name, `pachax_tab_${sid1}`)
+    assert.equal(fakeSessionStorage.getItem('pachax:demo:tab_session_id'), sid1)
+
+    // 2. Recarga F5 en la misma pestaña (window.name y sessionStorage se conservan)
+    const sidAfterReload = getDemoSessionId()
+    assert.equal(sidAfterReload, sid1)
+
+    // 3. Pestaña duplicada (el navegador copia sessionStorage pero window.name inicia vacío "")
+    globalThis.window.name = '' // Chrome resetea window.name al duplicar pestaña
+    const sidDuplicated = getDemoSessionId()
+    assert.notEqual(sidDuplicated, sid1)
+    assert.match(sidDuplicated, /^tab_/)
+    assert.equal(globalThis.window.name, `pachax_tab_${sidDuplicated}`)
+    assert.equal(fakeSessionStorage.getItem('pachax:demo:tab_session_id'), sidDuplicated)
+  } finally {
+    if (originalWindow) {
+      globalThis.window = originalWindow
+    } else {
+      delete (globalThis as Record<string, unknown>).window
+    }
+  }
+})
+
+test('G5.2 - Queue Serialization: serializa escrituras sucesivas en la misma clave sin carreras ni pérdida de datos', async () => {
+  const scope = 'hamburger:full:test-queue-session'
+  const productId = 'prod-rapid-write'
+
+  const img1 = 'data:image/webp;base64,FIRST_WRITE'
+  const img2 = 'data:image/webp;base64,SECOND_WRITE'
+  const img3 = 'data:image/webp;base64,THIRD_FINAL_WRITE'
+
+  // Lanzar tres escrituras rápidas y asíncronas sobre la misma clave
+  const p1 = saveDemoProductImage(scope, productId, img1)
+  const p2 = saveDemoProductImage(scope, productId, img2)
+  const p3 = saveDemoProductImage(scope, productId, img3)
+
+  await Promise.all([p1, p2, p3])
+
+  // Debe prevalecer de manera determinista la última escritura de la cola
+  const finalImage = await getDemoProductImage(scope, productId)
+  assert.equal(finalImage, img3)
+
+  // Limpiar
+  await deleteDemoProductImage(scope, productId)
+  assert.equal(await getDemoProductImage(scope, productId), null)
+})
+
+test('G5.2 - Storage Driver Detection: reporta driver disponible y aviso adecuado en adaptador', () => {
+  const driver = getDemoImageStorageDriver()
+  assert.ok(['indexeddb', 'memory'].includes(driver))
+
+  const adapter = createDemoProductImageAdapter()
+  assert.equal(adapter.driver, driver)
+  assert.ok(adapter.notice && adapter.notice.length > 0)
+  if (driver === 'memory') {
+    assert.match(adapter.notice, /memoria temporal/i)
+  }
 })
