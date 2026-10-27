@@ -1,0 +1,66 @@
+{
+  "g5_2_verified": true,
+  "steps": {
+    "step1_initial_state": {
+      "ok": true,
+      "sessionId": "tab_do5l8sp_mvq6h4dl",
+      "zeroBase64InSessionStorage": true
+    },
+    "step2_product_created": {
+      "newProdId": "prod-test-1793074860329",
+      "scopeKey": "hamburger:full:tab_do5l8sp_mvq6h4dl"
+    },
+    "step3_indexeddb_record": {
+      "ok": true,
+      "exactKey": "hamburger:full:tab_do5l8sp_mvq6h4dl:prod-test-1793074860329",
+      "scopeKey": "hamburger:full:tab_do5l8sp_mvq6h4dl",
+      "productId": "prod-test-1793074860329"
+    },
+    "step4_zero_base64_in_storage": {
+      "ok": true,
+      "productsHasBase64": false,
+      "inventoryHasBase64": false
+    },
+    "step5_f5_reload_preservation": {
+      "sid": "tab_do5l8sp_mvq6h4dl",
+      "winName": "pachax_tab_tab_do5l8sp_mvq6h4dl",
+      "isPreserved": true,
+      "hasRestoredImage": true,
+      "imageMatches": true
+    },
+    "step6_edit_and_replace": {
+      "ok": true,
+      "preservedAfterReload": true
+    },
+    "step7_delete_photo": {
+      "ok": true,
+      "photoEliminated": true
+    },
+    "step8_full_empty_isolation": {
+      "scopeFull": "hamburger:full:tab_do5l8sp_mvq6h4dl",
+      "scopeEmpty": "hamburger:empty:tab_do5l8sp_mvq6h4dl",
+      "scopesDifferent": true,
+      "inFullExists": true,
+      "inEmptyIsNull": true
+    },
+    "step9_duplicate_tab_isolation": {
+      "originalSid": "tab_do5l8sp_mvq6h4dl",
+      "newTabSid": "tab_ujfvh8f_mvq6h80a",
+      "isDifferent": true,
+      "newWinNameCoincides": true
+    },
+    "step10_reset_demo_selective_purge": {
+      "myPurgedIsNull": true,
+      "otherKeptRemained": true
+    }
+  },
+  "network": {
+    "totalCalls": 586,
+    "productionFirebaseCalls": 0,
+    "cleanIsolatedNetwork": true
+  },
+  "evidenceScreenshots": [
+    "g5-2-fastfood-products-desktop-1440x900.png",
+    "g5-2-fastfood-products-mobile-390x844.png"
+  ]
+}
