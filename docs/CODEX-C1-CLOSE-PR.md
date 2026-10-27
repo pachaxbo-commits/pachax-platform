@@ -48,7 +48,9 @@ Current root `npm audit` reported 11 affected package entries: 1 critical, 9 hig
 
 ## Preview, integration, and release gates
 
-Vercel SSO protection is enabled for deployment URLs. The Preview target inherits production Firebase variables, so Preview is suitable only for protected visual/navigation checks; do not submit the commercial form, create tenants, or perform writes there. No Preview was triggered from this branch during this task.
+Pull request: https://github.com/pachaxbo-commits/pachax-platform/pull/2, branch SHA `413cf8e34480293d78deb728ad2dd240a342a9d6`.
+
+Vercel Preview for that exact SHA is READY at https://pachax-mqo8ijvzw-pachaxbo-8256s-projects.vercel.app. SSO protection is enabled for deployment URLs. The Preview target inherits production Firebase variables, so it is suitable only for protected visual/navigation checks; do not submit the commercial form, create tenants, or perform writes there. The deployment is READY but no browser click-through was performed because the Windows CUA bridge failed to initialize.
 
 Gemini PR #1 remains a separate, non-overlapping change set except for the generated demo artifact manifest, which is deliberately excluded from this branch. Recommended sequence: review/merge Gemini's finalized PR first if its G5.1 work is approved, refresh this branch against the resulting main, then review this commercial PR. Do not integrate automatically.
 
