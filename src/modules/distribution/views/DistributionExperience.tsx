@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import {
   Boxes,
   ClipboardList,
@@ -223,6 +223,19 @@ export function DistributionExperience({
     isDemo: effectiveIsDemo,
   }), [session.role, currentProfile, session.tenantId, session.uid, effectiveIsDemo])
 
+  const resetAllDistributionStatuses = useCallback(() => {
+    tutorialPlans.forEach((plan) => {
+      try {
+        saveTutorialProgress(progressContext, plan.id, {
+          status: 'not_started',
+          stepIndex: 0,
+          lastUpdated: new Date().toISOString(),
+        })
+      } catch { /* ignore */ }
+    })
+    setProgressMap({})
+  }, [tutorialPlans, progressContext])
+
   const orchestrator = useTutorialOrchestrator({
     scope: tutorialScope,
     sections: distributionSections,
@@ -239,6 +252,7 @@ export function DistributionExperience({
     onCloseSectionTour: () => {
       setActiveTourPlan(null)
     },
+    onResetAllStatuses: resetAllDistributionStatuses,
   })
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
@@ -693,6 +707,7 @@ export function DistributionExperience({
           isContinuous={orchestrator.state.isContinuousActive}
           onStepChange={(newStepIndex) => {
             setActiveStepIndex(newStepIndex)
+            orchestrator.updateStepIndex(newStepIndex)
             saveTutorialProgress(progressContext, activeTourPlan.id, {
               status: 'in_progress',
               stepIndex: newStepIndex,

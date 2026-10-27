@@ -36,6 +36,7 @@ export function RestaurantInteractiveTour({
   onDismiss,
   onComplete,
   onPause,
+  onStepChange,
 }: {
   steps: RestaurantTourStep[]
   mobileSteps?: RestaurantTourStep[]
@@ -43,9 +44,10 @@ export function RestaurantInteractiveTour({
   tourLabel?: string
   initialStepIndex?: number
   isContinuous?: boolean
-  onDismiss: () => void
+  onDismiss: (stepIndex: number) => void
   onComplete: () => void
   onPause?: (stepIndex: number) => void
+  onStepChange?: (stepIndex: number) => void
 }) {
   const activeSteps = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches && mobileSteps?.length
     ? mobileSteps
@@ -59,18 +61,12 @@ export function RestaurantInteractiveTour({
   const rect = currentTargetState.rect
   const missingTarget = currentTargetState.status === 'fallback' || currentTargetState.status === 'missing' || currentTargetState.status === 'invalid-selector'
 
-  // Automatic advance if navigation condition is already satisfied in the DOM
+  // Notify parent of step change to persist cursor in real time
   useEffect(() => {
-    if (step.interaction === 'navigate' && step.advanceWhen) {
-      if (document.querySelector(step.advanceWhen)) {
-        const nextStep = activeSteps[index + 1]
-        if (nextStep) {
-          setActiveStepId(nextStep.id)
-        }
-      }
-    }
-  }, [step, index, activeSteps])
+    onStepChange?.(index)
+  }, [index, onStepChange])
 
+  // Click on target element triggers next step for navigation interactions
   useEffect(() => {
     const onTargetClick = (event: MouseEvent) => {
       if (step.interaction !== 'navigate') return
@@ -167,7 +163,7 @@ export function RestaurantInteractiveTour({
         if (isContinuous && onPause) {
           onPause(index)
         } else {
-          onDismiss()
+          onDismiss(index)
         }
       }
     }
@@ -224,7 +220,12 @@ export function RestaurantInteractiveTour({
         style={{ top: cardTop, left: cardLeft }}
       >
         <div className="flex items-start justify-between gap-3">
-          <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{tourLabel} · Paso {index + 1} de {activeSteps.length}</p><h2 className="mt-1 text-base font-extrabold text-slate-900">{step.title}</h2></div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              {tourLabel} · Paso {index + 1} de {activeSteps.length}
+            </p>
+            <h2 className="mt-1 text-base font-extrabold text-slate-900">{step.title}</h2>
+          </div>
           <div className="flex items-center gap-1">
             {isContinuous && onPause && (
               <button
@@ -238,7 +239,7 @@ export function RestaurantInteractiveTour({
             )}
             <button
               type="button"
-              onClick={onDismiss}
+              onClick={() => onDismiss(index)}
               className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 cursor-pointer"
               aria-label="Cerrar tutorial"
             >
@@ -246,11 +247,56 @@ export function RestaurantInteractiveTour({
             </button>
           </div>
         </div>
-        <p className="mt-3 text-sm leading-5 text-slate-600">{currentTargetState.status === 'waiting' ? 'Estamos buscando este control. Puedes esperar un momento.' : missingTarget ? missingTargetMessage : step.description}</p>
-        {step.interaction === 'navigate' && !missingTarget && activeModule === step.module && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">{step.id === 'open-menu' ? 'Esperando que abras el menú con el botón resaltado.' : step.id === 'open-tables' ? 'Esperando que abras Mesas con el botón resaltado.' : step.id === 'open-kitchen' ? 'Esperando que abras Cocina con el botón resaltado.' : step.id === 'open-cash' ? 'Esperando que abras Caja con el botón resaltado.' : step.id === 'open-customers' ? 'Esperando que abras Clientes con el botón resaltado.' : step.id === 'open-customer-form' ? 'Esperando que abras el formulario con el botón resaltado.' : step.id === 'open-customer-profile' ? 'Esperando que abras la ficha del cliente.' : step.id === 'tables' ? 'Esperando que abras una mesa ocupada.' : 'Esperando que abras POS con el botón resaltado.'}</p>}
+
+        <p className="mt-3 text-sm leading-5 text-slate-600">
+          {currentTargetState.status === 'waiting'
+            ? 'Estamos buscando este control. Puedes esperar un momento.'
+            : missingTarget
+            ? missingTargetMessage
+            : step.description}
+        </p>
+
+        {step.interaction === 'navigate' && !missingTarget && activeModule === step.module && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+            {step.id === 'open-menu'
+              ? 'Esperando que abras el menú con el botón resaltado.'
+              : step.id === 'open-tables'
+              ? 'Esperando que abras Mesas con el botón resaltado.'
+              : step.id === 'open-kitchen'
+              ? 'Esperando que abras Cocina con el botón resaltado.'
+              : step.id === 'open-cash'
+              ? 'Esperando que abras Caja con el botón resaltado.'
+              : step.id === 'open-customers'
+              ? 'Esperando que abras Clientes con el botón resaltado.'
+              : step.id === 'open-customer-form'
+              ? 'Esperando que abras el formulario con el botón resaltado.'
+              : step.id === 'open-customer-profile'
+              ? 'Esperando que abras la ficha del cliente.'
+              : step.id === 'tables'
+              ? 'Esperando que abras una mesa ocupada.'
+              : 'Esperando que abras POS con el botón resaltado.'}
+          </p>
+        )}
+
         <div className="mt-4 flex items-center justify-between gap-2">
-          <button type="button" disabled={index === 0} onClick={() => setActiveStepId(activeSteps[Math.max(0, index - 1)]?.id ?? step.id)} className="inline-flex min-h-10 items-center gap-1 rounded-xl px-3 text-sm font-bold text-slate-600 disabled:opacity-40 cursor-pointer"><ArrowLeft size={16} />Anterior</button>
-          {step.interaction === 'navigate' && !missingTarget && activeModule === step.module ? null : <button type="button" disabled={currentTargetState.status === 'waiting'} onClick={next} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50 cursor-pointer">{index === activeSteps.length - 1 ? 'Finalizar' : 'Siguiente'}<ArrowRight size={16} /></button>}
+          <button
+            type="button"
+            disabled={index === 0}
+            onClick={() => setActiveStepId(activeSteps[Math.max(0, index - 1)]?.id ?? step.id)}
+            className="inline-flex min-h-10 items-center gap-1 rounded-xl px-3 text-sm font-bold text-slate-600 disabled:opacity-40 cursor-pointer"
+          >
+            <ArrowLeft size={16} />
+            Anterior
+          </button>
+          <button
+            type="button"
+            disabled={currentTargetState.status === 'waiting'}
+            onClick={next}
+            className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50 cursor-pointer"
+          >
+            {index === activeSteps.length - 1 ? 'Finalizar' : 'Siguiente'}
+            <ArrowRight size={16} />
+          </button>
         </div>
       </div>
     </div>

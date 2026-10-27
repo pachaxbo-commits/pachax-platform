@@ -842,12 +842,20 @@ export function RestaurantExperience({
     isDemo: isDemo ?? false,
   }), [isCounterService, session.role, datasetMode, session.tenantId, session.uid, isDemo])
 
+  const resetAllTourStatuses = useCallback(() => {
+    Object.values(learningStorageKeys).forEach((key) => {
+      try { window.localStorage.removeItem(key) } catch { /* ignore */ }
+    })
+    setLearningStatuses({})
+  }, [learningStorageKeys])
+
   const orchestrator = useTutorialOrchestrator({
     scope: tutorialScope,
     sections: continuousSections,
     onNavigateToModule: (mod) => selectModule(mod as RestaurantModuleId),
     onOpenSectionTour: openTourById,
     onCloseSectionTour: closeTourById,
+    onResetAllStatuses: resetAllTourStatuses,
   })
 
   const handleTourComplete = (id: RestaurantTutorialId) => {
@@ -860,9 +868,9 @@ export function RestaurantExperience({
     }
   }
 
-  const handleTourDismiss = (id: RestaurantTutorialId) => {
+  const handleTourDismiss = (id: RestaurantTutorialId, stepIndex = 0) => {
     if (orchestrator.state.isContinuousActive) {
-      orchestrator.pauseSequence(0)
+      orchestrator.pauseSequence(stepIndex)
     } else {
       dismissTutorial(id, (open) => {
         if (!open) closeTourById(id)
@@ -1308,8 +1316,9 @@ export function RestaurantExperience({
           tourLabel={isCounterService ? 'Tutorial Restaurante Rápido' : 'Tutorial POS'}
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss(isCounterService ? 'counter_pos' : 'pos')}
+          onDismiss={(idx) => handleTourDismiss(isCounterService ? 'counter_pos' : 'pos', idx)}
           onComplete={() => handleTourComplete(isCounterService ? 'counter_pos' : 'pos')}
         />
       )}
@@ -1322,8 +1331,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Mesas"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('tables')}
+          onDismiss={(idx) => handleTourDismiss('tables', idx)}
           onComplete={() => handleTourComplete('tables')}
         />
       )}
@@ -1336,8 +1346,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Cocina"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('kitchen')}
+          onDismiss={(idx) => handleTourDismiss('kitchen', idx)}
           onComplete={() => handleTourComplete('kitchen')}
         />
       )}
@@ -1350,8 +1361,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Caja"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('cash')}
+          onDismiss={(idx) => handleTourDismiss('cash', idx)}
           onComplete={() => handleTourComplete('cash')}
         />
       )}
@@ -1364,8 +1376,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Productos"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('products')}
+          onDismiss={(idx) => handleTourDismiss('products', idx)}
           onComplete={() => handleTourComplete('products')}
         />
       )}
@@ -1378,8 +1391,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Inventario"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('inventory')}
+          onDismiss={(idx) => handleTourDismiss('inventory', idx)}
           onComplete={() => handleTourComplete('inventory')}
         />
       )}
@@ -1392,8 +1406,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Clientes"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('customers')}
+          onDismiss={(idx) => handleTourDismiss('customers', idx)}
           onComplete={() => handleTourComplete('customers')}
         />
       )}
@@ -1406,8 +1421,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Historial"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('history')}
+          onDismiss={(idx) => handleTourDismiss('history', idx)}
           onComplete={() => handleTourComplete('history')}
         />
       )}
@@ -1420,8 +1436,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Usuarios"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('users')}
+          onDismiss={(idx) => handleTourDismiss('users', idx)}
           onComplete={() => handleTourComplete('users')}
         />
       )}
@@ -1434,8 +1451,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Configuración"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('settings')}
+          onDismiss={(idx) => handleTourDismiss('settings', idx)}
           onComplete={() => handleTourComplete('settings')}
         />
       )}
@@ -1448,8 +1466,9 @@ export function RestaurantExperience({
           tourLabel="Tutorial Impresoras"
           initialStepIndex={tourInitialStepIndex}
           isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
           onPause={(idx) => orchestrator.pauseSequence(idx)}
-          onDismiss={() => handleTourDismiss('printers')}
+          onDismiss={(idx) => handleTourDismiss('printers', idx)}
           onComplete={() => handleTourComplete('printers')}
         />
       )}
