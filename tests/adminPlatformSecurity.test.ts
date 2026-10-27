@@ -416,8 +416,8 @@ test('17. Whitelist de Plantillas Oficiales: templateId arbitrario es rechazado'
   assert.equal(OFFICIAL_TEMPLATES.includes('arbitrary_pos'), false)
 })
 
-test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y compatibilidad legacy', () => {
-  // 1. Distribución publicada con demoEnabled=true -> tiene demo técnica implementada -> PERMITIDO
+test('18. canLaunchCommercialDemo: gating por publicación y disponibilidad técnica canónica', () => {
+  // La disponibilidad técnica canónica no depende de contratación ni del booleano comercial legacy.
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'published',
@@ -425,13 +425,13 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y c
     canonicalTemplateId: 'distribution',
   }), true)
 
-  // 2. Distribución con demoEnabled=false explícito -> DENEGADO
+  // Una demo técnica disponible sigue visible aunque demoEnabled legacy esté desactualizado.
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'published',
     demoEnabled: false,
     canonicalTemplateId: 'distribution',
-  }), false)
+  }), true)
 
   // 3. Distribución legacy sin demoEnabled (undefined) -> default técnico disponible -> PERMITIDO
   assert.equal(canLaunchCommercialDemo({
@@ -448,20 +448,20 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y c
     canonicalTemplateId: 'distribution',
   }), false)
 
-  // 5. Restaurante con demoEnabled=true -> status en publicTemplates es coming_soon (sin demo técnica) -> DENEGADO
+  // 5. Restaurante con demoEnabled=false legacy -> ruta pública verificada -> PERMITIDO
   assert.equal(canLaunchCommercialDemo({
     id: 'restaurant',
     status: 'published',
-    demoEnabled: true,
+    demoEnabled: false,
     canonicalTemplateId: 'restaurant',
-  }), false)
+  }), true)
 
-  // 6. Restaurante legacy (undefined) -> status coming_soon -> DENEGADO
+  // 6. Restaurante legacy (undefined) conserva la disponibilidad técnica canónica.
   assert.equal(canLaunchCommercialDemo({
     id: 'restaurant',
     status: 'published',
     canonicalTemplateId: 'restaurant',
-  }), false)
+  }), true)
 
   // 7. Nightclub con demoEnabled=true -> coming_soon -> DENEGADO
   assert.equal(canLaunchCommercialDemo({
@@ -481,7 +481,7 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y c
 
   // 9. isTechnicalDemoAvailable verifica directamente la disponibilidad técnica del código
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
-  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), true)
   assert.equal(isTechnicalDemoAvailable('nightclub'), false)
   assert.equal(isTechnicalDemoAvailable('retail'), false)
   assert.equal(isTechnicalDemoAvailable('custom'), false)
@@ -560,11 +560,11 @@ test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y R
   assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
 
-  // Demo técnica desacoplada de aprovisionamiento: Distribution disponible, Restaurant y Nightclub bloqueados/coming_soon
+  // Demo técnica desacoplada de aprovisionamiento: Distribution y Restaurant disponibles; Nightclub sigue coming_soon
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
   assert.equal(isTechnicalDemoAvailable('route_distribution'), true)
-  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
-  assert.equal(isTechnicalDemoAvailable('restaurant_pos'), false)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), true)
+  assert.equal(isTechnicalDemoAvailable('restaurant_pos'), true)
   assert.equal(isTechnicalDemoAvailable('nightclub'), false)
   assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), false)
 
@@ -610,14 +610,14 @@ test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de dem
   assert.ok(restDef)
   assert.equal(restDef.demoPath, '/demo/restaurant')
 
-  // demoEnabled: false continúa bloqueando la demo comercial incluso si technicalDemoAvailable es true
+  // El estado técnico canónico permite una demo publicada aunque demoEnabled legacy esté desactualizado.
   assert.equal(
     canLaunchCommercialDemo({
       status: 'published',
       demoEnabled: false,
       canonicalTemplateId: 'distribution',
     }),
-    false
+    true
   )
 
   // Invariante de identidad técnica:

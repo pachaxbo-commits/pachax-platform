@@ -25,7 +25,9 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     studioTemplateId: 'restaurant',
     status: 'coming_soon',
     provisioningStatus: 'available',
-    demoStatus: 'coming_soon',
+    // La ruta pública de Restaurante con salón está desplegada y carga la
+    // experiencia interactiva; su disponibilidad comercial sigue separada.
+    demoStatus: 'available',
   },
   {
     id: 'hamburger',
@@ -109,8 +111,10 @@ export function canLaunchCommercialDemo(template: {
   id?: string
 }): boolean {
   if (template.status !== 'published') return false
-  if (template.demoEnabled === false) return false
   const targetId = template.canonicalTemplateId || template.templateId || template.id || ''
+  // La disponibilidad técnica central es la fuente de verdad de las demos.
+  // demoEnabled era un booleano comercial estático y podía ocultar una ruta
+  // pública funcional aunque la contratación/provisión siguiera bloqueada.
   if (!isTechnicalDemoAvailable(targetId)) return false
   return true
 }
