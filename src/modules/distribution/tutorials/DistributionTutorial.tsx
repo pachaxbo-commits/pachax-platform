@@ -14,6 +14,8 @@ interface DistributionTutorialProps {
   onComplete: () => void
   onStepChange?: (stepIndex: number) => void
   initialStepIndex?: number
+  isContinuous?: boolean
+  onPause?: (stepIndex: number) => void
 }
 
 function sameRect(a: TutorialRect | null, b: TutorialRect | null): boolean {
@@ -28,28 +30,45 @@ function sameRect(a: TutorialRect | null, b: TutorialRect | null): boolean {
 }
 
 function findTargetElement(targetKey: string): HTMLElement | null {
-  if (!targetKey) return null
-  // 1. Try data-tutorial-target exact match
-  const byAttr = Array.from(document.querySelectorAll<HTMLElement>(`[data-tutorial-target="${targetKey}"]`)).find((el) => {
-    const b = el.getBoundingClientRect()
-    return b.width > 0 && b.height > 0 && window.getComputedStyle(el).display !== 'none'
-  })
-  if (byAttr) return byAttr
+  if (typeof document === 'undefined') return null
 
-  // 2. Try as a generic CSS selector if it contains . or # or [
-  if (targetKey.startsWith('.') || targetKey.startsWith('#') || targetKey.includes('[')) {
-    try {
-      const bySelector = Array.from(document.querySelectorAll<HTMLElement>(targetKey)).find((el) => {
-        const b = el.getBoundingClientRect()
-        return b.width > 0 && b.height > 0 && window.getComputedStyle(el).display !== 'none'
-      })
-      if (bySelector) return bySelector
-    } catch {
-      // invalid selector, ignore
-    }
+  // 1. Selector directo data-tour
+  const byDataTour = document.querySelector<HTMLElement>(`[data-tour="${targetKey}"]`)
+  if (byDataTour) return byDataTour
+
+  // 2. Selectores heurísticos de controles en la UI
+  switch (targetKey) {
+    case 'header-identity':
+      return document.querySelector<HTMLElement>('header') || document.querySelector<HTMLElement>('[data-tour="header"]')
+    case 'dashboard-kpis':
+      return document.querySelector<HTMLElement>('[data-tour="kpi-grid"]') || document.querySelector<HTMLElement>('main .grid')
+    case 'distributor-home-summary':
+      return document.querySelector<HTMLElement>('[data-tour="distributor-summary"]') || document.querySelector<HTMLElement>('main')
+    case 'bottom-nav':
+      return document.querySelector<HTMLElement>('nav') || document.querySelector<HTMLElement>('[role="navigation"]')
+    case 'tutorial-trigger-btn':
+      return document.querySelector<HTMLElement>('button[data-tour="tutorial-trigger"]') || document.querySelector<HTMLElement>('button[aria-label="Abrir centro de aprendizaje"]')
+    case 'inventory-stock-table':
+      return document.querySelector<HTMLElement>('table') || document.querySelector<HTMLElement>('[data-tour="stock-list"]')
+    case 'inventory-entry-btn':
+      return document.querySelector<HTMLElement>('button[data-tour="new-entry-btn"]')
+    case 'routes-dispatch-table':
+      return document.querySelector<HTMLElement>('[data-tour="dispatch-board"]') || document.querySelector<HTMLElement>('main')
+    case 'routes-add-dispatch-btn':
+      return document.querySelector<HTMLElement>('button[data-tour="add-dispatch"]')
+    case 'sell-customer-selector':
+      return document.querySelector<HTMLElement>('[data-tour="customer-select"]') || document.querySelector<HTMLElement>('select')
+    case 'sell-product-grid':
+      return document.querySelector<HTMLElement>('[data-tour="catalog-grid"]') || document.querySelector<HTMLElement>('main')
+    case 'sell-checkout-btn':
+      return document.querySelector<HTMLElement>('button[data-tour="checkout-btn"]')
+    case 'closures-cash-count':
+      return document.querySelector<HTMLElement>('[data-tour="cash-reconciliation"]') || document.querySelector<HTMLElement>('main')
+    case 'closures-confirm-btn':
+      return document.querySelector<HTMLElement>('button[data-tour="confirm-closure-btn"]')
+    default:
+      return null
   }
-
-  return null
 }
 
 export function DistributionTutorial({
@@ -61,6 +80,8 @@ export function DistributionTutorial({
   onComplete,
   onStepChange,
   initialStepIndex = 0,
+  isContinuous = false,
+  onPause,
 }: DistributionTutorialProps) {
   const [index, setIndex] = useState(() => Math.max(0, Math.min(initialStepIndex, plan.steps.length - 1)))
   const [rect, setRect] = useState<TutorialRect | null>(null)
@@ -134,10 +155,15 @@ export function DistributionTutorial({
         ? activeModule === step.module
         : isDataOperationCompleted || domActionCompleted
 
-  // Notificar cambio de paso
+  // Notificar cambio de paso solo cuando el índice cambia efectivamente
+  const onStepChangeRef = useRef(onStepChange)
   useEffect(() => {
-    onStepChange?.(index)
-  }, [index, onStepChange])
+    onStepChangeRef.current = onStepChange
+  })
+
+  useEffect(() => {
+    onStepChangeRef.current?.(index)
+  }, [index])
 
   // Medir dimensiones reales de la tarjeta para cálculo exacto de posición
   useLayoutEffect(() => {
@@ -171,19 +197,15 @@ export function DistributionTutorial({
         height: bounds.height,
       }
 
-      setRect((current) => (sameRect(current, next) ? current : next))
+      setRect((curr) => (sameRect(curr, next) ? curr : next))
       setMissingTarget(false)
 
-      if (checkDomSatisfaction()) {
-        setDomActionCompleted(true)
-      }
-
-      if (!hasScrolled) {
+      if (!hasScrolled && bounds.width > 0 && bounds.height > 0) {
         hasScrolled = true
         element.scrollIntoView({
-          block: 'center',
-          inline: 'center',
           behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+          block: 'center',
+          inline: 'nearest',
         })
       }
     }
@@ -191,32 +213,33 @@ export function DistributionTutorial({
     refresh()
     window.addEventListener('resize', refresh)
     window.addEventListener('scroll', refresh, true)
-    const observer = new MutationObserver(() => {
-      refresh()
-      if (checkDomSatisfaction()) {
-        setDomActionCompleted(true)
-      }
+
+    const observer = new MutationObserver(refresh)
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-tour', 'class'],
     })
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true })
 
     return () => {
       window.removeEventListener('resize', refresh)
       window.removeEventListener('scroll', refresh, true)
       observer.disconnect()
     }
-  }, [step, checkDomSatisfaction])
+  }, [step])
 
-  // Escuchar clics en el elemento objetivo cuando el paso requiere acción
+  // Interacción en vivo: detectar clic sobre el objetivo
   useEffect(() => {
     const onTargetClick = (event: MouseEvent) => {
-      const element = findTargetElement(step.target)
-      if (element && event.target instanceof Element && element.contains(event.target)) {
-        if (!step.verifiedOperation) {
-          setDomActionCompleted(true)
-        }
-      }
-      if (checkDomSatisfaction()) {
-        setDomActionCompleted(true)
+      const el = findTargetElement(step.target)
+      if (!el) return
+
+      const clicked = event.target instanceof Element && (event.target === el || el.contains(event.target))
+      if (!clicked) return
+
+      if (step.interaction === 'navigate' && step.module && onNavigate) {
+        onNavigate(step.module)
       } else if (step.verifiedOperation === 'select_customer' || step.verifiedOperation === 'add_to_cart') {
         window.setTimeout(() => {
           if (checkDomSatisfaction()) {
@@ -228,16 +251,22 @@ export function DistributionTutorial({
 
     document.addEventListener('click', onTargetClick, true)
     return () => document.removeEventListener('click', onTargetClick, true)
-  }, [step.target, step.verifiedOperation, checkDomSatisfaction])
+  }, [step.target, step.interaction, step.module, step.verifiedOperation, onNavigate, checkDomSatisfaction])
 
-  // Tecla Escape para salir (omisión o pausa explícita)
+  // Tecla Escape para salir o pausar
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onDismiss()
+      if (event.key === 'Escape') {
+        if (isContinuous && onPause) {
+          onPause(index)
+        } else {
+          onDismiss()
+        }
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onDismiss])
+  }, [onDismiss, onPause, isContinuous, index])
 
   // Finalización mutuamente excluyente de omisión: SOLO llama a onComplete
   const finish = useCallback(() => {
@@ -268,53 +297,65 @@ export function DistributionTutorial({
         top: Math.max(20, Math.min(100, viewport.height * 0.15)),
         left: Math.max(12, Math.min(24, (viewport.width - 340) / 2)),
         width: Math.min(340, viewport.width - 24),
-        maxHeight: 320,
-        side: 'below' as const,
+        maxHeight: viewport.height - 40,
+        flipCard: false,
       }
 
   return (
-    <aside aria-label="Tutorial guiado interactivo" className="fixed inset-0 z-[1000] pointer-events-none" aria-live="polite">
-      {/* 4 cuadrantes oscurecidos para el efecto spotlight */}
-      {rect ? (
+    <aside
+      aria-label={`Tutorial interactivo: ${plan.title}`}
+      className="fixed inset-0 z-[1000] pointer-events-none transition-all duration-300"
+    >
+      {/* 4 Franjas de oscurecimiento exterior */}
+      {rect && rect.width > 0 && rect.height > 0 ? (
         <>
           <div
-            className="fixed left-0 top-0 bg-slate-950/60 pointer-events-none"
+            className="fixed left-0 top-0 bg-slate-950/65 backdrop-blur-[1px] transition-all duration-200"
             style={{ width: '100vw', height: Math.max(0, rect.top) }}
           />
           <div
-            className="fixed bottom-0 left-0 bg-slate-950/60 pointer-events-none"
-            style={{ width: '100vw', top: rect.top + rect.height }}
+            className="fixed bottom-0 left-0 bg-slate-950/65 backdrop-blur-[1px] transition-all duration-200"
+            style={{ width: '100vw', top: Math.max(0, rect.top + rect.height) }}
           />
           <div
-            className="fixed left-0 bg-slate-950/60 pointer-events-none"
-            style={{ top: rect.top, width: Math.max(0, rect.left), height: rect.height }}
-          />
-          <div
-            className="fixed right-0 bg-slate-950/60 pointer-events-none"
-            style={{ top: rect.top, left: rect.left + rect.width, height: rect.height }}
-          />
-          {/* Anillo de enfoque sobre el control verdadero */}
-          <div
-            className="fixed rounded-xl ring-4 ring-sky-400 ring-offset-2 ring-offset-white pointer-events-none shadow-lg transition-all duration-200"
+            className="fixed left-0 bg-slate-950/65 backdrop-blur-[1px] transition-all duration-200"
             style={{
-              top: rect.top - 2,
-              left: rect.left - 2,
-              width: rect.width + 4,
-              height: rect.height + 4,
+              top: Math.max(0, rect.top),
+              width: Math.max(0, rect.left),
+              height: Math.max(0, rect.height),
+            }}
+          />
+          <div
+            className="fixed right-0 bg-slate-950/65 backdrop-blur-[1px] transition-all duration-200"
+            style={{
+              top: Math.max(0, rect.top),
+              left: Math.max(0, rect.left + rect.width),
+              height: Math.max(0, rect.height),
+            }}
+          />
+
+          {/* Anillo de resalte amarillo/ámbar */}
+          <div
+            className="pointer-events-none fixed rounded-2xl ring-4 ring-amber-400 ring-offset-2 ring-offset-slate-950/30 transition-all duration-200 animate-pulse"
+            style={{
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              height: rect.height,
             }}
           />
         </>
       ) : (
-        <div className="fixed inset-0 bg-slate-950/60 pointer-events-none" />
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-[1px]" />
       )}
 
-      {/* Tarjeta flotante de instrucciones */}
+      {/* Tarjeta Flotante Inteligente */}
       <div
         ref={cardRef}
         role="dialog"
         aria-modal="false"
         aria-label={`${plan.title}: ${step.title}`}
-        className="fixed z-[1002] pointer-events-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl border border-slate-200/90 transition-all duration-200"
+        className="pointer-events-auto fixed z-[1002] rounded-3xl bg-white p-4 sm:p-5 shadow-2xl border border-slate-200/90 text-slate-900 transition-all duration-200 flex flex-col justify-between"
         style={{
           top: placement.top,
           left: placement.left,
@@ -334,14 +375,26 @@ export function DistributionTutorial({
               {step.title}
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="rounded-lg p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
-            aria-label="Cerrar u omitir tutorial"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {isContinuous && onPause && (
+              <button
+                type="button"
+                onClick={() => onPause(index)}
+                className="rounded-lg px-2 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition cursor-pointer"
+                aria-label="Pausar recorrido continuo"
+              >
+                Pausar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded-lg p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+              aria-label="Cerrar u omitir tutorial"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Explicación y diagnóstico de control no visible */}

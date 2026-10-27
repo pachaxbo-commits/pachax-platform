@@ -1300,6 +1300,8 @@ export function RestaurantDemo({
     <RestaurantExperience
       initialModule={effectiveInitialModule}
       session={session}
+      isDemo={true}
+      datasetMode={datasetMode}
       logoUrl={logoUrl}
       companyName={companyName}
       profile={profile}
