@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -87,6 +87,11 @@ import {
 } from '../domain/restaurantPrintersTour'
 import { buildRestaurantLearningTutorials, restaurantLearningTutorialIdsForProfile, restaurantTutorialStatusFromStorage, type RestaurantTutorialId, type RestaurantTutorialStatus } from '../domain/restaurantLearningCenter'
 import { RestaurantLearningCenter } from '../components/RestaurantLearningCenter'
+import { TutorialWelcomeModal } from '../../../components/tutorials/TutorialWelcomeModal'
+import { TutorialCompletionSummaryModal } from '../../../components/tutorials/TutorialCompletionSummaryModal'
+import { TutorialSectionTransition } from '../../../components/tutorials/TutorialSectionTransition'
+import { useTutorialOrchestrator } from '../../../components/tutorials/useTutorialOrchestrator'
+import type { TutorialSectionItem, TutorialStorageScope } from '../../../components/tutorials/tutorialOrchestratorTypes'
 
 import { DEFAULT_RESTAURANT_THEME, restaurantThemeStyle, type RestaurantThemeColors } from './restaurantTheme'
 import './restaurantKiosk.css'
@@ -140,6 +145,8 @@ export type RestaurantShift = {
 
 export interface RestaurantExperienceProps {
   session: RestaurantSession
+  isDemo?: boolean
+  datasetMode?: 'full' | 'empty'
   logoUrl?: string
   companyName?: string
   orders: Order[]
@@ -253,8 +260,25 @@ const SECONDARY_MODULE_IDS: RestaurantModuleId[] = [
   'printers',
 ]
 
+const RESTAURANT_TUTORIAL_MODULE_MAP: Record<RestaurantTutorialId, RestaurantModuleId> = {
+  pos: 'pos',
+  counter_pos: 'pos',
+  tables: 'tables',
+  kitchen: 'kitchen',
+  cash: 'cash',
+  products: 'products',
+  inventory: 'inventory',
+  customers: 'customers',
+  history: 'history',
+  users: 'users',
+  settings: 'settings',
+  printers: 'printers',
+}
+
 export function RestaurantExperience({
   session,
+  isDemo = false,
+  datasetMode = 'full',
   logoUrl,
   companyName,
   orders,
@@ -344,7 +368,7 @@ export function RestaurantExperience({
   const usersTourStorageKey = restaurantUsersTourPreferenceKey(session.tenantId, session.uid)
   const settingsTourStorageKey = restaurantSettingsTourPreferenceKey(session.tenantId, session.uid)
   const printersTourStorageKey = restaurantPrintersTourPreferenceKey(session.tenantId, session.uid)
-  const learningStorageKeys: Record<RestaurantTutorialId, string> = {
+  const learningStorageKeys: Record<RestaurantTutorialId, string> = useMemo(() => ({
     pos: posTourStorageKey,
     counter_pos: counterPosTourStorageKey,
     tables: tablesTourStorageKey,
@@ -357,7 +381,20 @@ export function RestaurantExperience({
     users: usersTourStorageKey,
     settings: settingsTourStorageKey,
     printers: printersTourStorageKey,
-  }
+  }), [
+    posTourStorageKey,
+    counterPosTourStorageKey,
+    tablesTourStorageKey,
+    kitchenTourStorageKey,
+    cashTourStorageKey,
+    productsTourStorageKey,
+    inventoryTourStorageKey,
+    customersTourStorageKey,
+    historyTourStorageKey,
+    usersTourStorageKey,
+    settingsTourStorageKey,
+    printersTourStorageKey,
+  ])
   const [isSetupGuideOpen, setIsSetupGuideOpen] = useState(() => {
     if (typeof window === 'undefined') return true
     return window.localStorage.getItem(setupGuideStorageKey) === null
@@ -373,6 +410,7 @@ export function RestaurantExperience({
   const [isUsersTourOpen, setIsUsersTourOpen] = useState(false)
   const [isSettingsTourOpen, setIsSettingsTourOpen] = useState(false)
   const [isPrintersTourOpen, setIsPrintersTourOpen] = useState(false)
+  const [tourInitialStepIndex, setTourInitialStepIndex] = useState(0)
   const [isLearningCenterOpen, setIsLearningCenterOpen] = useState(false)
   const [learningStatuses, setLearningStatuses] = useState<Partial<Record<RestaurantTutorialId, RestaurantTutorialStatus>>>({})
   const learningCenterOriginRef = useRef(false)
@@ -401,7 +439,7 @@ export function RestaurantExperience({
     setLearningStatuses(readLearningStatuses())
     setIsLearningCenterOpen(true)
   }
-  const writeTutorialStatus = (id: RestaurantTutorialId, status: RestaurantTutorialStatus) => {
+  const writeTutorialStatus = useCallback((id: RestaurantTutorialId, status: RestaurantTutorialStatus) => {
     if (typeof window !== 'undefined') {
       const storageValue = status === 'in-progress' ? 'started' : status === 'not-started' ? null : status
       const key = learningStorageKeys[id]
@@ -409,7 +447,7 @@ export function RestaurantExperience({
       else window.localStorage.removeItem(key)
     }
     setLearningStatuses((current) => ({ ...current, [id]: status }))
-  }
+  }, [learningStorageKeys])
   const finishLearningLaunchedTour = () => {
     if (!learningCenterOriginRef.current) return
     learningCenterOriginRef.current = false
@@ -594,27 +632,11 @@ export function RestaurantExperience({
     setIsPosTourOpen(true)
   }
 
-  const dismissPosTour = () => {
-    dismissTutorial(isCounterService ? 'counter_pos' : 'pos', setIsPosTourOpen)
-  }
-
-  const completePosTour = () => {
-    writeTutorialStatus(isCounterService ? 'counter_pos' : 'pos', 'completed')
-  }
-
   const startTablesTour = () => {
     writeTutorialStatus('tables', 'in-progress')
     setIsSetupGuideOpen(false)
     selectModule('dashboard')
     setIsTablesTourOpen(true)
-  }
-
-  const dismissTablesTour = () => {
-    dismissTutorial('tables', setIsTablesTourOpen)
-  }
-
-  const completeTablesTour = () => {
-    writeTutorialStatus('tables', 'completed')
   }
 
   const startKitchenTour = () => {
@@ -624,27 +646,11 @@ export function RestaurantExperience({
     setIsKitchenTourOpen(true)
   }
 
-  const dismissKitchenTour = () => {
-    dismissTutorial('kitchen', setIsKitchenTourOpen)
-  }
-
-  const completeKitchenTour = () => {
-    writeTutorialStatus('kitchen', 'completed')
-  }
-
   const startCashTour = () => {
     writeTutorialStatus('cash', 'in-progress')
     setIsSetupGuideOpen(false)
     selectModule('dashboard')
     setIsCashTourOpen(true)
-  }
-
-  const dismissCashTour = () => {
-    dismissTutorial('cash', setIsCashTourOpen)
-  }
-
-  const completeCashTour = () => {
-    writeTutorialStatus('cash', 'completed')
   }
 
   const startProductsTour = () => {
@@ -656,14 +662,6 @@ export function RestaurantExperience({
     setIsProductsTourOpen(true)
   }
 
-  const dismissProductsTour = () => {
-    dismissTutorial('products', setIsProductsTourOpen)
-  }
-
-  const completeProductsTour = () => {
-    writeTutorialStatus('products', 'completed')
-  }
-
   const startInventoryTour = () => {
     writeTutorialStatus('inventory', 'in-progress')
     setIsSetupGuideOpen(false)
@@ -671,14 +669,6 @@ export function RestaurantExperience({
     if (window.matchMedia('(max-width: 1023px)').matches) setIsMoreOpen(false)
     else if (secondaryModules.some((module) => module.id === 'inventory')) setIsMoreDesktopOpen(true)
     setIsInventoryTourOpen(true)
-  }
-
-  const dismissInventoryTour = () => {
-    dismissTutorial('inventory', setIsInventoryTourOpen)
-  }
-
-  const completeInventoryTour = () => {
-    writeTutorialStatus('inventory', 'completed')
   }
 
   const startCustomersTour = () => {
@@ -690,12 +680,6 @@ export function RestaurantExperience({
     setIsCustomersTourOpen(true)
   }
 
-  const dismissCustomersTour = () => {
-    dismissTutorial('customers', setIsCustomersTourOpen)
-  }
-
-  const completeCustomersTour = () => writeTutorialStatus('customers', 'completed')
-
   const startHistoryTour = () => {
     writeTutorialStatus('history', 'in-progress')
     setIsSetupGuideOpen(false)
@@ -704,8 +688,6 @@ export function RestaurantExperience({
     else if (secondaryModules.some((module) => module.id === 'history')) setIsMoreDesktopOpen(true)
     setIsHistoryTourOpen(true)
   }
-  const dismissHistoryTour = () => dismissTutorial('history', setIsHistoryTourOpen)
-  const completeHistoryTour = () => writeTutorialStatus('history', 'completed')
 
   const startUsersTour = () => {
     writeTutorialStatus('users', 'in-progress')
@@ -715,8 +697,6 @@ export function RestaurantExperience({
     else if (secondaryModules.some((module) => module.id === 'users')) setIsMoreDesktopOpen(true)
     setIsUsersTourOpen(true)
   }
-  const dismissUsersTour = () => dismissTutorial('users', setIsUsersTourOpen)
-  const completeUsersTour = () => writeTutorialStatus('users', 'completed')
 
   const startSettingsTour = () => {
     writeTutorialStatus('settings', 'in-progress')
@@ -726,8 +706,6 @@ export function RestaurantExperience({
     else if (secondaryModules.some((module) => module.id === 'settings')) setIsMoreDesktopOpen(true)
     setIsSettingsTourOpen(true)
   }
-  const dismissSettingsTour = () => dismissTutorial('settings', setIsSettingsTourOpen)
-  const completeSettingsTour = () => writeTutorialStatus('settings', 'completed')
 
   const startPrintersTour = () => {
     writeTutorialStatus('printers', 'in-progress')
@@ -737,8 +715,6 @@ export function RestaurantExperience({
     else if (secondaryModules.some((module) => module.id === 'printers')) setIsMoreDesktopOpen(true)
     setIsPrintersTourOpen(true)
   }
-  const dismissPrintersTour = () => dismissTutorial('printers', setIsPrintersTourOpen)
-  const completePrintersTour = () => writeTutorialStatus('printers', 'completed')
 
   const roleLabel =
     session.role === 'owner'
@@ -787,24 +763,127 @@ export function RestaurantExperience({
   }), [canRunKitchenTour, visibleModules])
   const canOpenSetupFromLearning = !isCounterService && hasSetupAdminRole && canManageSetup
   const showLearningCenter = learningTutorials.length > 0 || canOpenSetupFromLearning
-  const startTutorialFromLearning = (id: RestaurantTutorialId) => {
-    const startById: Record<RestaurantTutorialId, () => void> = {
-      pos: startPosTour,
-      counter_pos: startPosTour,
-      tables: startTablesTour,
-      kitchen: startKitchenTour,
-      cash: startCashTour,
-      products: startProductsTour,
-      inventory: startInventoryTour,
-      customers: startCustomersTour,
-      history: startHistoryTour,
-      users: startUsersTour,
-      settings: startSettingsTour,
-      printers: startPrintersTour,
+
+  const continuousSections: TutorialSectionItem[] = useMemo(() => {
+    const preferredOrder: RestaurantTutorialId[] = isCounterService
+      ? ['counter_pos', 'kitchen', 'cash', 'products', 'inventory', 'customers', 'history', 'users', 'settings', 'printers']
+      : ['pos', 'tables', 'kitchen', 'cash', 'products', 'inventory', 'customers', 'history', 'users', 'settings', 'printers']
+
+    return preferredOrder
+      .filter((id) => availableLearningIds.includes(id))
+      .map((id) => {
+        const tutorial = learningTutorials.find((t) => t.id === id)
+        return {
+          id,
+          title: tutorial?.title || id,
+          description: tutorial?.description,
+          module: RESTAURANT_TUTORIAL_MODULE_MAP[id] || 'dashboard',
+        }
+      })
+  }, [isCounterService, availableLearningIds, learningTutorials])
+
+  const openTourById = useCallback((id: string, initialStep = 0) => {
+    setIsPosTourOpen(false)
+    setIsTablesTourOpen(false)
+    setIsKitchenTourOpen(false)
+    setIsCashTourOpen(false)
+    setIsProductsTourOpen(false)
+    setIsInventoryTourOpen(false)
+    setIsCustomersTourOpen(false)
+    setIsHistoryTourOpen(false)
+    setIsUsersTourOpen(false)
+    setIsSettingsTourOpen(false)
+    setIsPrintersTourOpen(false)
+
+    setTourInitialStepIndex(initialStep)
+
+    const map: Record<string, () => void> = {
+      pos: () => { writeTutorialStatus('pos', 'in-progress'); setIsPosTourOpen(true) },
+      counter_pos: () => { writeTutorialStatus('counter_pos', 'in-progress'); setIsPosTourOpen(true) },
+      tables: () => { writeTutorialStatus('tables', 'in-progress'); setIsTablesTourOpen(true) },
+      kitchen: () => { writeTutorialStatus('kitchen', 'in-progress'); setIsKitchenTourOpen(true) },
+      cash: () => { writeTutorialStatus('cash', 'in-progress'); setIsCashTourOpen(true) },
+      products: () => { writeTutorialStatus('products', 'in-progress'); setIsProductsTourOpen(true) },
+      inventory: () => { writeTutorialStatus('inventory', 'in-progress'); setIsInventoryTourOpen(true) },
+      customers: () => { writeTutorialStatus('customers', 'in-progress'); setIsCustomersTourOpen(true) },
+      history: () => { writeTutorialStatus('history', 'in-progress'); setIsHistoryTourOpen(true) },
+      users: () => { writeTutorialStatus('users', 'in-progress'); setIsUsersTourOpen(true) },
+      settings: () => { writeTutorialStatus('settings', 'in-progress'); setIsSettingsTourOpen(true) },
+      printers: () => { writeTutorialStatus('printers', 'in-progress'); setIsPrintersTourOpen(true) },
     }
+    map[id]?.()
+  }, [writeTutorialStatus])
+
+  const closeTourById = useCallback((id: string) => {
+    const map: Record<string, () => void> = {
+      pos: () => setIsPosTourOpen(false),
+      counter_pos: () => setIsPosTourOpen(false),
+      tables: () => setIsTablesTourOpen(false),
+      kitchen: () => setIsKitchenTourOpen(false),
+      cash: () => setIsCashTourOpen(false),
+      products: () => setIsProductsTourOpen(false),
+      inventory: () => setIsInventoryTourOpen(false),
+      customers: () => setIsCustomersTourOpen(false),
+      history: () => setIsHistoryTourOpen(false),
+      users: () => setIsUsersTourOpen(false),
+      settings: () => setIsSettingsTourOpen(false),
+      printers: () => setIsPrintersTourOpen(false),
+    }
+    map[id]?.()
+  }, [])
+
+  const tutorialScope: TutorialStorageScope = useMemo(() => ({
+    template: isCounterService ? 'hamburger' : 'restaurant',
+    role: session.role,
+    datasetMode,
+    profile: isCounterService ? 'counter_service' : 'restaurant',
+    tenantId: session.tenantId,
+    uid: session.uid,
+    isDemo: isDemo ?? false,
+  }), [isCounterService, session.role, datasetMode, session.tenantId, session.uid, isDemo])
+
+  const resetAllTourStatuses = useCallback(() => {
+    Object.values(learningStorageKeys).forEach((key) => {
+      try { window.localStorage.removeItem(key) } catch { /* ignore */ }
+    })
+    setLearningStatuses({})
+  }, [learningStorageKeys])
+
+  const orchestrator = useTutorialOrchestrator({
+    scope: tutorialScope,
+    sections: continuousSections,
+    onNavigateToModule: (mod) => selectModule(mod as RestaurantModuleId),
+    onOpenSectionTour: openTourById,
+    onCloseSectionTour: closeTourById,
+    onResetAllStatuses: resetAllTourStatuses,
+  })
+
+  const handleTourComplete = (id: RestaurantTutorialId) => {
+    writeTutorialStatus(id, 'completed')
+    closeTourById(id)
+    if (orchestrator.state.isContinuousActive) {
+      orchestrator.handleSectionCompleted(id)
+    } else {
+      finishLearningLaunchedTour()
+    }
+  }
+
+  const handleTourDismiss = (id: RestaurantTutorialId, stepIndex = 0) => {
+    if (orchestrator.state.isContinuousActive) {
+      orchestrator.pauseSequence(stepIndex)
+    } else {
+      dismissTutorial(id, (open) => {
+        if (!open) closeTourById(id)
+      })
+    }
+  }
+
+  const startTutorialFromLearning = (id: RestaurantTutorialId) => {
     learningCenterOriginRef.current = true
     setIsLearningCenterOpen(false)
-    startById[id]()
+    const targetModule = RESTAURANT_TUTORIAL_MODULE_MAP[id]
+    if (targetModule) selectModule(targetModule)
+    openTourById(id, 0)
   }
   const openSetupGuideFromLearning = () => {
     learningCenterOriginRef.current = false
@@ -1235,8 +1314,12 @@ export function RestaurantExperience({
           mobileSteps={isCounterService ? counterServiceTour.mobileSteps : restaurantPosMobileTourSteps}
           activeModule={activeModule}
           tourLabel={isCounterService ? 'Tutorial Restaurante Rápido' : 'Tutorial POS'}
-          onDismiss={dismissPosTour}
-          onComplete={completePosTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss(isCounterService ? 'counter_pos' : 'pos', idx)}
+          onComplete={() => handleTourComplete(isCounterService ? 'counter_pos' : 'pos')}
         />
       )}
 
@@ -1246,8 +1329,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantTablesMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Mesas"
-          onDismiss={dismissTablesTour}
-          onComplete={completeTablesTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('tables', idx)}
+          onComplete={() => handleTourComplete('tables')}
         />
       )}
 
@@ -1257,8 +1344,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantKitchenMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Cocina"
-          onDismiss={dismissKitchenTour}
-          onComplete={completeKitchenTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('kitchen', idx)}
+          onComplete={() => handleTourComplete('kitchen')}
         />
       )}
 
@@ -1268,8 +1359,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantCashMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Caja"
-          onDismiss={dismissCashTour}
-          onComplete={completeCashTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('cash', idx)}
+          onComplete={() => handleTourComplete('cash')}
         />
       )}
 
@@ -1279,8 +1374,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantProductsMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Productos"
-          onDismiss={dismissProductsTour}
-          onComplete={completeProductsTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('products', idx)}
+          onComplete={() => handleTourComplete('products')}
         />
       )}
 
@@ -1290,8 +1389,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantInventoryMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Inventario"
-          onDismiss={dismissInventoryTour}
-          onComplete={completeInventoryTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('inventory', idx)}
+          onComplete={() => handleTourComplete('inventory')}
         />
       )}
 
@@ -1301,8 +1404,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantCustomersMobileTourSteps(customersTourSteps)}
           activeModule={activeModule}
           tourLabel="Tutorial Clientes"
-          onDismiss={dismissCustomersTour}
-          onComplete={completeCustomersTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('customers', idx)}
+          onComplete={() => handleTourComplete('customers')}
         />
       )}
 
@@ -1312,8 +1419,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantHistoryMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Historial"
-          onDismiss={dismissHistoryTour}
-          onComplete={completeHistoryTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('history', idx)}
+          onComplete={() => handleTourComplete('history')}
         />
       )}
 
@@ -1323,8 +1434,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantUsersMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Usuarios"
-          onDismiss={dismissUsersTour}
-          onComplete={completeUsersTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('users', idx)}
+          onComplete={() => handleTourComplete('users')}
         />
       )}
 
@@ -1334,8 +1449,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantSettingsMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Configuración"
-          onDismiss={dismissSettingsTour}
-          onComplete={completeSettingsTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('settings', idx)}
+          onComplete={() => handleTourComplete('settings')}
         />
       )}
 
@@ -1345,8 +1464,12 @@ export function RestaurantExperience({
           mobileSteps={restaurantPrintersMobileTourSteps}
           activeModule={activeModule}
           tourLabel="Tutorial Impresoras"
-          onDismiss={dismissPrintersTour}
-          onComplete={completePrintersTour}
+          initialStepIndex={tourInitialStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
+          onStepChange={(idx) => orchestrator.updateStepIndex(idx)}
+          onPause={(idx) => orchestrator.pauseSequence(idx)}
+          onDismiss={(idx) => handleTourDismiss('printers', idx)}
+          onComplete={() => handleTourComplete('printers')}
         />
       )}
 
@@ -1354,9 +1477,45 @@ export function RestaurantExperience({
         isOpen={isLearningCenterOpen}
         tutorials={learningTutorials}
         canOpenSetupGuide={canOpenSetupFromLearning}
+        hasResumableSequence={orchestrator.hasResumableSequence}
+        resumableTargetInfo={orchestrator.resumableTargetInfo}
+        onResumeSequence={() => {
+          setIsLearningCenterOpen(false)
+          orchestrator.resumeSequence()
+        }}
+        onRestartAllTutorials={() => {
+          setIsLearningCenterOpen(false)
+          orchestrator.restartAll()
+        }}
         onClose={() => setIsLearningCenterOpen(false)}
         onStartTutorial={startTutorialFromLearning}
         onOpenSetupGuide={openSetupGuideFromLearning}
+      />
+
+      <TutorialWelcomeModal
+        isOpen={orchestrator.isWelcomeOpen}
+        roleLabel={roleLabel}
+        templateLabel={isCounterService ? 'Restaurante Rápido' : 'Restaurante con salón'}
+        sections={continuousSections}
+        onStart={orchestrator.startContinuousSequence}
+        onSkip={orchestrator.skipWelcome}
+      />
+
+      <TutorialSectionTransition
+        transition={orchestrator.transitionState}
+        onContinueNow={orchestrator.handleContinueNow}
+        onPause={() => orchestrator.pauseSequence(0)}
+      />
+
+      <TutorialCompletionSummaryModal
+        isOpen={orchestrator.isSummaryOpen}
+        roleLabel={roleLabel}
+        templateLabel={isCounterService ? 'Restaurante Rápido' : 'Restaurante con salón'}
+        sections={continuousSections}
+        completedSectionIds={orchestrator.state.completedSectionIds}
+        onClose={orchestrator.dismissSummary}
+        onReplaySection={(id) => orchestrator.replaySection(id)}
+        onRestartAll={orchestrator.restartAll}
       />
 
       {viewingReceiptOrder && (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import {
   Boxes,
   ClipboardList,
@@ -44,6 +44,11 @@ import type { DistributionData } from '../state/useDistributionStore'
 import type { DistributionIndustryProfile } from '../types'
 import { DistributionTutorial } from '../tutorials/DistributionTutorial'
 import { DistributionTutorialCenter } from '../tutorials/DistributionTutorialCenter'
+import { TutorialWelcomeModal } from '../../../components/tutorials/TutorialWelcomeModal'
+import { TutorialCompletionSummaryModal } from '../../../components/tutorials/TutorialCompletionSummaryModal'
+import { TutorialSectionTransition } from '../../../components/tutorials/TutorialSectionTransition'
+import { useTutorialOrchestrator } from '../../../components/tutorials/useTutorialOrchestrator'
+import type { TutorialSectionItem, TutorialStorageScope } from '../../../components/tutorials/tutorialOrchestratorTypes'
 import {
   createDistributionTutorialPlans,
   loadTutorialProgress,
@@ -154,11 +159,7 @@ export function DistributionExperience({
   initialOpenTour = false,
   isDemo,
 }: DistributionExperienceProps) {
-  const effectiveIsDemo = isDemo ?? (
-    Boolean(onResetPractice || onSelectProfile) ||
-    session.tenantId.startsWith('preview-') ||
-    session.tenantId.startsWith('demo-')
-  )
+  const effectiveIsDemo = Boolean(isDemo)
   const modules = useMemo(
     () => getVisibleModules('mobile_distribution', session.can, session.role),
     [session.can, session.role]
@@ -178,15 +179,18 @@ export function DistributionExperience({
     profile: currentProfile,
   }), [effectiveIsDemo, session.tenantId, session.uid, session.role, currentProfile])
 
-  const [prevContext, setPrevContext] = useState(progressContext)
+  const contextKey = `${effectiveIsDemo}:${session.tenantId}:${session.uid}:${session.role}:${currentProfile}`
+  const prevContextKeyRef = useRef(contextKey)
   const [progressMap, setProgressMap] = useState<Record<string, DistributionTutorialProgress>>(() =>
     loadTutorialProgress(progressContext)
   )
 
-  if (progressContext !== prevContext) {
-    setPrevContext(progressContext)
-    setProgressMap(loadTutorialProgress(progressContext))
-  }
+  useEffect(() => {
+    if (prevContextKeyRef.current !== contextKey) {
+      prevContextKeyRef.current = contextKey
+      setProgressMap(loadTutorialProgress(progressContext))
+    }
+  }, [contextKey, progressContext])
 
   const tutorialPlans = useMemo(
     () =>
@@ -198,6 +202,57 @@ export function DistributionExperience({
       }),
     [session.role, currentProfile, session.can, modules]
   )
+
+  const distributionSections: TutorialSectionItem[] = useMemo(() => {
+    return tutorialPlans.map((plan) => ({
+      id: plan.id,
+      title: plan.title,
+      description: plan.description,
+      module: plan.steps[0]?.module || 'dist.dashboard',
+      estimatedMinutes: plan.estimatedMinutes,
+    }))
+  }, [tutorialPlans])
+
+  const tutorialScope: TutorialStorageScope = useMemo(() => ({
+    template: 'distribution',
+    role: session.role,
+    profile: currentProfile,
+    tenantId: session.tenantId,
+    uid: session.uid,
+    isDemo: effectiveIsDemo,
+  }), [session.role, currentProfile, session.tenantId, session.uid, effectiveIsDemo])
+
+  const resetAllDistributionStatuses = useCallback(() => {
+    tutorialPlans.forEach((plan) => {
+      try {
+        saveTutorialProgress(progressContext, plan.id, {
+          status: 'not_started',
+          stepIndex: 0,
+          lastUpdated: new Date().toISOString(),
+        })
+      } catch { /* ignore */ }
+    })
+    setProgressMap({})
+  }, [tutorialPlans, progressContext])
+
+  const orchestrator = useTutorialOrchestrator({
+    scope: tutorialScope,
+    sections: distributionSections,
+    onNavigateToModule: (mod) => selectModule(mod as ModuleId),
+    onOpenSectionTour: (planId, initialStep = 0) => {
+      const plan = tutorialPlans.find((p) => p.id === planId)
+      if (plan) {
+        setActiveTourPlan(plan)
+        setActiveStepIndex(initialStep)
+        const targetMod = plan.steps[initialStep]?.module || plan.steps[0]?.module
+        if (targetMod) selectModule(targetMod)
+      }
+    },
+    onCloseSectionTour: () => {
+      setActiveTourPlan(null)
+    },
+    onResetAllStatuses: resetAllDistributionStatuses,
+  })
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
   const [copiedOperationId, setCopiedOperationId] = useState('')
@@ -379,7 +434,10 @@ export function DistributionExperience({
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsTutorialCenterOpen(true)}
+              onClick={() => {
+                setProgressMap(loadTutorialProgress(progressContext))
+                setIsTutorialCenterOpen(true)
+              }}
               data-tutorial-target="tutorial-trigger-btn"
               className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-bold text-sky-800 transition hover:bg-sky-100 cursor-pointer shadow-xs"
             >
@@ -395,7 +453,10 @@ export function DistributionExperience({
             </span>
             <button
             type="button"
-            onClick={() => setIsTutorialCenterOpen(true)}
+            onClick={() => {
+              setProgressMap(loadTutorialProgress(progressContext))
+              setIsTutorialCenterOpen(true)
+            }}
             data-tutorial-target="sidebar-tutorial-btn"
             className="mt-2 flex min-h-[44px] items-center gap-2.5 rounded-2xl border border-sky-200 bg-sky-50/70 px-3 text-left text-xs font-bold text-sky-800 hover:bg-sky-100 transition cursor-pointer"
           >
@@ -611,6 +672,16 @@ export function DistributionExperience({
         }}
         plans={tutorialPlans}
         progressMap={progressMap}
+        hasResumableSequence={orchestrator.hasResumableSequence}
+        resumableTargetInfo={orchestrator.resumableTargetInfo}
+        onResumeSequence={() => {
+          setIsTutorialCenterOpen(false)
+          orchestrator.resumeSequence()
+        }}
+        onRestartAllTutorials={() => {
+          setIsTutorialCenterOpen(false)
+          orchestrator.restartAll()
+        }}
         onStartPlan={(plan) => {
           setActiveTourPlan(plan)
           const savedProgress = progressMap[plan.id]
@@ -627,6 +698,7 @@ export function DistributionExperience({
         }}
         role={session.role}
         companyName={effectiveCompanyName}
+        isDemo={effectiveIsDemo}
       />
 
       {/* Visor interactivo flotante con spotlight y overlay */}
@@ -637,14 +709,26 @@ export function DistributionExperience({
           data={data}
           onNavigate={selectModule}
           initialStepIndex={activeStepIndex}
+          isContinuous={orchestrator.state.isContinuousActive}
           onStepChange={(newStepIndex) => {
             setActiveStepIndex(newStepIndex)
+            orchestrator.updateStepIndex(newStepIndex)
             saveTutorialProgress(progressContext, activeTourPlan.id, {
               status: 'in_progress',
               stepIndex: newStepIndex,
               lastUpdated: new Date().toISOString(),
             })
-            setProgressMap(loadTutorialProgress(progressContext))
+          }}
+          onPause={(stepIdx) => {
+            if (activeTourPlan) {
+              saveTutorialProgress(progressContext, activeTourPlan.id, {
+                status: 'in_progress',
+                stepIndex: stepIdx,
+                lastUpdated: new Date().toISOString(),
+              })
+              setProgressMap(loadTutorialProgress(progressContext))
+            }
+            orchestrator.pauseSequence(stepIdx)
           }}
           onDismiss={() => {
             if (activeTourPlan) {
@@ -657,22 +741,56 @@ export function DistributionExperience({
                 })
                 setProgressMap(loadTutorialProgress(progressContext))
               }
+              if (orchestrator.state.isContinuousActive) {
+                orchestrator.pauseSequence(activeStepIndex)
+              } else {
+                setActiveTourPlan(null)
+              }
             }
-            setActiveTourPlan(null)
           }}
           onComplete={() => {
             if (activeTourPlan) {
-              saveTutorialProgress(progressContext, activeTourPlan.id, {
+              const planId = activeTourPlan.id
+              saveTutorialProgress(progressContext, planId, {
                 status: 'completed',
                 stepIndex: activeTourPlan.steps.length - 1,
                 lastUpdated: new Date().toISOString(),
               })
               setProgressMap(loadTutorialProgress(progressContext))
+              setActiveTourPlan(null)
+              if (orchestrator.state.isContinuousActive) {
+                orchestrator.handleSectionCompleted(planId)
+              }
             }
-            setActiveTourPlan(null)
           }}
         />
       )}
+
+      <TutorialWelcomeModal
+        isOpen={orchestrator.isWelcomeOpen}
+        roleLabel={session.role}
+        templateLabel="Distribución"
+        sections={distributionSections}
+        onStart={orchestrator.startContinuousSequence}
+        onSkip={orchestrator.skipWelcome}
+      />
+
+      <TutorialSectionTransition
+        transition={orchestrator.transitionState}
+        onContinueNow={orchestrator.handleContinueNow}
+        onPause={() => orchestrator.pauseSequence(0)}
+      />
+
+      <TutorialCompletionSummaryModal
+        isOpen={orchestrator.isSummaryOpen}
+        roleLabel={session.role}
+        templateLabel="Distribución"
+        sections={distributionSections}
+        completedSectionIds={orchestrator.state.completedSectionIds}
+        onClose={orchestrator.dismissSummary}
+        onReplaySection={(id) => orchestrator.replaySection(id)}
+        onRestartAll={orchestrator.restartAll}
+      />
     </div>
   )
 }

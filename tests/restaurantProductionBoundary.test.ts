@@ -6,6 +6,7 @@ import test from 'node:test'
 function collectSourceFiles(dir: string): string[] {
   const files: string[] = []
   for (const entry of readdirSync(dir)) {
+    if (entry === '__tests__') continue
     const fullPath = join(dir, entry)
     const stat = statSync(fullPath)
     if (stat.isDirectory()) {
