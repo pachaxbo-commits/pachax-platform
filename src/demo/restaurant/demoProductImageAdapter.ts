@@ -1,5 +1,9 @@
 import type { ProductImageAdapter } from '../../modules/restaurant/domain/productImageAdapter.ts'
-import { validateImageFile, compressProductImage } from './demoProductImageStorage.ts'
+import {
+  validateImageFile,
+  compressProductImage,
+  getDemoImageStorageDriver,
+} from './demoProductImageStorage.ts'
 
 /**
  * Adaptador de demostración local para fotografías de productos.
@@ -7,9 +11,16 @@ import { validateImageFile, compressProductImage } from './demoProductImageStora
  * a entornos reales de subir base64 o depender de Firebase Storage.
  */
 export function createDemoProductImageAdapter(): ProductImageAdapter {
+  const driver = getDemoImageStorageDriver()
+  const notice =
+    driver === 'memory'
+      ? 'Almacenamiento en memoria temporal (IndexedDB no disponible en este entorno: no persistirá tras recargar).'
+      : 'Almacenamiento de demostración en cliente (IndexedDB / Canvas)'
+
   return {
     isSupported: true,
-    notice: 'Almacenamiento de demostración en cliente (IndexedDB / Canvas)',
+    driver,
+    notice,
     validateImage: (file: File) => validateImageFile(file),
     processImage: async (file: File) => {
       const validation = validateImageFile(file)

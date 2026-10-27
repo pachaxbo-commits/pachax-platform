@@ -32,19 +32,42 @@ export interface DemoImageScope {
 
 /**
  * Obtiene o crea un identificador de sesión estable y único para la pestaña actual.
- * Reside en window.sessionStorage, de modo que sobrevive a recargas F5 pero es
- * completamente independiente entre pestañas y ventanas simultáneas.
+ *
+ * Mecanismo de aislamiento robusto frente a duplicación de pestañas y recargas F5:
+ * 1. En recarga F5 dentro de la misma pestaña: window.name ('pachax_tab_<id>') coincide
+ *    con el valor almacenado en sessionStorage. Se conserva el mismo sessionId para restaurar
+ *    fotografías.
+ * 2. En nueva pestaña o pestaña duplicada: los navegadores clonan sessionStorage hacia la
+ *    nueva pestaña, pero window.name se inicializa vacío ('').
+ *    Al detectar discrepancia entre window.name y sessionStorage, se reconoce de inmediato
+ *    que se trata de una pestaña clonada o duplicada.
+ * 3. En ese caso se genera un sessionId completamente nuevo y fresco, se asigna a window.name
+ *    y se actualiza sessionStorage, garantizando aislamiento estricto y evitando
+ *    cualquier colisión o sobreescritura entre pestañas abiertas simultáneamente.
  */
 export function getDemoSessionId(): string {
   if (typeof window === 'undefined') return 'server_session'
   try {
     const SESSION_KEY = 'pachax:demo:tab_session_id'
-    let sid = window.sessionStorage.getItem(SESSION_KEY)
-    if (!sid) {
-      sid = 'tab_' + Math.random().toString(36).slice(2, 9) + '_' + Date.now().toString(36)
-      window.sessionStorage.setItem(SESSION_KEY, sid)
+    const NAME_PREFIX = 'pachax_tab_'
+    const storedSid = window.sessionStorage.getItem(SESSION_KEY)
+    const currentName = typeof window.name === 'string' ? window.name : ''
+
+    // Caso 1: Recarga (F5) en la misma pestaña -> window.name coincide con sessionStorage
+    if (storedSid && currentName === `${NAME_PREFIX}${storedSid}`) {
+      return storedSid
     }
-    return sid
+
+    // Caso 2: Pestaña nueva, pestaña duplicada (clonada) o sesión sin inicializar.
+    // Generar un sessionId nuevo e independiente para garantizar aislamiento total.
+    const newSid = 'tab_' + Math.random().toString(36).slice(2, 9) + '_' + Date.now().toString(36)
+    try {
+      window.name = `${NAME_PREFIX}${newSid}`
+      window.sessionStorage.setItem(SESSION_KEY, newSid)
+    } catch {
+      // Ignorar si el modo privado restringe escrituras
+    }
+    return newSid
   } catch {
     return 'fallback_session'
   }
@@ -162,6 +185,21 @@ export async function compressProductImage(
 
 // Inicialización diferida de IndexedDB con soporte SSR seguro y purga de claves legacy
 let dbInstancePromise: Promise<IDBDatabase | null> | null = null
+let hasIndexedDBFailed = false
+
+export function isDemoIndexedDBAvailable(): boolean {
+  if (typeof window === 'undefined') return false
+  if (hasIndexedDBFailed) return false
+  try {
+    return 'indexedDB' in window && window.indexedDB !== null
+  } catch {
+    return false
+  }
+}
+
+export function getDemoImageStorageDriver(): 'indexeddb' | 'memory' {
+  return isDemoIndexedDBAvailable() ? 'indexeddb' : 'memory'
+}
 
 function openDatabase(): Promise<IDBDatabase | null> {
   if (typeof window === 'undefined' || !('indexedDB' in window)) {
@@ -188,10 +226,12 @@ function openDatabase(): Promise<IDBDatabase | null> {
       }
 
       request.onerror = () => {
+        hasIndexedDBFailed = true
         console.warn('IndexedDB no está disponible en este navegador o modo privado. Operando en memoria.')
         resolve(null)
       }
     } catch {
+      hasIndexedDBFailed = true
       resolve(null)
     }
   })
@@ -225,19 +265,45 @@ export function makeRecordKey(scopeKey: string, productId: string): string {
   return `${scopeKey}:${productId}`
 }
 
+/**
+ * Sanitiza productos antes de persistir en sessionStorage para prevenir QuotaExceededError (5MB).
+ * Remueve cadenas Base64 (data: URLs) mientras preserva rutas de assets estáticos y campos de negocio.
+ * Las fotografías reales se persisten y cargan desde IndexedDB bajo la clave de ámbito aislada.
+ */
+export function sanitizeProductsForStorage<T extends { image?: string }>(products: T[]): T[] {
+  return products.map((product) => {
+    if (product.image && product.image.startsWith('data:')) {
+      return { ...product, image: '' }
+    }
+    return product
+  })
+}
+
 // Cache en memoria para evitar reescrituras innecesarias idénticas
 const memoryImageCache = new Map<string, string>()
 
-// Cola de promesas en vuelo para sincronizar escrituras y evitar carreras con 'Reiniciar demo'
-const inFlightWrites = new Map<string, Promise<void>>()
+// Cola de promesas serializadas por recordKey para garantizar orden estricto de operaciones
+const keyQueues = new Map<string, Promise<void>>()
+
+function enqueueKeyOperation(recordKey: string, op: () => Promise<void>): Promise<void> {
+  const previous = keyQueues.get(recordKey) || Promise.resolve()
+  const next = previous.catch(() => {}).then(op)
+  keyQueues.set(recordKey, next)
+  next.finally(() => {
+    if (keyQueues.get(recordKey) === next) {
+      keyQueues.delete(recordKey)
+    }
+  })
+  return next
+}
 
 /**
  * Espera a que finalicen todas las escrituras en curso para un ámbito específico.
  */
 export async function waitForPendingImageWrites(scopeKey: string): Promise<void> {
   const pending: Promise<void>[] = []
-  for (const [key, promise] of inFlightWrites.entries()) {
-    if (key.startsWith(scopeKey + ':')) {
+  for (const [key, promise] of keyQueues.entries()) {
+    if (key.startsWith(scopeKey + ':') || key === scopeKey) {
       pending.push(promise)
     }
   }
@@ -248,8 +314,8 @@ export async function waitForPendingImageWrites(scopeKey: string): Promise<void>
 
 /**
  * Guarda o reemplaza la fotografía de un producto en IndexedDB.
- * Verifica previamente si la imagen no ha cambiado para evitar reescrituras redundantes.
- * Confirma persistencia transaccional antes de resolver.
+ * Serializa operaciones sobre la misma clave y confirma la transacción
+ * (tx.oncomplete) antes de resolver.
  */
 export async function saveDemoProductImage(
   scopeInput: DemoImageScope | string,
@@ -259,51 +325,49 @@ export async function saveDemoProductImage(
   const scopeKey = buildDemoImageScopeKey(scopeInput)
   const recordKey = makeRecordKey(scopeKey, productId)
 
-  // Evitar escrituras idénticas innecesarias
-  if (memoryImageCache.get(recordKey) === dataUrl) {
-    return
-  }
-
-  const db = await openDatabase()
-  if (!db) {
-    memoryImageCache.set(recordKey, dataUrl)
-    return
-  }
-
-  const writeOperation = new Promise<void>((resolve, reject) => {
-    try {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      const record = {
-        key: recordKey,
-        scopeKey,
-        productId,
-        dataUrl,
-        updatedAt: Date.now(),
-      }
-      const req = store.put(record)
-
-      tx.oncomplete = () => {
-        memoryImageCache.set(recordKey, dataUrl)
-        resolve()
-      }
-      tx.onerror = () => {
-        reject(tx.error || new Error('Fallo transaccional al persistir fotografía'))
-      }
-      req.onerror = () => {
-        reject(req.error || new Error('Error al registrar fotografía en almacén'))
-      }
-    } catch (err) {
-      reject(err)
+  return enqueueKeyOperation(recordKey, async () => {
+    // Evitar escrituras idénticas innecesarias
+    if (memoryImageCache.get(recordKey) === dataUrl) {
+      return
     }
-  })
 
-  inFlightWrites.set(recordKey, writeOperation)
-  try {
-    await writeOperation
-  } finally {
-    inFlightWrites.delete(recordKey)
-  }
+    const db = await openDatabase()
+    if (!db) {
+      memoryImageCache.set(recordKey, dataUrl)
+      return
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      try {
+        const tx = db.transaction(STORE_NAME, 'readwrite')
+        const store = tx.objectStore(STORE_NAME)
+        const record = {
+          key: recordKey,
+          scopeKey,
+          productId,
+          dataUrl,
+          updatedAt: Date.now(),
+        }
+        const req = store.put(record)
+
+        tx.oncomplete = () => {
+          memoryImageCache.set(recordKey, dataUrl)
+          resolve()
+        }
+        tx.onerror = () => {
+          reject(tx.error || new Error('Fallo transaccional al persistir fotografía'))
+        }
+        tx.onabort = () => {
+          reject(new Error('Transacción abortada'))
+        }
+        req.onerror = () => {
+          reject(req.error || new Error('Error al registrar fotografía en almacén'))
+        }
+      } catch (err) {
+        reject(err)
+      }
+    })
+  })
 }
 
 /**
@@ -342,6 +406,7 @@ export async function getDemoProductImage(
 
 /**
  * Elimina la fotografía de un producto en IndexedDB.
+ * Serializa la operación y confirma el commit de la transacción antes de resolver.
  */
 export async function deleteDemoProductImage(
   scopeInput: DemoImageScope | string,
@@ -350,30 +415,26 @@ export async function deleteDemoProductImage(
   const scopeKey = buildDemoImageScopeKey(scopeInput)
   const recordKey = makeRecordKey(scopeKey, productId)
 
-  memoryImageCache.delete(recordKey)
+  return enqueueKeyOperation(recordKey, async () => {
+    memoryImageCache.delete(recordKey)
 
-  const db = await openDatabase()
-  if (!db) return
+    const db = await openDatabase()
+    if (!db) return
 
-  const deleteOperation = new Promise<void>((resolve, reject) => {
-    try {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      const req = store.delete(recordKey)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
-      req.onerror = () => reject(req.error)
-    } catch (err) {
-      reject(err)
-    }
+    return new Promise<void>((resolve, reject) => {
+      try {
+        const tx = db.transaction(STORE_NAME, 'readwrite')
+        const store = tx.objectStore(STORE_NAME)
+        const req = store.delete(recordKey)
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error || new Error('Fallo al eliminar fotografía'))
+        tx.onabort = () => reject(new Error('Transacción abortada al eliminar'))
+        req.onerror = () => reject(req.error || new Error('Error al eliminar registro'))
+      } catch (err) {
+        reject(err)
+      }
+    })
   })
-
-  inFlightWrites.set(recordKey, deleteOperation)
-  try {
-    await deleteOperation
-  } finally {
-    inFlightWrites.delete(recordKey)
-  }
 }
 
 /**
@@ -422,6 +483,7 @@ export async function loadDemoProductImages(
 /**
  * Purga todas las imágenes asociadas a un ámbito específico al reiniciar datos.
  * Awaita escrituras en curso para evitar que un guardado tardío reviva una imagen purgada.
+ * Espera tx.oncomplete para asegurar persistencia del borrado en disco.
  */
 export async function clearDemoProductImages(scopeInput: DemoImageScope | string): Promise<void> {
   const scopeKey = buildDemoImageScopeKey(scopeInput)
@@ -451,8 +513,9 @@ export async function clearDemoProductImages(scopeInput: DemoImageScope | string
             store.delete(item.key)
           }
         }
-        resolve()
       }
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
       req.onerror = () => resolve()
     } catch {
       resolve()
