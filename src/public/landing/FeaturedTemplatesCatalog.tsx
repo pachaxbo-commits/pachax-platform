@@ -2,12 +2,16 @@ import { useState } from 'react'
 import { ArrowRight, Eye, CheckCircle2 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../admin/types'
-import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, freeDemoPath } from '../../core/publicTemplates'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 import { getTemplateContactUrl, getTemplateSecondaryAction } from './templateActionPolicy'
 
-export function FeaturedTemplatesCatalog() {
+interface FeaturedTemplatesCatalogProps {
+  onViewPlans?: (templateId: 'hamburger' | 'retail') => void
+}
+
+export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatalogProps) {
   const { navigate } = usePublicRouter()
   const { publishedTemplates, landingContent, publicCatalogStatus } = useCommercialConfig()
   const [selectedFilter, setSelectedFilter] = useState<string>('all')
@@ -51,12 +55,7 @@ export function FeaturedTemplatesCatalog() {
   }
 
   const handleSelectTemplate = (tpl: CommercialTemplateItem) => {
-    const targetId = tpl.canonicalTemplateId || tpl.templateId || tpl.id
-    const action = getTemplateSecondaryAction(
-      tpl.id,
-      isTemplateProvisioningAvailable(targetId),
-      PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED,
-    )
+    const action = getTemplateSecondaryAction(tpl.id)
     if (action.kind === 'quote') {
       window.open(getTemplateContactUrl(tpl.commercialName, action), '_blank', 'noopener,noreferrer')
       return
@@ -65,7 +64,10 @@ export function FeaturedTemplatesCatalog() {
       window.open(getTemplateContactUrl(tpl.commercialName, action), '_blank', 'noopener,noreferrer')
       return
     }
-    if (action.kind === 'register') navigate(`/register?template=${targetId}`)
+    if (action.kind === 'view-plans') {
+      onViewPlans?.(action.templateId)
+      return
+    }
   }
 
   return (
@@ -125,12 +127,7 @@ export function FeaturedTemplatesCatalog() {
         {/* Grilla Editorial de Plantillas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch">
           {filteredTemplates.map((template) => {
-            const targetId = template.canonicalTemplateId || template.templateId || template.id
-            const action = getTemplateSecondaryAction(
-              template.id,
-              isTemplateProvisioningAvailable(targetId),
-              PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED,
-            )
+            const action = getTemplateSecondaryAction(template.id)
             const isPrimary = action.kind === 'quote'
             return (
             <div

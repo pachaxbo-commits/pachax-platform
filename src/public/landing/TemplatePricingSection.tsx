@@ -16,12 +16,15 @@ import {
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
-import { PublicCommercialInterestDialog } from './PublicCommercialInterestDialog'
+import { getTemplateContactUrl } from './templateActionPolicy'
 
-export function TemplatePricingSection() {
+interface TemplatePricingSectionProps {
+  initialQuickServiceId?: 'hamburger' | 'retail'
+}
+
+export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: TemplatePricingSectionProps) {
   const { navigate } = usePublicRouter()
   const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus } = useCommercialConfig()
-  const [interestTarget, setInterestTarget] = useState<{ templateId: string; planId?: string } | null>(null)
 
   // Estado del Bloque A: Implementación Especializada
   const [selectedSpecializedId, setSelectedSpecializedId] = useState<'distribution' | 'restaurant' | 'nightclub'>('distribution')
@@ -33,7 +36,7 @@ export function TemplatePricingSection() {
   const activeSpecializedPlan = activeSpecializedPlans[0]
 
   // Estado del Bloque B: Autoservicio con Planes Directos
-  const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<'hamburger' | 'retail'>('hamburger')
+  const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<'hamburger' | 'retail'>(initialQuickServiceId)
   const activeQuickCatalog: QuickServiceSubcategory =
     QUICK_SERVICE_CATALOG.find((q) => q.id === selectedQuickServiceId) ||
     QUICK_SERVICE_CATALOG[0]
@@ -57,12 +60,15 @@ export function TemplatePricingSection() {
     }
   }
 
-  const handleSpecializedInquiry = (model: SpecializedModelInfo, planId?: string) => {
-    setInterestTarget({ templateId: model.id, planId })
+  const handleSpecializedInquiry = (model: SpecializedModelInfo) => {
+    const action = { kind: 'contact', label: 'Solicitar implementación' } as const
+    window.open(getTemplateContactUrl(model.title, action), '_blank', 'noopener,noreferrer')
   }
 
   const handleSelectQuickPlan = (plan?: TemplateTierPlan) => {
-    setInterestTarget({ templateId: activeQuickCatalog.id, planId: plan?.id })
+    const planDescription = plan ? ` sobre el plan ${plan.name}` : ' sobre los planes disponibles'
+    const url = OFFICIAL_WHATSAPP.buildUrl(`Hola PACHAX, quiero consultar${planDescription} para ${activeQuickCatalog.label}.`)
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const handleCustomDevWhatsApp = () => {
@@ -244,11 +250,11 @@ export function TemplatePricingSection() {
             <div className="relative z-10 pt-6 mt-6 border-t border-white/10 flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
-                onClick={() => handleSpecializedInquiry(activeSpecialized, activeSpecializedPlan?.id)}
+                onClick={() => handleSpecializedInquiry(activeSpecialized)}
                 className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-lg inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 <MessageSquare className="w-4 h-4" />
-                <span>Solicitar información</span>
+                <span>Solicitar implementación</span>
               </button>
               <button
                 type="button"
@@ -292,6 +298,8 @@ export function TemplatePricingSection() {
                       <button
                         key={cat.id}
                         type="button"
+                        data-plan-template={cat.id}
+                        aria-pressed={isSelected}
                         onClick={() => setSelectedQuickServiceId(cat.id)}
                         className={`flex-1 sm:flex-initial py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                           isSelected
@@ -471,16 +479,11 @@ export function TemplatePricingSection() {
               className="w-full sm:w-auto py-3 px-5 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>Hablar con ingeniería</span>
+              <span>Cotizar a medida</span>
             </button>
           </div>
         </div>
       </div>
-      {interestTarget && <PublicCommercialInterestDialog
-        templateId={interestTarget.templateId}
-        planId={interestTarget.planId}
-        onClose={() => setInterestTarget(null)}
-      />}
     </section>
   )
 }

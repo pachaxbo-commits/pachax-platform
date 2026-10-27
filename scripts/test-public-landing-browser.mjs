@@ -77,7 +77,8 @@ try {
     const activeSpecialized = specialized.find(c => c.dataset.active === 'true');
     const activeSelfService = selfService.find(c => c.dataset.active === 'true');
     const footer = document.querySelector('footer');
-    const scrollH = document.documentElement.scrollHeight;
+    const root = document.documentElement;
+    const scrollH = root?.scrollHeight || 0;
     const footerBottom = footer ? footer.offsetTop + footer.offsetHeight : 0;
     const tutorialButtons = [...document.querySelectorAll('#tutoriales .grid button')];
     return {
@@ -86,7 +87,7 @@ try {
       selfServiceCount: selfService.length,
       activeSpecialized: activeSpecialized?.dataset.templateId,
       activeSelfService: activeSelfService?.dataset.templateId,
-      overflow: document.documentElement.scrollWidth > innerWidth,
+      overflow: (root?.scrollWidth || 0) > innerWidth,
       footerTrailingSpace: scrollH - footerBottom,
       footerBg: footer ? getComputedStyle(footer).backgroundColor : null,
       tutorialTabCount: tutorialButtons.length,
@@ -101,6 +102,14 @@ try {
       await sleep(150)
     }
     throw new Error(`Tiempo agotado: ${label}; estado ${JSON.stringify(await state())}`)
+  }
+  const waitForValue = async (expression, predicate, label) => {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const value = await evaluate(expression)
+      if (predicate(value)) return value
+      await sleep(150)
+    }
+    throw new Error(`Tiempo agotado: ${label}; valor ${JSON.stringify(await evaluate(expression))}`)
   }
 
   const screenshot = async (label) => {
@@ -125,6 +134,63 @@ try {
 
     await screenshot(`${width}-hero`)
 
+    // Commercial actions stay informational and select the requested public plan.
+    const actionChecks = await evaluate(`(() => {
+      const findCard = (id) => document.querySelector('#plantillas [data-template-id="' + id + '"]');
+      const labels = (id) => [...(findCard(id)?.querySelectorAll('button') || [])].map(button => button.textContent.trim());
+      window.__commercialOpenedUrl = null;
+      window.open = (url) => { window.__commercialOpenedUrl = String(url); };
+      const implementationUrls = {};
+      for (const id of ['restaurant', 'distribution', 'nightclub']) {
+        findCard(id)?.querySelector('[data-commercial-action="contact"]')?.click();
+        implementationUrls[id] = window.__commercialOpenedUrl;
+      }
+      const implementationUrl = window.__commercialOpenedUrl;
+      const planCtas = {};
+      for (const id of ['retail']) {
+        const button = findCard(id)?.querySelector('[data-commercial-action="view-plans"]');
+        planCtas[id] = button?.textContent.trim();
+        button?.click();
+      }
+      const customLabels = labels('custom');
+      const registerLinks = [...document.querySelectorAll('a[href^="/register"], button')]
+        .filter(el => el.textContent.toLowerCase().includes('ver planes'))
+        .map(el => el.getAttribute('href'));
+      return { implementationUrl, implementationUrls, planCtas, customLabels, registerLinks };
+    })()`)
+    assert.match(actionChecks.implementationUrl || '', /wa\.me\/59177987776/)
+    for (const [id, expectedName] of [['restaurant', 'Restaurante con salón'], ['distribution', 'Producción y Distribución'], ['nightclub', 'Nightclub & Lounge']]) {
+      assert.match(actionChecks.implementationUrls[id] || '', /wa\.me\/59177987776/)
+      assert(decodeURIComponent(actionChecks.implementationUrls[id]).includes(expectedName), `${id} debe llevar mensaje de WhatsApp personalizado`)
+    }
+    assert.equal(actionChecks.planCtas.retail, 'Ver planes')
+    const catalogRetailSelection = await waitForValue(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'tarjeta Comercio selecciona sus planes')
+    assert.equal(catalogRetailSelection, 'true')
+    assert(actionChecks.customLabels.includes('Cotizar a medida'))
+    assert.equal(actionChecks.customLabels.some(label => /Demo próximamente/i.test(label)), false)
+    assert.equal(actionChecks.registerLinks.some(Boolean), false, 'Ver planes nunca debe abrir /register')
+    await evaluate(`(() => {
+      window.__heroOpenedUrl = null;
+      window.open = (url) => { window.__heroOpenedUrl = String(url); };
+      [...document.querySelectorAll('#hero button')].find(button => button.textContent.includes('Solicitar implementación'))?.click();
+      return window.__heroOpenedUrl;
+    })()`)
+    const heroImplementationUrl = await evaluate(`window.__heroOpenedUrl`)
+    assert(decodeURIComponent(heroImplementationUrl || '').includes('Restaurante con salón'))
+    await evaluate(`([...document.querySelectorAll('#hero button')].find(button => button.textContent.includes('Ver planes')))?.click()`)
+    const heroPlanSelection = await waitForValue(`document.querySelector('[data-plan-template="hamburger"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'CTA principal selecciona Restaurante rápido')
+    assert.equal(heroPlanSelection, 'true')
+    const noOfferState = await evaluate(`document.querySelector('#planes')?.innerText || ''`)
+    assert(/Sin oferta publicada|Ofertas no disponibles/.test(noOfferState), 'Sin catálogo confirmado debe mostrarse un estado explícito de ofertas')
+    assert.equal(/\$(29|59|99)(\.00)?/.test(noOfferState), false, 'No deben aparecer precios de referencia')
+    await evaluate(`(() => {
+      window.__plansInquiryUrl = null;
+      window.open = (url) => { window.__plansInquiryUrl = String(url); };
+      [...document.querySelectorAll('#planes button')].find(button => button.textContent.includes('Solicitar información'))?.click();
+    })()`)
+    const plansInquiryUrl = await evaluate(`window.__plansInquiryUrl`)
+    assert.match(plansInquiryUrl || '', /wa\.me\/59177987776/, 'El estado sin oferta permite consulta por WhatsApp')
+
     if (width === 1440) {
       assert.equal(loaded.activeSpecialized, 'restaurant')
       assert.equal(loaded.activeSelfService, 'hamburger')
@@ -138,6 +204,9 @@ try {
       await evaluate(`document.querySelector('[aria-label="Carrusel de soluciones autoservicio"] button[aria-label="Siguiente plantilla"]').click()`)
       const nextB = await waitFor((r) => r.activeSelfService === 'retail', 'Carrusel B next -> retail')
       assert.equal(nextB.activeSelfService, 'retail')
+      await evaluate(`([...document.querySelectorAll('#hero button')].find(button => button.textContent.includes('Ver planes')))?.click()`)
+      const heroRetailSelection = await waitForValue(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'CTA principal selecciona Comercio')
+      assert.equal(heroRetailSelection, 'true')
     }
 
     console.log(`PASS ${width}×${height}: 2 carruseles independientes, sin overflow y footer perfecto`)
@@ -145,7 +214,6 @@ try {
 
 } finally {
   if (socket?.readyState === WebSocket.OPEN) {
-    await send('Browser.close').catch(() => undefined)
     socket.close()
   }
   browser.kill()
