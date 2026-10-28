@@ -12,10 +12,10 @@ import {
   canLaunchCommercialDemo,
   isTechnicalDemoAvailable,
   isTemplateProvisioningAvailable,
-  PLAN_ELIGIBLE_TEMPLATE_IDS,
+  PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED,
   PUBLIC_TEMPLATES,
-  OFFICIAL_COMMERCIAL_TEMPLATES,
 } from '../src/core/publicTemplates.ts'
+import { COMMERCIAL_PLAN_TEMPLATE_IDS as PLAN_ELIGIBLE_TEMPLATE_IDS } from '../src/admin/store/commercialCatalogContract.ts'
 
 test('1. Visitante / usuario no autenticado no posee permisos de plataforma', () => {
   assert.equal(canPlatform(null, 'tenants.read'), false)
@@ -223,7 +223,7 @@ test('CASO 3: Firestore contiene un plan published -> landing muestra exactament
   assert.equal(publishedForLanding[0].monthlyPriceUSD, 35)
 })
 
-test('CASO 4: Firestore no está disponible -> fallback funciona -> fallback NO contiene precios placeholder publicados', () => {
+test('CASO 4: Firestore no está disponible -> landing pública queda sin ofertas aprobadas', () => {
   // Cargar la configuración fallback por defecto:
   // Todos los 12 planes estándar por rubro en PLANS_BY_TEMPLATE están en draft
   const allDefaultPlans = Object.values(PLANS_BY_TEMPLATE).flat()
@@ -234,6 +234,8 @@ test('CASO 4: Firestore no está disponible -> fallback funciona -> fallback NO 
   // Asegurar que ningún precio inventado o no oficial está marcado como published
   const anyPublished = allDefaultPlans.some((p) => p.status === 'published')
   assert.equal(anyPublished, false)
+  const publicOffersOnError: TemplateTierPlan[] = []
+  assert.deepEqual(publicOffersOnError, [])
 })
 
 test('CASO 5: Extras con precio draft -> no aparecen públicamente', () => {
@@ -415,8 +417,8 @@ test('17. Whitelist de Plantillas Oficiales: templateId arbitrario es rechazado'
   assert.equal(OFFICIAL_TEMPLATES.includes('arbitrary_pos'), false)
 })
 
-test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y compatibilidad legacy', () => {
-  // 1. Distribución publicada con demoEnabled=true -> tiene demo técnica implementada -> PERMITIDO
+test('18. canLaunchCommercialDemo: disponibilidad técnica, comercial y decisión Admin independientes', () => {
+  // La disponibilidad técnica canónica no depende de contratación ni del booleano comercial legacy.
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'published',
@@ -424,13 +426,13 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y c
     canonicalTemplateId: 'distribution',
   }), true)
 
-  // 2. Distribución con demoEnabled=false explícito -> DENEGADO
+  // Una demo técnica disponible sigue visible aunque demoEnabled legacy esté desactualizado.
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'published',
     demoEnabled: false,
     canonicalTemplateId: 'distribution',
-  }), false)
+  }), true)
 
   // 3. Distribución legacy sin demoEnabled (undefined) -> default técnico disponible -> PERMITIDO
   assert.equal(canLaunchCommercialDemo({
@@ -439,56 +441,56 @@ test('18. canLaunchCommercialDemo: gating estricto de disponibilidad tecnica y c
     canonicalTemplateId: 'distribution',
   }), true)
 
-  // 4. Distribución con status=draft -> DENEGADO
+  // La publicación comercial no controla la disponibilidad técnica de la demo.
   assert.equal(canLaunchCommercialDemo({
     id: 'distribution',
     status: 'draft',
     demoEnabled: true,
     canonicalTemplateId: 'distribution',
-  }), false)
+  }), true)
 
-  // 5. Restaurante con demoEnabled=true -> status en publicTemplates es coming_soon (sin demo técnica) -> DENEGADO
+  // 5. Restaurante con demoEnabled=false legacy -> ruta pública verificada -> PERMITIDO
   assert.equal(canLaunchCommercialDemo({
     id: 'restaurant',
     status: 'published',
-    demoEnabled: true,
+    demoEnabled: false,
     canonicalTemplateId: 'restaurant',
-  }), false)
+  }), true)
 
-  // 6. Restaurante legacy (undefined) -> status coming_soon -> DENEGADO
+  // 6. Restaurante legacy (undefined) conserva la disponibilidad técnica canónica.
   assert.equal(canLaunchCommercialDemo({
     id: 'restaurant',
     status: 'published',
     canonicalTemplateId: 'restaurant',
-  }), false)
+  }), true)
 
-  // 7. Nightclub con demoEnabled=true -> coming_soon -> DENEGADO
+  // 7. Nightclub demo is technically available; Admin can still disable it explicitly.
   assert.equal(canLaunchCommercialDemo({
     id: 'nightclub',
     status: 'published',
     demoEnabled: true,
     canonicalTemplateId: 'nightclub',
-  }), false)
+  }), true)
 
-  // 8. Retail con demoEnabled=true -> coming_soon -> DENEGADO
+  // Retail tiene ruta demo técnica lista aunque su estado comercial siga coming_soon.
   assert.equal(canLaunchCommercialDemo({
     id: 'retail',
     status: 'published',
     demoEnabled: true,
     canonicalTemplateId: 'retail',
-  }), false)
+  }), true)
 
   // 9. isTechnicalDemoAvailable verifica directamente la disponibilidad técnica del código
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
-  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
-  assert.equal(isTechnicalDemoAvailable('nightclub'), false)
-  assert.equal(isTechnicalDemoAvailable('retail'), false)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), true)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), true)
+  assert.equal(isTechnicalDemoAvailable('retail'), true)
   assert.equal(isTechnicalDemoAvailable('custom'), false)
 })
 
 test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun privilegio de plataforma', () => {
-  const fakeSuperadmin = { uid: 'fake_1', role: 'superadmin' as any, active: true }
-  const fakeRoot = { uid: 'fake_2', role: 'root' as any, active: true }
+  const fakeSuperadmin = { uid: 'fake_1', role: 'superadmin', active: true } as unknown as PlatformOperator
+  const fakeRoot = { uid: 'fake_2', role: 'root', active: true } as unknown as PlatformOperator
 
   assert.equal(canPlatform(fakeSuperadmin, 'tenants.read'), false)
   assert.equal(canPlatform(fakeSuperadmin, 'operators.manage'), false)
@@ -497,16 +499,15 @@ test('19. Roles inventados como "superadmin" son rechazados y no poseen ningun p
   assert.equal(canPlatform(fakeRoot, 'support.read'), false)
 })
 
-test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica estricta', () => {
-  // Distribución, Restaurante y Nightclub están aprobados para aprovisionamiento real de tenants
+test('20. La política de autoservicio temporal es independiente de la disponibilidad por plantilla', () => {
+  assert.equal(PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, false)
+  // La disponibilidad técnica por plantilla se conserva; los entrypoints públicos se bloquean aparte.
   assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('distribution'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
   assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
-
-  // Plantillas no consolidadas para creación de empresas
   assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
   assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
@@ -516,18 +517,21 @@ test('20. Disponibilidad de aprovisionamiento de plantillas: fuente canonica est
 })
 
 test('21. Planes de suscripción: whitelist PLAN_ELIGIBLE_TEMPLATE_IDS excluye custom y arbitrarios', () => {
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('restaurant' as any), true)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('distribution' as any), true)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('nightclub' as any), true)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('retail' as any), true)
+  const eligibleTemplateIds: readonly string[] = PLAN_ELIGIBLE_TEMPLATE_IDS
+  assert.equal(eligibleTemplateIds.includes('restaurant'), true)
+  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('hamburger'), true)
+  assert.equal(eligibleTemplateIds.includes('distribution'), true)
+  assert.equal(eligibleTemplateIds.includes('nightclub'), true)
+  assert.equal(eligibleTemplateIds.includes('retail'), true)
 
   // Custom y arbitrarios NO son elegibles para planes de suscripción
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('custom' as any), false)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('services' as any), false)
-  assert.equal(PLAN_ELIGIBLE_TEMPLATE_IDS.includes('arbitrary' as any), false)
+  assert.equal(eligibleTemplateIds.includes('custom'), false)
+  assert.equal(eligibleTemplateIds.includes('services'), false)
+  assert.equal(eligibleTemplateIds.includes('arbitrary'), false)
 })
 
 test('22. Seed de configuración oficial: preserva estado oficial y no auto-publica drafts', () => {
+  const eligibleTemplateIds: readonly string[] = PLAN_ELIGIBLE_TEMPLATE_IDS
   const seedTemplateDraft = { id: 'test_tpl', status: 'draft', name: 'Draft Template' }
   const templateStatusDraft = seedTemplateDraft.status === 'published' ? 'published' : 'draft'
   assert.equal(templateStatusDraft, 'draft')
@@ -542,27 +546,21 @@ test('22. Seed de configuración oficial: preserva estado oficial y no auto-publ
     { id: 'plan_rest_paid', templateId: 'restaurant', planKind: 'paid' },
     { id: 'plan_custom_dummy', templateId: 'custom', planKind: 'paid' },
   ]
-  const filteredPlans = samplePlans.filter(p => PLAN_ELIGIBLE_TEMPLATE_IDS.includes(p.templateId as any))
+  const filteredPlans = samplePlans.filter(p => eligibleTemplateIds.includes(p.templateId))
   assert.equal(filteredPlans.length, 2)
   assert.equal(filteredPlans.some(p => p.templateId === 'custom'), false)
 })
 
-test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y Restaurant habilitados, coming-soon bloqueados, Custom sin aprovisionamiento y sin fallback silencioso', () => {
-  // Aprovisionamiento habilitado para Distribution, Restaurant y Nightclub
-  assert.equal(isTemplateProvisioningAvailable('distribution'), true)
-  assert.equal(isTemplateProvisioningAvailable('route_distribution'), true)
-  assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
-  assert.equal(isTemplateProvisioningAvailable('restaurant_pos'), true)
-  assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
-  assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
+test('23. El cierre de altas públicas no afecta demos ni disponibilidad por plantilla', () => {
+  assert.equal(PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED, false)
 
-  // Demo técnica desacoplada de aprovisionamiento: Distribution disponible, Restaurant y Nightclub bloqueados/coming_soon
+  // Disponibilidad técnica de demo independiente del aprovisionamiento: Nightclub también tiene demo pública.
   assert.equal(isTechnicalDemoAvailable('distribution'), true)
   assert.equal(isTechnicalDemoAvailable('route_distribution'), true)
-  assert.equal(isTechnicalDemoAvailable('restaurant'), false)
-  assert.equal(isTechnicalDemoAvailable('restaurant_pos'), false)
-  assert.equal(isTechnicalDemoAvailable('nightclub'), false)
-  assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), false)
+  assert.equal(isTechnicalDemoAvailable('restaurant'), true)
+  assert.equal(isTechnicalDemoAvailable('restaurant_pos'), true)
+  assert.equal(isTechnicalDemoAvailable('nightclub'), true)
+  assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), true)
 
   // Coming-soon bloqueados para creación de empresas
   assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
@@ -575,22 +573,18 @@ test('23. Comportamiento de CTAs públicos y aprovisionamiento: Distribution y R
 
   // Lógica de PublicRegisterView: cuando se recibe un templateParam en la URL
   function resolveInitialRegisterTemplate(templateParam: string | null): string {
+    if (!PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED) return ''
     const param = templateParam || ''
     return param ? (isTemplateProvisioningAvailable(param) ? param : '') : 'route_distribution'
   }
 
-  // Sin parámetro: default a 'route_distribution'
-  assert.equal(resolveInitialRegisterTemplate(null), 'route_distribution')
-  assert.equal(resolveInitialRegisterTemplate(''), 'route_distribution')
-
-  // Parámetro válido disponible: se selecciona directamente
-  assert.equal(resolveInitialRegisterTemplate('route_distribution'), 'route_distribution')
-  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), 'restaurant_pos')
-  assert.equal(resolveInitialRegisterTemplate('nightclub_lounge'), 'nightclub_lounge')
-  assert.equal(resolveInitialRegisterTemplate('nightclub'), 'nightclub')
-
-  // Parámetro no disponible / coming-soon: NO debe haber fallback silencioso a Distribution
+  // La ruta pública no preselecciona ni habilita una plantilla; sin parámetro también queda cerrada.
+  assert.equal(resolveInitialRegisterTemplate(null), '')
+  assert.equal(resolveInitialRegisterTemplate(''), '')
   assert.equal(resolveInitialRegisterTemplate('hamburger'), '')
+  assert.equal(resolveInitialRegisterTemplate('route_distribution'), '')
+  assert.equal(resolveInitialRegisterTemplate('restaurant_pos'), '')
+  assert.equal(resolveInitialRegisterTemplate('nightclub_lounge'), '')
   assert.equal(resolveInitialRegisterTemplate('retail'), '')
   assert.equal(resolveInitialRegisterTemplate('custom'), '')
   assert.equal(resolveInitialRegisterTemplate('invalid_template'), '')
@@ -606,14 +600,14 @@ test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de dem
   assert.ok(restDef)
   assert.equal(restDef.demoPath, '/demo/restaurant')
 
-  // demoEnabled: false continúa bloqueando la demo comercial incluso si technicalDemoAvailable es true
+  // El estado técnico canónico permite una demo publicada aunque demoEnabled legacy esté desactualizado.
   assert.equal(
     canLaunchCommercialDemo({
       status: 'published',
       demoEnabled: false,
       canonicalTemplateId: 'distribution',
     }),
-    false
+    true
   )
 
   // Invariante de identidad técnica:
@@ -638,7 +632,7 @@ test('24. Invariantes de ruta técnica de demo e identidad: inmutabilidad de dem
   // Retail no puede remapearse a restaurante
   assert.equal(validateTemplateIdentity('retail', 'restaurant'), false)
   // ID canónico arbitrario es rechazado
-  assert.equal(validateTemplateIdentity('distribution', 'arbitrary_canonical' as any), false)
+  assert.equal(validateTemplateIdentity('distribution', 'arbitrary_canonical'), false)
   // Custom solo admite null
   assert.equal(validateTemplateIdentity('custom', null), true)
   assert.equal(validateTemplateIdentity('custom', 'distribution'), false)

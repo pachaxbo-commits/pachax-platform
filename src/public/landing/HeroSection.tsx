@@ -8,16 +8,16 @@ import {
   SELF_SERVICE_SHOWCASE_TEMPLATES,
   type CommercialTemplateItem,
 } from '../config/commercialShowcase'
-import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, freeDemoPath } from '../../core/publicTemplates'
 import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 
 interface HeroSectionProps {
   activeIndex?: number
   onChangeActiveIndex?: (index: number) => void
+  onViewPlans?: (templateId: 'hamburger' | 'retail') => void
 }
 
 export function HeroSection(props: HeroSectionProps) {
-  void props
   const { navigate } = usePublicRouter()
 
   // Estados independientes para cada carrusel
@@ -39,6 +39,7 @@ export function HeroSection(props: HeroSectionProps) {
 
   // Manejo de Demo para Especializadas (Carrusel A)
   const handleLaunchSpecializedDemo = (template: CommercialTemplateItem) => {
+    if (!canLaunchCommercialDemo(template)) return
     const demoPath = freeDemoPath(template.id) || freeDemoPath(template.templateId || '')
     if (demoPath) {
       window.location.assign(demoPath)
@@ -57,30 +58,21 @@ export function HeroSection(props: HeroSectionProps) {
     }
   }
 
-  // Manejo de Asesoría WhatsApp para Especializadas (Carrusel A)
+  // Solicitud de implementación por WhatsApp para las tres plantillas especializadas.
   const handleConsultSpecialized = (template: CommercialTemplateItem) => {
     const text = encodeURIComponent(
-      `Hola PACHAX, solicito diagnóstico y propuesta para la plantilla especializada "${template.commercialName}".`
+      `Hola PACHAX, solicito una implementación para la plantilla "${template.commercialName}". Quisiera conocer el diagnóstico y los siguientes pasos.`
     )
     window.open(`https://wa.me/${OFFICIAL_WHATSAPP.phoneNumber}?text=${text}`, '_blank', 'noopener,noreferrer')
   }
 
-  // Manejo de Consulta / Lista de Espera para Autoservicio no consolidado (Carrusel B)
-  const handleConsultSelfService = (template: CommercialTemplateItem) => {
-    const text = encodeURIComponent(
-      `Hola PACHAX, consulto sobre la disponibilidad y apertura para la plantilla "${template.commercialName}".`
-    )
-    window.open(`https://wa.me/${OFFICIAL_WHATSAPP.phoneNumber}?text=${text}`, '_blank', 'noopener,noreferrer')
+  const handleViewPlans = (template: CommercialTemplateItem) => {
+    if (template.id === 'hamburger' || template.id === 'retail') {
+      props.onViewPlans?.(template.id)
+    }
   }
 
-  // Manejo de Registro / Suscripción para Autoservicio (Carrusel B)
-  const handleSubscribeSelfService = (template: CommercialTemplateItem) => {
-    const templateQuery = template.id === 'hamburger' ? 'hamburger_shop' : 'gelateria_weight_cafe'
-    navigate(`/register?template=${templateQuery}`)
-  }
-
-  const isSpecializedDemoAvailable = canLaunchCommercialDemo(activeSpecialized) || activeSpecialized.id === 'restaurant'
-  const isSelfServiceAvailable = isTemplateProvisioningAvailable(activeSelfService.canonicalTemplateId || activeSelfService.templateId || activeSelfService.id)
+  const isSpecializedDemoAvailable = canLaunchCommercialDemo(activeSpecialized)
   const isSelfServiceDemoAvailable = Boolean(freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '')) || canLaunchCommercialDemo(activeSelfService)
 
   return (
@@ -98,7 +90,7 @@ export function HeroSection(props: HeroSectionProps) {
           </h1>
 
           <p className="text-xs sm:text-base text-slate-600 mt-3 sm:mt-4 leading-relaxed max-w-2xl mx-auto">
-            Descubre nuestras dos modalidades de operación: <strong>Soluciones Especializadas</strong> con diagnóstico y acompañamiento continuo para rubros complejos, o <strong>Soluciones Autoservicio</strong> de punto de venta ágil para arrancar en minutos con suscripción directa.
+            Descubre nuestras dos modalidades de operación: <strong>Soluciones Especializadas</strong> con diagnóstico y acompañamiento continuo para rubros complejos, o <strong>Soluciones Autoservicio</strong> de punto de venta ágil con planes por rubro para consultar.
           </p>
 
           <div className="mt-4 flex items-center justify-center gap-4 text-xs text-slate-500">
@@ -205,7 +197,7 @@ export function HeroSection(props: HeroSectionProps) {
                       className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >
                       <MessageSquare className="w-3.5 h-3.5 text-[#0066FF]" />
-                      <span>Solicitar asesoría</span>
+                      <span>Solicitar implementación</span>
                     </button>
                   </div>
                 </div>
@@ -235,7 +227,7 @@ export function HeroSection(props: HeroSectionProps) {
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-                  Punto de Venta Ágil y Suscripción Directa
+                  Punto de Venta Ágil por Rubro
                 </h2>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                   Para comida rápida, mostrador, para llevar y comercio minorista por peso o unidad. Modelos ágiles en proceso de apertura comercial.
@@ -281,25 +273,14 @@ export function HeroSection(props: HeroSectionProps) {
 
                   {/* Acciones de la Tarjeta Activa B: Consultar disponibilidad / Lista de espera + Demo honesta */}
                   <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/60">
-                    {isSelfServiceAvailable ? (
-                      <button
-                        type="button"
-                        onClick={() => handleSubscribeSelfService(activeSelfService)}
-                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        <span>Elegir plan y comenzar</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleConsultSelfService(activeSelfService)}
-                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Consultar disponibilidad</span>
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleViewPlans(activeSelfService)}
+                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <span>Ver planes</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
 
                     {isSelfServiceDemoAvailable ? (
                       <button

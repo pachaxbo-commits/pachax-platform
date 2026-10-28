@@ -6,8 +6,9 @@ import type {
   LandingContentConfig,
   MediaAssetItem,
 } from '../types'
-import { COMMERCIAL_TEMPLATES as DEFAULT_TEMPLATES } from '../../public/config/commercialShowcase'
 import { mergeOfficialTemplates } from './templateDefaults.ts'
+import { resolvePublicTemplateCatalog } from './publicTemplateCatalog.ts'
+import { COMMERCIAL_PLAN_TEMPLATE_IDS, filterPublicCommercialPlans, filterPublishedCommercialRecords } from './commercialCatalogContract.ts'
 import {
   PLANS_BY_TEMPLATE,
   COMMERCIAL_EXTRAS,
@@ -16,18 +17,19 @@ import {
 } from '../../public/config/pricingConfig'
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
+import { getPublicCommercialCatalog } from '../../services/commercialOnboarding'
+import { setPublicDemoConfiguration } from '../../core/publicTemplates.ts'
 import {
   doc,
   getDoc,
   getDocs,
   collection,
-  query,
-  where,
 } from 'firebase/firestore'
 
 const STORAGE_KEY = 'pachax_commercial_config_v2'
 const EVENT_NAME = 'pachax:commercial-config-updated'
-export const PLAN_ELIGIBLE_TEMPLATE_IDS = ['restaurant', 'distribution', 'nightclub', 'retail'] as const
+export const PLAN_ELIGIBLE_TEMPLATE_IDS = COMMERCIAL_PLAN_TEMPLATE_IDS
+const ELIGIBLE_TEMPLATE_ID_SET: ReadonlySet<string> = new Set(PLAN_ELIGIBLE_TEMPLATE_IDS)
 
 // 1. Assets multimedia oficiales disponibles
 export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
@@ -105,7 +107,7 @@ export const DEFAULT_LANDING_CONTENT: LandingContentConfig = {
 
 function flattenDefaultPlans(): TemplateTierPlan[] {
   const result: TemplateTierPlan[] = []
-  const keys: TemplateKey[] = ['restaurant', 'distribution', 'nightclub', 'retail']
+  const keys: TemplateKey[] = ['restaurant', 'hamburger', 'distribution', 'nightclub', 'retail']
   for (const k of keys) {
     const list = PLANS_BY_TEMPLATE[k]
     if (list) {
@@ -113,6 +115,9 @@ function flattenDefaultPlans(): TemplateTierPlan[] {
         result.push({
           ...p,
           planKind: p.planKind || 'paid',
+          status: 'draft',
+          priceApproval: 'pending',
+          technicalEntitlements: [],
         })
       }
     }
@@ -130,10 +135,23 @@ export interface StoredCommercialConfig {
 }
 
 function getDefaultConfig(): StoredCommercialConfig {
+  const templates = mergeOfficialTemplates([]).map((template) => {
+    const commercialMode = ['restaurant', 'distribution', 'nightclub'].includes(template.id)
+      ? 'specialized' as const
+      : 'self_service' as const
+    return {
+      ...template,
+      commercialMode,
+      // Defaults never enable a public offer without an explicit Admin decision.
+      commercialAvailability: 'coming_soon',
+      implementationBasePriceUSD: null,
+    }
+  })
   return {
-    templates: JSON.parse(JSON.stringify(DEFAULT_TEMPLATES)),
+    templates: JSON.parse(JSON.stringify(templates)),
     plans: JSON.parse(JSON.stringify(flattenDefaultPlans())),
-    extras: JSON.parse(JSON.stringify(COMMERCIAL_EXTRAS)),
+    // Static extras are editorial seeds only. Publishing requires an explicit Admin save.
+    extras: JSON.parse(JSON.stringify(COMMERCIAL_EXTRAS.map((extra) => ({ ...extra, status: 'draft' })))),
     landingContent: JSON.parse(JSON.stringify(DEFAULT_LANDING_CONTENT)),
     mediaAssets: JSON.parse(JSON.stringify(DEFAULT_MEDIA_ASSETS)),
     lastModified: new Date().toISOString(),
@@ -204,82 +222,74 @@ export function saveCommercialConfig(config: StoredCommercialConfig): void {
 // 3. CONSULTAS SEPARADAS: PÚBLICO (published) vs ADMIN (draft+published)
 // ==============================================================
 
+let publicConfig: StoredCommercialConfig | null = null
+let publicCatalogStatus: 'loading' | 'ready' | 'error' = 'loading'
+let hasReceivedPublicCatalog = false
 let isPublicSyncing = false
 let isAdminSyncing = false
 
+function setPublicEditorialFallback(): void {
+  const defaults = getDefaultConfig()
+  publicConfig = {
+    ...defaults,
+    templates: resolvePublicTemplateCatalog({ kind: 'unavailable' }),
+    plans: [],
+    extras: [],
+  }
+}
+
 /**
- * Consulta pública a Firestore.
- * Ejecuta ÚNICAMENTE queries con filter status == 'published'
- * para respetar estrictamente las Firestore Security Rules públicas.
+ * Consulta pública por callable con proyección permitida. Firestore Rules no
+ * pueden ocultar campos individuales, así que el cliente no lee estos docs.
  */
 export async function syncPublicPublishedFromFirestore(): Promise<void> {
-  if (isPublicSyncing || typeof window === 'undefined') return
+  if (isPublicSyncing || typeof window === 'undefined' || window.location.pathname.startsWith('/admin')) return
   isPublicSyncing = true
 
   try {
     const ctx = await getFirebaseContext()
-    if (!ctx) return
+    if (!ctx) {
+      if (!hasReceivedPublicCatalog) setPublicEditorialFallback()
+      publicCatalogStatus = 'error'
+      notifyUpdate()
+      return
+    }
 
-    const [landingSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap] = await Promise.allSettled([
-      getDoc(doc(ctx.db, 'platformConfig', 'publicLanding')),
-      getDocs(query(collection(ctx.db, 'platformTemplates'), where('status', '==', 'published'))),
-      getDocs(query(collection(ctx.db, 'platformPlans'), where('status', '==', 'published'))),
-      getDocs(query(collection(ctx.db, 'platformExtras'), where('status', '==', 'published'))),
-      getDocs(query(collection(ctx.db, 'platformMedia'), where('status', '==', 'published'))),
-    ])
+    const catalog = await getPublicCommercialCatalog()
 
     if (window.location.pathname.startsWith('/admin')) return
 
-    const current = loadCommercialConfig()
-    let changed = false
-
-    if (landingSnap.status === 'fulfilled' && landingSnap.value.exists()) {
-      const data = landingSnap.value.data() as Partial<LandingContentConfig>
-      current.landingContent = { ...current.landingContent, ...data }
-      changed = true
+    const templates = resolvePublicTemplateCatalog({
+      kind: 'available',
+      templates: catalog.templates as unknown as CommercialTemplateItem[],
+    })
+    hasReceivedPublicCatalog = true
+    setPublicDemoConfiguration(Array.isArray(catalog.demoConfiguration)
+      ? catalog.demoConfiguration as { id: string; demoEnabled?: boolean; demoEnabledConfigured?: boolean }[]
+      : templates)
+    const plans = filterPublicCommercialPlans(catalog.plans as unknown as TemplateTierPlan[])
+    const extras = filterPublishedCommercialRecords(catalog.extras as unknown as CommercialExtraService[])
+    const landingContent = { ...DEFAULT_LANDING_CONTENT, ...(catalog.landingContent as Partial<LandingContentConfig>) }
+    publicConfig = {
+      ...getDefaultConfig(),
+      templates,
+      plans,
+      extras,
+      landingContent,
+      mediaAssets: catalog.mediaAssets.length === 0
+        ? getDefaultConfig().mediaAssets
+        : catalog.mediaAssets as unknown as MediaAssetItem[],
+      lastModified: catalog.fetchedAt,
     }
-
-    if (templatesSnap.status === 'fulfilled') {
-      // An unseeded public collection must not erase the approved base showcase.
-      // Never use cached/admin drafts as the fallback source.
-      current.templates = templatesSnap.value.empty
-        ? getDefaultConfig().templates.filter((template) => template.status === 'published')
-        : templatesSnap.value.docs.map(
-            (d) => ({ id: d.id, ...d.data() }) as CommercialTemplateItem,
-          ).filter((template) => template.status === 'published')
-      changed = true
-    }
-
-    if (plansSnap.status === 'fulfilled') {
-      // Empty snapshot es un resultado válido (0 planes publicados).
-      // Se reemplaza por el arreglo de docs (vacío si no hay publicados).
-      current.plans = plansSnap.value.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan,
-      )
-      changed = true
-    }
-
-    if (extrasSnap.status === 'fulfilled') {
-      // Empty snapshot es un resultado válido (0 extras publicados).
-      current.extras = extrasSnap.value.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as CommercialExtraService,
-      )
-      changed = true
-    }
-
-    if (mediaSnap.status === 'fulfilled') {
-      const remote = mediaSnap.value.docs.map(
-        (d) => ({ id: d.id, ...d.data() }) as MediaAssetItem,
-      )
-      current.mediaAssets = mediaSnap.value.empty ? getDefaultConfig().mediaAssets : remote
-      changed = true
-    }
-
-    if (changed) {
-      saveCommercialConfig(current)
-    }
+    publicCatalogStatus = 'ready'
+    notifyUpdate()
   } catch (err) {
-    console.warn('Consulta pública de Firestore en modo offline / fallback:', err)
+    // Preserve a prior valid Admin snapshot. If this is the first request,
+    // show only the approved public editorial fallback (never cached drafts).
+    if (!hasReceivedPublicCatalog) setPublicEditorialFallback()
+    publicCatalogStatus = 'error'
+    console.warn('No se pudo consultar la configuración comercial publicada:', err)
+    notifyUpdate()
   } finally {
     isPublicSyncing = false
   }
@@ -436,11 +446,21 @@ export async function updatePlanInStore(
     const existing = idx >= 0 ? current.plans[idx] : {}
     const updated = { ...existing, ...updates, id }
 
-    if (updated.templateId && !PLAN_ELIGIBLE_TEMPLATE_IDS.includes(updated.templateId as any)) {
+    if (updated.templateId && !ELIGIBLE_TEMPLATE_ID_SET.has(updated.templateId)) {
       return {
         success: false,
         error: `La plantilla ${updated.templateId} no es elegible para planes de suscripción.`,
       }
+    }
+
+    if (updated.status === 'published' && updated.priceApproval !== 'approved') {
+      return { success: false, error: 'Confirma la aprobación comercial explícita antes de publicar este plan.' }
+    }
+    if (updated.status === 'published' && (updated.technicalEntitlements || []).length > 0) {
+      return { success: false, error: 'Billing Core no valida entitlements todavía. Quita las asignaciones técnicas antes de publicar.' }
+    }
+    if (updated.status === 'published' && updated.planKind !== 'free' && (!(Number(updated.monthlyPriceUSD) > 0) || !(Number(updated.annualPriceUSD) > 0))) {
+      return { success: false, error: 'Completa precios mensual y anual mayores que cero antes de publicar el plan de pago.' }
     }
 
     // Validación límite de planes activos por template (máx 1 gratuito, máx 3 de pago)
@@ -502,6 +522,15 @@ export async function togglePublishPlanInStore(
 
     // Validación de seguridad: máximo 1 plan gratuito y máximo 3 planes de pago publicados por template
     if (targetStatus === 'published' && targetPlan) {
+      if (targetPlan.priceApproval !== 'approved') {
+        return { success: false, error: 'Confirma la aprobación comercial explícita antes de publicar este plan.' }
+      }
+      if ((targetPlan.technicalEntitlements || []).length > 0) {
+        return { success: false, error: 'Billing Core no valida entitlements todavía. Quita las asignaciones técnicas antes de publicar.' }
+      }
+      if (targetPlan.planKind !== 'free' && (!(targetPlan.monthlyPriceUSD > 0) || !(targetPlan.annualPriceUSD > 0))) {
+        return { success: false, error: 'Completa precios mensual y anual mayores que cero antes de publicar el plan de pago.' }
+      }
       if (targetPlan.planKind === 'free') {
         const publishedFreeCount = current.plans.filter(
           (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published' && p.planKind === 'free',
@@ -549,16 +578,16 @@ export async function togglePublishPlanInStore(
 
 export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ success: boolean; error?: string }> {
   try {
-    if (!plan.templateId || !PLAN_ELIGIBLE_TEMPLATE_IDS.includes(plan.templateId as any)) {
+    if (!plan.templateId || !ELIGIBLE_TEMPLATE_ID_SET.has(plan.templateId)) {
       return {
         success: false,
         error: `La plantilla ${plan.templateId} no es elegible para planes de suscripción.`,
       }
     }
-    await gateway('platformGateway', { action: 'savePlan', plan: { ...plan, status: 'draft' } })
+    await gateway('platformGateway', { action: 'savePlan', plan: { ...plan, priceApproval: 'pending', status: 'draft' } })
 
     const current = loadCommercialConfig()
-    current.plans.push({ ...plan, status: 'draft' })
+    current.plans.push({ ...plan, priceApproval: 'pending', status: 'draft' })
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
@@ -708,8 +737,12 @@ export async function deleteMediaAssetInStore(id: string): Promise<{ success: bo
 
 // Hook reactivo consumido por la Landing Pública y por Admin
 export function useCommercialConfig() {
-  const [config, setConfig] = useState<StoredCommercialConfig>(() => loadCommercialConfig())
+  const isPublicPage = typeof window === 'undefined' || !window.location.pathname.startsWith('/admin')
+  const [config, setConfig] = useState<StoredCommercialConfig>(() => isPublicPage
+    ? (publicConfig || { ...getDefaultConfig(), templates: [], plans: [], extras: [] })
+    : loadCommercialConfig())
   const [templatesState, setTemplatesState] = useState<AdminTemplatesState>(adminTemplatesState)
+  const [publicState, setPublicState] = useState(publicCatalogStatus)
 
   useEffect(() => {
     // Si estamos en la ruta /admin, sincronizar la colección completa (draft + published)
@@ -721,8 +754,12 @@ export function useCommercialConfig() {
     }
 
     const handleUpdate = () => {
-      setConfig(loadCommercialConfig())
+      setConfig(isPublicPage
+        ? (publicConfig || { ...getDefaultConfig(), templates: [], plans: [], extras: [] })
+        : loadCommercialConfig())
+      setPublicState(publicCatalogStatus)
       setTemplatesState(adminTemplatesState)
+      if (isPublicPage) syncPublicPublishedFromFirestore().catch(() => undefined)
     }
     window.addEventListener(EVENT_NAME, handleUpdate)
     window.addEventListener('storage', handleUpdate)
@@ -730,20 +767,20 @@ export function useCommercialConfig() {
       window.removeEventListener(EVENT_NAME, handleUpdate)
       window.removeEventListener('storage', handleUpdate)
     }
-  }, [])
+  }, [isPublicPage])
 
   // Filtros de publicación para la web pública (solo mostrar 'published')
-  const isPublicPage = typeof window === 'undefined' || !window.location.pathname.startsWith('/admin')
-  const publishedTemplates = config.templates.length === 0 && isPublicPage
-    ? getDefaultConfig().templates.filter((t) => t.status === 'published')
+  const publishedTemplates = isPublicPage
+    ? (publicConfig?.templates || [])
     : config.templates.filter((t) => t.status === 'published')
   const publishedPlansByTemplate = (templateKey: TemplateKey) =>
-    config.plans.filter((p) => p.templateId === templateKey && p.status === 'published')
-  const publishedExtras = config.extras.filter((e) => e.status === 'published')
+    (isPublicPage && publicState !== 'ready' ? [] : filterPublicCommercialPlans(isPublicPage ? (publicConfig?.plans ?? []) : config.plans)).filter((p) => p.templateId === templateKey)
+  const publishedExtras = (isPublicPage ? (publicConfig?.extras || []) : config.extras).filter((e) => e.status === 'published')
 
   return {
     config,
     templatesState,
+    publicCatalogStatus: publicState,
     publishedTemplates,
     publishedPlansByTemplate,
     publishedExtras,

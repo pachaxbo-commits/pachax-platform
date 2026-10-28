@@ -15,19 +15,28 @@ import {
   CUSTOM_DEVELOPMENT_CONFIG,
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
-import { isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { getTemplateContactUrl } from './templateActionPolicy'
 
-export function TemplatePricingSection() {
+interface TemplatePricingSectionProps {
+  initialQuickServiceId?: 'hamburger' | 'retail'
+}
+
+export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: TemplatePricingSectionProps) {
   const { navigate } = usePublicRouter()
+  const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus } = useCommercialConfig()
 
   // Estado del Bloque A: Implementación Especializada
   const [selectedSpecializedId, setSelectedSpecializedId] = useState<'distribution' | 'restaurant' | 'nightclub'>('distribution')
   const activeSpecialized: SpecializedModelInfo =
     SPECIALIZED_IMPLEMENTATION_MODELS.find((m) => m.id === selectedSpecializedId) ||
     SPECIALIZED_IMPLEMENTATION_MODELS[0]
+  const activeSpecializedTemplate = publishedTemplates.find((template) => template.id === selectedSpecializedId)
+  const activeSpecializedPlans = publishedPlansByTemplate(selectedSpecializedId)
+  const activeSpecializedPlan = activeSpecializedPlans[0]
 
   // Estado del Bloque B: Autoservicio con Planes Directos
-  const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<'hamburger' | 'retail'>('hamburger')
+  const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<'hamburger' | 'retail'>(initialQuickServiceId)
   const activeQuickCatalog: QuickServiceSubcategory =
     QUICK_SERVICE_CATALOG.find((q) => q.id === selectedQuickServiceId) ||
     QUICK_SERVICE_CATALOG[0]
@@ -35,12 +44,13 @@ export function TemplatePricingSection() {
   const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2) // Nivel 2 (Más popular) por defecto
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
 
-  const activePlan: TemplateTierPlan =
-    activeQuickCatalog.plans.find((p) => p.tierLevel === selectedTierLevel) ||
-    activeQuickCatalog.plans[1] ||
-    activeQuickCatalog.plans[0]
+  const activeQuickPlans = publishedPlansByTemplate(selectedQuickServiceId)
+  const activePlan: TemplateTierPlan | undefined = activeQuickPlans.find((p) => p.tierLevel === selectedTierLevel)
+    || activeQuickPlans.find((p) => p.tierLevel === 2)
+    || activeQuickPlans[0]
 
-  const calculatedPrice = billingCycle === 'annual' ? activePlan.annualPriceUSD : activePlan.monthlyPriceUSD
+  const calculatedPrice = activePlan ? (billingCycle === 'annual' ? activePlan.annualPriceUSD : activePlan.monthlyPriceUSD) : null
+  const quickPlanCurrency = activePlan?.currency === 'BOB' ? 'Bs ' : '$'
 
   const handleLaunchSpecializedDemo = (route: string) => {
     if (route.startsWith('/demo/')) {
@@ -50,18 +60,14 @@ export function TemplatePricingSection() {
     }
   }
 
-  const handleSpecializedWhatsApp = (model: SpecializedModelInfo) => {
-    const url = OFFICIAL_WHATSAPP.buildUrl(model.whatsAppPrompt)
-    window.open(url, '_blank', 'noopener,noreferrer')
+  const handleSpecializedInquiry = (model: SpecializedModelInfo) => {
+    const action = { kind: 'contact', label: 'Solicitar implementación' } as const
+    window.open(getTemplateContactUrl(model.title, action), '_blank', 'noopener,noreferrer')
   }
 
-  const handleSelectQuickPlan = (plan: TemplateTierPlan) => {
-    navigate(`/register?template=${activeQuickCatalog.templateParam}&plan=${plan.id}&cycle=${billingCycle}`)
-  }
-
-  const handleQuickWaitlistWhatsApp = (catalog: QuickServiceSubcategory, plan: TemplateTierPlan) => {
-    const text = `Hola PACHAX, me interesa el plan referencial "${plan.name}" para la plantilla ${catalog.commercialTitle} (en fase de prelanzamiento). Deseo información cuando esté disponible para contratación.`
-    const url = OFFICIAL_WHATSAPP.buildUrl(text)
+  const handleSelectQuickPlan = (plan?: TemplateTierPlan) => {
+    const planDescription = plan ? ` sobre el plan ${plan.name}` : ' sobre los planes disponibles'
+    const url = OFFICIAL_WHATSAPP.buildUrl(`Hola PACHAX, quiero consultar${planDescription} para ${activeQuickCatalog.label}.`)
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
@@ -70,7 +76,7 @@ export function TemplatePricingSection() {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  const isQuickProvisioningActive = isTemplateProvisioningAvailable(activeQuickCatalog.templateParam)
+  const hasPublishedQuickPlans = activeQuickPlans.length > 0
 
   return (
     <section id="planes" className="w-full py-20 bg-slate-50/70 border-t border-slate-200/80 relative">
@@ -82,14 +88,14 @@ export function TemplatePricingSection() {
           </div>
           <div className="mb-3">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-              TARIFAS REFERENCIALES EN FASE DE LANZAMIENTO · SUJETAS A APROBACIÓN DEFINITIVA
+              PLANES Y TARIFAS PUBLICADOS POR PACHAX
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
             Elige la ruta adaptada a la complejidad real de tu negocio
           </h2>
           <p className="text-sm sm:text-base text-slate-600 mt-3 leading-relaxed">
-            Sin comisiones ocultas por venta ni letra chica. Separamos el autoservicio de despliegue rápido para negocios de mostrador, de la implementación especializada para operaciones complejas con logística, salón o alta concurrencia.
+            Separamos la implementación especializada del autoservicio. Consulta las condiciones publicadas o envía una solicitud al equipo comercial; esta página no crea empresas ni procesa pagos.
           </p>
         </div>
 
@@ -161,12 +167,12 @@ export function TemplatePricingSection() {
                   </div>
                   <div className="text-right shrink-0">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Base Cloud Referencial
+                      {activeSpecializedPlan ? activeSpecializedPlan.name : 'Mensualidad publicada'}
                     </span>
                     <span className="text-lg sm:text-xl font-black text-white">
-                      ${activeSpecialized.cloudMaintenance.monthlyPriceUSD}
+                      {activeSpecializedPlan ? `${activeSpecializedPlan.currency === 'BOB' ? 'Bs ' : '$'}${activeSpecializedPlan.monthlyPriceUSD}` : 'No publicada'}
                     </span>
-                    <span className="text-[11px] text-slate-400 ml-1">USD/mes</span>
+                    {activeSpecializedPlan && <span className="text-[11px] text-slate-400 ml-1">{activeSpecializedPlan.currency}/mes</span>}
                   </div>
                 </div>
 
@@ -197,7 +203,9 @@ export function TemplatePricingSection() {
                       <div className="font-bold text-white flex items-center gap-1.5">
                         <span>{activeSpecialized.implementation.title}</span>
                         <span className="text-[10px] text-sky-400 bg-sky-950/80 px-1.5 py-0.2 rounded border border-sky-800/80">
-                          {activeSpecialized.implementation.badge}
+                          {activeSpecializedTemplate?.implementationBasePriceUSD != null
+                            ? `Costo base único: $${activeSpecializedTemplate.implementationBasePriceUSD} USD`
+                            : 'Costo base por cotizar'}
                         </span>
                       </div>
                       <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
@@ -215,7 +223,7 @@ export function TemplatePricingSection() {
                         Mantenimiento Cloud, Respaldos y Soporte Continuo
                       </div>
                       <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
-                        {activeSpecialized.cloudMaintenance.detail}
+                        {activeSpecializedPlan?.clientProfile || 'La mensualidad se muestra únicamente cuando existe un plan aprobado y publicado.'}
                       </p>
                     </div>
                   </div>
@@ -227,7 +235,7 @@ export function TemplatePricingSection() {
                     Capacidades del motor canónico:
                   </div>
                   <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300">
-                    {activeSpecialized.includedHighlights.map((feat, idx) => (
+                    {(activeSpecializedPlan?.includedFeatures ?? []).map((feat, idx) => (
                       <li key={idx} className="flex items-start gap-1.5">
                         <Check className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
                         <span>{feat}</span>
@@ -242,11 +250,11 @@ export function TemplatePricingSection() {
             <div className="relative z-10 pt-6 mt-6 border-t border-white/10 flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
-                onClick={() => handleSpecializedWhatsApp(activeSpecialized)}
+                onClick={() => handleSpecializedInquiry(activeSpecialized)}
                 className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-lg inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 <MessageSquare className="w-4 h-4" />
-                <span>Solicitar diagnóstico gratuito</span>
+                <span>Solicitar implementación</span>
               </button>
               <button
                 type="button"
@@ -267,10 +275,10 @@ export function TemplatePricingSection() {
               {/* Encabezado del Bloque Autoservicio */}
               <div className="flex items-center justify-between gap-2 mb-4">
                 <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Despliegue Inmediato
+                  Modelos de autoservicio
                 </span>
-                <span className="text-xs text-slate-500 font-medium">
-                  Sin Esperas
+                <span className="text-xs text-slate-500 font-medium" role="status">
+                  {publicCatalogStatus === 'loading' ? 'Consultando ofertas' : publicCatalogStatus === 'error' ? 'Ofertas no disponibles' : hasPublishedQuickPlans ? 'Oferta publicada' : 'Sin oferta publicada'}
                 </span>
               </div>
 
@@ -278,7 +286,7 @@ export function TemplatePricingSection() {
                 Autoservicio con Planes Directos
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
-                Elige tu rubro y plan estándar. Comienza a operar hoy mismo registrando tu empresa en 4 sencillos pasos.
+                Elige un rubro y revisa únicamente las ofertas aprobadas que estén publicadas. La solicitud no crea una cuenta ni activa una contratación.
               </p>
 
               {/* Selector de Subcategoría (Restaurante Rápido vs Comercio & Balanza) */}
@@ -290,6 +298,8 @@ export function TemplatePricingSection() {
                       <button
                         key={cat.id}
                         type="button"
+                        data-plan-template={cat.id}
+                        aria-pressed={isSelected}
                         onClick={() => setSelectedQuickServiceId(cat.id)}
                         className={`flex-1 sm:flex-initial py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                           isSelected
@@ -326,16 +336,13 @@ export function TemplatePricingSection() {
                     }`}
                   >
                     <span>Anual</span>
-                    <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded">
-                      -15%
-                    </span>
                   </button>
                 </div>
               </div>
 
               {/* Selector de Nivel de Plan (Tabs de 3 Niveles) */}
-              <div className="mt-5 grid grid-cols-3 gap-2">
-                {activeQuickCatalog.plans.map((p) => {
+              {hasPublishedQuickPlans && <div className="mt-5 grid grid-cols-3 gap-2">
+                {activeQuickPlans.map((p) => {
                   const isSelected = p.tierLevel === selectedTierLevel
                   return (
                     <button
@@ -357,10 +364,10 @@ export function TemplatePricingSection() {
                     </button>
                   )
                 })}
-              </div>
+              </div>}
 
               {/* Ficha Visual del Plan Activo Seleccionado */}
-              <div className="mt-6 p-6 rounded-2xl border-2 border-[#0066FF] bg-gradient-to-b from-blue-50/30 to-white relative">
+              {activePlan ? <div className="mt-6 p-6 rounded-2xl border-2 border-[#0066FF] bg-gradient-to-b from-blue-50/30 to-white relative">
                 {activePlan.isPopular && (
                   <div className="absolute -top-3 left-6">
                     <span className="px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-[#0066FF] text-white shadow-xs">
@@ -389,22 +396,22 @@ export function TemplatePricingSection() {
                 <div className="pb-3 mb-3 border-b border-slate-100">
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                      Referencial
+                      Precio publicado
                     </span>
                     <span className="text-4xl font-black text-slate-950 tracking-tight">
-                      ${calculatedPrice}
+                      {quickPlanCurrency}{calculatedPrice}
                     </span>
                     <span className="text-xs font-semibold text-slate-500">
-                      USD / mes
+                      {activePlan.currency} / mes
                     </span>
                     {billingCycle === 'annual' && (
                       <span className="ml-2 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
-                        Ahorro estimado ${(activePlan.monthlyPriceUSD - activePlan.annualPriceUSD) * 12} USD/año
+                        Equivalente mensual con ciclo anual
                       </span>
                     )}
                   </div>
                   <span className="text-[10px] text-slate-400 block mt-1">
-                    * Tarifa provisional de prelanzamiento. No constituye oferta comercial vinculante.
+                    Oferta publicada por PACHAX. La solicitud no activa contratación ni cobro.
                   </span>
                 </div>
 
@@ -422,40 +429,29 @@ export function TemplatePricingSection() {
                     ))}
                   </ul>
                 </div>
-              </div>
+              </div> : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600" role="status">
+                {publicCatalogStatus === 'loading'
+                  ? 'Consultando ofertas publicadas…'
+                  : publicCatalogStatus === 'error'
+                    ? 'No pudimos cargar las ofertas. Inténtalo más tarde.'
+                    : 'No hay planes aprobados y publicados para esta plantilla.'}
+              </div>}
             </div>
 
             {/* CTA del Bloque Autoservicio */}
             <div className="pt-6 mt-6 border-t border-slate-100">
-              {isQuickProvisioningActive ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleSelectQuickPlan(activePlan)}
-                    className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <span>{activePlan.ctaLabel}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                  <p className="text-[11px] text-center text-slate-400 mt-2">
-                    Sin tarjeta de crédito obligatoria para comenzar. Aprovisionamiento seguro en 4 pasos.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickWaitlistWhatsApp(activeQuickCatalog, activePlan)}
-                    className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 hover:bg-slate-800 text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <MessageSquare className="w-4 h-4 text-emerald-400" />
-                    <span>Consultar disponibilidad · {activePlan.name}</span>
-                  </button>
-                  <p className="text-[11px] text-center text-slate-400 mt-2">
-                    Plantilla en consolidación operativa. Tarifas referenciales no vinculantes para contratación.
-                  </p>
-                </>
-              )}
+              <button
+                type="button"
+                onClick={() => handleSelectQuickPlan(activePlan)}
+                className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 hover:bg-slate-800 text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4 text-emerald-400" />
+                <span>{activePlan ? `Solicitar información · ${activePlan.name}` : 'Solicitar información'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <p className="text-[11px] text-center text-slate-400 mt-2">
+                La solicitud es informativa: no crea una empresa, suscripción ni pago.
+              </p>
             </div>
           </div>
         </div>
@@ -483,14 +479,7 @@ export function TemplatePricingSection() {
               className="w-full sm:w-auto py-3 px-5 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>Hablar con ingeniería</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/register?intent=custom')}
-              className="w-full sm:w-auto py-3 px-5 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all cursor-pointer text-center"
-            >
-              Crear cuenta corporativa
+              <span>Cotizar a medida</span>
             </button>
           </div>
         </div>

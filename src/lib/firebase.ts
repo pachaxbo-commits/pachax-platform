@@ -2,6 +2,7 @@ import { getActiveTenant } from '../store/activeTenant.ts'
 import { gateway } from '../services/gateway.ts'
 import { validateFirebaseEnvironment } from '../config/firebaseEnvironment.ts'
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
 import {
   browserLocalPersistence,
   connectAuthEmulator,
@@ -96,6 +97,7 @@ export function isFirebaseConfigured() {
 
 let firebaseRuntimePromise: Promise<FirebaseRuntime | null> | null = null
 let storageEmulatorConnected = false
+let appCheckInitialized = false
 
 /** Inicializa app, Firestore y Auth una sola vez por sesion. */
 async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
@@ -112,9 +114,31 @@ async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
       }
 
       const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
-      let db: Firestore
-
       const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'
+      const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY
+      const localAppCheckDebug = import.meta.env.DEV
+        && import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG === 'true'
+        && firebaseConfig.projectId !== 'pachax-platform'
+      if (!useEmulator && localAppCheckDebug) {
+        // Opt-in only for local development against a non-production project.
+        // Never add an App Check debug token to a tracked file or Vercel env.
+        ;(self as typeof self & { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = true
+      }
+      if (!useEmulator && appCheckSiteKey && !appCheckInitialized) {
+        try {
+          initializeAppCheck(app, {
+            provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+            isTokenAutoRefreshEnabled: true,
+          })
+          appCheckInitialized = true
+        } catch {
+          // A bad/misconfigured public key must fail closed for protected
+          // callables without preventing unrelated Firebase services from
+          // initializing or the landing page from rendering.
+          console.warn('App Check no pudo inicializarse; las operaciones protegidas quedarán rechazadas.')
+        }
+      }
+      let db: Firestore
 
       // La persistencia local tiene que configurarse ANTES de la primera
       // llamada a getFirestore: si se pide la instancia primero, Firestore
@@ -144,8 +168,8 @@ async function getFirebaseRuntime(): Promise<FirebaseRuntime | null> {
       if (useEmulator) {
         const host = window.location.hostname || 'localhost'
         // Custom ports for PACHAX: 8185 for Firestore, 9195 for Auth
-        connectFirestoreEmulator(db, host, 8185)
-        connectAuthEmulator(auth, `http://${host}:9195`, { disableWarnings: true })
+        connectFirestoreEmulator(db, host, Number(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT || 8185))
+        connectAuthEmulator(auth, `http://${host}:${Number(import.meta.env.VITE_AUTH_EMULATOR_PORT || 9195)}`, { disableWarnings: true })
       }
 
       try {

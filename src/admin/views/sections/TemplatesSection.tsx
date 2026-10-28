@@ -38,7 +38,7 @@ export function TemplatesSection() {
     const res = await updateTemplate(formData.id, formData)
     setIsProcessing(false)
     if (res.success) {
-      setSaveFeedback('¡Cambios guardados con éxito en Firestore! La landing pública ya refleja esta configuración.')
+      setSaveFeedback('Cambios guardados en Firestore. La página pública los consultará al cargar de nuevo.')
       setTimeout(() => setSaveFeedback(null), 4000)
     } else {
       setSaveError(res.error || 'No se pudo guardar la plantilla en Firestore. El formulario conserva tus cambios.')
@@ -177,6 +177,54 @@ export function TemplatesSection() {
                 <option value="draft">Borrador / Oculto de la web pública</option>
               </select>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-4">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">Modelo comercial publicado</h3>
+              <p className="text-[11px] text-slate-600 mt-1">La publicación editorial y la disponibilidad técnica/comercial son controles distintos.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="text-[11px] font-semibold text-slate-700">Modalidad
+                <select value={formData.commercialMode || (['restaurant', 'distribution', 'nightclub'].includes(formData.id) ? 'specialized' : 'self_service')}
+                  onChange={(e) => setFormData({ ...formData, commercialMode: e.target.value as 'specialized' | 'self_service' })}
+                  className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900">
+                  <option value="specialized">Implementación especializada</option>
+                  <option value="self_service">Autoservicio</option>
+                </select>
+              </label>
+              <label className="text-[11px] font-semibold text-slate-700">Disponibilidad comercial
+                <select value={formData.commercialAvailability || 'coming_soon'}
+                  onChange={(e) => setFormData({ ...formData, commercialAvailability: e.target.value as 'available' | 'coming_soon' })}
+                  className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900">
+                  <option value="coming_soon">Próximamente / consulta asistida</option>
+                  <option value="available">Disponible</option>
+                </select>
+              </label>
+              {formData.commercialMode === 'specialized' && (
+                <label className="text-[11px] font-semibold text-slate-700">Implementación base (pago único USD)
+                  <input type="number" min="0" step="0.01" placeholder="Vacío = a cotizar"
+                    value={formData.implementationBasePriceUSD ?? ''}
+                    onChange={(e) => setFormData({ ...formData, implementationBasePriceUSD: e.target.value === '' ? null : Number(e.target.value) })}
+                    className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
+                </label>
+              )}
+            </div>
+            {formData.commercialMode === 'specialized' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="text-[11px] font-semibold text-slate-700">Título del diagnóstico
+                <input value={formData.diagnosticTitle || ''} onChange={(e) => setFormData({ ...formData, diagnosticTitle: e.target.value })} className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
+              </label>
+              <label className="text-[11px] font-semibold text-slate-700">Descripción del diagnóstico
+                <textarea rows={2} value={formData.diagnosticDescription || ''} onChange={(e) => setFormData({ ...formData, diagnosticDescription: e.target.value })} className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
+              </label>
+              <label className="text-[11px] font-semibold text-slate-700">Título de implementación
+                <input value={formData.implementationTitle || ''} onChange={(e) => setFormData({ ...formData, implementationTitle: e.target.value })} className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
+              </label>
+              <label className="text-[11px] font-semibold text-slate-700">Descripción de implementación
+                <textarea rows={2} value={formData.implementationDescription || ''} onChange={(e) => setFormData({ ...formData, implementationDescription: e.target.value })} className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
+              </label>
+            </div>}
+            <p className="text-[10px] text-slate-600">La disponibilidad &quot;Disponible&quot; solo se acepta si la plantilla también está lista técnicamente. El costo base es un pago único; los planes administran mensualidad/anualidad.</p>
           </div>
 
           <div>
@@ -355,8 +403,10 @@ export function TemplatesSection() {
             <input
               type="checkbox"
               id="tplDemoEnabledCheck"
-              checked={formData.demoEnabled ?? isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '')}
-              onChange={(e) => setFormData({ ...formData, demoEnabled: e.target.checked })}
+              checked={formData.demoEnabledConfigured === true
+                ? formData.demoEnabled === true
+                : isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '')}
+              onChange={(e) => setFormData({ ...formData, demoEnabled: e.target.checked, demoEnabledConfigured: true })}
               className="rounded border-slate-300 text-[#0066FF] focus:ring-[#0066FF]"
             />
             <label htmlFor="tplDemoEnabledCheck" className="text-xs text-slate-700 font-semibold cursor-pointer flex flex-wrap items-center gap-1.5">

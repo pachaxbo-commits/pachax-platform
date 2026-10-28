@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Sparkles, PlusCircle, ArrowRight, ArrowLeft, Utensils, Zap } from 'lucide-react'
-import type { PublicTemplateId } from '../../core/publicTemplates.ts'
+import { freeDemoPath, isPublicDemoEnabled, type PublicTemplateId } from '../../core/publicTemplates.ts'
 import { navigateToDemo } from '../routing/demoNavigation'
 
 export interface SelectableTemplateTarget {
@@ -23,10 +23,6 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
   const rawId = item?.templateId || item?.id || ''
   const isRestaurantFamily = rawId === 'restaurant' || rawId === 'restaurant_pos'
   const [selectedVariant, setSelectedVariant] = useState<'restaurant' | 'hamburger' | null>(null)
-
-  useEffect(() => {
-    setSelectedVariant(null)
-  }, [item])
 
   useEffect(() => {
     if (!item) return
@@ -59,6 +55,13 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
     : (rawId as PublicTemplateId)
 
   const handleSelectMode = (mode: 'empty' | 'full') => {
+    const demoPath = freeDemoPath(targetTemplateId, mode)
+    if (demoPath) {
+      onClose()
+      window.location.assign(demoPath)
+      return
+    }
+    if (!isPublicDemoEnabled(targetTemplateId)) return
     onClose()
     navigateToDemo(targetTemplateId, mode)
   }
@@ -110,8 +113,17 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
             <div className="p-6 space-y-4">
               {/* Variante 1: Restaurante con salón */}
               <div
-                onClick={() => setSelectedVariant('restaurant')}
-                className="p-5 rounded-2xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/30 transition-all duration-200 cursor-pointer group space-y-3"
+                role={isPublicDemoEnabled('restaurant') ? 'button' : undefined}
+                tabIndex={isPublicDemoEnabled('restaurant') ? 0 : -1}
+                aria-disabled={!isPublicDemoEnabled('restaurant')}
+                onClick={() => isPublicDemoEnabled('restaurant') && setSelectedVariant('restaurant')}
+                onKeyDown={(event) => {
+                  if (isPublicDemoEnabled('restaurant') && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault()
+                    setSelectedVariant('restaurant')
+                  }
+                }}
+                className={`p-5 rounded-2xl border border-slate-200 transition-all duration-200 group space-y-3 ${isPublicDemoEnabled('restaurant') ? 'hover:border-amber-400 hover:bg-amber-50/30 focus-visible:outline-2 focus-visible:outline-amber-500 cursor-pointer' : 'bg-slate-50 opacity-75'}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -124,7 +136,7 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
                           Restaurante con salón
                         </h3>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                          Servicio completo
+                          {isPublicDemoEnabled('restaurant') ? 'Servicio completo' : 'Demo próximamente'}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
@@ -139,20 +151,26 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
                 </p>
 
                 <div className="pl-13 pt-1">
-                  <button
-                    type="button"
-                    className="text-xs font-bold text-slate-800 group-hover:text-amber-700 inline-flex items-center gap-1.5 transition"
-                  >
-                    <span>Elegir con salón</span>
+                  <span className="text-xs font-bold text-slate-800 group-hover:text-amber-700 inline-flex items-center gap-1.5 transition">
+                    <span>{isPublicDemoEnabled('restaurant') ? 'Elegir con salón' : 'Demo próximamente'}</span>
                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                  </button>
+                  </span>
                 </div>
               </div>
 
               {/* Variante 2: Restaurante de servicio rápido */}
               <div
-                onClick={() => setSelectedVariant('hamburger')}
-                className="p-5 rounded-2xl border border-slate-200 hover:border-orange-400 hover:bg-orange-50/30 transition-all duration-200 cursor-pointer group space-y-3"
+                onClick={() => isPublicDemoEnabled('hamburger') && setSelectedVariant('hamburger')}
+                role={isPublicDemoEnabled('hamburger') ? 'button' : undefined}
+                tabIndex={isPublicDemoEnabled('hamburger') ? 0 : -1}
+                aria-disabled={!isPublicDemoEnabled('hamburger')}
+                onKeyDown={(event) => {
+                  if (isPublicDemoEnabled('hamburger') && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault()
+                    setSelectedVariant('hamburger')
+                  }
+                }}
+                className={`p-5 rounded-2xl border border-slate-200 transition-all duration-200 group space-y-3 ${isPublicDemoEnabled('hamburger') ? 'hover:border-orange-400 hover:bg-orange-50/30 focus-visible:outline-2 focus-visible:outline-orange-500 cursor-pointer' : 'bg-slate-50 opacity-75'}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -165,7 +183,7 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
                           Restaurante de servicio rápido
                         </h3>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 border border-orange-200">
-                          Mostrador & Delivery
+                          {isPublicDemoEnabled('hamburger') ? 'Demo gratuita disponible' : 'Demo deshabilitada'}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
@@ -180,13 +198,10 @@ export function TemplateModeSelectorModal({ item, onClose }: TemplateModeSelecto
                 </p>
 
                 <div className="pl-13 pt-1">
-                  <button
-                    type="button"
-                    className="text-xs font-bold text-slate-800 group-hover:text-orange-700 inline-flex items-center gap-1.5 transition"
-                  >
-                    <span>Elegir servicio rápido</span>
+                  <span className="text-xs font-bold text-slate-800 group-hover:text-orange-700 inline-flex items-center gap-1.5 transition">
+                    <span>{isPublicDemoEnabled('hamburger') ? 'Elegir servicio rápido' : 'Demo deshabilitada'}</span>
                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                  </button>
+                  </span>
                 </div>
               </div>
             </div>

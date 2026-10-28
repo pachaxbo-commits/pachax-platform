@@ -2,13 +2,18 @@ import { useState } from 'react'
 import { ArrowRight, Eye, CheckCircle2 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialTemplateItem } from '../../admin/types'
-import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
+import { canLaunchCommercialDemo, freeDemoPath } from '../../core/publicTemplates'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
+import { getTemplateContactUrl, getTemplateSecondaryAction } from './templateActionPolicy'
 
-export function FeaturedTemplatesCatalog() {
+interface FeaturedTemplatesCatalogProps {
+  onViewPlans?: (templateId: 'hamburger' | 'retail') => void
+}
+
+export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatalogProps) {
   const { navigate } = usePublicRouter()
-  const { publishedTemplates, landingContent } = useCommercialConfig()
+  const { publishedTemplates, landingContent, publicCatalogStatus } = useCommercialConfig()
   const [selectedFilter, setSelectedFilter] = useState<string>('all')
 
   const filterOptions = [
@@ -28,16 +33,17 @@ export function FeaturedTemplatesCatalog() {
   const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
 
   const handleLaunchDemo = (tpl: CommercialTemplateItem) => {
+    if (!canLaunchCommercialDemo(tpl)) return
+    if (tpl.id === 'restaurant' || tpl.templateId === 'restaurant') {
+      setSelectedForModal(tpl)
+      return
+    }
     const demoPath = freeDemoPath(tpl.id) || freeDemoPath(tpl.templateId || '')
     if (demoPath) {
       window.location.assign(demoPath)
       return
     }
     if (!canLaunchCommercialDemo(tpl)) return
-    if (tpl.id === 'restaurant' || tpl.templateId === 'restaurant') {
-      setSelectedForModal(tpl)
-      return
-    }
     if (tpl.demoRoute.startsWith('/demo/')) {
       // Navegación canónica de documento hacia demo.html
       window.location.assign(tpl.demoRoute)
@@ -49,13 +55,19 @@ export function FeaturedTemplatesCatalog() {
   }
 
   const handleSelectTemplate = (tpl: CommercialTemplateItem) => {
-    if (tpl.id === 'custom') {
-      window.open(tpl.demoRoute, '_blank', 'noopener,noreferrer')
+    const action = getTemplateSecondaryAction(tpl.id)
+    if (action.kind === 'quote') {
+      window.open(getTemplateContactUrl(tpl.commercialName, action), '_blank', 'noopener,noreferrer')
       return
     }
-    const targetId = tpl.canonicalTemplateId || tpl.templateId || tpl.id
-    if (!isTemplateProvisioningAvailable(targetId)) return
-    navigate(`/register?template=${targetId}`)
+    if (action.kind === 'contact') {
+      window.open(getTemplateContactUrl(tpl.commercialName, action), '_blank', 'noopener,noreferrer')
+      return
+    }
+    if (action.kind === 'view-plans') {
+      onViewPlans?.(action.templateId)
+      return
+    }
   }
 
   return (
@@ -101,9 +113,23 @@ export function FeaturedTemplatesCatalog() {
           })}
         </div>
 
+        {publicCatalogStatus === 'error' && (
+          <p role="status" className="mb-5 text-sm text-slate-600" data-catalog-state="fallback">
+            No pudimos actualizar el catálogo. Las fichas visibles son información pública de referencia; los precios y ofertas requieren confirmación del servidor.
+          </p>
+        )}
+        {publicCatalogStatus === 'loading' && (
+          <p role="status" className="mb-5 text-sm text-slate-500" data-catalog-state="loading">
+            Cargando plantillas publicadas…
+          </p>
+        )}
+
         {/* Grilla Editorial de Plantillas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch">
-          {filteredTemplates.map((template) => (
+          {filteredTemplates.map((template) => {
+            const action = getTemplateSecondaryAction(template.id)
+            const isPrimary = action.kind === 'quote'
+            return (
             <div
               key={template.id}
               data-template-id={template.id}
@@ -186,7 +212,7 @@ export function FeaturedTemplatesCatalog() {
               {/* Acciones de Tarjeta: Probar demo y Comenzar */}
               <div className="p-6 pt-0">
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
-                  {freeDemoPath(template.id) || freeDemoPath(template.templateId || '') || canLaunchCommercialDemo(template) ? (
+                  {template.id !== 'custom' && (canLaunchCommercialDemo(template) ? (
                     <button
                       type="button"
                       data-demo-path={template.demoRoute}
@@ -194,7 +220,7 @@ export function FeaturedTemplatesCatalog() {
                       className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:text-slate-950 hover:bg-slate-50 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Eye className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Probar demo</span>
+                      <span>{template.id === 'restaurant' ? 'Explorar Gastronomía' : 'Probar demo'}</span>
                     </button>
                   ) : (
                     <button
@@ -206,44 +232,32 @@ export function FeaturedTemplatesCatalog() {
                       <Eye className="w-3.5 h-3.5 text-slate-400" />
                       <span>Demo próximamente</span>
                     </button>
-                  )}
+                  ))}
 
-                  {template.id === 'custom' ? (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTemplate(template)}
-                      className="flex-1 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white transition-all shadow-xs inline-flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
-                    >
-                      <span>Cotizar a medida</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  ) : isTemplateProvisioningAvailable(template.canonicalTemplateId || template.templateId || template.id) ? (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTemplate(template)}
-                      className="flex-1 py-2.5 px-3 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-xs font-semibold text-white transition-all shadow-xs inline-flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
-                    >
-                      <span>Comenzar</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled
-                      className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-400 inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
-                      title="Plantilla en proceso de consolidación. Disponible próximamente para crear empresas."
-                    >
-                      <span>Próximamente</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTemplate(template)}
+                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all shadow-xs inline-flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 ${isPrimary ? 'bg-slate-900 hover:bg-slate-800 text-white' : 'bg-[#0066FF] hover:bg-[#0052cc] text-white'}`}
+                    data-commercial-action={action.kind}
+                  >
+                    <span>{action.label}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
+          {publicCatalogStatus !== 'loading' && filteredTemplates.length === 0 && (
+            <p role="status" className="col-span-full rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600" data-catalog-state="empty">
+              No hay plantillas publicadas para esta categoría en el catálogo confirmado.
+            </p>
+          )}
         </div>
       </div>
 
       <TemplateModeSelectorModal
+        key={selectedForModal?.id || selectedForModal?.templateId || 'closed'}
         item={selectedForModal}
         onClose={() => setSelectedForModal(null)}
       />

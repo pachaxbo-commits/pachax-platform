@@ -12,6 +12,17 @@ import { PachaxBrandBackground } from './PachaxBrandBackground'
 import '../publicExperience.css'
 
 export function PublicLanding() {
+  const [requestedPricingTemplate, setRequestedPricingTemplate] = useState<{
+    templateId: 'hamburger' | 'retail'
+    request: number
+  } | null>(null)
+  const handleViewPlans = (templateId: 'hamburger' | 'retail') => {
+    setRequestedPricingTemplate((previous) => ({
+      templateId,
+      request: (previous?.request ?? 0) + 1,
+    }))
+    document.getElementById('planes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
   // Inicialización adaptativa: en desktop Nightclub (índice 2) es protagonista en la maqueta,
   // en mobile Restaurante (índice 0) es protagonista en la maqueta.
   const [activeIndex, setActiveIndex] = useState<number>(() => {
@@ -49,16 +60,20 @@ export function PublicLanding() {
         <HeroSection
           activeIndex={activeIndex}
           onChangeActiveIndex={setActiveIndex}
+          onViewPlans={handleViewPlans}
         />
 
         {/* Franja de Valor y Métricas Operacionales */}
         <ValueStrip />
 
         {/* SECCIÓN 2: Plantillas en Detalle (Audiencia, Problema Resuelto, Demos Canónicas) */}
-        <FeaturedTemplatesCatalog />
+        <FeaturedTemplatesCatalog onViewPlans={handleViewPlans} />
 
         {/* SECCIÓN 3: Planes por Plantilla (3 niveles por rubro + Desarrollo a Medida) */}
-        <TemplatePricingSection />
+        <TemplatePricingSection
+          key={requestedPricingTemplate?.request ?? 0}
+          initialQuickServiceId={requestedPricingTemplate?.templateId ?? 'hamburger'}
+        />
 
         {/* SECCIÓN 4: Configura tu empresa en 5 minutos (Progresión editorial de 5 pasos) */}
         <RealOnboardingSection />

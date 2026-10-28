@@ -17,7 +17,7 @@ import {
 import { BrandMark } from '../public/components/BrandMark'
 import { gateway } from '../services/gateway'
 import type { BusinessType } from '../core/platform'
-import { isTemplateProvisioningAvailable } from '../core/publicTemplates'
+import { isTemplateProvisioningAvailable, PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED } from '../core/publicTemplates'
 import { DISTRIBUTION_PROFILES } from '../modules/distribution/domain/catalog'
 import type { DistributionIndustryProfile } from '../modules/distribution/types'
 import { BRAND_PALETTES, type BrandPalette } from '../core/brandPalettes'
@@ -138,6 +138,10 @@ export function OnboardingWizard({
 
   const handleCreateTenant = async () => {
     if (isSubmitting) return
+    if (!PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED) {
+      setError('La creación autónoma de empresas está pausada. Contacta a PACHAX para coordinar una implementación asistida.')
+      return
+    }
     if (!isTemplateProvisioningAvailable(selectedTemplate)) {
       setError('La plantilla seleccionada no está disponible para creación de empresas en este momento.')
       return
@@ -193,6 +197,25 @@ export function OnboardingWizard({
   }
 
   const selectedTemplateObj = AVAILABLE_TEMPLATES.find(t => t.type === selectedTemplate)
+
+  if (!PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED) {
+    return (
+      <main className="min-h-screen bg-[#FAF9F6] px-5 py-16 font-sans text-slate-900">
+        <section className="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm sm:p-10">
+          <BrandMark size="md" href="/platform" />
+          <h1 className="mt-8 text-2xl font-semibold">Creación de empresas pausada</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            Tus empresas existentes y sus operaciones no cambian. Para activar una empresa nueva, coordina una implementación asistida con PACHAX.
+          </p>
+          <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+            <a className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" href="mailto:pachax.bo@gmail.com">Contactar a PACHAX</a>
+            <button className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700" onClick={onSignOut} type="button">Cerrar sesión</button>
+            {onCancel && <button className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700" onClick={onCancel} type="button">Volver</button>}
+          </div>
+        </section>
+      </main>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#FAF9F6] flex flex-col font-sans selection:bg-[#0066FF] selection:text-white">

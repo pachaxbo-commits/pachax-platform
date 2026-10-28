@@ -19,9 +19,17 @@ export interface CommercialTemplateItem {
   demoRoute: string
   demoPath: string
   demoEnabled?: boolean
+  demoEnabledConfigured?: boolean
   detailAnchor: string
   badge?: string
   status: 'published' | 'draft'
+  commercialAvailability?: 'available' | 'coming_soon'
+  commercialMode?: 'specialized' | 'self_service'
+  implementationBasePriceUSD?: number | null
+  diagnosticTitle?: string
+  diagnosticDescription?: string
+  implementationTitle?: string
+  implementationDescription?: string
   order: number
   primaryActionLabel: string
   iconType: 'utensils' | 'truck' | 'glass' | 'shopping-bag' | 'settings'
@@ -40,6 +48,7 @@ export interface TemplateTierPlan {
   templateId: TemplateKey
   name: string
   planKind: PlanKind
+  priceApproval?: 'pending' | 'approved'
   tierLevel?: 1 | 2 | 3
   monthlyPriceUSD: number
   annualPriceUSD: number

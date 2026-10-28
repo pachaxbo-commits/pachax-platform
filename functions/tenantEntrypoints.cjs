@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
@@ -7,11 +8,14 @@ const tenants = require('./tenants.cjs');
 const { prepareCleanDelivery, executeCleanDelivery } = require('./maintenance.cjs');
 const { PACHAX_FUNCTIONS_REGION } = require('./regions.cjs');
 const platform = require('./platform.cjs');
+const commercialOnboarding = require('./commercialOnboarding.cjs');
 const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
 const { executeRestaurantCommand } = require('./restaurant.cjs');
 const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
+const { assertPublicTenantCreationClosed } = require('./publicTenantCreation.cjs');
 const { getTemplate } = require('./generated/templates.js');
+const { authenticated } = require('./authorization.cjs');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
 const distributionEventOptions = {
   region: PACHAX_FUNCTIONS_REGION,
@@ -34,6 +38,8 @@ exports.tenantGateway = onCall(options, async request => {
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);
     case 'completeOnboarding': {
+      authenticated(request);
+      assertPublicTenantCreationClosed();
       if (Object.keys(request.data || {}).some(key => !ONBOARDING_FIELDS.has(key))) {
         throw new HttpsError('invalid-argument', 'El onboarding contiene campos no permitidos.');
       }
@@ -41,7 +47,10 @@ exports.tenantGateway = onCall(options, async request => {
       assertProvisionableTemplate(bType);
       return onboarding.completeOnboarding(db, auth, request);
     }
+    case 'submitCommercialInterest': return commercialOnboarding.submitCommercialInterest(db, request);
     case 'createTenant': {
+      authenticated(request);
+      assertPublicTenantCreationClosed();
       const bType = request.data?.businessType;
       assertProvisionableTemplate(bType);
       return tenants.createTenant(db, auth, request);
@@ -55,6 +64,20 @@ exports.tenantGateway = onCall(options, async request => {
       if (!request.data?.tenantId) throw new HttpsError('invalid-argument', 'Empresa requerida.');
       return request.data.action === 'prepareCleanDelivery' ? prepareCleanDelivery(db, request) : executeCleanDelivery(db, request);
     default: throw new HttpsError('invalid-argument', 'Acción no reconocida.');
+  }
+});
+const publicCommercialRateLimitSecret = defineSecret('PUBLIC_COMMERCIAL_RATE_LIMIT_SECRET');
+exports.publicCommercialGateway = onCall({
+  ...options,
+  // Firebase App Check has no local emulator; only bypass verification inside emulator runtime.
+  enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== 'true',
+  secrets: [publicCommercialRateLimitSecret],
+}, async request => {
+  const db = getFirestore();
+  switch (request.data?.action) {
+    case 'getCatalog': return commercialOnboarding.getPublicCommercialCatalog(db, request, publicCommercialRateLimitSecret.value(), { emulator: process.env.FUNCTIONS_EMULATOR === 'true' });
+    case 'submitInterest': return commercialOnboarding.submitPublicCommercialInterest(db, request, publicCommercialRateLimitSecret.value(), { emulator: process.env.FUNCTIONS_EMULATOR === 'true' });
+    default: throw new HttpsError('invalid-argument', 'Acción pública comercial no reconocida.');
   }
 });
 exports.platformGateway = onCall(options, request => platform.platformGateway(getFirestore(), request));
