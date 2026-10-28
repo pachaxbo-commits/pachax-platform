@@ -30,6 +30,7 @@ import { ClientsSection } from './sections/ClientsSection'
 import { StudioAdminSection } from './sections/StudioAdminSection'
 import { AdministratorsSection } from './sections/AdministratorsSection'
 import { CommercialIntentsSection } from './sections/CommercialIntentsSection'
+import { AssistedTenantSection } from './sections/AssistedTenantSection'
 import { AdminLoginView } from './AdminLoginView'
 
 type AdminTab =
@@ -42,6 +43,7 @@ type AdminTab =
   | 'clients'
   | 'studio'
   | 'administrators'
+  | 'assisted-tenants'
   | 'commercial-intents'
 
 export function AdminShell() {
@@ -109,7 +111,10 @@ export function AdminShell() {
       ? [{ id: 'commercial-intents' as AdminTab, label: 'Solicitudes comerciales', icon: MessageSquareText }]
       : []),
     ...(user.role === 'platform_owner'
-      ? [{ id: 'administrators' as AdminTab, label: 'Administradores', icon: Shield }]
+      ? [
+          { id: 'assisted-tenants' as AdminTab, label: 'Alta asistida', icon: PlusCircle },
+          { id: 'administrators' as AdminTab, label: 'Administradores', icon: Shield },
+        ]
       : []),
   ]
 
@@ -246,6 +251,7 @@ export function AdminShell() {
           {activeTab === 'clients' && <ClientsSection />}
           {activeTab === 'studio' && <StudioAdminSection />}
           {activeTab === 'administrators' && <AdministratorsSection />}
+          {activeTab === 'assisted-tenants' && user.role === 'platform_owner' && <AssistedTenantSection />}
           {activeTab === 'commercial-intents' && <CommercialIntentsSection />}
         </div>
       </main>
