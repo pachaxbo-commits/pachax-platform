@@ -16,14 +16,16 @@ El frontend protegía llamadas solapadas mediante un booleano, pero no compartí
 - Cada instancia reutiliza en memoria el snapshot público ya sanitizado mientras la revisión en `publicCommercialCatalogMeta` coincida. La lectura del marcador verifica la revisión antes de devolver caché; publicar o retirar contenido cambia la revisión y fuerza una lectura transaccional nueva. No hay fallback local ante una respuesta válida vacía ni una caché por tiempo que pueda conservar ofertas retiradas.
 - La callable ya no resuelve el secreto para `getCatalog`. El secreto continúa ligado a `publicCommercialGateway` y accesible para el flujo de envío, que conserva su límite HMAC y el cierre servidor-side.
 - El cliente comparte solicitudes concurrentes, no repite una consulta ya lista en cada montaje y consolida eventos `storage` al cambio de la clave comercial. Un cambio publicado en otra pestaña fuerza una nueva lectura de revisión.
+- La entrada de caché pendiente incluye explícitamente `pendingRevision`, usado para compartir una misma transacción mientras se inicializa en frío o se valida la misma revisión.
 
 ## Verificación
 
 - Firestore Emulator, proyecto demo aislado: consultas iniciales concurrentes, 64 lecturas repetidas/concurrentes representando visitantes tras NAT compartida, caché estable sin transacciones adicionales, ausencia de escrituras de cuota de catálogo, publicación y retirada con invalidación, reparación del único estado parcial conocido y rechazo de revisiones inconsistentes: PASS.
+- Ocho llamadas simultáneas durante la inicialización vacía comparten exactamente una invocación de `runTransaction`; la aserción cubre explícitamente `pendingRevision` y la inicialización: PASS.
 - `createSingleFlight`: llamadas superpuestas comparten una ejecución y el reintento tras éxito/error funciona: 2/2 PASS.
 - Cierre server-side de recepción comercial: PASS.
 - Platform Security con Auth/Firestore/Functions Emulator: 77/77 PASS. Los límites estrictos de envíos por IP siguen pasando; el catálogo permite las 64 consultas; el límite de tamaño para contenido publicado excesivo sigue rechazando.
 - `build:functions-core`, `build:rules`, `typecheck`, `build:emulator`, ESLint focal y `git diff --check`: PASS. Build conserva la advertencia existente de chunks grandes; Vite empaquetó las demos con 0 sourcemaps y 0 referencias prohibidas.
 - La máquina tiene Node 24.13.0; el runtime Functions del proyecto declara Node 22, por lo que Emulator usó Node 24 y emitió la advertencia de diferencia de versión.
 
-No se modificaron datos de producción, secretos, IAM, App Check, Rules, Functions desplegadas ni Vercel. Los contadores históricos antispam no se borraron. Esta rama aún requiere push/PR y Preview para revisión; el cambio no está integrado ni desplegado.
+No se modificaron datos de producción, secretos, IAM, App Check, Rules ni Functions desplegadas. Los contadores históricos antispam no se borraron. La publicación se registra en el checkpoint vigente de `CONTEXTO.md`.

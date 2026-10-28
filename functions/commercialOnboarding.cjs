@@ -309,7 +309,11 @@ async function getPublicCommercialCatalog(db) {
     return { revision, catalog: snapshotData.catalog };
   }, { maxAttempts: 10 });
 
-  publicCatalogCacheByDb.set(db, { revision: observedRevision, pending });
+  publicCatalogCacheByDb.set(db, {
+    revision: observedRevision,
+    pendingRevision: observedRevision,
+    pending,
+  });
   try {
     const result = await pending;
     publicCatalogCacheByDb.set(db, result);

@@ -40,6 +40,7 @@ async function main() {
   try {
     const firstReads = await Promise.all(Array.from({ length: 8 }, getCatalog));
     assert(firstReads.every(catalog => Array.isArray(catalog.templates)));
+    assert.equal(transactionCount, 1, 'same-revision concurrent cold reads must share one transaction, including initialization');
     let meta = (await db.doc('platformConfig/publicCommercialCatalogMeta').get()).data();
     let snapshot = (await db.doc('platformConfig/publicCommercialCatalog').get()).data();
     assert.equal(meta.revision, 0);
