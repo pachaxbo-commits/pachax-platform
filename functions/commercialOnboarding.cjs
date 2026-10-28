@@ -8,8 +8,10 @@ const { platformActor, cleanText, auditPlatform } = require('./platformAuthoriza
 const MAX_PUBLIC_CATALOG_TEMPLATES = 20;
 const MAX_PUBLIC_CATALOG_PLANS = 50;
 const MAX_PUBLIC_CATALOG_EXTRAS = 100;
-const PUBLIC_CATALOG_PER_MINUTE_LIMIT = 20;
-const PUBLIC_CATALOG_PER_DAY_LIMIT = 300;
+// Per-instance cache contains only the sanitized, published snapshot. Every
+// read still checks the revision marker, which invalidates cache on publish or
+// unpublish before a retired offer can be returned.
+const publicCatalogCacheByDb = new WeakMap();
 const PUBLIC_COMMERCIAL_CONSENT_VERSION = 'public-commercial-2026-10-v4';
 // Keep real prospect intake closed until the privacy notice and release are approved.
 // Frontend publication alone cannot open this server-side gate.
@@ -262,19 +264,29 @@ async function commitPublicCatalogMutation(db, batch) {
   return refreshPublicCommercialCatalogSnapshot(db);
 }
 
-async function getPublicCommercialCatalog(db, request, rateLimitSecret, options = {}) {
-  await consumePublicCatalogQuota(db, request, rateLimitSecret, options);
+async function getPublicCommercialCatalog(db) {
   const metaRef = db.doc(PUBLIC_CATALOG_META_PATH);
   const snapshotRef = db.doc(PUBLIC_CATALOG_SNAPSHOT_PATH);
-  let catalog;
-  await db.runTransaction(async tx => {
+  const metaSnapshot = await metaRef.get();
+  const observedRevision = metaSnapshot.exists ? metaSnapshot.data()?.revision : null;
+  const cached = publicCatalogCacheByDb.get(db);
+  if (metaSnapshot.exists && Number.isSafeInteger(observedRevision) && observedRevision >= 0
+    && cached?.revision === observedRevision && cached.catalog) {
+    return { ...cached.catalog, fetchedAt: new Date().toISOString() };
+  }
+  if (cached?.pending && Object.is(cached.pendingRevision, observedRevision)) {
+    const pendingResult = await cached.pending;
+    return { ...pendingResult.catalog, fetchedAt: new Date().toISOString() };
+  }
+
+  const pending = db.runTransaction(async tx => {
     const [meta, snapshot] = await Promise.all([tx.get(metaRef), tx.get(snapshotRef)]);
     if (!meta.exists && !snapshot.exists) {
       // Initialize both version markers atomically on first public read.
-      catalog = await buildPublicCommercialCatalog(db, tx);
+      const catalog = await buildPublicCommercialCatalog(db, tx);
       tx.create(metaRef, { revision: 0, updatedAt: FieldValue.serverTimestamp() });
       tx.create(snapshotRef, { revision: 0, catalog, updatedAt: FieldValue.serverTimestamp() });
-      return;
+      return { revision: 0, catalog };
     }
     if (!meta.exists && snapshot.exists) {
       // Repair only the known interrupted first-run state. Rebuild from the
@@ -282,10 +294,10 @@ async function getPublicCommercialCatalog(db, request, rateLimitSecret, options 
       if (Number(snapshot.data()?.revision) !== 0 || !snapshot.data()?.catalog) {
         throw new HttpsError('unavailable', 'El catálogo comercial se está actualizando. Inténtalo nuevamente en un momento.');
       }
-      catalog = await buildPublicCommercialCatalog(db, tx);
+      const catalog = await buildPublicCommercialCatalog(db, tx);
       tx.create(metaRef, { revision: 1, updatedAt: FieldValue.serverTimestamp() });
       tx.set(snapshotRef, { revision: 1, catalog, updatedAt: FieldValue.serverTimestamp() });
-      return;
+      return { revision: 1, catalog };
     }
     const revision = meta.data()?.revision;
     const snapshotData = snapshot.data();
@@ -294,46 +306,22 @@ async function getPublicCommercialCatalog(db, request, rateLimitSecret, options 
       || typeof snapshotData.catalog !== 'object' || Array.isArray(snapshotData.catalog)) {
       throw new HttpsError('unavailable', 'El catálogo comercial se está actualizando. Inténtalo nuevamente en un momento.');
     }
-    catalog = snapshot.data().catalog;
+    return { revision, catalog: snapshotData.catalog };
   }, { maxAttempts: 10 });
-  return { ...catalog, fetchedAt: new Date().toISOString() };
+
+  publicCatalogCacheByDb.set(db, { revision: observedRevision, pending });
+  try {
+    const result = await pending;
+    publicCatalogCacheByDb.set(db, result);
+    return { ...result.catalog, fetchedAt: new Date().toISOString() };
+  } catch (error) {
+    if (publicCatalogCacheByDb.get(db)?.pending === pending) publicCatalogCacheByDb.delete(db);
+    throw error;
+  }
 }
 
 function rateLimitDigest(secret, kind, value) {
   return createHmac('sha256', secret).update(`${kind}:${value}`).digest('hex');
-}
-
-async function consumePublicCatalogQuota(db, request, rateLimitSecret, options = {}) {
-  if (typeof rateLimitSecret !== 'string' || rateLimitSecret.length < 32) {
-    throw new HttpsError('failed-precondition', 'El catálogo comercial no está disponible temporalmente.');
-  }
-  const ip = publicString(request.rawRequest?.ip, 100);
-  if (!ip && options.emulator !== true) {
-    throw new HttpsError('failed-precondition', 'No se pudo verificar el origen de la consulta.');
-  }
-  const ipKey = rateLimitDigest(rateLimitSecret, 'ip', ip || 'emulator-local');
-  const ref = db.doc(`platformCommercialRateLimits/${ipKey}`);
-  const nowMs = Date.now();
-  const day = new Date(nowMs).toISOString().slice(0, 10);
-  const minute = new Date(nowMs).toISOString().slice(0, 16);
-  const expiresAt = Timestamp.fromMillis(nowMs + 30 * 24 * 60 * 60 * 1000);
-  await db.runTransaction(async tx => {
-    const snapshot = await tx.get(ref);
-    const previous = snapshot.data() || {};
-    const dailyCount = previous.catalogDay === day ? Number(previous.catalogCount || 0) : 0;
-    const minuteCount = previous.catalogMinute === minute ? Number(previous.catalogMinuteCount || 0) : 0;
-    if (dailyCount >= PUBLIC_CATALOG_PER_DAY_LIMIT || minuteCount >= PUBLIC_CATALOG_PER_MINUTE_LIMIT) {
-      throw new HttpsError('resource-exhausted', 'El catálogo recibió demasiadas consultas. Espera un momento e inténtalo de nuevo.');
-    }
-    tx.set(ref, {
-      catalogDay: day,
-      catalogCount: dailyCount + 1,
-      catalogMinute: minute,
-      catalogMinuteCount: minuteCount + 1,
-      expiresAt,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-  }, { maxAttempts: 10 });
 }
 
 function publicRequestDigest(input) {
@@ -661,7 +649,6 @@ async function updateCommercialIntentStatus(db, request) {
 module.exports = {
   assertPublicCommercialInterestEnabled,
   getPublicCommercialCatalog,
-  consumePublicCatalogQuota,
   submitPublicCommercialInterest,
   submitCommercialInterest,
   listCommercialIntents,

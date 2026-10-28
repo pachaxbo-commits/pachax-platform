@@ -18,6 +18,7 @@ import {
 import { getFirebaseContext } from '../../lib/firebase'
 import { gateway } from '../../services/gateway'
 import { getPublicCommercialCatalog } from '../../services/commercialOnboarding'
+import { createSingleFlight } from '../../services/singleFlight'
 import { setPublicDemoConfiguration } from '../../core/publicTemplates.ts'
 import {
   doc,
@@ -231,7 +232,8 @@ export function saveCommercialConfig(config: StoredCommercialConfig): void {
 let publicConfig: StoredCommercialConfig | null = null
 let publicCatalogStatus: 'loading' | 'ready' | 'error' = 'loading'
 let hasReceivedPublicCatalog = false
-let isPublicSyncing = false
+let publicSyncInFlight: Promise<void> | null = null
+let publicStorageSyncTimer: ReturnType<typeof setTimeout> | null = null
 let isAdminSyncing = false
 
 function setPublicEditorialFallback(): void {
@@ -248,9 +250,8 @@ function setPublicEditorialFallback(): void {
  * Consulta pública por callable con proyección permitida. Firestore Rules no
  * pueden ocultar campos individuales, así que el cliente no lee estos docs.
  */
-export async function syncPublicPublishedFromFirestore(): Promise<void> {
-  if (isPublicSyncing || typeof window === 'undefined' || window.location.pathname.startsWith('/admin')) return
-  isPublicSyncing = true
+const performPublicCatalogSync = createSingleFlight(async (): Promise<void> => {
+  if (typeof window === 'undefined' || window.location.pathname.startsWith('/admin')) return
 
   try {
     const ctx = await getFirebaseContext()
@@ -296,9 +297,26 @@ export async function syncPublicPublishedFromFirestore(): Promise<void> {
     publicCatalogStatus = 'error'
     console.warn('No se pudo consultar la configuración comercial publicada:', err)
     notifyUpdate()
-  } finally {
-    isPublicSyncing = false
   }
+})
+
+export function syncPublicPublishedFromFirestore(forceRefresh = false): Promise<void> {
+  if (typeof window === 'undefined' || window.location.pathname.startsWith('/admin')) return Promise.resolve()
+  if (forceRefresh && publicSyncInFlight) {
+    // A cross-tab Admin update may arrive while an older read is in flight.
+    // Run a fresh revision check after that read settles instead of letting
+    // the initial snapshot mask the just-published/unpublished change.
+    return publicSyncInFlight.then(() => syncPublicPublishedFromFirestore(true))
+  }
+  if (!forceRefresh && publicCatalogStatus === 'ready') return Promise.resolve()
+  if (publicSyncInFlight) return publicSyncInFlight
+
+  const current = performPublicCatalogSync()
+  publicSyncInFlight = current
+  void current.finally(() => {
+    if (publicSyncInFlight === current) publicSyncInFlight = null
+  }).catch(() => undefined)
+  return current
 }
 
 /**
@@ -775,13 +793,22 @@ export function useCommercialConfig() {
         : loadCommercialConfig())
       setPublicState(publicCatalogStatus)
       setTemplatesState(adminTemplatesState)
-      if (isPublicPage) syncPublicPublishedFromFirestore().catch(() => undefined)
+    }
+    const handleStorageUpdate = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY) return
+      handleUpdate()
+      if (!isPublicPage) return
+      if (publicStorageSyncTimer) clearTimeout(publicStorageSyncTimer)
+      publicStorageSyncTimer = setTimeout(() => {
+        publicStorageSyncTimer = null
+        syncPublicPublishedFromFirestore(true).catch(() => undefined)
+      }, 100)
     }
     window.addEventListener(EVENT_NAME, handleUpdate)
-    window.addEventListener('storage', handleUpdate)
+    window.addEventListener('storage', handleStorageUpdate)
     return () => {
       window.removeEventListener(EVENT_NAME, handleUpdate)
-      window.removeEventListener('storage', handleUpdate)
+      window.removeEventListener('storage', handleStorageUpdate)
     }
   }, [isPublicPage])
 

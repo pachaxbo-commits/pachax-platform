@@ -1,5 +1,4 @@
 const assert = require('node:assert/strict');
-const { createHmac } = require('node:crypto');
 const { initializeApp, deleteApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const commercial = require('../commercialOnboarding.cjs');
@@ -10,15 +9,20 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('FIRESTORE_EMULATOR_HO
 const app = initializeApp({ projectId }, `catalog-init-${Date.now()}`);
 const db = getFirestore(app);
 const suffix = Date.now().toString(36);
-const secret = 'emulator-only-catalog-meta-test-secret-32-bytes';
-const quotaIps = Array.from({ length: 32 }, (_, index) => `198.51.100.${index + 1}`);
+let transactionCount = 0;
+const observedDb = new Proxy(db, {
+  get(target, property) {
+    if (property === 'runTransaction') return (...args) => {
+      transactionCount++;
+      return target.runTransaction(...args);
+    };
+    const value = Reflect.get(target, property, target);
+    return typeof value === 'function' ? value.bind(target) : value;
+  },
+});
 
-function request(ip) {
-  return { rawRequest: { ip } };
-}
-
-async function getCatalog(ip) {
-  return commercial.getPublicCommercialCatalog(db, request(ip), secret, { emulator: true });
+async function getCatalog() {
+  return commercial.getPublicCommercialCatalog(observedDb);
 }
 
 async function clearDocuments() {
@@ -29,16 +33,12 @@ async function clearDocuments() {
     `platformTemplates/custom`,
     `platformPlans/catalog-init-plan-${suffix}`,
   ]) await db.doc(path).delete().catch(() => undefined);
-  for (const ip of quotaIps) {
-    const digest = createHmac('sha256', secret).update(`ip:${ip}`).digest('hex');
-    await db.doc(`platformCommercialRateLimits/${digest}`).delete().catch(() => undefined);
-  }
 }
 
 async function main() {
   await clearDocuments();
   try {
-    const firstReads = await Promise.all(quotaIps.slice(0, 8).map(getCatalog));
+    const firstReads = await Promise.all(Array.from({ length: 8 }, getCatalog));
     assert(firstReads.every(catalog => Array.isArray(catalog.templates)));
     let meta = (await db.doc('platformConfig/publicCommercialCatalogMeta').get()).data();
     let snapshot = (await db.doc('platformConfig/publicCommercialCatalog').get()).data();
@@ -47,10 +47,15 @@ async function main() {
     assert.deepEqual(snapshot.catalog.templates, []);
     console.log('PASS primera consulta vacía crea meta y snapshot revision 0 de forma atómica/concurrente');
 
-    const laterReads = await Promise.all(quotaIps.slice(8, 12).map(getCatalog));
+    const transactionsAfterInitialization = transactionCount;
+    const laterReads = await Promise.all(Array.from({ length: 64 }, getCatalog));
     assert(laterReads.every(catalog => catalog.templates.length === 0));
     assert.equal((await db.doc('platformConfig/publicCommercialCatalogMeta').get()).data().revision, 0);
-    console.log('PASS consultas posteriores usan catálogo coherente sin reconstrucción');
+    assert.equal(transactionCount, transactionsAfterInitialization, 'warm reads must reuse the cached snapshot');
+    const rateLimitDocs = await db.collection('platformCommercialRateLimits').get();
+    assert(rateLimitDocs.docs.every(document => !('catalogCount' in document.data()) && !('catalogMinuteCount' in document.data())));
+    console.log('PASS 64 consultas repetidas/concurrentes (incluidas visitas bajo IP compartida) reciben 200 sin cuota por IP ni reconstrucción');
+    console.log('PASS lecturas estables reutilizan snapshot y no escriben contadores del catálogo');
 
     await db.doc('platformTemplates/hamburger').set({
       status: 'published', commercialName: 'Restaurante Rápido aprobado',
@@ -61,7 +66,7 @@ async function main() {
     await db.doc('platformConfig/publicCommercialCatalog').set({
       revision: 0, catalog: { templates: [{ id: 'stale-draft' }], plans: [] },
     });
-    const repairedReads = await Promise.all(quotaIps.slice(12, 20).map(getCatalog));
+    const repairedReads = await Promise.all(Array.from({ length: 8 }, getCatalog));
     assert(repairedReads.every(catalog => catalog.templates.some(template => template.id === 'hamburger')));
     assert(repairedReads.every(catalog => !catalog.templates.some(template => template.id === 'stale-draft')));
     assert.equal(repairedReads[0].templates.find(template => template.id === 'hamburger').commercialName, 'Restaurante Rápido aprobado');
@@ -74,7 +79,7 @@ async function main() {
       implementationBasePriceUSD: 900, privateAdminNotes: 'no publicar',
     });
     await commercial.commitPublicCatalogMutation(db, customSeed);
-    const customCatalog = await getCatalog(quotaIps[20]);
+    const customCatalog = await getCatalog();
     const custom = customCatalog.templates.find(template => template.id === 'custom');
     assert(custom, 'published custom editorial card should be present');
     assert.equal(custom.commercialName, 'Solución a medida');
@@ -112,8 +117,10 @@ async function main() {
     const unpublish = db.batch();
     unpublish.set(db.doc(`platformPlans/${planId}`), { status: 'draft' }, { merge: true });
     assert.equal(await commercial.commitPublicCatalogMutation(db, unpublish), 4);
-    const afterUnpublish = await getCatalog(quotaIps[20]);
+    const transactionsBeforeInvalidation = transactionCount;
+    const afterUnpublish = await getCatalog();
     assert.equal(afterUnpublish.plans.some(plan => plan.id === planId), false);
+    assert.equal(transactionCount, transactionsBeforeInvalidation + 1, 'revision change must bypass cached snapshot');
     meta = (await db.doc('platformConfig/publicCommercialCatalogMeta').get()).data();
     snapshot = (await db.doc('platformConfig/publicCommercialCatalog').get()).data();
     assert.equal(meta.revision, 4);
@@ -122,14 +129,14 @@ async function main() {
 
     await db.doc('platformConfig/publicCommercialCatalogMeta').set({ revision: 6 }, { merge: true });
     await db.doc('platformConfig/publicCommercialCatalog').set({ revision: 5, catalog: snapshot.catalog }, { merge: true });
-    await assert.rejects(() => getCatalog(quotaIps[21]), error => error.code === 'unavailable');
+    await assert.rejects(() => getCatalog(), error => error.code === 'unavailable');
     assert.equal((await db.doc('platformConfig/publicCommercialCatalogMeta').get()).data().revision, 6);
     assert.equal((await db.doc('platformConfig/publicCommercialCatalog').get()).data().revision, 5);
     console.log('PASS desfase de revisiones no recuperable se rechaza sin mutar documentos');
 
     await db.doc('platformConfig/publicCommercialCatalogMeta').delete();
     await db.doc('platformConfig/publicCommercialCatalog').set({ revision: 7, catalog: snapshot.catalog }, { merge: true });
-    await assert.rejects(() => getCatalog(quotaIps[22]), error => error.code === 'unavailable');
+    await assert.rejects(() => getCatalog(), error => error.code === 'unavailable');
     console.log('PASS ausencia de meta con snapshot fuera del estado parcial conocido falla cerrado');
   } finally {
     await clearDocuments();

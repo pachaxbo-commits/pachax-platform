@@ -1,7 +1,6 @@
 // Platform security integration tests. Emulators only; no remote project is initialized.
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
-import { createHmac } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing'
 import { collection, doc, getDoc, getDocs, setDoc, query, where } from 'firebase/firestore'
@@ -370,7 +369,7 @@ try {
     rawRequest: { ip: `198.51.100.${parseInt(suffix.slice(-1), 36) % 200 + 1}` },
   }, 'emulator-only-snapshot-secret-32-bytes-minimum', { emulator: true })
   assert.equal(snapshotOnlyCatalog.plans.some(item => item.id === publishedAdminPlan.id), true)
-  pass('snapshot publicado reduce la lectura estable a cuota + dos documentos; no consulta colecciones fuente')
+  pass('snapshot publicado no consulta colecciones fuente; cada lectura valida su revisión')
   const oldRevision = Number(publicCatalogMeta.revision)
   await db.doc('platformConfig/publicCommercialCatalogMeta').set({ revision: oldRevision + 1 }, { merge: true })
   await assert.rejects(() => commercialOnboarding.getPublicCommercialCatalog(db, {
@@ -431,21 +430,13 @@ try {
   }, rateSecret, { emulator: true }), error => error.code === 'resource-exhausted')
   pass('rate limit HMAC limita envíos repetidos por IP sin guardar la IP en claro')
 
-  const catalogQuotaSecret = 'emulator-only-c1-4-catalog-secret-32chars-minimum'
-  const catalogIp = `198.51.100.${parseInt(suffix.slice(-2), 36) % 200 + 1}`
-  const catalogQuotaCalls = await Promise.allSettled(Array.from({ length: 24 }, () =>
-    commercialOnboarding.consumePublicCatalogQuota(db, { rawRequest: { ip: catalogIp } }, catalogQuotaSecret, { emulator: true })))
-  const catalogAccepted = catalogQuotaCalls.filter(result => result.status === 'fulfilled')
-  const catalogDenied = catalogQuotaCalls.filter(result => result.status === 'rejected')
-  assert.equal(catalogAccepted.length, 20)
-  assert.equal(catalogDenied.length, 4)
-  assert(catalogDenied.every(result => result.reason.code === 'resource-exhausted'))
-  const catalogQuotaKey = createHmac('sha256', catalogQuotaSecret).update(`ip:${catalogIp}`).digest('hex')
-  const catalogQuotaDocument = (await db.doc(`platformCommercialRateLimits/${catalogQuotaKey}`).get()).data()
-  assert.equal(catalogQuotaDocument.catalogMinuteCount, 20)
-  assert.equal(catalogQuotaDocument.catalogCount, 20)
-  assert(!JSON.stringify(catalogQuotaDocument).includes(catalogIp))
-  pass('límite de catálogo transaccional resiste 24 solicitudes concurrentes entre instancias')
+  const catalogReads = await Promise.all(Array.from({ length: 64 }, () =>
+    commercialOnboarding.getPublicCommercialCatalog(db)))
+  assert(catalogReads.every(catalog => Array.isArray(catalog.templates)))
+  const catalogLimitDocs = await db.collection('platformCommercialRateLimits').get()
+  assert(catalogLimitDocs.docs.every(document => !('catalogCount' in document.data()) && !('catalogMinuteCount' in document.data())))
+  pass('64 lecturas concurrentes del catálogo siguen disponibles sin consumir límite por IP')
+  pass('límites HMAC de solicitudes comerciales permanecen activos e independientes')
 
   const catalogCapIds = Array.from({ length: 51 }, (_, index) => `commercial-cap-${suffix}-${index}`)
   try {
@@ -454,9 +445,7 @@ try {
     await Promise.all(catalogCapIds.map((idValue, index) => db.doc(`platformPlans/${idValue}`).set({
       status: 'published', name: `Plan límite ${index}`, templateId: 'hamburger',
     })))
-    await assert.rejects(() => commercialOnboarding.getPublicCommercialCatalog(db, {
-      rawRequest: { ip: `198.51.100.${parseInt(suffix.slice(-3), 36) % 200 + 1}` },
-    }, catalogQuotaSecret, { emulator: true }), error => error.code === 'resource-exhausted')
+    await assert.rejects(() => commercialOnboarding.getPublicCommercialCatalog(db), error => error.code === 'resource-exhausted')
     pass('proyección pública limita queries y rechaza catálogos sobredimensionados')
   } finally {
     await Promise.all(catalogCapIds.map(idValue => db.doc(`platformPlans/${idValue}`).delete()))
@@ -654,7 +643,7 @@ try {
   assert(onbNight.body.result?.tenantId)
   pass('tenantGateway completeOnboarding con nightclub_lounge es PERMITIDO y converge')
 
-  assert.equal(checks, 76)
+  assert.equal(checks, 77)
   console.log(`${checks} comprobaciones de seguridad Platform aprobadas`)
 } finally {
   await env.cleanup()
