@@ -15,7 +15,8 @@ import {
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
-import { canLaunchCommercialDemo } from '../../core/publicTemplates'
+import { freeDemoPath, canLaunchCommercialDemo } from '../../core/publicTemplates'
+import { getQuickServiceEditorialData, getQuickServicePricingState } from './quickServicePresentation'
 
 interface TemplatePricingSectionProps {
   initialQuickServiceId?: 'hamburger' | 'retail'
@@ -76,11 +77,17 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
   const activeQuickCatalog: QuickServiceSubcategory = activeQuickTemplate
     ? { ...activeQuickCatalogBase, label: activeQuickTemplate.commercialName, commercialTitle: activeQuickTemplate.cardSubtitle, description: activeQuickTemplate.detailDescription }
     : activeQuickCatalogBase
+  const activeQuickEditorial = activeQuickTemplate ? getQuickServiceEditorialData(activeQuickServiceId) : null
+  const activeQuickDemoPath = activeQuickTemplate
+    && (activeQuickTemplate.demoEnabledConfigured !== true || activeQuickTemplate.demoEnabled === true)
+    ? freeDemoPath(activeQuickServiceId)
+    : null
 
   const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2) // Nivel 2 (Más popular) por defecto
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
 
   const activeQuickPlans = activeQuickTemplate ? publishedPlansByTemplate(activeQuickServiceId) : []
+  const quickPricingState = getQuickServicePricingState(publicCatalogStatus, Boolean(activeQuickTemplate), activeQuickPlans.length > 0)
   const activePlan: TemplateTierPlan | undefined = activeQuickPlans.find((p) => p.tierLevel === selectedTierLevel)
     || activeQuickPlans.find((p) => p.tierLevel === 2)
     || activeQuickPlans[0]
@@ -336,7 +343,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   Modelos de autoservicio
                 </span>
                 <span className="text-xs text-slate-500 font-medium" role="status">
-                  {publicCatalogStatus === 'loading' ? 'Verificando ofertas' : publicCatalogStatus === 'error' ? 'No se pudieron verificar' : hasPublishedQuickPlans ? 'Oferta publicada' : 'No hay ofertas aprobadas'}
+                    {quickPricingState === 'loading' ? 'Verificando ofertas' : quickPricingState === 'unverified' ? 'No se pudieron verificar' : quickPricingState === 'editorial' ? 'Planes y precios en preparación' : hasPublishedQuickPlans ? 'Oferta publicada' : 'No hay ofertas aprobadas'}
                 </span>
               </div>
 
@@ -373,12 +380,12 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   })}
                 </div>
 
-                {!activeQuickTemplate && <p className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600" role="status">
+                {!activeQuickTemplate && <p className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600" role="status">
                   {publicCatalogStatus === 'error' ? 'No se pudieron verificar las plantillas publicadas.' : publicCatalogStatus === 'loading' ? 'Verificando las plantillas publicadas…' : 'No hay plantillas de autoservicio publicadas en el catálogo confirmado.'}
                 </p>}
 
                 {/* Toggle de Ciclo de Facturación (Mensual / Anual) */}
-                <div className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex items-center justify-between sm:justify-start gap-1">
+                {hasPublishedQuickPlans && <div data-plan-cycle-control="true" className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex items-center justify-between sm:justify-start gap-1">
                   <button
                     type="button"
                     onClick={() => setBillingCycle('monthly')}
@@ -401,7 +408,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   >
                     <span>Anual</span>
                   </button>
-                </div>
+                </div>}
               </div>
 
               {/* Selector de Nivel de Plan (Tabs de 3 Niveles) */}
@@ -412,6 +419,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                     <button
                       key={p.id}
                       type="button"
+                      data-plan-tier={p.tierLevel}
                       onClick={() => setSelectedTierLevel(p.tierLevel || 1)}
                       className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
                         isSelected
@@ -493,17 +501,65 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                     ))}
                   </ul>
                 </div>
+              </div> : activeQuickTemplate && activeQuickEditorial ? <div
+                className="mt-6 flex flex-1 flex-col rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-5 sm:p-6"
+                data-quick-editorial-card={activeQuickServiceId}
+                data-commercial-state={quickPricingState}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4 className="text-lg sm:text-xl font-extrabold text-slate-950 tracking-tight">{activeQuickCatalog.label}</h4>
+                    <p className="mt-1 max-w-xl text-sm leading-relaxed text-slate-600">{activeQuickEditorial.description}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800" role="status">
+                    {quickPricingState === 'editorial' ? 'Planes y precios en preparación' : quickPricingState === 'loading' ? 'Verificando ofertas' : 'Ofertas por verificar'}
+                  </span>
+                </div>
+
+                <div className="mt-5">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Capacidades disponibles</p>
+                  <ul className="grid grid-cols-1 gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                    {activeQuickEditorial.capabilities.map((capability) => (
+                      <li key={capability} className="flex items-start gap-2">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        <span>{capability}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {isPublicEditorialFallback && <p className="mt-4 text-xs text-slate-500" role="note">
+                  Ficha editorial de referencia. La disponibilidad comercial se confirma en el catálogo publicado.
+                </p>}
+
+                <div className="mt-auto flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row">
+                  {activeQuickDemoPath && <button
+                    type="button"
+                    data-quick-demo={activeQuickServiceId}
+                    onClick={() => navigate(activeQuickDemoPath)}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition-colors hover:bg-slate-50"
+                  >
+                    <Play className="h-4 w-4 text-blue-600" />
+                    <span>Probar demo</span>
+                  </button>}
+                  <button
+                    type="button"
+                    data-quick-plans-inquiry={activeQuickServiceId}
+                    onClick={() => handleSelectQuickPlan()}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-slate-800"
+                  >
+                    <MessageSquare className="h-4 w-4 text-emerald-400" />
+                    <span>Consultar planes</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div> : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600" role="status">
-                {publicCatalogStatus === 'loading'
-                  ? 'Consultando ofertas publicadas…'
-                  : publicCatalogStatus === 'error'
-                    ? 'No se pudieron verificar las ofertas. No mostraremos planes ni precios hasta recibir confirmación del servidor.'
-                    : 'No hay ofertas aprobadas y publicadas para esta plantilla.'}
+                {publicCatalogStatus === 'loading' ? 'Verificando las ofertas aprobadas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las ofertas.' : 'No hay ofertas aprobadas para una plantilla de autoservicio publicada.'}
               </div>}
             </div>
 
             {/* CTA del Bloque Autoservicio */}
-            <div className="pt-6 mt-6 border-t border-slate-100">
+            {activePlan && <div className="pt-6 mt-6 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => handleSelectQuickPlan(activePlan)}
@@ -516,7 +572,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
               <p className="text-[11px] text-center text-slate-400 mt-2">
                 La solicitud es informativa: no crea una empresa, suscripción ni pago.
               </p>
-            </div>
+            </div>}
           </div>
         </div>
 

@@ -3,6 +3,9 @@ import type { CommercialTemplateItem as AdminTemplate } from '../src/admin/types
 import { SELF_SERVICE_SHOWCASE_TEMPLATES, SPECIALIZED_SHOWCASE_TEMPLATES } from '../src/public/config/commercialShowcase.ts'
 import { buildPublishedShowcaseGroup } from '../src/public/landing/commercialPresentation.ts'
 import { resolvePublicTemplatePresentation } from '../src/admin/store/publicTemplateCatalog.ts'
+import { filterPublicCommercialPlans } from '../src/admin/store/commercialCatalogContract.ts'
+import { getQuickServiceEditorialData, getQuickServicePricingState } from '../src/public/landing/quickServicePresentation.ts'
+import { freeDemoPath } from '../src/core/publicTemplates.ts'
 
 const distributionVisual = SPECIALIZED_SHOWCASE_TEMPLATES.find((item) => item.id === 'distribution')!
 const restaurantVisual = SPECIALIZED_SHOWCASE_TEMPLATES.find((item) => item.id === 'restaurant')!
@@ -59,4 +62,29 @@ assert.equal(staleConfirmedEmpty.source, 'server-confirmed')
 assert.equal(staleConfirmedEmpty.confirmedEmpty, false)
 assert.deepEqual(staleConfirmedEmpty.templates, [], 'a later gateway error must not invent offers after a confirmed empty catalog')
 
-console.log('PASS catalog loading/error uses six editorial references; a confirmed empty catalog remains empty')
+const hamburgerEditorial = getQuickServiceEditorialData('hamburger')
+assert.match(hamburgerEditorial.description, /mostrador|rápido/i)
+assert(hamburgerEditorial.capabilities.includes('Pedidos de mostrador y para llevar'))
+assert(hamburgerEditorial.capabilities.includes('Gestión de cocina y preparación'))
+assert(!hamburgerEditorial.capabilities.some((item) => /multisucursal|delivery completo|integraciones api/i.test(item)))
+
+const retailEditorial = getQuickServiceEditorialData('retail')
+assert.match(retailEditorial.description, /peso y unidad/i)
+assert(retailEditorial.capabilities.includes('Venta por peso'))
+assert(retailEditorial.capabilities.includes('Venta por unidad'))
+
+assert.equal(getQuickServicePricingState('ready', true, false), 'editorial')
+assert.equal(getQuickServicePricingState('loading', true, false), 'loading')
+assert.equal(getQuickServicePricingState('error', true, false), 'unverified')
+assert.equal(getQuickServicePricingState('ready', false, false), 'unavailable', 'A valid empty catalog must not publish disabled templates')
+const approvedQuickPlan = filterPublicCommercialPlans([{
+  id: 'qa-hamburger-plan', templateId: 'hamburger', name: 'Plan aprobado QA', status: 'published',
+  planKind: 'paid', monthlyPriceUSD: 25, annualPriceUSD: 250, currency: 'USD', priceApproval: 'approved',
+  includedFeatures: ['Caja y ventas'], technicalEntitlements: [],
+}])
+assert.equal(approvedQuickPlan.length, 1, 'A complete approved plan must be accepted by the public catalog contract')
+assert.equal(getQuickServicePricingState('ready', true, approvedQuickPlan.length > 0), 'published', 'An approved plan switches back to the published-plan UI')
+assert.equal(freeDemoPath('hamburger'), '/demo/hamburger?data=full')
+assert.equal(freeDemoPath('retail'), '/demo/retail?data=full')
+
+console.log('PASS catalog states, self-service editorial cards, demo paths, and published-offer transition')
