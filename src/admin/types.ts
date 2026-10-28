@@ -1,6 +1,7 @@
 import type { TemplateKey } from '../public/config/pricingConfig'
 
 export interface CommercialTemplateItem {
+  revision?: number
   id: string
   templateId: TemplateKey | 'custom'
   canonicalTemplateId: TemplateKey | null
@@ -44,6 +45,7 @@ export interface CommercialTemplateItem {
 export type PlanKind = 'free' | 'paid'
 
 export interface TemplateTierPlan {
+  revision?: number
   id: string
   templateId: TemplateKey
   name: string
@@ -67,6 +69,7 @@ export interface TemplateTierPlan {
 }
 
 export interface CommercialExtraService {
+  revision?: number
   id: string
   title: string
   category: 'custom' | 'marketing' | 'branding' | 'support' | 'automation' | 'consulting'
@@ -80,6 +83,8 @@ export interface CommercialExtraService {
 }
 
 export interface LandingContentConfig {
+  revision?: number
+  status?: 'published' | 'draft'
   heroTagline: string
   heroTitle: string
   heroSubtitle: string
@@ -108,10 +113,12 @@ export interface LandingContentConfig {
 }
 
 export interface MediaAssetItem {
+  revision?: number
   id: string
   name: string
   url: string
   category: 'showcase' | 'brand' | 'icon'
   recommendedTemplate?: TemplateKey
   focalPointDefault: string
+  status?: 'published' | 'draft'
 }

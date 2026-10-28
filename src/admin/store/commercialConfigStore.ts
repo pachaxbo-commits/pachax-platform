@@ -7,7 +7,7 @@ import type {
   MediaAssetItem,
 } from '../types'
 import { mergeOfficialTemplates } from './templateDefaults.ts'
-import { resolvePublicTemplateCatalog } from './publicTemplateCatalog.ts'
+import { resolvePublicTemplateCatalog, resolvePublicTemplatePresentation } from './publicTemplateCatalog.ts'
 import { COMMERCIAL_PLAN_TEMPLATE_IDS, filterPublicCommercialPlans, filterPublishedCommercialRecords } from './commercialCatalogContract.ts'
 import {
   PLANS_BY_TEMPLATE,
@@ -40,6 +40,7 @@ export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
     category: 'showcase',
     recommendedTemplate: 'restaurant',
     focalPointDefault: '50% 38%',
+    status: 'draft',
   },
   {
     id: 'asset_distribution',
@@ -48,6 +49,7 @@ export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
     category: 'showcase',
     recommendedTemplate: 'distribution',
     focalPointDefault: '50% 48%',
+    status: 'draft',
   },
   {
     id: 'asset_nightclub',
@@ -56,6 +58,7 @@ export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
     category: 'showcase',
     recommendedTemplate: 'nightclub',
     focalPointDefault: '50% 42%',
+    status: 'draft',
   },
   {
     id: 'asset_retail',
@@ -64,6 +67,7 @@ export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
     category: 'showcase',
     recommendedTemplate: 'retail',
     focalPointDefault: '50% 38%',
+    status: 'draft',
   },
   {
     id: 'asset_custom',
@@ -72,11 +76,13 @@ export const DEFAULT_MEDIA_ASSETS: MediaAssetItem[] = [
     category: 'showcase',
     recommendedTemplate: undefined,
     focalPointDefault: '50% 38%',
+    status: 'draft',
   },
 ]
 
 // 2. Textos editoriales iniciales de la landing (afirmaciones descriptivas sin promesas cuantitativas)
 export const DEFAULT_LANDING_CONTENT: LandingContentConfig = {
+  status: 'published',
   heroTagline: 'PLATAFORMA INTEGRAL DE GESTIÓN OPERATIVA',
   heroTitle: 'El sistema operativo para negocios con flujos reales de venta',
   heroSubtitle: 'Arquitectura multitenant de alto rendimiento para gastronomía, logística mayorista, entretenimiento nocturno y comercio minorista. Cada rubro opera con su propio motor canónico.',
@@ -419,13 +425,14 @@ export async function updateTemplateInStore(
   try {
     const current = loadCommercialConfig()
     const idx = current.templates.findIndex((t) => t.id === id)
-    const existing = idx >= 0 ? current.templates[idx] : {}
-    const updated = { ...existing, ...updates, id }
+    const existing: Partial<CommercialTemplateItem> = idx >= 0 ? current.templates[idx] : {}
+    const expected = Number.isSafeInteger(existing.revision) ? existing.revision! : 0
+    const updated = { ...existing, ...updates, id, revision: expected }
 
-    await gateway('platformGateway', { action: 'saveTemplate', template: updated })
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'saveTemplate', template: updated, expectedRevision: expected })
 
     if (idx >= 0) {
-      current.templates[idx] = updated as CommercialTemplateItem
+      current.templates[idx] = { ...updated, revision: saved.revision ?? expected + 1 } as CommercialTemplateItem
       saveCommercialConfig(current)
     }
     return { success: true }
@@ -443,8 +450,9 @@ export async function updatePlanInStore(
   try {
     const current = loadCommercialConfig()
     const idx = current.plans.findIndex((p) => p.id === id)
-    const existing = idx >= 0 ? current.plans[idx] : {}
-    const updated = { ...existing, ...updates, id }
+    const existing: Partial<TemplateTierPlan> = idx >= 0 ? current.plans[idx] : {}
+    const expected = Number.isSafeInteger(existing.revision) ? existing.revision! : 0
+    const updated = { ...existing, ...updates, id, revision: expected }
 
     if (updated.templateId && !ELIGIBLE_TEMPLATE_ID_SET.has(updated.templateId)) {
       return {
@@ -494,11 +502,11 @@ export async function updatePlanInStore(
       }
     }
 
-    await gateway('platformGateway', { action: 'savePlan', plan: updated })
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'savePlan', plan: updated, expectedRevision: expected })
 
     // Solo tras éxito en backend se actualiza la memoria
     if (idx >= 0) {
-      current.plans[idx] = updated as TemplateTierPlan
+      current.plans[idx] = { ...updated, revision: saved.revision ?? expected + 1 } as TemplateTierPlan
       saveCommercialConfig(current)
     }
     return { success: true }
@@ -555,7 +563,8 @@ export async function togglePublishPlanInStore(
     }
 
     // 1. Invocar acción en server-side con auditoría atómica
-    await gateway('platformGateway', { action: 'publishPlan', planId, status: targetStatus })
+    const expected = Number.isSafeInteger(targetPlan?.revision) ? targetPlan!.revision! : 0
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'publishPlan', planId, status: targetStatus, expectedRevision: expected })
 
     // 2. Actualizar store solo tras confirmación
     const idx = current.plans.findIndex((p) => p.id === planId)
@@ -563,6 +572,7 @@ export async function togglePublishPlanInStore(
       current.plans[idx] = {
         ...current.plans[idx],
         status: targetStatus,
+        revision: saved.revision ?? expected + 1,
         ...(targetStatus === 'published'
           ? { publishedAt: new Date().toISOString() }
           : {}),
@@ -584,10 +594,11 @@ export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ succe
         error: `La plantilla ${plan.templateId} no es elegible para planes de suscripción.`,
       }
     }
-    await gateway('platformGateway', { action: 'savePlan', plan: { ...plan, priceApproval: 'pending', status: 'draft' } })
+    const draftPlan = { ...plan, revision: 0, priceApproval: 'pending' as const, status: 'draft' as const }
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'savePlan', plan: draftPlan, expectedRevision: 0 })
 
     const current = loadCommercialConfig()
-    current.plans.push({ ...plan, priceApproval: 'pending', status: 'draft' })
+    current.plans.push({ ...draftPlan, revision: saved.revision ?? 1 })
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
@@ -598,9 +609,10 @@ export async function createPlanInStore(plan: TemplateTierPlan): Promise<{ succe
 
 export async function deletePlanInStore(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    await gateway('platformGateway', { action: 'deletePlan', planId: id })
-
     const current = loadCommercialConfig()
+    const existing = current.plans.find((plan) => plan.id === id)
+    await gateway('platformGateway', { action: 'deletePlan', planId: id, expectedRevision: Number.isSafeInteger(existing?.revision) ? existing!.revision : 0 })
+
     current.plans = current.plans.filter((p) => p.id !== id)
     saveCommercialConfig(current)
     return { success: true }
@@ -617,13 +629,14 @@ export async function updateExtraInStore(
   try {
     const current = loadCommercialConfig()
     const idx = current.extras.findIndex((e) => e.id === id)
-    const existing = idx >= 0 ? current.extras[idx] : {}
-    const updated = { ...existing, ...updates, id }
+    const existing: Partial<CommercialExtraService> = idx >= 0 ? current.extras[idx] : {}
+    const expected = Number.isSafeInteger(existing.revision) ? existing.revision! : 0
+    const updated = { ...existing, ...updates, id, revision: expected }
 
-    await gateway('platformGateway', { action: 'saveExtra', extra: updated })
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'saveExtra', extra: updated, expectedRevision: expected })
 
     if (idx >= 0) {
-      current.extras[idx] = updated as CommercialExtraService
+      current.extras[idx] = { ...updated, revision: saved.revision ?? expected + 1 } as CommercialExtraService
       saveCommercialConfig(current)
     }
     return { success: true }
@@ -637,11 +650,11 @@ export async function createExtraInStore(
   extra: CommercialExtraService,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const draftExtra: CommercialExtraService = { ...extra, status: 'draft' }
-    await gateway('platformGateway', { action: 'saveExtra', extra: draftExtra })
+    const draftExtra: CommercialExtraService = { ...extra, revision: 0, status: 'draft' }
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'saveExtra', extra: draftExtra, expectedRevision: 0 })
 
     const current = loadCommercialConfig()
-    current.extras.push(draftExtra)
+    current.extras.push({ ...draftExtra, revision: saved.revision ?? 1 })
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
@@ -652,9 +665,9 @@ export async function createExtraInStore(
 
 export async function deleteExtraInStore(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    await gateway('platformGateway', { action: 'deleteExtra', extraId: id })
-
     const current = loadCommercialConfig()
+    const existing = current.extras.find((extra) => extra.id === id)
+    await gateway('platformGateway', { action: 'deleteExtra', extraId: id, expectedRevision: Number.isSafeInteger(existing?.revision) ? existing!.revision : 0 })
     current.extras = current.extras.filter((e) => e.id !== id)
     saveCommercialConfig(current)
     return { success: true }
@@ -669,11 +682,12 @@ export async function updateLandingContentInStore(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const current = loadCommercialConfig()
-    const updatedContent = { ...current.landingContent, ...updates }
+    const expected = Number.isSafeInteger(current.landingContent.revision) ? current.landingContent.revision! : 0
+    const updatedContent = { ...current.landingContent, ...updates, revision: expected }
 
-    await gateway('platformGateway', { action: 'saveLandingContent', content: updatedContent })
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'saveLandingContent', content: updatedContent, expectedRevision: expected })
 
-    current.landingContent = updatedContent
+    current.landingContent = { ...updatedContent, revision: saved.revision ?? expected + 1 }
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
@@ -689,13 +703,14 @@ export async function updateMediaAssetInStore(
   try {
     const current = loadCommercialConfig()
     const idx = current.mediaAssets.findIndex((m) => m.id === id)
-    const existing = idx >= 0 ? current.mediaAssets[idx] : {}
-    const updated = { ...existing, ...updates, id }
+    const existing: Partial<MediaAssetItem> = idx >= 0 ? current.mediaAssets[idx] : {}
+    const expected = Number.isSafeInteger(existing.revision) ? existing.revision! : 0
+    const updated = { ...existing, ...updates, id, revision: expected }
 
-    await gateway('platformGateway', { action: 'saveMediaAsset', asset: updated })
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'saveMediaAsset', asset: updated, expectedRevision: expected })
 
     if (idx >= 0) {
-      current.mediaAssets[idx] = updated as MediaAssetItem
+      current.mediaAssets[idx] = { ...updated, revision: saved.revision ?? expected + 1 } as MediaAssetItem
       saveCommercialConfig(current)
     }
     return { success: true }
@@ -709,10 +724,11 @@ export async function createMediaAssetInStore(
   asset: MediaAssetItem,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await gateway('platformGateway', { action: 'saveMediaAsset', asset })
+    const newAsset = { ...asset, revision: 0, status: asset.status || 'draft' }
+    const saved = await gateway<{ revision?: number }>('platformGateway', { action: 'saveMediaAsset', asset: newAsset, expectedRevision: 0 })
 
     const current = loadCommercialConfig()
-    current.mediaAssets.push(asset)
+    current.mediaAssets.push({ ...newAsset, revision: saved.revision ?? 1 })
     saveCommercialConfig(current)
     return { success: true }
   } catch (err: unknown) {
@@ -723,9 +739,9 @@ export async function createMediaAssetInStore(
 
 export async function deleteMediaAssetInStore(id: string): Promise<{ success: boolean; error?: string }> {
   try {
-    await gateway('platformGateway', { action: 'deleteMediaAsset', assetId: id })
-
     const current = loadCommercialConfig()
+    const existing = current.mediaAssets.find((asset) => asset.id === id)
+    await gateway('platformGateway', { action: 'deleteMediaAsset', assetId: id, expectedRevision: Number.isSafeInteger(existing?.revision) ? existing!.revision : 0 })
     current.mediaAssets = current.mediaAssets.filter((m) => m.id !== id)
     saveCommercialConfig(current)
     return { success: true }
@@ -771,8 +787,9 @@ export function useCommercialConfig() {
 
   // Filtros de publicación para la web pública (solo mostrar 'published')
   const publishedTemplates = isPublicPage
-    ? (publicConfig?.templates || [])
+    ? resolvePublicTemplatePresentation(publicState, hasReceivedPublicCatalog, publicConfig?.templates || []).templates
     : config.templates.filter((t) => t.status === 'published')
+  const isPublicEditorialFallback = isPublicPage && !hasReceivedPublicCatalog && publicState !== 'ready'
   const publishedPlansByTemplate = (templateKey: TemplateKey) =>
     (isPublicPage && publicState !== 'ready' ? [] : filterPublicCommercialPlans(isPublicPage ? (publicConfig?.plans ?? []) : config.plans)).filter((p) => p.templateId === templateKey)
   const publishedExtras = (isPublicPage ? (publicConfig?.extras || []) : config.extras).filter((e) => e.status === 'published')
@@ -781,6 +798,7 @@ export function useCommercialConfig() {
     config,
     templatesState,
     publicCatalogStatus: publicState,
+    isPublicEditorialFallback,
     publishedTemplates,
     publishedPlansByTemplate,
     publishedExtras,

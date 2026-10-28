@@ -11,6 +11,11 @@ import {
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialExtraService } from '../../admin/types'
 
+const TEMPLATE_LABELS: Record<string, string> = {
+  restaurant: 'Restaurante con salón', distribution: 'Producción y Distribución',
+  nightclub: 'Nightclub & Lounge', hamburger: 'Restaurante Rápido', retail: 'Comercio / Venta rápida',
+}
+
 export function PlatformExtrasSection() {
   const { landingContent, publishedExtras } = useCommercialConfig()
 
@@ -45,9 +50,15 @@ export function PlatformExtrasSection() {
       ? `Hola PACHAX, me interesa consultar sobre el servicio especializado: ${extra.title} (${extra.referencePriceLabel}) para mi empresa.`
       : landingContent.defaultCustomDevMessage
 
-    const url = `https://wa.me/${landingContent.officialWhatsAppNumber}?text=${encodeURIComponent(text)}`
+    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
+    if (!number) return
+    const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`
     window.open(url, '_blank', 'noopener,noreferrer')
   }
+
+  const formatTemplateScope = (extra: CommercialExtraService) => extra.applicableTemplates === 'all'
+    ? 'Todas las plantillas operativas'
+    : extra.applicableTemplates.map((id) => TEMPLATE_LABELS[id] || id).join(', ')
 
   return (
     <section id="extras" className="w-full pt-16 pb-10 sm:pt-20 sm:pb-12 bg-slate-50 border-t border-slate-200/80 relative overflow-hidden">
@@ -58,10 +69,10 @@ export function PlatformExtrasSection() {
             <span>SERVICIOS ESTRATÉGICOS Y EXTENSIONES</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
-            Potencia tu operación con módulos y servicios especializados
+            {landingContent.sectionTitles.extras}
           </h2>
           <p className="text-sm sm:text-base text-slate-600 mt-2.5 leading-relaxed">
-            Separa el software operativo central de los servicios de aceleración de negocio. Incorpora ingeniería a medida, marketing enfocado en ventas, identidad visual y soporte prioritario cuando tu escala lo requiera.
+            {landingContent.sectionTitles.extrasSubtitle}
           </p>
         </div>
 
@@ -130,6 +141,7 @@ export function PlatformExtrasSection() {
                     <p className="text-xs sm:text-sm text-slate-600 leading-snug line-clamp-2">
                       {extra.shortDescription}
                     </p>
+                    <p className="text-[10px] font-semibold text-slate-500 mt-2">Aplica a: {formatTemplateScope(extra)}</p>
                   </div>
                 </div>
 

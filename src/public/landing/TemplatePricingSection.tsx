@@ -6,7 +6,6 @@ import {
   Play,
 } from 'lucide-react'
 import {
-  OFFICIAL_WHATSAPP,
   SPECIALIZED_IMPLEMENTATION_MODELS,
   QUICK_SERVICE_CATALOG,
   type SpecializedModelInfo,
@@ -16,7 +15,8 @@ import {
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
-import { getTemplateContactUrl } from './templateActionPolicy'
+import { freeDemoPath, canLaunchCommercialDemo } from '../../core/publicTemplates'
+import { getQuickServiceEditorialData, getQuickServicePricingState } from './quickServicePresentation'
 
 interface TemplatePricingSectionProps {
   initialQuickServiceId?: 'hamburger' | 'retail'
@@ -24,27 +24,70 @@ interface TemplatePricingSectionProps {
 
 export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: TemplatePricingSectionProps) {
   const { navigate } = usePublicRouter()
-  const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus } = useCommercialConfig()
+  const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus, isPublicEditorialFallback, landingContent } = useCommercialConfig()
+
+  const specializedModels = publishedTemplates
+    .filter((template) => ['distribution', 'restaurant', 'nightclub'].includes(template.id))
+    .sort((a, b) => a.order - b.order)
+    .flatMap((template) => {
+      const base = SPECIALIZED_IMPLEMENTATION_MODELS.find((model) => model.id === template.id)
+      if (!base) return []
+      return [{
+        ...base,
+        title: template.commercialName,
+        subtitle: template.detailDescription || template.cardSubtitle,
+        badge: template.badge || base.badge,
+        diagnostic: {
+          ...base.diagnostic,
+          title: template.diagnosticTitle || base.diagnostic.title,
+          detail: template.diagnosticDescription || base.diagnostic.detail,
+        },
+        implementation: {
+          ...base.implementation,
+          title: template.implementationTitle || base.implementation.title,
+          detail: template.implementationDescription || base.implementation.detail,
+        },
+        demoRoute: template.demoRoute,
+      }]
+    })
+  const publishedQuickTemplates = publishedTemplates
+    .filter((template) => template.id === 'hamburger' || template.id === 'retail')
+    .sort((a, b) => a.order - b.order)
 
   // Estado del Bloque A: Implementación Especializada
   const [selectedSpecializedId, setSelectedSpecializedId] = useState<'distribution' | 'restaurant' | 'nightclub'>('distribution')
+  const activeSpecializedId = specializedModels.some((model) => model.id === selectedSpecializedId)
+    ? selectedSpecializedId
+    : (specializedModels[0]?.id || selectedSpecializedId)
+  const activeSpecializedTemplate = publishedTemplates.find((template) => template.id === activeSpecializedId)
   const activeSpecialized: SpecializedModelInfo =
-    SPECIALIZED_IMPLEMENTATION_MODELS.find((m) => m.id === selectedSpecializedId) ||
-    SPECIALIZED_IMPLEMENTATION_MODELS[0]
-  const activeSpecializedTemplate = publishedTemplates.find((template) => template.id === selectedSpecializedId)
-  const activeSpecializedPlans = publishedPlansByTemplate(selectedSpecializedId)
+    specializedModels.find((model) => model.id === activeSpecializedId) ||
+    specializedModels[0] || SPECIALIZED_IMPLEMENTATION_MODELS[0]
+  const activeSpecializedPlans = publishedPlansByTemplate(activeSpecializedId)
   const activeSpecializedPlan = activeSpecializedPlans[0]
 
   // Estado del Bloque B: Autoservicio con Planes Directos
   const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<'hamburger' | 'retail'>(initialQuickServiceId)
-  const activeQuickCatalog: QuickServiceSubcategory =
-    QUICK_SERVICE_CATALOG.find((q) => q.id === selectedQuickServiceId) ||
-    QUICK_SERVICE_CATALOG[0]
+  const activeQuickServiceId = publishedQuickTemplates.some((template) => template.id === selectedQuickServiceId)
+    ? selectedQuickServiceId
+    : (publishedQuickTemplates[0]?.id as 'hamburger' | 'retail' | undefined) || selectedQuickServiceId
+  const activeQuickTemplate = publishedQuickTemplates.find((template) => template.id === activeQuickServiceId)
+  const activeQuickCatalogBase: QuickServiceSubcategory =
+    QUICK_SERVICE_CATALOG.find((q) => q.id === activeQuickServiceId) || QUICK_SERVICE_CATALOG[0]
+  const activeQuickCatalog: QuickServiceSubcategory = activeQuickTemplate
+    ? { ...activeQuickCatalogBase, label: activeQuickTemplate.commercialName, commercialTitle: activeQuickTemplate.cardSubtitle, description: activeQuickTemplate.detailDescription }
+    : activeQuickCatalogBase
+  const activeQuickEditorial = activeQuickTemplate ? getQuickServiceEditorialData(activeQuickServiceId) : null
+  const activeQuickDemoPath = activeQuickTemplate
+    && (activeQuickTemplate.demoEnabledConfigured !== true || activeQuickTemplate.demoEnabled === true)
+    ? freeDemoPath(activeQuickServiceId)
+    : null
 
   const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2) // Nivel 2 (Más popular) por defecto
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
 
-  const activeQuickPlans = publishedPlansByTemplate(selectedQuickServiceId)
+  const activeQuickPlans = activeQuickTemplate ? publishedPlansByTemplate(activeQuickServiceId) : []
+  const quickPricingState = getQuickServicePricingState(publicCatalogStatus, Boolean(activeQuickTemplate), activeQuickPlans.length > 0)
   const activePlan: TemplateTierPlan | undefined = activeQuickPlans.find((p) => p.tierLevel === selectedTierLevel)
     || activeQuickPlans.find((p) => p.tierLevel === 2)
     || activeQuickPlans[0]
@@ -61,22 +104,30 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
   }
 
   const handleSpecializedInquiry = (model: SpecializedModelInfo) => {
-    const action = { kind: 'contact', label: 'Solicitar implementación' } as const
-    window.open(getTemplateContactUrl(model.title, action), '_blank', 'noopener,noreferrer')
+    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
+    if (!number) return
+    const message = `Hola, quiero solicitar una implementación de ${model.title} en PACHAX.`
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
   const handleSelectQuickPlan = (plan?: TemplateTierPlan) => {
     const planDescription = plan ? ` sobre el plan ${plan.name}` : ' sobre los planes disponibles'
-    const url = OFFICIAL_WHATSAPP.buildUrl(`Hola PACHAX, quiero consultar${planDescription} para ${activeQuickCatalog.label}.`)
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
+    if (!number) return
+    const message = `Hola PACHAX, quiero consultar${planDescription} para ${activeQuickCatalog.label}.`
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
   const handleCustomDevWhatsApp = () => {
-    const url = OFFICIAL_WHATSAPP.buildUrl(CUSTOM_DEVELOPMENT_CONFIG.whatsAppMessage)
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
+    if (!number) return
+    const message = landingContent.defaultCustomDevMessage || CUSTOM_DEVELOPMENT_CONFIG.whatsAppMessage
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
   const hasPublishedQuickPlans = activeQuickPlans.length > 0
+  const hasAnyConfirmedOffers = publicCatalogStatus === 'ready' && ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail']
+    .some((templateId) => publishedPlansByTemplate(templateId as 'restaurant' | 'distribution' | 'nightclub' | 'hamburger' | 'retail').length > 0)
 
   return (
     <section id="planes" className="w-full py-20 bg-slate-50/70 border-t border-slate-200/80 relative">
@@ -88,16 +139,27 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
           </div>
           <div className="mb-3">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-              PLANES Y TARIFAS PUBLICADOS POR PACHAX
+              {publicCatalogStatus === 'loading' ? 'VERIFICANDO PUBLICACIÓN'
+                : publicCatalogStatus === 'error' ? 'OFERTAS NO VERIFICADAS'
+                  : hasAnyConfirmedOffers ? 'OFERTAS APROBADAS Y PUBLICADAS' : 'SIN OFERTAS PUBLICADAS'}
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
-            Elige la ruta adaptada a la complejidad real de tu negocio
+            {landingContent.sectionTitles.pricing}
           </h2>
           <p className="text-sm sm:text-base text-slate-600 mt-3 leading-relaxed">
-            Separamos la implementación especializada del autoservicio. Consulta las condiciones publicadas o envía una solicitud al equipo comercial; esta página no crea empresas ni procesa pagos.
+            {landingContent.sectionTitles.pricingSubtitle}
           </p>
         </div>
+
+        {isPublicEditorialFallback && <p className="-mt-10 mb-8 text-center text-xs text-slate-500" role="status" data-catalog-state={publicCatalogStatus}>
+          {publicCatalogStatus === 'loading'
+            ? 'Las fichas editoriales se muestran como referencia mientras verificamos las ofertas.'
+            : 'Mostramos fichas editoriales de referencia. No hay precios ni planes confirmados por el servidor.'}
+        </p>}
+        {publicCatalogStatus === 'error' && !isPublicEditorialFallback && <p className="-mt-10 mb-8 text-center text-xs text-slate-500" role="status" data-catalog-state="error">
+          No pudimos actualizar las ofertas. La versión previa confirmada se conserva temporalmente y no se muestran precios sin verificación actual.
+        </p>}
 
         {/* Dos Bloques Paralelos en Desktop, Apilados en Mobile */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch mb-14">
@@ -135,8 +197,8 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
 
               {/* Selector de Plantilla Especializada (Tabs) */}
               <div className="mt-6 p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-wrap sm:flex-nowrap gap-1">
-                {SPECIALIZED_IMPLEMENTATION_MODELS.map((model) => {
-                  const isSelected = selectedSpecializedId === model.id
+                {specializedModels.map((model) => {
+                  const isSelected = activeSpecializedId === model.id
                   return (
                     <button
                       key={model.id}
@@ -154,8 +216,9 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                 })}
               </div>
 
-              {/* Ficha Activa de la Plantilla Especializada */}
-              <div className="mt-6 p-5 rounded-2xl bg-[#0b1c31] border border-blue-500/20 space-y-4">
+              {!activeSpecializedTemplate ? <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/70 p-5 text-sm text-slate-300" role="status">
+                {publicCatalogStatus === 'error' ? 'No pudimos cargar las plantillas publicadas.' : publicCatalogStatus === 'loading' ? 'Cargando plantillas publicadas…' : 'No hay plantillas de implementación publicadas.'}
+              </div> : <div className="mt-6 p-5 rounded-2xl bg-[#0b1c31] border border-blue-500/20 space-y-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-sky-400">
@@ -167,10 +230,10 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   </div>
                   <div className="text-right shrink-0">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      {activeSpecializedPlan ? activeSpecializedPlan.name : 'Mensualidad publicada'}
+                      {activeSpecializedPlan?.name || (publicCatalogStatus === 'loading' ? 'Verificando ofertas' : publicCatalogStatus === 'error' ? 'Oferta no verificada' : 'Oferta publicada')}
                     </span>
                     <span className="text-lg sm:text-xl font-black text-white">
-                      {activeSpecializedPlan ? `${activeSpecializedPlan.currency === 'BOB' ? 'Bs ' : '$'}${activeSpecializedPlan.monthlyPriceUSD}` : 'No publicada'}
+                      {activeSpecializedPlan ? `${activeSpecializedPlan.currency === 'BOB' ? 'Bs ' : '$'}${activeSpecializedPlan.monthlyPriceUSD}` : publicCatalogStatus === 'ready' ? 'No hay oferta aprobada' : 'Sin precio confirmado'}
                     </span>
                     {activeSpecializedPlan && <span className="text-[11px] text-slate-400 ml-1">{activeSpecializedPlan.currency}/mes</span>}
                   </div>
@@ -203,9 +266,9 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                       <div className="font-bold text-white flex items-center gap-1.5">
                         <span>{activeSpecialized.implementation.title}</span>
                         <span className="text-[10px] text-sky-400 bg-sky-950/80 px-1.5 py-0.2 rounded border border-sky-800/80">
-                          {activeSpecializedTemplate?.implementationBasePriceUSD != null
+                          {publicCatalogStatus === 'ready' && activeSpecializedTemplate?.implementationBasePriceUSD != null
                             ? `Costo base único: $${activeSpecializedTemplate.implementationBasePriceUSD} USD`
-                            : 'Costo base por cotizar'}
+                            : publicCatalogStatus === 'error' ? 'Costo base no verificado' : publicCatalogStatus === 'loading' ? 'Verificando costo base' : 'Costo base por cotizar'}
                         </span>
                       </div>
                       <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
@@ -243,11 +306,11 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                     ))}
                   </ul>
                 </div>
-              </div>
+              </div>}
             </div>
 
             {/* Acciones del Bloque Especializado */}
-            <div className="relative z-10 pt-6 mt-6 border-t border-white/10 flex flex-col sm:flex-row gap-3">
+            {activeSpecializedTemplate && <div className="relative z-10 pt-6 mt-6 border-t border-white/10 flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
                 onClick={() => handleSpecializedInquiry(activeSpecialized)}
@@ -259,12 +322,14 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
               <button
                 type="button"
                 onClick={() => handleLaunchSpecializedDemo(activeSpecialized.demoRoute)}
+                disabled={!activeSpecializedTemplate || !canLaunchCommercialDemo(activeSpecializedTemplate)}
+                hidden={!activeSpecializedTemplate || !canLaunchCommercialDemo(activeSpecializedTemplate)}
                 className="py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/15 inline-flex items-center justify-center gap-2"
               >
                 <Play className="w-3.5 h-3.5 text-blue-400 fill-blue-400" />
                 <span>Ver demo en vivo</span>
               </button>
-            </div>
+            </div>}
           </div>
 
           {/* ========================================================================= */}
@@ -278,7 +343,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   Modelos de autoservicio
                 </span>
                 <span className="text-xs text-slate-500 font-medium" role="status">
-                  {publicCatalogStatus === 'loading' ? 'Consultando ofertas' : publicCatalogStatus === 'error' ? 'Ofertas no disponibles' : hasPublishedQuickPlans ? 'Oferta publicada' : 'Sin oferta publicada'}
+                    {quickPricingState === 'loading' ? 'Verificando ofertas' : quickPricingState === 'unverified' ? 'No se pudieron verificar' : quickPricingState === 'editorial' ? 'Planes y precios en preparación' : hasPublishedQuickPlans ? 'Oferta publicada' : 'No hay ofertas aprobadas'}
                 </span>
               </div>
 
@@ -292,8 +357,10 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
               {/* Selector de Subcategoría (Restaurante Rápido vs Comercio & Balanza) */}
               <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex">
-                  {QUICK_SERVICE_CATALOG.map((cat) => {
-                    const isSelected = selectedQuickServiceId === cat.id
+                  {publishedQuickTemplates.map((template) => {
+                    const cat = QUICK_SERVICE_CATALOG.find((item) => item.id === template.id)
+                    if (!cat) return null
+                    const isSelected = activeQuickServiceId === cat.id
                     return (
                       <button
                         key={cat.id}
@@ -313,8 +380,12 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   })}
                 </div>
 
+                {!activeQuickTemplate && <p className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600" role="status">
+                  {publicCatalogStatus === 'error' ? 'No se pudieron verificar las plantillas publicadas.' : publicCatalogStatus === 'loading' ? 'Verificando las plantillas publicadas…' : 'No hay plantillas de autoservicio publicadas en el catálogo confirmado.'}
+                </p>}
+
                 {/* Toggle de Ciclo de Facturación (Mensual / Anual) */}
-                <div className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex items-center justify-between sm:justify-start gap-1">
+                {hasPublishedQuickPlans && <div data-plan-cycle-control="true" className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex items-center justify-between sm:justify-start gap-1">
                   <button
                     type="button"
                     onClick={() => setBillingCycle('monthly')}
@@ -337,7 +408,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   >
                     <span>Anual</span>
                   </button>
-                </div>
+                </div>}
               </div>
 
               {/* Selector de Nivel de Plan (Tabs de 3 Niveles) */}
@@ -348,6 +419,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                     <button
                       key={p.id}
                       type="button"
+                      data-plan-tier={p.tierLevel}
                       onClick={() => setSelectedTierLevel(p.tierLevel || 1)}
                       className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
                         isSelected
@@ -429,17 +501,65 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                     ))}
                   </ul>
                 </div>
+              </div> : activeQuickTemplate && activeQuickEditorial ? <div
+                className="mt-6 flex flex-1 flex-col rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-5 sm:p-6"
+                data-quick-editorial-card={activeQuickServiceId}
+                data-commercial-state={quickPricingState}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4 className="text-lg sm:text-xl font-extrabold text-slate-950 tracking-tight">{activeQuickCatalog.label}</h4>
+                    <p className="mt-1 max-w-xl text-sm leading-relaxed text-slate-600">{activeQuickEditorial.description}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800" role="status">
+                    {quickPricingState === 'editorial' ? 'Planes y precios en preparación' : quickPricingState === 'loading' ? 'Verificando ofertas' : 'Ofertas por verificar'}
+                  </span>
+                </div>
+
+                <div className="mt-5">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Capacidades disponibles</p>
+                  <ul className="grid grid-cols-1 gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                    {activeQuickEditorial.capabilities.map((capability) => (
+                      <li key={capability} className="flex items-start gap-2">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        <span>{capability}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {isPublicEditorialFallback && <p className="mt-4 text-xs text-slate-500" role="note">
+                  Ficha editorial de referencia. La disponibilidad comercial se confirma en el catálogo publicado.
+                </p>}
+
+                <div className="mt-auto flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row">
+                  {activeQuickDemoPath && <button
+                    type="button"
+                    data-quick-demo={activeQuickServiceId}
+                    onClick={() => navigate(activeQuickDemoPath)}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition-colors hover:bg-slate-50"
+                  >
+                    <Play className="h-4 w-4 text-blue-600" />
+                    <span>Probar demo</span>
+                  </button>}
+                  <button
+                    type="button"
+                    data-quick-plans-inquiry={activeQuickServiceId}
+                    onClick={() => handleSelectQuickPlan()}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-slate-800"
+                  >
+                    <MessageSquare className="h-4 w-4 text-emerald-400" />
+                    <span>Consultar planes</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div> : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600" role="status">
-                {publicCatalogStatus === 'loading'
-                  ? 'Consultando ofertas publicadas…'
-                  : publicCatalogStatus === 'error'
-                    ? 'No pudimos cargar las ofertas. Inténtalo más tarde.'
-                    : 'No hay planes aprobados y publicados para esta plantilla.'}
+                {publicCatalogStatus === 'loading' ? 'Verificando las ofertas aprobadas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las ofertas.' : 'No hay ofertas aprobadas para una plantilla de autoservicio publicada.'}
               </div>}
             </div>
 
             {/* CTA del Bloque Autoservicio */}
-            <div className="pt-6 mt-6 border-t border-slate-100">
+            {activePlan && <div className="pt-6 mt-6 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => handleSelectQuickPlan(activePlan)}
@@ -452,14 +572,14 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
               <p className="text-[11px] text-center text-slate-400 mt-2">
                 La solicitud es informativa: no crea una empresa, suscripción ni pago.
               </p>
-            </div>
+            </div>}
           </div>
         </div>
 
         {/* ========================================================================= */}
         {/* BANNER DE CIERRE: INGENIERÍA Y DESARROLLO A MEDIDA */}
         {/* ========================================================================= */}
-        <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
+        {publishedTemplates.some((template) => template.id === 'custom') && <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-1.5 text-center md:text-left max-w-2xl">
             <div className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
               <span>{CUSTOM_DEVELOPMENT_CONFIG.title}</span>
@@ -482,7 +602,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
               <span>Cotizar a medida</span>
             </button>
           </div>
-        </div>
+        </div>}
       </div>
     </section>
   )

@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Copy, Plus, Save, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
+import { useAdminAuth } from '../../auth/adminAuthStore'
 import type { MediaAssetItem } from '../../types'
+import type { TemplateKey } from '../../../public/config/pricingConfig'
 
 export function MediaSection() {
+  const { user } = useAdminAuth()
+  const canPublish = user?.role === 'platform_owner' || user?.role === 'platform_admin'
   const { mediaAssets, updateMediaAsset, createMediaAsset, deleteMediaAsset } = useCommercialConfig()
   const [selectedAsset, setSelectedAsset] = useState<MediaAssetItem>(mediaAssets[0])
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
@@ -14,11 +18,12 @@ export function MediaSection() {
 
   // Formulario nuevo asset
   const [newAsset, setNewAsset] = useState<MediaAssetItem>({
-    id: `asset_${Date.now()}`,
+    id: '',
     name: '',
     url: '',
     category: 'showcase',
     focalPointDefault: '50% 50%',
+    status: 'draft',
   })
 
   // Formulario edición asset seleccionado
@@ -32,7 +37,7 @@ export function MediaSection() {
         setEditForm(JSON.parse(JSON.stringify(match)))
       }
     })
-  }, [mediaAssets])
+  }, [mediaAssets, selectedAsset?.id])
 
   const handleCopy = (url: string) => {
     navigator.clipboard?.writeText(url)
@@ -49,6 +54,12 @@ export function MediaSection() {
 
   const handleSaveEdit = async () => {
     if (!editForm) return
+    if (editForm.status === 'published' && !canPublish) {
+      setError('Solo Platform Owner o Admin puede publicar assets multimedia.')
+      return
+    }
+    if (editForm.status === 'published' && selectedAsset?.status !== 'published'
+      && !window.confirm('Este asset quedará disponible en el catálogo público. Confirma que la imagen está aprobada.')) return
     setIsProcessing(true)
     setFeedback(null)
     setError(null)
@@ -88,7 +99,7 @@ export function MediaSection() {
     setError(null)
     const assetToSave: MediaAssetItem = {
       ...newAsset,
-      id: newAsset.id || `asset_${Date.now()}`,
+      id: crypto.randomUUID(),
     }
     const res = await createMediaAsset(assetToSave)
     setIsProcessing(false)
@@ -96,11 +107,12 @@ export function MediaSection() {
       setFeedback(`Asset "${assetToSave.name}" agregado a la biblioteca.`)
       setShowAddForm(false)
       setNewAsset({
-        id: `asset_${Date.now()}`,
+        id: '',
         name: '',
         url: '',
         category: 'showcase',
         focalPointDefault: '50% 50%',
+        status: 'draft',
       })
       handleSelect(assetToSave)
       setTimeout(() => setFeedback(null), 3000)
@@ -180,7 +192,7 @@ export function MediaSection() {
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Categoría</label>
               <select
                 value={newAsset.category}
-                onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value as any })}
+                onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value as MediaAssetItem['category'] })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
               >
                 <option value="showcase">Showcase (Vitrina)</option>
@@ -202,7 +214,7 @@ export function MediaSection() {
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Plantilla recomendada</label>
               <select
                 value={newAsset.recommendedTemplate || ''}
-                onChange={(e) => setNewAsset({ ...newAsset, recommendedTemplate: (e.target.value as any) || undefined })}
+                onChange={(e) => setNewAsset({ ...newAsset, recommendedTemplate: (e.target.value as TemplateKey) || undefined })}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
               >
                 <option value="">General / Ninguna</option>
@@ -269,6 +281,9 @@ export function MediaSection() {
                     <p className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
                       {asset.url}
                     </p>
+                    <span className={`inline-flex mt-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${asset.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                      {asset.status === 'published' ? 'Publicado' : 'Borrador'}
+                    </span>
                   </div>
 
                   <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
@@ -363,10 +378,23 @@ export function MediaSection() {
                 </div>
 
                 <div>
+                  <label className="font-bold text-slate-700 uppercase tracking-wider text-[10px] block mb-1">Estado del asset</label>
+                  <select
+                    value={editForm.status || 'draft'}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value as 'published' | 'draft' })}
+                    disabled={!canPublish}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 disabled:opacity-50"
+                  >
+                    <option value="draft">Borrador / privado de la biblioteca pública</option>
+                    <option value="published">Publicado en el catálogo público</option>
+                  </select>
+                </div>
+
+                <div>
                   <label className="font-bold text-slate-700 uppercase tracking-wider text-[10px] block mb-1">Plantilla asignada</label>
                   <select
                     value={editForm.recommendedTemplate || ''}
-                    onChange={(e) => setEditForm({ ...editForm, recommendedTemplate: (e.target.value as any) || undefined })}
+                    onChange={(e) => setEditForm({ ...editForm, recommendedTemplate: (e.target.value as TemplateKey) || undefined })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-900"
                   >
                     <option value="">General / Ninguna</option>

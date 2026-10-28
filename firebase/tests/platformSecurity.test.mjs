@@ -45,6 +45,18 @@ const auth = getAuth(app)
 let checks = 0
 const pass = message => { checks++; console.log('PASS', message) }
 const request = (uid, data, platformClaim = true) => ({ auth: { uid, token: { platform: platformClaim } }, data })
+async function callAdminAction(action, uid, data) {
+  const id = data.template?.id || data.plan?.id || data.planId || data.extra?.id || data.content?.id || data.asset?.id || data.extraId || data.assetId
+  const collectionByAction = {
+    saveTemplate: 'platformTemplates', savePlan: 'platformPlans', publishPlan: 'platformPlans', deletePlan: 'platformPlans',
+    saveExtra: 'platformExtras', deleteExtra: 'platformExtras', saveLandingContent: 'platformConfig',
+    saveMediaAsset: 'platformMedia', deleteMediaAsset: 'platformMedia',
+  }
+  const path = action === 'saveLandingContent' ? 'platformConfig/publicLanding' : `${collectionByAction[action]}/${id}`
+  const existing = await db.doc(path).get()
+  const expectedRevision = data.expectedRevision ?? Number(existing.data()?.revision || 0)
+  return platform[action](db, request(uid, { ...data, expectedRevision }))
+}
 async function signIn(uid) {
   const response = await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=emulator`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -230,22 +242,22 @@ try {
     status: 'published', commercialAvailability: 'coming_soon', commercialMode: 'self_service',
     demoRoute: '/demo/hamburger', demoPath: '/demo/hamburger', order: 4,
   }
-  await assert.rejects(() => platform.saveTemplate(db, request(ids.owner, {
+  await assert.rejects(() => callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, commercialName: '' },
-  })), error => error.code === 'failed-precondition')
+  }), error => error.code === 'failed-precondition')
   pass('backend no publica plantillas sin contenido comercial administrado completo')
-  const savedHamburger = await platform.saveTemplate(db, request(ids.owner, { action: 'saveTemplate', template: hamburgerTemplate }))
+  const savedHamburger = await callAdminAction('saveTemplate', ids.owner, { action: 'saveTemplate', template: hamburgerTemplate })
   assert.equal(savedHamburger.templateId, 'hamburger')
   assert.equal((await db.doc('platformTemplates/hamburger').get()).data().canonicalTemplateId, 'hamburger')
   assert((await db.doc('platformTemplates/hamburger').get()).exists)
   pass('Admin guarda Restaurante Rápido con identidad técnica hamburger independiente')
-  await assert.rejects(() => platform.saveTemplate(db, request(ids.owner, {
+  await assert.rejects(() => callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, demoEnabledConfigured: true },
-  })), error => error.code === 'invalid-argument')
+  }), error => error.code === 'invalid-argument')
   pass('backend exige un valor explícito al configurar el interruptor de demo')
-  await platform.saveTemplate(db, request(ids.owner, {
+  await callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, demoEnabled: false, demoEnabledConfigured: true },
-  }))
+  })
   const savedDemoSetting = (await db.doc('platformTemplates/hamburger').get()).data()
   assert.equal(savedDemoSetting.demoEnabled, false)
   assert.equal(savedDemoSetting.demoEnabledConfigured, true)
@@ -261,28 +273,28 @@ try {
     demoRoute: '/demo/restaurant', demoPath: '/demo/restaurant',
     demoEnabled: false,
   }
-  await platform.saveTemplate(db, request(ids.owner, { action: 'saveTemplate', template: restaurantTemplate }))
+  await callAdminAction('saveTemplate', ids.owner, { action: 'saveTemplate', template: restaurantTemplate })
   let restaurantDemoSetting = (await db.doc('platformConfig/publicCommercialCatalog').get()).data().catalog.demoConfiguration
     .find(item => item.id === 'restaurant')
   assert.deepEqual(restaurantDemoSetting, { id: 'restaurant', demoEnabled: true, demoEnabledConfigured: false })
-  await platform.saveTemplate(db, request(ids.owner, {
+  await callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...restaurantTemplate, demoEnabledConfigured: true },
-  }))
+  })
   restaurantDemoSetting = (await db.doc('platformConfig/publicCommercialCatalog').get()).data().catalog.demoConfiguration
     .find(item => item.id === 'restaurant')
   assert.deepEqual(restaurantDemoSetting, { id: 'restaurant', demoEnabled: false, demoEnabledConfigured: true })
   pass('Restaurante con salón conserva ruta técnica disponible, pero Admin puede deshabilitar su acceso público explícitamente')
-  await assert.rejects(() => platform.saveTemplate(db, request(ids.content, {
+  await assert.rejects(() => callAdminAction('saveTemplate', ids.content, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, implementationBasePriceUSD: 999 },
-  })), error => error.code === 'permission-denied')
+  }), error => error.code === 'permission-denied')
   pass('platform_content puede editar contenido, pero no disponibilidad ni importes comerciales')
-  await assert.rejects(() => platform.saveTemplate(db, request(ids.owner, {
+  await assert.rejects(() => callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, commercialAvailability: 'available' },
-  })), error => error.code === 'failed-precondition')
+  }), error => error.code === 'failed-precondition')
   pass('backend impide abrir comercialmente Hamburger mientras su provisioning técnico siga bloqueado')
-  await assert.rejects(() => platform.saveTemplate(db, request(ids.owner, {
+  await assert.rejects(() => callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, commercialMode: 'specialized' },
-  })), error => error.code === 'failed-precondition')
+  }), error => error.code === 'failed-precondition')
   pass('backend conserva Hamburger como autoservicio y evita mezclarlo con Restaurante con salón')
 
   const hamburgerPlan = {
@@ -290,21 +302,21 @@ try {
     monthlyPriceUSD: 50, annualPriceUSD: 500, currency: 'USD', status: 'draft',
     priceApproval: 'pending', includedFeatures: ['Ventas'], technicalEntitlements: [],
   }
-  await platform.savePlan(db, request(ids.owner, { action: 'savePlan', plan: hamburgerPlan }))
+  await callAdminAction('savePlan', ids.owner, { action: 'savePlan', plan: hamburgerPlan })
   assert.equal((await db.doc(`platformPlans/${hamburgerPlan.id}`).get()).data().templateId, 'hamburger')
-  await assert.rejects(() => platform.publishPlan(db, request(ids.owner, { action: 'publishPlan', planId: hamburgerPlan.id, status: 'published' })), error => error.code === 'failed-precondition')
+  await assert.rejects(() => callAdminAction('publishPlan', ids.owner, { action: 'publishPlan', planId: hamburgerPlan.id, status: 'published' }), error => error.code === 'failed-precondition')
   pass('Admin guarda planes borrador para Hamburger y el servidor bloquea publicación sin aprobación explícita')
-  await assert.rejects(() => platform.savePlan(db, request(ids.owner, {
+  await assert.rejects(() => callAdminAction('savePlan', ids.owner, {
     action: 'savePlan', plan: { ...hamburgerPlan, technicalEntitlements: 'multi_branch' },
-  })), error => error.code === 'invalid-argument')
+  }), error => error.code === 'invalid-argument')
   pass('el servidor rechaza entitlements técnicos malformados')
-  await assert.rejects(() => platform.savePlan(db, request(ids.owner, {
+  await assert.rejects(() => callAdminAction('savePlan', ids.owner, {
     action: 'savePlan', plan: { ...hamburgerPlan, entitlements: { inventory: true }, subscriptionStatus: 'active' },
-  })), error => error.code === 'invalid-argument')
+  }), error => error.code === 'invalid-argument')
   pass('el plan comercial rechaza campos que intentarían activar suscripción o entitlements')
-  await assert.rejects(() => platform.savePlan(db, request(ids.owner, {
+  await assert.rejects(() => callAdminAction('savePlan', ids.owner, {
     action: 'savePlan', plan: { ...hamburgerPlan, priceApproval: 'approved', technicalEntitlements: ['sales'], status: 'published' },
-  })), error => error.code === 'failed-precondition')
+  }), error => error.code === 'failed-precondition')
   pass('el servidor rechaza publicar entitlements pagados no conectados a Billing Core')
 
   const publishedAdminPlan = {
@@ -312,17 +324,17 @@ try {
     status: 'published', priceApproval: 'approved', monthlyPriceUSD: 35, annualPriceUSD: 30,
     includedFeatures: ['Ventas y caja verificadas'], technicalEntitlements: [],
   }
-  await platform.savePlan(db, request(ids.owner, { action: 'savePlan', plan: publishedAdminPlan }))
-  await assert.rejects(() => platform.savePlan(db, request(ids.admin, {
+  await callAdminAction('savePlan', ids.owner, { action: 'savePlan', plan: publishedAdminPlan })
+  await assert.rejects(() => callAdminAction('savePlan', ids.admin, {
     action: 'savePlan', plan: { ...publishedAdminPlan, id: `admin_approved_${suffix}` },
-  })), error => error.code === 'permission-denied')
+  }), error => error.code === 'permission-denied')
   const qaExtra = {
     id: `qa-extra-${suffix}`, title: 'Implementación QA', shortDescription: 'Servicio ficticio de prueba.',
     category: 'consulting', referencePriceLabel: 'Cotización QA', pricingType: 'custom_quote',
     iconKey: 'code', applicableTemplates: ['hamburger'], status: 'draft', order: 1,
   }
-  await assert.rejects(() => platform.saveExtra(db, request(ids.content, { action: 'saveExtra', extra: qaExtra })), error => error.code === 'permission-denied')
-  await platform.saveExtra(db, request(ids.owner, { action: 'saveExtra', extra: qaExtra }))
+  await assert.rejects(() => callAdminAction('saveExtra', ids.content, { action: 'saveExtra', extra: qaExtra }), error => error.code === 'permission-denied')
+  await callAdminAction('saveExtra', ids.owner, { action: 'saveExtra', extra: qaExtra })
   assert.equal((await db.doc(`platformExtras/${qaExtra.id}`).get()).data().status, 'draft')
   pass('precio y publicación de extras requieren permiso comercial, y el Owner puede guardar borrador')
   await db.doc(`platformPlans/${publishedAdminPlan.id}`).set({ privateAdminNotes: 'NO EXPONER', internalApproverUid: ids.owner }, { merge: true })
@@ -538,7 +550,7 @@ try {
   assert.equal(platformLead.body.error?.status, 'PERMISSION_DENIED')
   pass('operador Platform no usa el flujo de prospectos para eludir onboarding tenant')
 
-  await platform.publishPlan(db, request(ids.owner, { action: 'publishPlan', planId: publishedAdminPlan.id, status: 'draft' }))
+  await callAdminAction('publishPlan', ids.owner, { action: 'publishPlan', planId: publishedAdminPlan.id, status: 'draft' })
   const afterUnpublish = await callPublicCommercialGateway({ action: 'getCatalog' })
   const catalogAfterUnpublish = afterUnpublish.body.result?.data || afterUnpublish.body.result
   assert(!catalogAfterUnpublish.plans.some(item => item.id === publishedAdminPlan.id))
