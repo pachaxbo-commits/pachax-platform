@@ -5,7 +5,7 @@ import { buildPublishedShowcaseGroup } from '../src/public/landing/commercialPre
 import { resolvePublicTemplatePresentation } from '../src/admin/store/publicTemplateCatalog.ts'
 import { filterPublicCommercialPlans } from '../src/admin/store/commercialCatalogContract.ts'
 import { getQuickServiceEditorialData, getQuickServicePricingState } from '../src/public/landing/quickServicePresentation.ts'
-import { freeDemoPath } from '../src/core/publicTemplates.ts'
+import { freeDemoPath, setPublicDemoConfiguration } from '../src/core/publicTemplates.ts'
 
 const distributionVisual = SPECIALIZED_SHOWCASE_TEMPLATES.find((item) => item.id === 'distribution')!
 const restaurantVisual = SPECIALIZED_SHOWCASE_TEMPLATES.find((item) => item.id === 'restaurant')!
@@ -86,5 +86,9 @@ assert.equal(approvedQuickPlan.length, 1, 'A complete approved plan must be acce
 assert.equal(getQuickServicePricingState('ready', true, approvedQuickPlan.length > 0), 'published', 'An approved plan switches back to the published-plan UI')
 assert.equal(freeDemoPath('hamburger'), '/demo/hamburger?data=full')
 assert.equal(freeDemoPath('retail'), '/demo/retail?data=full')
+setPublicDemoConfiguration([{ id: 'hamburger', demoEnabledConfigured: true, demoEnabled: false }])
+assert.equal(freeDemoPath('hamburger'), null, 'An explicit Admin demo disable must suppress the fallback demo CTA')
+assert.equal(freeDemoPath('retail'), '/demo/retail?data=full', 'A demo disable for another template must not leak')
+setPublicDemoConfiguration(null)
 
 console.log('PASS catalog states, self-service editorial cards, demo paths, and published-offer transition')
