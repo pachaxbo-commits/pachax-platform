@@ -31,6 +31,53 @@ async function commitCommercialBatch(db, batch, refreshPublicSnapshot) {
   return batch.commit();
 }
 
+function expectedRevision(request) {
+  const revision = request.data?.expectedRevision;
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw new HttpsError('invalid-argument', 'Falta la revisión del registro. Recarga la configuración antes de guardar.');
+  }
+  return revision;
+}
+
+async function commitVersionedCommercialRecord(db, {
+  ref, expected, payload, actor, action, reason, metadata = null,
+  refreshPublicSnapshot = false, remove = false,
+}) {
+  const catalogMetaRef = db.doc('platformConfig/publicCommercialCatalogMeta');
+  let revision;
+  await db.runTransaction(async tx => {
+    const [snapshot, catalogMeta] = await Promise.all([
+      tx.get(ref),
+      refreshPublicSnapshot ? tx.get(catalogMetaRef) : Promise.resolve(null),
+    ]);
+    const currentRevision = snapshot.exists ? Number(snapshot.data()?.revision ?? 0) : 0;
+    if (!Number.isSafeInteger(currentRevision) || currentRevision < 0) {
+      throw new HttpsError('failed-precondition', 'La revisión guardada no es válida; solicita soporte antes de modificar este registro.');
+    }
+    if (currentRevision !== expected) {
+      throw new HttpsError('aborted', 'Este registro cambió desde que lo abriste. Recarga la sección y vuelve a aplicar tus cambios.');
+    }
+    revision = currentRevision + 1;
+    const now = FieldValue.serverTimestamp();
+    if (remove) tx.delete(ref);
+    else tx.set(ref, { ...payload, revision, updatedAt: now });
+    auditPlatform(db, tx, actor, action, {
+      resource: ref.path,
+      reason,
+      metadata: metadata ? { ...metadata, revision } : { revision },
+    });
+    if (refreshPublicSnapshot) {
+      const currentCatalogRevision = catalogMeta?.exists ? Number(catalogMeta.data()?.revision) : 0;
+      if (!Number.isSafeInteger(currentCatalogRevision) || currentCatalogRevision < 0) {
+        throw new HttpsError('failed-precondition', 'El catálogo público tiene una revisión inválida; no se aplicó el cambio.');
+      }
+      tx.set(catalogMetaRef, { revision: currentCatalogRevision + 1, updatedAt: now }, { merge: true });
+    }
+  }, { maxAttempts: 10 });
+  if (refreshPublicSnapshot) await commercialOnboarding.refreshPublicCommercialCatalogSnapshot(db);
+  return revision;
+}
+
 function limit(value, fallback = 25) {
   const parsed = Number(value ?? fallback);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > DIRECTORY_LIMIT) throw new HttpsError('invalid-argument', 'Límite inválido.');
@@ -365,6 +412,7 @@ const OFFICIAL_CANONICAL_TEMPLATE_IDS = Object.freeze([...COMMERCIAL_TEMPLATE_ID
 
 async function publishPlan(db, request) {
   const actor = await platformActor(db, request, 'plans.manage');
+  const expected = expectedRevision(request);
   const planId = cleanText(request.data?.planId, 'ID de plan', 1, 100);
   const status = cleanText(request.data?.status, 'Estado', 1, 20);
 
@@ -425,21 +473,22 @@ async function publishPlan(db, request) {
     }
   }
 
-  const batch = db.batch();
   const now = FieldValue.serverTimestamp();
   const updateData = {
+    ...planData,
     status,
-    updatedAt: now,
     updatedBy: actor.uid,
   };
   if (status === 'published') {
     updateData.publishedAt = now;
     updateData.publishedBy = actor.uid;
   }
-  batch.update(planRef, updateData);
-
-  auditPlatform(db, batch, actor, status === 'published' ? 'plan.publish' : 'plan.unpublish', {
-    resource: `platformPlans/${planId}`,
+  const revision = await commitVersionedCommercialRecord(db, {
+    ref: planRef,
+    expected,
+    payload: updateData,
+    actor,
+    action: status === 'published' ? 'plan.publish' : 'plan.unpublish',
     reason: status === 'published' ? 'Publicación explícita de plan' : 'Despublicación de plan a borrador',
     metadata: {
       planId, status, templateId, planKind,
@@ -448,14 +497,14 @@ async function publishPlan(db, request) {
       currency: planData.currency || 'USD',
       includedFeatureCount: Array.isArray(planData.includedFeatures) ? planData.includedFeatures.length : 0,
     },
+    refreshPublicSnapshot: status === 'published' || planData.status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, status === 'published' || planData.status === 'published');
-  return { success: true, planId, status };
+  return { success: true, planId, status, revision };
 }
 
 async function savePlan(db, request) {
   const actor = await platformActor(db, request, 'plans.manage');
+  const expected = expectedRevision(request);
   const plan = request.data?.plan;
   if (!plan || typeof plan !== 'object' || !plan.id) {
     throw new HttpsError('invalid-argument', 'Datos de plan inválidos.');
@@ -464,7 +513,7 @@ async function savePlan(db, request) {
     'id', 'templateId', 'name', 'planKind', 'priceApproval', 'tierLevel', 'monthlyPriceUSD', 'annualPriceUSD',
     'currency', 'billingPeriod', 'badge', 'isPopular', 'adsRequired', 'clientProfile', 'limitsLabel',
     'includedFeatures', 'technicalEntitlements', 'ctaLabel', 'status', 'order', 'commercialVersion',
-    'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy',
+    'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy', 'revision',
   ]);
   if (Object.keys(plan).some(key => !allowedPlanFields.has(key))) {
     throw new HttpsError('invalid-argument', 'El plan incluye campos fuera del contrato comercial; los entitlements y la suscripción se administran aparte.');
@@ -583,11 +632,12 @@ async function savePlan(db, request) {
     delete payload.tierLevel;
   }
 
-  const batch = db.batch();
-  batch.set(planRef, payload, { merge: false });
-
-  auditPlatform(db, batch, actor, planSnap.exists ? 'plan.update' : 'plan.create', {
-    resource: `platformPlans/${planId}`,
+  const revision = await commitVersionedCommercialRecord(db, {
+    ref: planRef,
+    expected,
+    payload,
+    actor,
+    action: planSnap.exists ? 'plan.update' : 'plan.create',
     reason: 'Guardado de configuración de plan comercial',
     metadata: {
       planId, name: plan.name, status, templateId, planKind, priceApproval,
@@ -596,14 +646,14 @@ async function savePlan(db, request) {
       currency,
       includedFeatureCount: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.length : 0,
     },
+    refreshPublicSnapshot: status === 'published' || planSnap.data()?.status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, status === 'published' || planSnap.data()?.status === 'published');
-  return { success: true, planId };
+  return { success: true, planId, revision };
 }
 
 async function deletePlan(db, request) {
   const actor = await platformActor(db, request, 'plans.manage');
+  const expected = expectedRevision(request);
   const planId = cleanText(request.data?.planId, 'ID de plan', 1, 100);
 
   const planRef = db.doc(`platformPlans/${planId}`);
@@ -612,21 +662,17 @@ async function deletePlan(db, request) {
     throw new HttpsError('not-found', 'Plan no encontrado.');
   }
 
-  const batch = db.batch();
-  batch.delete(planRef);
-
-  auditPlatform(db, batch, actor, 'plan.delete', {
-    resource: `platformPlans/${planId}`,
-    reason: 'Eliminación de plan comercial',
-    metadata: { planId },
+  await commitVersionedCommercialRecord(db, {
+    ref: planRef, expected, payload: {}, actor, action: 'plan.delete',
+    reason: 'Eliminación de plan comercial', metadata: { planId }, remove: true,
+    refreshPublicSnapshot: planSnap.data().status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, planSnap.data().status === 'published');
   return { success: true, planId };
 }
 
 async function saveTemplate(db, request) {
   const actor = await platformActor(db, request, 'content.manage');
+  const expected = expectedRevision(request);
   const template = request.data?.template;
   if (!template || typeof template !== 'object' || !template.id) {
     throw new HttpsError('invalid-argument', 'Datos de plantilla inválidos.');
@@ -634,6 +680,9 @@ async function saveTemplate(db, request) {
   const templateId = cleanText(template.id, 'ID de plantilla', 1, 100);
   if (!COMMERCIAL_TEMPLATE_IDS.includes(templateId)) {
     throw new HttpsError('invalid-argument', `Plantilla comercial no autorizada o no registrada: ${templateId}`);
+  }
+  if (template.templateId !== undefined && template.templateId !== templateId) {
+    throw new HttpsError('invalid-argument', 'La identidad de plantilla es fija y debe coincidir con su ficha oficial.');
   }
 
   // Invariante de identidad técnica: no permitir que una plantilla se remapee arbitrariamente
@@ -672,6 +721,37 @@ async function saveTemplate(db, request) {
       || !Number.isFinite(Number(template.order))) {
       throw new HttpsError('failed-precondition', 'Completa el contenido comercial administrado antes de publicar la plantilla.');
     }
+  }
+  for (const [field, max] of Object.entries({
+    commercialName: 100, cardSubtitle: 180, thumbnailAlt: 240, description: 500,
+    detailDescription: 1200, targetAudience: 500, problemSolved: 500,
+    diagnosticTitle: 120, diagnosticDescription: 600, implementationTitle: 120,
+    implementationDescription: 600, badge: 80,
+  })) {
+    if (template[field] !== undefined && (typeof template[field] !== 'string' || template[field].length > max)) {
+      throw new HttpsError('invalid-argument', `El campo ${field} supera el formato permitido.`);
+    }
+  }
+  if (template.bullets !== undefined && (!Array.isArray(template.bullets) || template.bullets.length > 12
+    || template.bullets.some(value => typeof value !== 'string' || !value.trim() || value.length > 120))) {
+    throw new HttpsError('invalid-argument', 'La lista de capacidades breves no es válida.');
+  }
+  if (template.features !== undefined && (!Array.isArray(template.features) || template.features.length > 20
+    || template.features.some(value => typeof value !== 'string' || !value.trim() || value.length > 180))) {
+    throw new HttpsError('invalid-argument', 'La lista de características no es válida.');
+  }
+  if (template.thumbnailUrl !== undefined && (typeof template.thumbnailUrl !== 'string'
+    || template.thumbnailUrl.length > 500
+    || !(template.thumbnailUrl.startsWith('/') && !template.thumbnailUrl.startsWith('//')
+      || /^https:\/\//i.test(template.thumbnailUrl)))) {
+    throw new HttpsError('invalid-argument', 'La URL de imagen debe ser una ruta local o HTTPS.');
+  }
+  if (template.thumbnailFocalPoint !== undefined
+    && !/^\d{1,3}%\s+\d{1,3}%$/.test(template.thumbnailFocalPoint)) {
+    throw new HttpsError('invalid-argument', 'El punto focal de imagen no es válido.');
+  }
+  if (template.order !== undefined && (!Number.isSafeInteger(Number(template.order)) || Number(template.order) < 1)) {
+    throw new HttpsError('invalid-argument', 'El orden debe ser un entero positivo.');
   }
 
   if (template.commercialMode !== undefined && !['specialized', 'self_service'].includes(template.commercialMode)) {
@@ -713,19 +793,36 @@ async function saveTemplate(db, request) {
   const templateRef = db.doc(`platformTemplates/${templateId}`);
   const templateSnap = await templateRef.get();
   const previousTemplate = templateSnap.data() || {};
+  if ((template.status !== undefined && template.status !== previousTemplate.status
+    || template.demoEnabled !== undefined && template.demoEnabled !== previousTemplate.demoEnabled
+    || template.demoEnabledConfigured !== undefined && template.demoEnabledConfigured !== previousTemplate.demoEnabledConfigured)
+    && !actor.permissions.includes('plans.manage')) {
+    throw new HttpsError('permission-denied', 'El operador puede editar contenido, pero no publicar plantillas ni habilitar demos.');
+  }
   const commercialFields = ['commercialMode', 'commercialAvailability', 'implementationBasePriceUSD'];
   if (commercialFields.some(field => template[field] !== undefined && template[field] !== previousTemplate[field])
     && !actor.permissions.includes('plans.manage')) {
     throw new HttpsError('permission-denied', 'El operador puede editar contenido, pero no precios ni disponibilidad comercial.');
   }
-  const now = FieldValue.serverTimestamp();
-
+  const primaryActionLabel = templateId === 'custom' ? 'Cotizar a medida'
+    : ['hamburger', 'retail'].includes(templateId) ? 'Ver planes' : 'Solicitar implementación';
+  const editableFields = [
+    'commercialName', 'cardSubtitle', 'thumbnailUrl', 'thumbnailAlt', 'thumbnailFocalPoint',
+    'description', 'detailDescription', 'targetAudience', 'problemSolved', 'bullets', 'features',
+    'badge', 'status', 'order', 'commercialMode', 'commercialAvailability', 'implementationBasePriceUSD',
+    'diagnosticTitle', 'diagnosticDescription', 'implementationTitle', 'implementationDescription',
+    'demoEnabled', 'demoEnabledConfigured',
+  ];
+  const edits = Object.fromEntries(editableFields.filter(field => Object.hasOwn(template, field)).map(field => [field, template[field]]));
   const payload = {
-    ...template,
+    ...previousTemplate,
+    ...edits,
     id: templateId,
+    templateId,
     canonicalTemplateId: publicDef ? publicDef.id : null,
-    demoRoute: publicDef ? publicDef.demoPath : (template.demoRoute || ''),
-    demoPath: publicDef ? publicDef.demoPath : (template.demoPath || ''),
+    demoRoute: publicDef ? publicDef.demoPath : '',
+    demoPath: publicDef ? publicDef.demoPath : '',
+    primaryActionLabel,
     demoEnabled: templateId === 'custom' ? false : (
       (publicDef?.demoStatus || publicDef?.status) === 'available'
         && (template.demoEnabled ?? previousTemplate.demoEnabled ?? false) === true
@@ -737,20 +834,25 @@ async function saveTemplate(db, request) {
     implementationBasePriceUSD: template.implementationBasePriceUSD !== undefined
       ? template.implementationBasePriceUSD
       : (templateSnap.data()?.implementationBasePriceUSD ?? null),
-    updatedAt: now,
     updatedBy: actor.uid,
-    createdAt: templateSnap.exists ? (templateSnap.data().createdAt || now) : now,
+    createdAt: previousTemplate.createdAt || FieldValue.serverTimestamp(),
   };
+  const now = FieldValue.serverTimestamp();
   if (template.status === 'published') {
     payload.publishedAt = templateSnap.exists && templateSnap.data().publishedAt ? templateSnap.data().publishedAt : now;
     payload.publishedBy = actor.uid;
   }
 
-  const batch = db.batch();
-  batch.set(templateRef, payload, { merge: true });
-
-  auditPlatform(db, batch, actor, templateSnap.exists ? 'template.update' : 'template.create', {
-    resource: `platformTemplates/${templateId}`,
+  const refreshPublicSnapshot = template.status === 'published'
+    || previousTemplate.status === 'published'
+    || template.demoEnabledConfigured === true
+    || previousTemplate.demoEnabledConfigured === true;
+  const revision = await commitVersionedCommercialRecord(db, {
+    ref: templateRef,
+    expected,
+    payload,
+    actor,
+    action: templateSnap.exists ? 'template.update' : 'template.create',
     reason: 'Guardado de configuración comercial de plantilla',
     metadata: {
       templateId,
@@ -761,23 +863,27 @@ async function saveTemplate(db, request) {
       commercialMode: template.commercialMode || null,
       implementationBasePriceUSD: template.implementationBasePriceUSD ?? null,
     },
+    refreshPublicSnapshot,
   });
-
-  const refreshPublicSnapshot = template.status === 'published'
-    || previousTemplate.status === 'published'
-    || template.demoEnabledConfigured === true
-    || previousTemplate.demoEnabledConfigured === true;
-  await commitCommercialBatch(db, batch, refreshPublicSnapshot);
-  return { success: true, templateId };
+  return { success: true, templateId, revision };
 }
 
 async function saveExtra(db, request) {
   const actor = await platformActor(db, request, 'content.manage');
+  const expected = expectedRevision(request);
   const extra = request.data?.extra;
   if (!extra || typeof extra !== 'object' || !extra.id) {
     throw new HttpsError('invalid-argument', 'Datos de servicio extra inválidos.');
   }
   const extraId = cleanText(extra.id, 'ID de extra', 1, 100);
+  const allowedFields = new Set(['id', 'title', 'category', 'shortDescription', 'referencePriceLabel', 'pricingType', 'iconKey', 'applicableTemplates', 'status', 'order', 'revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy']);
+  if (Object.keys(extra).some(key => !allowedFields.has(key))) throw new HttpsError('invalid-argument', 'El extra contiene campos fuera del contrato editable.');
+  if (extra.category !== undefined && !['custom', 'marketing', 'branding', 'support', 'automation', 'consulting'].includes(extra.category)) throw new HttpsError('invalid-argument', 'La categoría del extra no es válida.');
+  if (extra.iconKey !== undefined && !['megaphone', 'palette', 'headset', 'zap', 'code'].includes(extra.iconKey)) throw new HttpsError('invalid-argument', 'El icono del extra no es válido.');
+  if (extra.order !== undefined && (!Number.isSafeInteger(Number(extra.order)) || Number(extra.order) < 1)) throw new HttpsError('invalid-argument', 'El orden del extra debe ser un entero positivo.');
+  for (const [field, max] of Object.entries({ title: 120, shortDescription: 360, referencePriceLabel: 120 })) {
+    if (extra[field] !== undefined && (typeof extra[field] !== 'string' || extra[field].length > max)) throw new HttpsError('invalid-argument', `El campo ${field} supera el formato permitido.`);
+  }
   if (extra.status !== undefined && !['published', 'draft'].includes(extra.status)) {
     throw new HttpsError('invalid-argument', 'El estado del extra debe ser published o draft.');
   }
@@ -795,36 +901,40 @@ async function saveExtra(db, request) {
   const extraRef = db.doc(`platformExtras/${extraId}`);
   const extraSnap = await extraRef.get();
   const previousExtra = extraSnap.data() || {};
+  if (extra.status !== undefined && extra.status !== previousExtra.status && !actor.permissions.includes('plans.manage')) {
+    throw new HttpsError('permission-denied', 'El operador no puede publicar ni despublicar servicios comerciales.');
+  }
   const commercialFields = ['referencePriceLabel', 'pricingType', 'applicableTemplates', 'status'];
   if (commercialFields.some(field => extra[field] !== undefined
     && JSON.stringify(extra[field]) !== JSON.stringify(previousExtra[field]))
     && !actor.permissions.includes('plans.manage')) {
     throw new HttpsError('permission-denied', 'El operador puede editar contenido, pero no precios ni publicación comercial de extras.');
   }
-  const now = FieldValue.serverTimestamp();
-
+  const safeExtra = Object.fromEntries([...allowedFields].filter(field => Object.hasOwn(extra, field)
+    && !['revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy'].includes(field))
+    .map(field => [field, extra[field]]));
   const payload = {
-    ...extra,
-    updatedAt: now,
+    ...previousExtra,
+    ...safeExtra,
     updatedBy: actor.uid,
-    createdAt: extraSnap.exists ? (extraSnap.data().createdAt || now) : now,
+    createdAt: previousExtra.createdAt || FieldValue.serverTimestamp(),
   };
-
-  const batch = db.batch();
-  batch.set(extraRef, payload, { merge: true });
-
-  auditPlatform(db, batch, actor, extraSnap.exists ? 'extra.update' : 'extra.create', {
-    resource: `platformExtras/${extraId}`,
+  const revision = await commitVersionedCommercialRecord(db, {
+    ref: extraRef,
+    expected,
+    payload,
+    actor,
+    action: extraSnap.exists ? 'extra.update' : 'extra.create',
     reason: 'Guardado de servicio comercial extra',
     metadata: { extraId, title: extra.title, status: extra.status, pricingType: extra.pricingType },
+    refreshPublicSnapshot: extra.status === 'published' || previousExtra.status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, extra.status === 'published' || previousExtra.status === 'published');
-  return { success: true, extraId };
+  return { success: true, extraId, revision };
 }
 
 async function deleteExtra(db, request) {
   const actor = await platformActor(db, request, 'content.manage');
+  const expected = expectedRevision(request);
   const extraId = cleanText(request.data?.extraId, 'ID de extra', 1, 100);
   const extraRef = db.doc(`platformExtras/${extraId}`);
   const extraSnap = await extraRef.get();
@@ -832,75 +942,102 @@ async function deleteExtra(db, request) {
     throw new HttpsError('not-found', 'Servicio extra no encontrado.');
   }
 
-  const batch = db.batch();
-  batch.delete(extraRef);
-
-  auditPlatform(db, batch, actor, 'extra.delete', {
-    resource: `platformExtras/${extraId}`,
-    reason: 'Eliminación de servicio comercial extra',
-    metadata: { extraId },
+  await commitVersionedCommercialRecord(db, {
+    ref: extraRef, expected, payload: {}, actor, action: 'extra.delete',
+    reason: 'Eliminación de servicio comercial extra', metadata: { extraId }, remove: true,
+    refreshPublicSnapshot: extraSnap.data().status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, extraSnap.data().status === 'published');
   return { success: true, extraId };
 }
 
 async function saveLandingContent(db, request) {
   const actor = await platformActor(db, request, 'content.manage');
+  const expected = expectedRevision(request);
   const content = request.data?.content;
   if (!content || typeof content !== 'object') {
     throw new HttpsError('invalid-argument', 'Contenido de landing inválido.');
   }
   const landingRef = db.doc('platformConfig/publicLanding');
   const previousLanding = await landingRef.get();
-  const now = FieldValue.serverTimestamp();
-
-  const batch = db.batch();
-  batch.set(landingRef, {
-    ...content,
-    updatedAt: now,
-    updatedBy: actor.uid,
-  }, { merge: true });
-
-  auditPlatform(db, batch, actor, 'landing.update', {
-    resource: 'platformConfig/publicLanding',
+  if (content.status !== undefined && content.status !== previousLanding.data()?.status
+    && !actor.permissions.includes('plans.manage')) {
+    throw new HttpsError('permission-denied', 'El operador puede editar contenido, pero no publicar ni retirar la landing.');
+  }
+  const allowedFields = new Set(['revision', 'heroTagline', 'heroTitle', 'heroSubtitle', 'heroCtaPrimary', 'heroCtaSecondary', 'officialWhatsAppNumber', 'officialWhatsAppDisplay', 'defaultCustomDevMessage', 'valueStripMetrics', 'sectionTitles', 'status', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy']);
+  if (Object.keys(content).some(key => !allowedFields.has(key))) throw new HttpsError('invalid-argument', 'El contenido de landing contiene campos fuera del contrato editorial.');
+  const textLimits = { heroTagline: 120, heroTitle: 220, heroSubtitle: 500, heroCtaPrimary: 100, heroCtaSecondary: 100, officialWhatsAppNumber: 20, officialWhatsAppDisplay: 30, defaultCustomDevMessage: 500 };
+  for (const [field, max] of Object.entries(textLimits)) {
+    if (content[field] !== undefined && (typeof content[field] !== 'string' || content[field].length > max)) throw new HttpsError('invalid-argument', `El campo ${field} supera el formato permitido.`);
+  }
+  if (content.status !== undefined && !['published', 'draft'].includes(content.status)) throw new HttpsError('invalid-argument', 'El estado del contenido de landing no es válido.');
+  if (content.sectionTitles !== undefined && (!content.sectionTitles || typeof content.sectionTitles !== 'object'
+    || Object.keys(content.sectionTitles).some(key => !['catalog', 'catalogSubtitle', 'pricing', 'pricingSubtitle', 'onboarding', 'onboardingSubtitle', 'tutorials', 'tutorialsSubtitle', 'extras', 'extrasSubtitle'].includes(key)))) {
+    throw new HttpsError('invalid-argument', 'Los títulos de sección no coinciden con el esquema público.');
+  }
+  if (content.sectionTitles !== undefined && Object.values(content.sectionTitles).some(value => typeof value !== 'string' || value.length > 260)) throw new HttpsError('invalid-argument', 'Un título de sección supera la longitud permitida.');
+  if (content.valueStripMetrics !== undefined && (!Array.isArray(content.valueStripMetrics) || content.valueStripMetrics.length > 8
+    || content.valueStripMetrics.some(item => !item || typeof item !== 'object'
+      || typeof item.label !== 'string' || item.label.length > 80
+      || typeof item.value !== 'string' || item.value.length > 120
+      || typeof item.detail !== 'string' || item.detail.length > 240))) {
+    throw new HttpsError('invalid-argument', 'Las métricas del bloque de valor no tienen el formato permitido.');
+  }
+  const safeContent = Object.fromEntries([...allowedFields].filter(field => Object.hasOwn(content, field)
+    && !['revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy'].includes(field))
+    .map(field => [field, content[field]]));
+  const payload = { ...previousLanding.data(), ...safeContent, updatedBy: actor.uid };
+  const revision = await commitVersionedCommercialRecord(db, {
+    ref: landingRef, expected, payload, actor, action: 'landing.update',
     reason: 'Actualización de textos y configuración editorial de la landing pública',
+    refreshPublicSnapshot: content.status === 'published' || previousLanding.data()?.status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, content.status === 'published' || previousLanding.data()?.status === 'published');
-  return { success: true };
+  return { success: true, revision };
 }
 
 async function saveMediaAsset(db, request) {
   const actor = await platformActor(db, request, 'content.manage');
+  const expected = expectedRevision(request);
   const asset = request.data?.asset;
   if (!asset || typeof asset !== 'object' || !asset.id) {
     throw new HttpsError('invalid-argument', 'Datos de asset multimedia inválidos.');
   }
   const assetId = cleanText(asset.id, 'ID de asset', 1, 100);
+  const allowedFields = new Set(['id', 'name', 'url', 'category', 'recommendedTemplate', 'focalPointDefault', 'status', 'revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy']);
+  if (Object.keys(asset).some(key => !allowedFields.has(key))) throw new HttpsError('invalid-argument', 'El asset contiene campos fuera del contrato multimedia.');
+  if (asset.name !== undefined) cleanText(asset.name, 'Nombre de asset', 1, 120);
+  if (asset.url !== undefined && (typeof asset.url !== 'string' || asset.url.length > 500
+    || !(asset.url.startsWith('/') && !asset.url.startsWith('//') || /^https:\/\//i.test(asset.url)))) {
+    throw new HttpsError('invalid-argument', 'La URL de imagen debe ser una ruta local o HTTPS.');
+  }
+  if (asset.category !== undefined && !['showcase', 'brand', 'icon'].includes(asset.category)) throw new HttpsError('invalid-argument', 'La categoría multimedia no es válida.');
+  if (asset.status !== undefined && !['published', 'draft'].includes(asset.status)) throw new HttpsError('invalid-argument', 'El estado de publicación del asset no es válido.');
   const assetRef = db.doc(`platformMedia/${assetId}`);
   const previousAsset = await assetRef.get();
-  const now = FieldValue.serverTimestamp();
-
-  const batch = db.batch();
-  batch.set(assetRef, {
-    ...asset,
-    updatedAt: now,
+  const previousAssetData = previousAsset.data() || {};
+  if (asset.status !== undefined && asset.status !== previousAssetData.status && !actor.permissions.includes('plans.manage')) {
+    throw new HttpsError('permission-denied', 'El operador no puede publicar ni despublicar assets multimedia.');
+  }
+  const safeAsset = Object.fromEntries([...allowedFields].filter(field => Object.hasOwn(asset, field)
+    && !['revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy'].includes(field))
+    .map(field => [field, asset[field]]));
+  const payload = {
+    ...previousAsset.data(),
+    ...safeAsset,
     updatedBy: actor.uid,
-  }, { merge: true });
-
-  auditPlatform(db, batch, actor, 'media.save', {
-    resource: `platformMedia/${assetId}`,
+    createdAt: previousAsset.data()?.createdAt || FieldValue.serverTimestamp(),
+  };
+  const revision = await commitVersionedCommercialRecord(db, {
+    ref: assetRef, expected, payload, actor, action: 'media.save',
     reason: 'Registro o actualización de asset multimedia',
     metadata: { assetId, name: asset.name, url: asset.url },
+    refreshPublicSnapshot: asset.status === 'published' || previousAsset.data()?.status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, asset.status === 'published' || previousAsset.data()?.status === 'published');
-  return { success: true, assetId };
+  return { success: true, assetId, revision };
 }
 
 async function deleteMediaAsset(db, request) {
   const actor = await platformActor(db, request, 'content.manage');
+  const expected = expectedRevision(request);
   const assetId = cleanText(request.data?.assetId, 'ID de asset', 1, 100);
   const assetRef = db.doc(`platformMedia/${assetId}`);
   const assetSnap = await assetRef.get();
@@ -908,16 +1045,11 @@ async function deleteMediaAsset(db, request) {
     throw new HttpsError('not-found', 'Asset multimedia no encontrado.');
   }
 
-  const batch = db.batch();
-  batch.delete(assetRef);
-
-  auditPlatform(db, batch, actor, 'media.delete', {
-    resource: `platformMedia/${assetId}`,
-    reason: 'Eliminación de asset multimedia de la vitrina',
-    metadata: { assetId },
+  await commitVersionedCommercialRecord(db, {
+    ref: assetRef, expected, payload: {}, actor, action: 'media.delete',
+    reason: 'Eliminación de asset multimedia de la vitrina', metadata: { assetId }, remove: true,
+    refreshPublicSnapshot: assetSnap.data().status === 'published',
   });
-
-  await commitCommercialBatch(db, batch, assetSnap.data().status === 'published');
   return { success: true, assetId };
 }
 

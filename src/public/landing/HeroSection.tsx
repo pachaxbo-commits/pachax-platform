@@ -3,13 +3,10 @@ import { ArrowRight, MessageSquare, Play, Check } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateCoverflow } from './TemplateCoverflow'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
-import {
-  SPECIALIZED_SHOWCASE_TEMPLATES,
-  SELF_SERVICE_SHOWCASE_TEMPLATES,
-  type CommercialTemplateItem,
-} from '../config/commercialShowcase'
+import type { CommercialTemplateItem } from '../config/commercialShowcase'
 import { canLaunchCommercialDemo, freeDemoPath } from '../../core/publicTemplates'
-import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { buildPublishedShowcaseGroup } from './commercialPresentation'
 
 interface HeroSectionProps {
   activeIndex?: number
@@ -19,6 +16,9 @@ interface HeroSectionProps {
 
 export function HeroSection(props: HeroSectionProps) {
   const { navigate } = usePublicRouter()
+  const { publishedTemplates, landingContent } = useCommercialConfig()
+  const specializedTemplates = buildPublishedShowcaseGroup(publishedTemplates, 'specialized')
+  const selfServiceTemplates = buildPublishedShowcaseGroup(publishedTemplates, 'self_service')
 
   // Estados independientes para cada carrusel
   const [activeIndexSpecialized, setActiveIndexSpecialized] = useState(0)
@@ -27,15 +27,13 @@ export function HeroSection(props: HeroSectionProps) {
   // Modal para selector de modos de restaurante (salón vs mostrador)
   const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
 
-  const activeSpecialized = SPECIALIZED_SHOWCASE_TEMPLATES[
-    ((activeIndexSpecialized % SPECIALIZED_SHOWCASE_TEMPLATES.length) + SPECIALIZED_SHOWCASE_TEMPLATES.length) %
-      SPECIALIZED_SHOWCASE_TEMPLATES.length
-  ]
+  const activeSpecialized = specializedTemplates.length > 0
+    ? specializedTemplates[((activeIndexSpecialized % specializedTemplates.length) + specializedTemplates.length) % specializedTemplates.length]
+    : undefined
 
-  const activeSelfService = SELF_SERVICE_SHOWCASE_TEMPLATES[
-    ((activeIndexSelfService % SELF_SERVICE_SHOWCASE_TEMPLATES.length) + SELF_SERVICE_SHOWCASE_TEMPLATES.length) %
-      SELF_SERVICE_SHOWCASE_TEMPLATES.length
-  ]
+  const activeSelfService = selfServiceTemplates.length > 0
+    ? selfServiceTemplates[((activeIndexSelfService % selfServiceTemplates.length) + selfServiceTemplates.length) % selfServiceTemplates.length]
+    : undefined
 
   // Manejo de Demo para Especializadas (Carrusel A)
   const handleLaunchSpecializedDemo = (template: CommercialTemplateItem) => {
@@ -63,7 +61,9 @@ export function HeroSection(props: HeroSectionProps) {
     const text = encodeURIComponent(
       `Hola PACHAX, solicito una implementación para la plantilla "${template.commercialName}". Quisiera conocer el diagnóstico y los siguientes pasos.`
     )
-    window.open(`https://wa.me/${OFFICIAL_WHATSAPP.phoneNumber}?text=${text}`, '_blank', 'noopener,noreferrer')
+    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
+    if (!number) return
+    window.open(`https://wa.me/${number}?text=${text}`, '_blank', 'noopener,noreferrer')
   }
 
   const handleViewPlans = (template: CommercialTemplateItem) => {
@@ -72,8 +72,8 @@ export function HeroSection(props: HeroSectionProps) {
     }
   }
 
-  const isSpecializedDemoAvailable = canLaunchCommercialDemo(activeSpecialized)
-  const isSelfServiceDemoAvailable = Boolean(freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '')) || canLaunchCommercialDemo(activeSelfService)
+  const isSpecializedDemoAvailable = Boolean(activeSpecialized && canLaunchCommercialDemo(activeSpecialized))
+  const isSelfServiceDemoAvailable = Boolean(activeSelfService && (freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '') || canLaunchCommercialDemo(activeSelfService)))
 
   return (
     <section id="hero" className="relative w-full pt-4 pb-10 sm:pt-8 sm:pb-16 overflow-hidden z-10">
@@ -81,16 +81,15 @@ export function HeroSection(props: HeroSectionProps) {
         {/* Cabecera Editorial Principal: Presentación de las Dos Modalidades */}
         <div className="text-center max-w-3xl mx-auto mb-8 sm:mb-12">
           <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
-            <span>PLATAFORMA OPERATIVA PARA EMPRESAS</span>
+            <span>{landingContent.heroTagline}</span>
           </div>
 
           <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-slate-950 tracking-tight leading-[1.15]">
-            Software que se adapta a tu rubro,{' '}
-            <span className="text-[#0066FF]">no al revés</span>
+            {landingContent.heroTitle}
           </h1>
 
           <p className="text-xs sm:text-base text-slate-600 mt-3 sm:mt-4 leading-relaxed max-w-2xl mx-auto">
-            Descubre nuestras dos modalidades de operación: <strong>Soluciones Especializadas</strong> con diagnóstico y acompañamiento continuo para rubros complejos, o <strong>Soluciones Autoservicio</strong> de punto de venta ágil con planes por rubro para consultar.
+            {landingContent.heroSubtitle}
           </p>
 
           <div className="mt-4 flex items-center justify-center gap-4 text-xs text-slate-500">
@@ -121,7 +120,7 @@ export function HeroSection(props: HeroSectionProps) {
                     Soluciones Especializadas
                   </span>
                   <span className="text-[11px] font-semibold text-slate-400">
-                    3 plantillas oficiales
+                    {specializedTemplates.length} plantillas publicadas
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
@@ -133,16 +132,16 @@ export function HeroSection(props: HeroSectionProps) {
               </div>
 
               {/* Coverflow 3D Especializado */}
-              <div className="w-full flex justify-center my-2">
+              {specializedTemplates.length > 0 ? <div className="w-full flex justify-center my-2">
                 <TemplateCoverflow
-                  templates={SPECIALIZED_SHOWCASE_TEMPLATES}
+                  templates={specializedTemplates}
                   activeIndex={activeIndexSpecialized}
                   onChangeActiveIndex={setActiveIndexSpecialized}
                   onSelectActiveCard={handleLaunchSpecializedDemo}
                   compact={true}
                   ariaLabel="Carrusel de soluciones especializadas"
                 />
-              </div>
+              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">No hay plantillas especializadas publicadas.</p>}
 
               {/* Tarjeta de Detalle de la Plantilla Activa A */}
               {activeSpecialized && (
@@ -223,7 +222,7 @@ export function HeroSection(props: HeroSectionProps) {
                     Soluciones Autoservicio
                   </span>
                   <span className="text-[11px] font-semibold text-slate-400">
-                    2 plantillas en prelanzamiento
+                    {selfServiceTemplates.length} plantillas publicadas
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
@@ -235,16 +234,16 @@ export function HeroSection(props: HeroSectionProps) {
               </div>
 
               {/* Coverflow 3D Autoservicio */}
-              <div className="w-full flex justify-center my-2">
+              {selfServiceTemplates.length > 0 ? <div className="w-full flex justify-center my-2">
                 <TemplateCoverflow
-                  templates={SELF_SERVICE_SHOWCASE_TEMPLATES}
+                  templates={selfServiceTemplates}
                   activeIndex={activeIndexSelfService}
                   onChangeActiveIndex={setActiveIndexSelfService}
                   onSelectActiveCard={handleLaunchSpecializedDemo}
                   compact={true}
                   ariaLabel="Carrusel de soluciones autoservicio"
                 />
-              </div>
+              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">No hay soluciones de autoservicio publicadas.</p>}
 
               {/* Tarjeta de Detalle de la Plantilla Activa B */}
               {activeSelfService && (

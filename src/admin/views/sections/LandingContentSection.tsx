@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Type, Save, CheckCircle2, AlertCircle, Loader2, Phone } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
+import { useAdminAuth } from '../../auth/adminAuthStore'
 import type { LandingContentConfig } from '../../types'
 
 export function LandingContentSection() {
+  const { user } = useAdminAuth()
+  const canManagePublication = user?.role === 'platform_owner' || user?.role === 'platform_admin'
   const { config, updateLandingContent } = useCommercialConfig()
   const [formData, setFormData] = useState<LandingContentConfig>(JSON.parse(JSON.stringify(config.landingContent)))
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
@@ -37,19 +40,26 @@ export function LandingContentSection() {
             Contenido y Textos de la Landing Pública
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Modifica titulares, subtítulos, canales de WhatsApp y CTAs sin tocar código fuente.
+            Modifica titulares, subtítulos, canales de WhatsApp y CTAs. Los cambios públicos se confirman al guardar.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isProcessing}
-          className="px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] disabled:bg-blue-300 text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
-        >
-          {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          <span>{isProcessing ? 'Guardando en Firestore...' : 'Guardar textos'}</span>
-        </button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <label className="text-xs font-semibold text-slate-600">Estado
+              <select value={formData.status || 'draft'} onChange={(e) => setFormData({ ...formData, status: e.target.value as 'published' | 'draft' })} disabled={!canManagePublication} className="mt-1 block w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 disabled:opacity-50">
+                <option value="draft">Borrador / no mostrar cambios</option>
+                <option value="published">Publicado en la landing</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isProcessing}
+              className="self-end px-6 py-2.5 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] disabled:bg-blue-300 text-white text-xs font-bold shadow-sm inline-flex items-center gap-2 cursor-pointer active:scale-98 transition-all"
+            >
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>{isProcessing ? 'Guardando en Firestore...' : 'Guardar textos'}</span>
+            </button>
+          </div>
       </div>
 
       {saveFeedback && (

@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { syncAdminAllFromFirestore, useCommercialConfig } from '../../store/commercialConfigStore'
+import { useAdminAuth } from '../../auth/adminAuthStore'
 import type { CommercialTemplateItem } from '../../types'
 import { COMMERCIAL_TEMPLATES } from '../../../public/config/commercialShowcase'
 import { isTechnicalDemoAvailable } from '../../../core/publicTemplates'
 
 export function TemplatesSection() {
+  const { user } = useAdminAuth()
+  const canManageCommercial = user?.role === 'platform_owner' || user?.role === 'platform_admin'
   const { config, templatesState, updateTemplate, mediaAssets } = useCommercialConfig()
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(config.templates[0]?.id || 'restaurant')
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
@@ -76,7 +79,7 @@ export function TemplatesSection() {
             Gestión de Plantillas Comerciales
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Edita títulos, miniaturas, capacidades, estados (published/draft) y rutas de demostración.
+            Edita contenido, miniaturas, orden y publicación. La identidad, las rutas y las acciones de seguridad son canónicas.
           </p>
         </div>
 
@@ -171,6 +174,7 @@ export function TemplatesSection() {
               <select
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value as 'published' | 'draft' })}
+                disabled={!canManageCommercial}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#0066FF]"
               >
                 <option value="published">Visible / Publicado en web pública</option>
@@ -188,6 +192,7 @@ export function TemplatesSection() {
               <label className="text-[11px] font-semibold text-slate-700">Modalidad
                 <select value={formData.commercialMode || (['restaurant', 'distribution', 'nightclub'].includes(formData.id) ? 'specialized' : 'self_service')}
                   onChange={(e) => setFormData({ ...formData, commercialMode: e.target.value as 'specialized' | 'self_service' })}
+                  disabled={!canManageCommercial}
                   className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900">
                   <option value="specialized">Implementación especializada</option>
                   <option value="self_service">Autoservicio</option>
@@ -196,6 +201,7 @@ export function TemplatesSection() {
               <label className="text-[11px] font-semibold text-slate-700">Disponibilidad comercial
                 <select value={formData.commercialAvailability || 'coming_soon'}
                   onChange={(e) => setFormData({ ...formData, commercialAvailability: e.target.value as 'available' | 'coming_soon' })}
+                  disabled={!canManageCommercial}
                   className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900">
                   <option value="coming_soon">Próximamente / consulta asistida</option>
                   <option value="available">Disponible</option>
@@ -206,6 +212,7 @@ export function TemplatesSection() {
                   <input type="number" min="0" step="0.01" placeholder="Vacío = a cotizar"
                     value={formData.implementationBasePriceUSD ?? ''}
                     onChange={(e) => setFormData({ ...formData, implementationBasePriceUSD: e.target.value === '' ? null : Number(e.target.value) })}
+                    disabled={!canManageCommercial}
                     className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
                 </label>
               )}
@@ -388,13 +395,14 @@ export function TemplatesSection() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Texto del botón principal
+                Acción comercial (definida por plantilla)
               </label>
               <input
                 type="text"
-                value={formData.primaryActionLabel}
-                onChange={(e) => setFormData({ ...formData, primaryActionLabel: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800"
+                value={formData.id === 'custom' ? 'Cotizar a medida' : ['hamburger', 'retail'].includes(formData.id) ? 'Ver planes' : 'Solicitar implementación'}
+                readOnly
+                disabled
+                className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500 cursor-not-allowed"
               />
             </div>
           </div>
@@ -407,6 +415,7 @@ export function TemplatesSection() {
                 ? formData.demoEnabled === true
                 : isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '')}
               onChange={(e) => setFormData({ ...formData, demoEnabled: e.target.checked, demoEnabledConfigured: true })}
+              disabled={!canManageCommercial || formData.id === 'custom' || !isTechnicalDemoAvailable(formData.canonicalTemplateId || formData.templateId || formData.id || '')}
               className="rounded border-slate-300 text-[#0066FF] focus:ring-[#0066FF]"
             />
             <label htmlFor="tplDemoEnabledCheck" className="text-xs text-slate-700 font-semibold cursor-pointer flex flex-wrap items-center gap-1.5">
