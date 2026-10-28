@@ -3,6 +3,7 @@ import { RestaurantDemo } from './restaurant/RestaurantDemo'
 import { DistributionDemo } from './distribution/DistributionDemo'
 import { QuickRetailDemo } from './quick-retail/QuickRetailDemo'
 import { NightclubDemo } from './nightclub/NightclubDemo'
+import { ParcelDemo } from './parcel/ParcelDemo'
 import type { DemoTemplateId, DemoMode } from './demoTypes'
 import type { StudioBranding } from '../studio/branding/brandingTypes'
 import { applyStudioThemeTokens } from '../studio/branding/brandingAdapter'
@@ -58,6 +59,7 @@ export function DemoRuntime({
       distribution: 'route_distribution',
       retail: 'gelateria_weight_cafe',
       nightclub: 'nightclub_lounge',
+      parcel: 'route_distribution',
     }
     const bt = businessTypeMap[templateId]
     return BusinessTemplateRegistry[bt]?.roles || []
@@ -160,6 +162,11 @@ export function DemoRuntime({
       company: branding?.companyName || 'Nocturna Demo',
       desc: 'Mesas, rondas, barra, cuentas abiertas, caja e inventario.',
     },
+    parcel: {
+      name: 'PACHAX Encomiendas',
+      company: branding?.companyName || 'Trans-Bolivia Demo',
+      desc: 'Transporte de encomiendas y sindicato.',
+    },
   }[templateId]
 
   const handleContactSubmit = (e: React.FormEvent) => {
@@ -239,6 +246,15 @@ export function DemoRuntime({
             studioBranding={branding}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
+          />
+        )}
+        {templateId === 'parcel' && (
+          <ParcelDemo
+            isStudioEmbed={isStudioEmbed}
+            datasetMode={currentDatasetMode}
+            resetKey={resetKey}
+            companyName={branding?.companyName}
+            logoUrl={branding?.logoUrl}
           />
         )}
       </div>
@@ -448,6 +464,15 @@ export function DemoRuntime({
             resetKey={resetKey}
             studioBranding={branding}
             isStudio={isStudioEmbed}
+          />
+        )}
+        {templateId === 'parcel' && (
+          <ParcelDemo
+            isStudioEmbed={isStudioEmbed}
+            datasetMode={currentDatasetMode}
+            resetKey={resetKey}
+            companyName={branding?.companyName}
+            logoUrl={branding?.logoUrl}
           />
         )}
       </main>

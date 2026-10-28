@@ -59,3 +59,13 @@ export const DEFAULT_NIGHTCLUB_BRANDING: StudioBranding = {
   surfaceColor: '#0F172A',
   styleTheme: 'slate',
 }
+
+export const DEFAULT_PARCEL_BRANDING: StudioBranding = {
+  companyName: 'Trans-Bolivia Encomiendas',
+  primaryColor: '#0F766E',
+  sidebarColor: '#F8FAFC',
+  accentColor: '#D97706',
+  backgroundColor: '#F8FAFC',
+  surfaceColor: '#FFFFFF',
+  styleTheme: 'clean',
+}

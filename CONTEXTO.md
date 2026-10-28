@@ -1,5 +1,22 @@
 # Continuidad del proyecto PACHAX
 
+## PACHAX Encomiendas + Edición Sindicato — Demo interna Studio y arquitectura offline (28/10/2026)
+
+- **Rama aislada:** `gemini/encomiendas-sindicato-demo`, creada a partir de `origin/main` (commit `b9f47ce`). Ninguna modificación a `main`, `cambios-dario` ni ramas ajenas.
+- **Plantilla canónica única con dos perfiles:**
+  - **Perfil A (Estándar):** Gestión integral de encomiendas y paquetería (guías con QR `ENC-2026-XXXXX`, remitentes, destinatarios, contenido declarado obligatorio, avisos de sustancias peligrosas, tarifas automáticas por peso y cálculo de contraentrega COD), manifiestos de despacho agrupados (`MAN-2026-XXXX`), entregas con verificación de identidad y descarga de constancia, arqueo/apertura/cierre de turnos de caja, reportes operativos e impresión en tickets térmicos de 80mm y documentos A4 mediante jsPDF.
+  - **Perfil B (Sindicato):** Extensión administrativa sobre la misma base canónica para empresas de transporte organizadas como sindicato. Directorio de socios afiliados, cuotas sindicales mensuales con generación idempotente y pagos parciales con recibos numerados (`REC-2026-XXXXX`), gestión de trabajadores (sueldos y anticipos) y control de egresos sindicales operativos (alquileres, servicios, combustible) con estricta desduplicación frente a pagos a personal en el balance financiero consolidado.
+- **Aislamiento y seguridad estricta:**
+  - Cero exposición pública: `PUBLIC_TEMPLATES` en `src/core/publicTemplates.ts` mantiene exactamente sus 5 plantillas públicas canónicas. La landing, catálogo comercial, carrusel y formulario de registro (`register.html`) no sufren ninguna alteración.
+  - Registro exclusivo interno en PACHAX Studio: visible únicamente desde el entorno de administración interna mediante la tarjeta con distintivo `Interno Admin`.
+  - Protección fail-closed: `ParcelDemo.tsx` bloquea el acceso en producción a cualquier usuario no autenticado como Platform Operator.
+  - Control reactivo aislado en frontend: `DemoParcelController` persiste en `sessionStorage` local (clave `pachax:parcel-studio:`) sin mutaciones remotas, llamadas a Cloud Functions ni dependencias de Firebase Firestore.
+- **Arquitectura de Escritorio Offline:** Documentada en detalle en `docs/ENCOMIENDAS-OFFLINE-DESKTOP-ARCHITECTURE.md` evaluando Tauri v2 (Rust + WebView2) frente a Electron, esquema relacional SQLite en modo WAL, spooler directo de Windows y comunicación ESC/POS cruda por USB/COM para impresión térmica sin latencias, arquitectura LAN de contingencia para múltiples ventanillas sin internet y estrategia de copias de seguridad ante cortes eléctricos en terminales.
+- **Verificación y calidad:**
+  - 21 pruebas unitarias y de aislamiento ejecutadas con éxito (`tests/parcelDomain.test.ts`, `tests/parcelStudioIsolation.test.ts`, `tests/publicTemplates.test.ts`, `tests/adminStudioReadiness.test.ts`).
+  - Pruebas de rutas de demostración libres (`npm run test:free-demo-routes`): 2/2 PASS.
+  - Chequeo estricto del compilador TypeScript (`npm run typecheck` / `tsc -b`): 0 errores.
+
 ## Catálogo público: fichas operativas y opción editorial a medida — hotfix preparado (28/10/2026)
 
 - Sobre `origin/main` `a1e7b698177cb6b6d77f5452719a21054aab1215`, se corrigió el seed para crear únicamente documentos ausentes dentro de una transacción; las ediciones concurrentes del Owner/Admin prevalecen. La llamada sigue requiriendo Platform Owner/Admin y deja planes y extras en borrador.
