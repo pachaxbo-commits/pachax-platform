@@ -15,6 +15,7 @@
     "build:functions-core": "node scripts/build-functions-core.mjs",
     "build:rules": "node scripts/build-rules.mjs",
     "test:commercial-catalog-init": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-commercial-catalog-hotfix \"node functions/tests/publicCommercialCatalogInitialization.test.cjs\"",
+    "test:commercial-catalog-hotfix": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-commercial-catalog-hotfix \"node functions/tests/publicCommercialCatalogInitialization.test.cjs\" && node --experimental-strip-types --test tests/singleFlight.test.ts && npm run test:public-commercial-closed",
     "test:commercial-config-seed": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-commercial-catalog-hotfix \"node functions/tests/platformCommercialSeed.test.cjs\"",
     "test:admin-control-center": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-pachax-platform \"node functions/tests/platformAdminControlCenter.test.cjs\"",
     "test:admin-control-center-browser": "npm run build:functions-core && firebase emulators:exec --only auth,firestore,functions --project demo-pachax-platform \"node scripts/test-admin-control-center-browser.mjs\"",
