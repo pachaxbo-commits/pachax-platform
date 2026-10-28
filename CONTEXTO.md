@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+## Catálogo público: fichas operativas y opción editorial a medida — hotfix preparado (28/10/2026)
+
+- Sobre `origin/main` `a1e7b698177cb6b6d77f5452719a21054aab1215`, se corrigió el seed para crear únicamente documentos ausentes dentro de una transacción; las ediciones concurrentes del Owner/Admin prevalecen. La llamada sigue requiriendo Platform Owner/Admin y deja planes y extras en borrador.
+- Admin ahora incluye las seis fichas oficiales: restaurante con salón, distribución, Nightclub, Restaurante Rápido/Hamburger, Comercio/Retail y Solución a medida. El gateway público proyecta `custom` únicamente como ficha editorial publicada, sin demo, precio de implementación, planes ni disponibilidad de contratación; el resto de plantillas sigue sujeto a `status: published` y el whitelist técnico.
+- Se añadieron pruebas de concurrencia/no sobrescritura/roles del seed y proyección segura del catálogo. En Firestore Emulator: catálogo init 8/8 aserciones PASS; seed autorizado concurrente PASS; Admin readiness 5/5; Platform security 29/29; typecheck, build de Functions, build de Rules, build:emulator, ESLint focal y diff-check PASS. El build normal requiere la configuración Firebase de producción/staging que no existe en este worktree, y falló por esas seis variables ausentes; no se copiaron credenciales.
+- **Production todavía no se escribió.** La pestaña visible de `https://pachax-app.vercel.app/admin` está en el login. Para sembrar las fichas se necesita que el propietario autentique allí una sesión Platform Owner/Admin y confirmar visualmente el panel; no se usará Admin SDK ni otro acceso alternativo. Firestore Rules tampoco se desplegaron en este checkpoint.
+
 ## Hotfix catálogo comercial — inicialización atómica y recuperación segura (28/10/2026)
 
 - Rama aislada `hotfix/commercial-catalog-meta`, basada en `origin/main` `3fe016b43438dc0366c4f8232c6ab12ba4754437`; no se alteraron los worktrees de `cambios-dario`, Gemini ni el C1 previo.

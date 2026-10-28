@@ -8,14 +8,14 @@ import { createFullNightclubDataset, createPristineNightclubDataset } from '../s
 
 test('Admin retains official templates when the remote collection is empty', () => {
   const templates = mergeOfficialTemplates([])
-  assert.deepEqual(templates.map(item => item.id).sort(), ['custom', 'distribution', 'nightclub', 'restaurant', 'retail'])
+  assert.deepEqual(templates.map(item => item.id).sort(), ['custom', 'distribution', 'hamburger', 'nightclub', 'restaurant', 'retail'])
   assert.ok(templates.every(item => item.status === 'published'))
 })
 
 test('Firestore overrides one template without erasing the others', () => {
   const [restaurant] = mergeOfficialTemplates([]).filter(item => item.id === 'restaurant')
   const merged = mergeOfficialTemplates([{ ...restaurant, commercialName: 'Restaurante actualizado', status: 'draft' }])
-  assert.equal(merged.length, 5)
+  assert.equal(merged.length, 6)
   assert.equal(merged.find(item => item.id === 'restaurant')?.commercialName, 'Restaurante actualizado')
   assert.equal(merged.find(item => item.id === 'restaurant')?.status, 'draft')
   assert.ok(merged.some(item => item.id === 'nightclub'))

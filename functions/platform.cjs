@@ -932,43 +932,37 @@ async function seedPlatformConfig(db, request) {
   }
 
   const now = FieldValue.serverTimestamp();
-  const batch = db.batch();
-
-  // Landing
-  const landingRef = db.doc('platformConfig/publicLanding');
-  const landingSnap = await landingRef.get();
-  if (!landingSnap.exists && defaults.landingContent) {
-    batch.set(landingRef, {
+  const candidates = [];
+  if (defaults.landingContent) {
+    candidates.push({ ref: db.doc('platformConfig/publicLanding'), data: {
       ...defaults.landingContent,
       status: 'published',
       publishedAt: now,
       publishedBy: actor.uid,
       updatedAt: now,
       updatedBy: actor.uid,
-    });
+    } });
   }
 
-  // Templates
+  // Collect approved seed candidates first. The transaction below creates only
+  // records that are still absent, so a concurrent Admin edit always wins.
   if (Array.isArray(defaults.templates)) {
     for (const tpl of defaults.templates) {
       if (!tpl.id || !COMMERCIAL_TEMPLATE_IDS.includes(tpl.id)) continue;
       const ref = db.doc(`platformTemplates/${tpl.id}`);
-      const snap = await ref.get();
-      if (!snap.exists) {
-        const templateStatus = tpl.status === 'published' ? 'published' : 'draft';
-        const docData = {
-          ...tpl,
-          id: tpl.id,
-          status: templateStatus,
-          updatedAt: now,
-          updatedBy: actor.uid,
-        };
-        if (templateStatus === 'published') {
-          docData.publishedAt = now;
-          docData.publishedBy = actor.uid;
-        }
-        batch.set(ref, docData);
+      const templateStatus = tpl.status === 'published' ? 'published' : 'draft';
+      const docData = {
+        ...tpl,
+        id: tpl.id,
+        status: templateStatus,
+        updatedAt: now,
+        updatedBy: actor.uid,
+      };
+      if (templateStatus === 'published') {
+        docData.publishedAt = now;
+        docData.publishedBy = actor.uid;
       }
+      candidates.push({ ref, data: docData });
     }
   }
 
@@ -977,17 +971,14 @@ async function seedPlatformConfig(db, request) {
     for (const m of defaults.mediaAssets) {
       if (!m.id) continue;
       const ref = db.doc(`platformMedia/${m.id}`);
-      const snap = await ref.get();
-      if (!snap.exists) {
-        batch.set(ref, {
+      candidates.push({ ref, data: {
           ...m,
           status: 'published',
           publishedAt: now,
           publishedBy: actor.uid,
           updatedAt: now,
           updatedBy: actor.uid,
-        });
-      }
+        } });
     }
   }
 
@@ -996,17 +987,14 @@ async function seedPlatformConfig(db, request) {
     for (const p of defaults.plans) {
       if (!p.id || !COMMERCIAL_PLAN_TEMPLATE_IDS.includes(p.templateId)) continue;
       const ref = db.doc(`platformPlans/${p.id}`);
-      const snap = await ref.get();
-      if (!snap.exists) {
-        batch.set(ref, {
+      candidates.push({ ref, data: {
           ...p,
           id: p.id,
           planKind: p.planKind === 'free' ? 'free' : 'paid',
           status: 'draft',
           updatedAt: now,
           updatedBy: actor.uid,
-        });
-      }
+        } });
     }
   }
 
@@ -1015,24 +1003,41 @@ async function seedPlatformConfig(db, request) {
     for (const e of defaults.extras) {
       if (!e.id) continue;
       const ref = db.doc(`platformExtras/${e.id}`);
-      const snap = await ref.get();
-      if (!snap.exists) {
-        batch.set(ref, {
+      candidates.push({ ref, data: {
           ...e,
           status: 'draft',
           updatedAt: now,
           updatedBy: actor.uid,
-        });
-      }
+        } });
     }
   }
 
-  auditPlatform(db, batch, actor, 'platform.config.seed', {
-    resource: 'platformConfig/publicLanding',
-    reason: 'Inicialización de configuración oficial por defecto',
+  // Deduplicate paths before reading; only create operations are staged.
+  const uniqueCandidates = [...new Map(candidates.map(candidate => [candidate.ref.path, candidate])).values()];
+  const createdDocumentCount = await db.runTransaction(async tx => {
+    const snapshots = await Promise.all(uniqueCandidates.map(candidate => tx.get(candidate.ref)));
+    let created = 0;
+    snapshots.forEach((snapshot, index) => {
+      if (!snapshot.exists) {
+        tx.create(uniqueCandidates[index].ref, uniqueCandidates[index].data);
+        created += 1;
+      }
+    });
+    auditPlatform(db, tx, actor, 'platform.config.seed', {
+      resource: 'platformConfig/publicLanding',
+      reason: 'Inicialización de configuración oficial por defecto',
+      metadata: { createdDocumentCount: created },
+    });
+    return created;
   });
 
-  await commercialOnboarding.commitPublicCatalogMutation(db, batch);
+  if (createdDocumentCount > 0) {
+    await commercialOnboarding.commitPublicCatalogMutation(db, db.batch());
+  } else {
+    // A concurrent or repeated seed may have created the source documents;
+    // rebuild the snapshot without advancing an unchanged revision.
+    await commercialOnboarding.refreshPublicCommercialCatalogSnapshot(db);
+  }
   return { success: true, message: 'Configuración oficial inicializada en Firestore con trazabilidad server-authoritative.' };
 }
 

@@ -31,14 +31,15 @@ function publicStringList(value, maxItems = 20, maxLength = 240) {
 
 function safePublicTemplate(idValue, value) {
   const definition = PUBLIC_TEMPLATES.find(item => item.id === idValue);
-  if (!definition || idValue === 'custom' || value.status !== 'published') return null;
+  const customEditorial = idValue === 'custom';
+  if ((!definition && !customEditorial) || value.status !== 'published') return null;
   const availability = value.commercialAvailability === 'available' ? 'available' : 'coming_soon';
   const implementationPrice = Number(value.implementationBasePriceUSD);
-  const technicallyAvailable = (definition.demoStatus ?? definition.status) === 'available';
+  const technicallyAvailable = definition ? (definition.demoStatus ?? definition.status) === 'available' : false;
   const demoEnabledConfigured = value.demoEnabledConfigured === true;
   return {
     id: idValue,
-    canonicalTemplateId: definition.id,
+    canonicalTemplateId: definition?.id ?? null,
     commercialName: publicString(value.commercialName, 100),
     cardSubtitle: publicString(value.cardSubtitle, 180),
     thumbnailUrl: publicString(value.thumbnailUrl, 500),
@@ -51,22 +52,22 @@ function safePublicTemplate(idValue, value) {
     problemSolved: publicString(value.problemSolved, 500),
     bullets: publicStringList(value.bullets, 12, 180),
     features: publicStringList(value.features, 20, 180),
-    demoRoute: definition.demoPath,
-    demoPath: definition.demoPath,
-    demoEnabled: Boolean(definition.demoPath && (demoEnabledConfigured ? value.demoEnabled === true : technicallyAvailable)),
-    demoEnabledConfigured,
+    demoRoute: customEditorial ? '' : definition.demoPath,
+    demoPath: customEditorial ? '' : definition.demoPath,
+    demoEnabled: customEditorial ? false : Boolean(definition.demoPath && (demoEnabledConfigured ? value.demoEnabled === true : technicallyAvailable)),
+    demoEnabledConfigured: customEditorial ? true : demoEnabledConfigured,
     detailAnchor: publicString(value.detailAnchor, 80),
     badge: publicString(value.badge, 80),
     status: 'published',
-    commercialAvailability: availability,
-    commercialMode: value.commercialMode === 'specialized' ? 'specialized' : 'self_service',
-    implementationBasePriceUSD: Number.isFinite(implementationPrice) && implementationPrice >= 0 ? implementationPrice : null,
+    commercialAvailability: customEditorial ? 'coming_soon' : availability,
+    commercialMode: customEditorial ? 'specialized' : value.commercialMode === 'specialized' ? 'specialized' : 'self_service',
+    implementationBasePriceUSD: customEditorial ? null : Number.isFinite(implementationPrice) && implementationPrice >= 0 ? implementationPrice : null,
     diagnosticTitle: publicString(value.diagnosticTitle, 120),
     diagnosticDescription: publicString(value.diagnosticDescription, 500),
     implementationTitle: publicString(value.implementationTitle, 120),
     implementationDescription: publicString(value.implementationDescription, 500),
     order: Number.isFinite(Number(value.order)) ? Number(value.order) : 0,
-    primaryActionLabel: publicString(value.primaryActionLabel, 80),
+    primaryActionLabel: customEditorial ? 'Cotizar a medida' : publicString(value.primaryActionLabel, 80),
     iconType: publicString(value.iconType, 40),
     visualSlot: {
       accentColor: publicString(value.visualSlot?.accentColor, 40),
