@@ -227,8 +227,25 @@ async function refreshPublicCommercialCatalogSnapshot(db) {
   const snapshotRef = db.doc(PUBLIC_CATALOG_SNAPSHOT_PATH);
   return db.runTransaction(async tx => {
     const meta = await tx.get(metaRef);
-    const revision = Number(meta.data()?.revision || 0);
+    const snapshot = await tx.get(snapshotRef);
+    let revision;
+    if (!meta.exists) {
+      const previousSnapshot = snapshot.data();
+      // A missing meta document is only recoverable for the known first-run
+      // partial write (revision zero). All other states stay fail-closed.
+      if (snapshot.exists && (previousSnapshot?.revision !== 0
+        || !previousSnapshot.catalog || typeof previousSnapshot.catalog !== 'object' || Array.isArray(previousSnapshot.catalog))) {
+        throw new HttpsError('unavailable', 'El catálogo comercial se está actualizando. Inténtalo nuevamente en un momento.');
+      }
+      revision = snapshot.exists ? 1 : 0;
+    } else {
+      revision = Number(meta.data()?.revision);
+      if (!Number.isSafeInteger(revision) || revision < 0) {
+        throw new HttpsError('unavailable', 'El catálogo comercial se está actualizando. Inténtalo nuevamente en un momento.');
+      }
+    }
     const catalog = await buildPublicCommercialCatalog(db, tx);
+    tx.set(metaRef, { revision, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.set(snapshotRef, { revision, catalog, updatedAt: FieldValue.serverTimestamp() });
     return revision;
   }, { maxAttempts: 10 });
@@ -252,14 +269,28 @@ async function getPublicCommercialCatalog(db, request, rateLimitSecret, options 
   await db.runTransaction(async tx => {
     const [meta, snapshot] = await Promise.all([tx.get(metaRef), tx.get(snapshotRef)]);
     if (!meta.exists && !snapshot.exists) {
-      // First request on an existing installation initializes version zero.
+      // Initialize both version markers atomically on first public read.
       catalog = await buildPublicCommercialCatalog(db, tx);
+      tx.create(metaRef, { revision: 0, updatedAt: FieldValue.serverTimestamp() });
       tx.create(snapshotRef, { revision: 0, catalog, updatedAt: FieldValue.serverTimestamp() });
       return;
     }
-    const revision = Number(meta.data()?.revision);
+    if (!meta.exists && snapshot.exists) {
+      // Repair only the known interrupted first-run state. Rebuild from the
+      // current published source documents, never from the stale snapshot.
+      if (Number(snapshot.data()?.revision) !== 0 || !snapshot.data()?.catalog) {
+        throw new HttpsError('unavailable', 'El catálogo comercial se está actualizando. Inténtalo nuevamente en un momento.');
+      }
+      catalog = await buildPublicCommercialCatalog(db, tx);
+      tx.create(metaRef, { revision: 1, updatedAt: FieldValue.serverTimestamp() });
+      tx.set(snapshotRef, { revision: 1, catalog, updatedAt: FieldValue.serverTimestamp() });
+      return;
+    }
+    const revision = meta.data()?.revision;
+    const snapshotData = snapshot.data();
     if (!meta.exists || !snapshot.exists || !Number.isSafeInteger(revision)
-      || Number(snapshot.data()?.revision) !== revision || !snapshot.data()?.catalog) {
+      || revision < 0 || snapshotData?.revision !== revision || !snapshotData.catalog
+      || typeof snapshotData.catalog !== 'object' || Array.isArray(snapshotData.catalog)) {
       throw new HttpsError('unavailable', 'El catálogo comercial se está actualizando. Inténtalo nuevamente en un momento.');
     }
     catalog = snapshot.data().catalog;

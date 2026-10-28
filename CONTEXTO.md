@@ -1,5 +1,13 @@
 # Continuidad del proyecto PACHAX
 
+## Hotfix catálogo comercial — inicialización atómica y recuperación segura (28/10/2026)
+
+- Rama aislada `hotfix/commercial-catalog-meta`, basada en `origin/main` `3fe016b43438dc0366c4f8232c6ab12ba4754437`; no se alteraron los worktrees de `cambios-dario`, Gemini ni el C1 previo.
+- `getPublicCommercialCatalog` crea `publicCommercialCatalogMeta` y `publicCommercialCatalog` juntos en la misma transacción (`revision: 0`). Si solo existe el snapshot de primera inicialización (`revision: 0` con catálogo estructurado), reconstruye el contenido desde las fuentes `published` y fija ambos documentos en `revision: 1`. Revisiones desfasadas, valores malformados u otros estados incompletos siguen rechazándose con `unavailable`.
+- La reconstrucción administrativa del snapshot sincroniza también meta/snapshot transaccionalmente y valida revisiones. No borra datos administrativos ni expone borradores.
+- Pruebas focales con Node 22 y Firestore Emulator aislado aprobaron inicialización concurrente, lecturas sucesivas, reparación parcial concurrente, publicación/despublicación y rechazo sin mutación de inconsistencias no reparables. `test:platform-security` pasó 76 comprobaciones con un secreto ficticio local del emulador; el formulario sigue cerrado fuera de emuladores. Builds `build:functions-core` y `build:rules` y ESLint de archivos focales pasaron.
+- En este checkpoint no se modificó ni desplegó Firebase Production o Vercel. Pendiente del release autorizado: desplegar solo `publicCommercialGateway`, probar consultas reales consecutivas y la reparación del estado parcial; después respaldar y publicar solo Firestore Rules.
+
 ## Cierre comercial C1 y primer piloto — checkpoint vigente (27/10/2026)
 
 - **Cierre temporal de altas públicas preparado localmente:** `/register` presenta una salida de implementación asistida antes de inicializar Auth o crear usuarios; `/platform/onboarding` también se detiene antes de llamar al gateway. `tenantGateway` valida autenticación y después deniega en servidor `completeOnboarding` y `createTenant` fuera de emuladores. En emuladores aislados el alta continúa habilitada para QA. Esta protección no está desplegada: Production no cambia hasta publicar frontend y `tenantGateway`. El dominio transaccional de onboarding/creación permanece reutilizable para una futura acción asistida que exija autorización Platform explícita; no existe todavía ese endpoint.

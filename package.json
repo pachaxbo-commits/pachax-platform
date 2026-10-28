@@ -14,6 +14,7 @@
     "dev:emulator": "vite --mode emulator",
     "build:functions-core": "node scripts/build-functions-core.mjs",
     "build:rules": "node scripts/build-rules.mjs",
+    "test:commercial-catalog-init": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-commercial-catalog-hotfix \"node functions/tests/publicCommercialCatalogInitialization.test.cjs\"",
     "preemulators": "npm run build:functions-core && npm run build:rules",
     "emulators": "firebase emulators:start --only \"firestore,auth,functions\" --project demo-pachax-platform",
     "build": "tsc -b && vite build && npm run build:demos-app-assets && node scripts/merge-demo-isolated-build.mjs",
