@@ -28,4 +28,4 @@ Las pruebas de seguridad y navegador usaron proyecto/puertos de emulador aislado
 
 ## Estado de publicación
 
-GO técnico local para revisión en Preview. Antes de una activación comercial seguirán siendo necesarias las aprobaciones/configuraciones legales y de infraestructura ya documentadas en los checkpoints C1. No hay autorización de contratación, alta pública ni lanzamiento comercial en este cambio.
+PR #4 está abierta; Preview `https://pachax-app-git-codex-admin-contr-f1f4b3-pachaxbo-8256s-projects.vercel.app` quedó READY para `eabbaf70a0c8cc0c21304ac7c1657a1a00892a17`. El Preview hereda configuración Firebase del proyecto y es solo para revisión visual/navegación, sin escrituras. `main` continúa en `9279e02a9b2df40a2bc50f3f826298b84967a7eb`. Antes de activar cualquier función comercial siguen pendientes las aprobaciones/configuraciones legales y de infraestructura documentadas en C1. No se autorizó contratación, alta pública ni lanzamiento comercial.
