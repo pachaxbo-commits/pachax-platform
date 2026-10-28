@@ -17,6 +17,7 @@ const { id } = require('./authorization.cjs');
 const { settingsPatch } = require('./tenants.cjs');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
 const commercialOnboarding = require('./commercialOnboarding.cjs');
+const assistedTenantProvisioning = require('./assistedTenantProvisioning.cjs');
 
 const DIRECTORY_LIMIT = 50;
 // La identidad canónica técnica viene del registro público; no duplicar una lista
@@ -1173,8 +1174,10 @@ async function seedPlatformConfig(db, request) {
   return { success: true, message: 'Configuración oficial inicializada en Firestore con trazabilidad server-authoritative.' };
 }
 
-async function platformGateway(db, request) {
+async function platformGateway(db, request, auth = null) {
   switch (request.data?.action) {
+    case 'listAssistedTenantTemplates': return assistedTenantProvisioning.listAssistedTenantTemplates(db, request);
+    case 'createAssistedTenant': return assistedTenantProvisioning.createAssistedTenant(db, auth, request);
     case 'listCommercialIntents': return commercialOnboarding.listCommercialIntents(db, request);
     case 'prepareCommercialProposal': return commercialOnboarding.prepareCommercialProposal(db, request);
     case 'updateCommercialIntentStatus': return commercialOnboarding.updateCommercialIntentStatus(db, request);
@@ -1207,6 +1210,8 @@ async function platformGateway(db, request) {
 
 module.exports = {
   platformGateway,
+  listAssistedTenantTemplates: assistedTenantProvisioning.listAssistedTenantTemplates,
+  createAssistedTenant: assistedTenantProvisioning.createAssistedTenant,
   listCommercialIntents: commercialOnboarding.listCommercialIntents,
   prepareCommercialProposal: commercialOnboarding.prepareCommercialProposal,
   updateCommercialIntentStatus: commercialOnboarding.updateCommercialIntentStatus,

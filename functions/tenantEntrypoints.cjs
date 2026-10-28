@@ -80,7 +80,7 @@ exports.publicCommercialGateway = onCall({
     default: throw new HttpsError('invalid-argument', 'Acción pública comercial no reconocida.');
   }
 });
-exports.platformGateway = onCall(options, request => platform.platformGateway(getFirestore(), request));
+exports.platformGateway = onCall(options, request => platform.platformGateway(getFirestore(), request, getAuth()));
 exports.processTenantOperation = onDocumentCreated({ ...distributionEventOptions, document: 'tenants/{tenantId}/distOperations/{operationId}' }, event => event.data && processCommand(getFirestore(), event.data.ref));
 exports.refreshTenantCredit = onDocumentWritten({ ...distributionEventOptions, document: 'tenants/{tenantId}/distReceivables/{id}' }, async event => {
   const root = getFirestore().doc(`tenants/${event.params.tenantId}`);

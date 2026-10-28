@@ -80,6 +80,8 @@
       allow write: if false;
     }
     match /platformBootstrap/{document=**} { allow read, write: if false; }
+    match /platformAssistedTenantOperations/{document=**} { allow read, write: if false; }
+    match /platformAssistedTenantNames/{document=**} { allow read, write: if false; }
     match /supportSessions/{uid} { allow read, write: if false; }
     match /platformAuditLogs/{eventId} {
       allow read: if isPlatformAdminOrOwner();
