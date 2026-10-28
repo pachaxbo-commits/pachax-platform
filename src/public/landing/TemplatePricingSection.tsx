@@ -23,7 +23,7 @@ interface TemplatePricingSectionProps {
 
 export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: TemplatePricingSectionProps) {
   const { navigate } = usePublicRouter()
-  const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus, landingContent } = useCommercialConfig()
+  const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus, isPublicEditorialFallback, landingContent } = useCommercialConfig()
 
   const specializedModels = publishedTemplates
     .filter((template) => ['distribution', 'restaurant', 'nightclub'].includes(template.id))
@@ -119,6 +119,8 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
   }
 
   const hasPublishedQuickPlans = activeQuickPlans.length > 0
+  const hasAnyConfirmedOffers = publicCatalogStatus === 'ready' && ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail']
+    .some((templateId) => publishedPlansByTemplate(templateId as 'restaurant' | 'distribution' | 'nightclub' | 'hamburger' | 'retail').length > 0)
 
   return (
     <section id="planes" className="w-full py-20 bg-slate-50/70 border-t border-slate-200/80 relative">
@@ -130,7 +132,9 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
           </div>
           <div className="mb-3">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-              PLANES Y TARIFAS PUBLICADOS POR PACHAX
+              {publicCatalogStatus === 'loading' ? 'VERIFICANDO PUBLICACIÓN'
+                : publicCatalogStatus === 'error' ? 'OFERTAS NO VERIFICADAS'
+                  : hasAnyConfirmedOffers ? 'OFERTAS APROBADAS Y PUBLICADAS' : 'SIN OFERTAS PUBLICADAS'}
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
@@ -140,6 +144,15 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
             {landingContent.sectionTitles.pricingSubtitle}
           </p>
         </div>
+
+        {isPublicEditorialFallback && <p className="-mt-10 mb-8 text-center text-xs text-slate-500" role="status" data-catalog-state={publicCatalogStatus}>
+          {publicCatalogStatus === 'loading'
+            ? 'Las fichas editoriales se muestran como referencia mientras verificamos las ofertas.'
+            : 'Mostramos fichas editoriales de referencia. No hay precios ni planes confirmados por el servidor.'}
+        </p>}
+        {publicCatalogStatus === 'error' && !isPublicEditorialFallback && <p className="-mt-10 mb-8 text-center text-xs text-slate-500" role="status" data-catalog-state="error">
+          No pudimos actualizar las ofertas. La versión previa confirmada se conserva temporalmente y no se muestran precios sin verificación actual.
+        </p>}
 
         {/* Dos Bloques Paralelos en Desktop, Apilados en Mobile */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch mb-14">
@@ -210,10 +223,10 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   </div>
                   <div className="text-right shrink-0">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      {activeSpecializedPlan ? activeSpecializedPlan.name : 'Mensualidad publicada'}
+                      {activeSpecializedPlan?.name || (publicCatalogStatus === 'loading' ? 'Verificando ofertas' : publicCatalogStatus === 'error' ? 'Oferta no verificada' : 'Oferta publicada')}
                     </span>
                     <span className="text-lg sm:text-xl font-black text-white">
-                      {activeSpecializedPlan ? `${activeSpecializedPlan.currency === 'BOB' ? 'Bs ' : '$'}${activeSpecializedPlan.monthlyPriceUSD}` : 'No publicada'}
+                      {activeSpecializedPlan ? `${activeSpecializedPlan.currency === 'BOB' ? 'Bs ' : '$'}${activeSpecializedPlan.monthlyPriceUSD}` : publicCatalogStatus === 'ready' ? 'No hay oferta aprobada' : 'Sin precio confirmado'}
                     </span>
                     {activeSpecializedPlan && <span className="text-[11px] text-slate-400 ml-1">{activeSpecializedPlan.currency}/mes</span>}
                   </div>
@@ -246,9 +259,9 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                       <div className="font-bold text-white flex items-center gap-1.5">
                         <span>{activeSpecialized.implementation.title}</span>
                         <span className="text-[10px] text-sky-400 bg-sky-950/80 px-1.5 py-0.2 rounded border border-sky-800/80">
-                          {activeSpecializedTemplate?.implementationBasePriceUSD != null
+                          {publicCatalogStatus === 'ready' && activeSpecializedTemplate?.implementationBasePriceUSD != null
                             ? `Costo base único: $${activeSpecializedTemplate.implementationBasePriceUSD} USD`
-                            : 'Costo base por cotizar'}
+                            : publicCatalogStatus === 'error' ? 'Costo base no verificado' : publicCatalogStatus === 'loading' ? 'Verificando costo base' : 'Costo base por cotizar'}
                         </span>
                       </div>
                       <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
@@ -323,7 +336,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                   Modelos de autoservicio
                 </span>
                 <span className="text-xs text-slate-500 font-medium" role="status">
-                  {publicCatalogStatus === 'loading' ? 'Consultando ofertas' : publicCatalogStatus === 'error' ? 'Ofertas no disponibles' : hasPublishedQuickPlans ? 'Oferta publicada' : 'Sin oferta publicada'}
+                  {publicCatalogStatus === 'loading' ? 'Verificando ofertas' : publicCatalogStatus === 'error' ? 'No se pudieron verificar' : hasPublishedQuickPlans ? 'Oferta publicada' : 'No hay ofertas aprobadas'}
                 </span>
               </div>
 
@@ -361,7 +374,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                 </div>
 
                 {!activeQuickTemplate && <p className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600" role="status">
-                  {publicCatalogStatus === 'error' ? 'No pudimos cargar las plantillas publicadas.' : publicCatalogStatus === 'loading' ? 'Cargando plantillas publicadas…' : 'No hay plantillas de autoservicio publicadas.'}
+                  {publicCatalogStatus === 'error' ? 'No se pudieron verificar las plantillas publicadas.' : publicCatalogStatus === 'loading' ? 'Verificando las plantillas publicadas…' : 'No hay plantillas de autoservicio publicadas en el catálogo confirmado.'}
                 </p>}
 
                 {/* Toggle de Ciclo de Facturación (Mensual / Anual) */}
@@ -484,8 +497,8 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
                 {publicCatalogStatus === 'loading'
                   ? 'Consultando ofertas publicadas…'
                   : publicCatalogStatus === 'error'
-                    ? 'No pudimos cargar las ofertas. Inténtalo más tarde.'
-                    : 'No hay planes aprobados y publicados para esta plantilla.'}
+                    ? 'No se pudieron verificar las ofertas. No mostraremos planes ni precios hasta recibir confirmación del servidor.'
+                    : 'No hay ofertas aprobadas y publicadas para esta plantilla.'}
               </div>}
             </div>
 
@@ -510,7 +523,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
         {/* ========================================================================= */}
         {/* BANNER DE CIERRE: INGENIERÍA Y DESARROLLO A MEDIDA */}
         {/* ========================================================================= */}
-        <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
+        {publishedTemplates.some((template) => template.id === 'custom') && <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-1.5 text-center md:text-left max-w-2xl">
             <div className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
               <span>{CUSTOM_DEVELOPMENT_CONFIG.title}</span>
@@ -533,7 +546,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
               <span>Cotizar a medida</span>
             </button>
           </div>
-        </div>
+        </div>}
       </div>
     </section>
   )

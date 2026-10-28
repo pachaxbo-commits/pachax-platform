@@ -16,7 +16,7 @@ interface HeroSectionProps {
 
 export function HeroSection(props: HeroSectionProps) {
   const { navigate } = usePublicRouter()
-  const { publishedTemplates, landingContent } = useCommercialConfig()
+  const { publishedTemplates, landingContent, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
   const specializedTemplates = buildPublishedShowcaseGroup(publishedTemplates, 'specialized')
   const selfServiceTemplates = buildPublishedShowcaseGroup(publishedTemplates, 'self_service')
 
@@ -74,6 +74,12 @@ export function HeroSection(props: HeroSectionProps) {
 
   const isSpecializedDemoAvailable = Boolean(activeSpecialized && canLaunchCommercialDemo(activeSpecialized))
   const isSelfServiceDemoAvailable = Boolean(activeSelfService && (freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '') || canLaunchCommercialDemo(activeSelfService)))
+  const catalogGroupLabel = (count: number) => {
+    if (isPublicEditorialFallback) return 'Fichas editoriales de referencia'
+    if (publicCatalogStatus === 'loading') return 'Verificando publicación…'
+    if (publicCatalogStatus === 'error') return 'Último catálogo confirmado'
+    return `${count} publicadas`
+  }
 
   return (
     <section id="hero" className="relative w-full pt-4 pb-10 sm:pt-8 sm:pb-16 overflow-hidden z-10">
@@ -108,6 +114,11 @@ export function HeroSection(props: HeroSectionProps) {
         {/* DOS CARRUSELES: SIDE-BY-SIDE EN DESKTOP / APILADOS VERTICALMENTE EN MOBILE */}
         {/* ========================================================================= */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-stretch">
+          {isPublicEditorialFallback && <p className="lg:col-span-2 -mb-4 text-center text-xs text-slate-500" role="status" data-catalog-state={publicCatalogStatus}>
+            {publicCatalogStatus === 'loading'
+              ? 'Verificando el catálogo. Mientras tanto mostramos fichas editoriales de referencia; la información comercial se confirma en el servidor.'
+              : 'No pudimos verificar el catálogo en este momento. Mostramos fichas editoriales de referencia; la información comercial requiere confirmación del servidor.'}
+          </p>}
           {/* ===================================================================== */}
           {/* CARRUSEL A: SOLUCIONES ESPECIALIZADAS (3 PLANTILLAS)                  */}
           {/* ===================================================================== */}
@@ -120,7 +131,7 @@ export function HeroSection(props: HeroSectionProps) {
                     Soluciones Especializadas
                   </span>
                   <span className="text-[11px] font-semibold text-slate-400">
-                    {specializedTemplates.length} plantillas publicadas
+                    {catalogGroupLabel(specializedTemplates.length)}
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
@@ -141,7 +152,9 @@ export function HeroSection(props: HeroSectionProps) {
                   compact={true}
                   ariaLabel="Carrusel de soluciones especializadas"
                 />
-              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">No hay plantillas especializadas publicadas.</p>}
+              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">
+                {publicCatalogStatus === 'loading' ? 'Verificando las plantillas de implementación…' : publicCatalogStatus === 'error' ? 'No se pudo verificar la publicación de estas plantillas.' : 'No hay plantillas especializadas publicadas en el catálogo confirmado.'}
+              </p>}
 
               {/* Tarjeta de Detalle de la Plantilla Activa A */}
               {activeSpecialized && (
@@ -222,7 +235,7 @@ export function HeroSection(props: HeroSectionProps) {
                     Soluciones Autoservicio
                   </span>
                   <span className="text-[11px] font-semibold text-slate-400">
-                    {selfServiceTemplates.length} plantillas publicadas
+                    {catalogGroupLabel(selfServiceTemplates.length)}
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
@@ -243,7 +256,9 @@ export function HeroSection(props: HeroSectionProps) {
                   compact={true}
                   ariaLabel="Carrusel de soluciones autoservicio"
                 />
-              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">No hay soluciones de autoservicio publicadas.</p>}
+              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">
+                {publicCatalogStatus === 'loading' ? 'Verificando las plantillas de autoservicio…' : publicCatalogStatus === 'error' ? 'No se pudo verificar la publicación de estas plantillas.' : 'No hay soluciones de autoservicio publicadas en el catálogo confirmado.'}
+              </p>}
 
               {/* Tarjeta de Detalle de la Plantilla Activa B */}
               {activeSelfService && (

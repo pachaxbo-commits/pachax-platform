@@ -7,7 +7,7 @@ import type {
   MediaAssetItem,
 } from '../types'
 import { mergeOfficialTemplates } from './templateDefaults.ts'
-import { resolvePublicTemplateCatalog } from './publicTemplateCatalog.ts'
+import { resolvePublicTemplateCatalog, resolvePublicTemplatePresentation } from './publicTemplateCatalog.ts'
 import { COMMERCIAL_PLAN_TEMPLATE_IDS, filterPublicCommercialPlans, filterPublishedCommercialRecords } from './commercialCatalogContract.ts'
 import {
   PLANS_BY_TEMPLATE,
@@ -787,8 +787,9 @@ export function useCommercialConfig() {
 
   // Filtros de publicación para la web pública (solo mostrar 'published')
   const publishedTemplates = isPublicPage
-    ? (publicConfig?.templates || [])
+    ? resolvePublicTemplatePresentation(publicState, hasReceivedPublicCatalog, publicConfig?.templates || []).templates
     : config.templates.filter((t) => t.status === 'published')
+  const isPublicEditorialFallback = isPublicPage && !hasReceivedPublicCatalog && publicState !== 'ready'
   const publishedPlansByTemplate = (templateKey: TemplateKey) =>
     (isPublicPage && publicState !== 'ready' ? [] : filterPublicCommercialPlans(isPublicPage ? (publicConfig?.plans ?? []) : config.plans)).filter((p) => p.templateId === templateKey)
   const publishedExtras = (isPublicPage ? (publicConfig?.extras || []) : config.extras).filter((e) => e.status === 'published')
@@ -797,6 +798,7 @@ export function useCommercialConfig() {
     config,
     templatesState,
     publicCatalogStatus: publicState,
+    isPublicEditorialFallback,
     publishedTemplates,
     publishedPlansByTemplate,
     publishedExtras,

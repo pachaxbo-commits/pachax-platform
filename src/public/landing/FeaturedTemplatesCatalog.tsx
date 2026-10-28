@@ -13,7 +13,7 @@ interface FeaturedTemplatesCatalogProps {
 
 export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatalogProps) {
   const { navigate } = usePublicRouter()
-  const { publishedTemplates, landingContent, publicCatalogStatus } = useCommercialConfig()
+  const { publishedTemplates, landingContent, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
   const [selectedFilter, setSelectedFilter] = useState<string>('all')
 
   const filterOptions = [
@@ -113,14 +113,21 @@ export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatal
           })}
         </div>
 
-        {publicCatalogStatus === 'error' && (
-          <p role="status" className="mb-5 text-sm text-slate-600" data-catalog-state="fallback">
-            No pudimos actualizar el catálogo. Las fichas visibles son información pública de referencia; los precios y ofertas requieren confirmación del servidor.
+        {isPublicEditorialFallback && (
+          <p role="status" className="mb-5 text-sm text-slate-600" data-catalog-state={publicCatalogStatus}>
+            {publicCatalogStatus === 'loading'
+              ? 'Verificando el catálogo. Mostramos fichas editoriales de referencia; los precios y ofertas requieren confirmación del servidor.'
+              : 'No pudimos verificar el catálogo. Mostramos fichas editoriales de referencia; los precios y ofertas requieren confirmación del servidor.'}
           </p>
         )}
-        {publicCatalogStatus === 'loading' && (
+        {!isPublicEditorialFallback && publicCatalogStatus === 'loading' && (
           <p role="status" className="mb-5 text-sm text-slate-500" data-catalog-state="loading">
-            Cargando plantillas publicadas…
+            Cargando el catálogo publicado…
+          </p>
+        )}
+        {publicCatalogStatus === 'error' && !isPublicEditorialFallback && (
+          <p role="status" className="mb-5 text-sm text-slate-600" data-catalog-state="error">
+            No pudimos actualizar el catálogo. Seguimos mostrando la última versión pública confirmada.
           </p>
         )}
 
@@ -248,9 +255,14 @@ export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatal
             </div>
             )
           })}
-          {publicCatalogStatus !== 'loading' && filteredTemplates.length === 0 && (
+          {publicCatalogStatus === 'ready' && filteredTemplates.length === 0 && (
             <p role="status" className="col-span-full rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600" data-catalog-state="empty">
               No hay plantillas publicadas para esta categoría en el catálogo confirmado.
+            </p>
+          )}
+          {publicCatalogStatus === 'error' && !isPublicEditorialFallback && filteredTemplates.length === 0 && (
+            <p role="status" className="col-span-full rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600" data-catalog-state="error-empty">
+              La última versión confirmada no incluye plantillas para esta categoría; no pudimos verificar si hubo cambios recientes.
             </p>
           )}
         </div>

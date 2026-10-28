@@ -181,7 +181,7 @@ try {
     const heroPlanSelection = await waitForValue(`document.querySelector('[data-plan-template="hamburger"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'CTA principal selecciona Restaurante rápido')
     assert.equal(heroPlanSelection, 'true')
     const noOfferState = await evaluate(`document.querySelector('#planes')?.innerText || ''`)
-    assert(/Sin oferta publicada|Ofertas no disponibles/.test(noOfferState), 'Sin catálogo confirmado debe mostrarse un estado explícito de ofertas')
+    assert(/No hay ofertas aprobadas|No se pudieron verificar/.test(noOfferState), 'El estado debe distinguir una oferta vacía confirmada de un error de conexión')
     assert.equal(/\$(29|59|99)(\.00)?/.test(noOfferState), false, 'No deben aparecer precios de referencia')
     await evaluate(`(() => {
       window.__plansInquiryUrl = null;
