@@ -19,8 +19,8 @@ test('Public demo availability stays independent from commercial provisioning', 
   assert.equal(isPublicDemoEnabled('nightclub'), true)
   assert.equal(getPublicTemplate('nightclub').demoPath, '/demo/nightclub')
   assert.equal(canLaunchCommercialDemo(COMMERCIAL_TEMPLATES.find(template => template.id === 'nightclub')!), true)
-  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
-  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), true)
+  assert.equal(isTemplateProvisioningAvailable('retail'), true)
   assert.equal(canLaunchCommercialDemo(COMMERCIAL_TEMPLATES.find(template => template.id === 'restaurant')!), true)
   assert.equal(canLaunchCommercialDemo({
     id: 'restaurant',
@@ -28,8 +28,8 @@ test('Public demo availability stays independent from commercial provisioning', 
     demoEnabled: true,
     canonicalTemplateId: 'restaurant',
   }), true)
-  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
-  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), true)
+  assert.equal(isTemplateProvisioningAvailable('retail'), true)
   assert.equal(isTechnicalDemoAvailable('hamburger'), true)
   assert.equal(isTechnicalDemoAvailable('retail'), true)
   assert.equal(canLaunchCommercialDemo({

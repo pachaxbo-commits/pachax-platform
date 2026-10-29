@@ -508,10 +508,10 @@ test('20. La política de autoservicio temporal es independiente de la disponibi
   assert.equal(isTemplateProvisioningAvailable('restaurant'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub_lounge'), true)
   assert.equal(isTemplateProvisioningAvailable('nightclub'), true)
-  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
-  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
-  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
-  assert.equal(isTemplateProvisioningAvailable('retail'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), true)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), true)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), true)
+  assert.equal(isTemplateProvisioningAvailable('retail'), true)
   assert.equal(isTemplateProvisioningAvailable('custom'), false)
   assert.equal(isTemplateProvisioningAvailable('arbitrary_type'), false)
 })
@@ -563,10 +563,10 @@ test('23. El cierre de altas públicas no afecta demos ni disponibilidad por pla
   assert.equal(isTechnicalDemoAvailable('nightclub_lounge'), true)
 
   // Coming-soon bloqueados para creación de empresas
-  assert.equal(isTemplateProvisioningAvailable('hamburger'), false)
-  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), false)
-  assert.equal(isTemplateProvisioningAvailable('retail'), false)
-  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), false)
+  assert.equal(isTemplateProvisioningAvailable('hamburger'), true)
+  assert.equal(isTemplateProvisioningAvailable('hamburger_shop'), true)
+  assert.equal(isTemplateProvisioningAvailable('retail'), true)
+  assert.equal(isTemplateProvisioningAvailable('gelateria_weight_cafe'), true)
 
   // Custom preserva flujo a medida (WhatsApp/contacto), no aprovisiona tenant directo
   assert.equal(isTemplateProvisioningAvailable('custom'), false)

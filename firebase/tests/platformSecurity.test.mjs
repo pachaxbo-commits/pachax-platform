@@ -287,10 +287,11 @@ try {
     action: 'saveTemplate', template: { ...hamburgerTemplate, implementationBasePriceUSD: 999 },
   }), error => error.code === 'permission-denied')
   pass('platform_content puede editar contenido, pero no disponibilidad ni importes comerciales')
-  await assert.rejects(() => callAdminAction('saveTemplate', ids.owner, {
+  await callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, commercialAvailability: 'available' },
-  }), error => error.code === 'failed-precondition')
-  pass('backend impide abrir comercialmente Hamburger mientras su provisioning técnico siga bloqueado')
+  })
+  assert.equal((await db.doc('platformTemplates/hamburger').get()).data().commercialAvailability, 'available')
+  pass('Platform Owner puede habilitar la disponibilidad comercial de Hamburger ahora que su aprovisionamiento técnico está disponible')
   await assert.rejects(() => callAdminAction('saveTemplate', ids.owner, {
     action: 'saveTemplate', template: { ...hamburgerTemplate, commercialMode: 'specialized' },
   }), error => error.code === 'failed-precondition')
@@ -556,38 +557,45 @@ try {
   const ordinaryUid = `user_prov_${suffix}`
   await auth.createUser({ uid: ordinaryUid, email: `${ordinaryUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario Ordinario' })
 
-  // 1. completeOnboarding con hamburger_shop -> DENIED / failed-precondition
-  const onbHamb = await callTenantGateway(ordinaryUid, {
+  // El entorno local permite poblar datos QA; el entorno desplegado ya se comprobó arriba como cerrado.
+  // 1. completeOnboarding con hamburger_shop -> PASS en emulador
+  const hamburgerUserUid = `user_hamb_${suffix}`
+  await auth.createUser({ uid: hamburgerUserUid, email: `${hamburgerUserUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario QA Restaurante Rápido' })
+  const onbHamb = await callTenantGateway(hamburgerUserUid, {
     action: 'completeOnboarding',
     requestId: `onb_hamb_${suffix}`,
-    companyName: 'Hamburguesas Bypass',
+    companyName: 'Restaurante Rápido QA',
     businessType: 'hamburger_shop',
   })
-  assert.equal(onbHamb.body.error?.status, 'FAILED_PRECONDITION')
-  assert(onbHamb.body.error?.message?.includes('todavía no está disponible para crear empresas'))
-  pass('tenantGateway completeOnboarding con hamburger_shop es DENEGADO (failed-precondition)')
+  assert.equal(onbHamb.response.status, 200, JSON.stringify(onbHamb.body))
+  assert.equal(onbHamb.body.result?.template?.businessType, 'hamburger_shop')
+  pass('onboarding aislado de emulador crea Hamburger usando su plantilla técnica disponible')
 
-  // 2. completeOnboarding con gelateria_weight_cafe -> DENIED / failed-precondition
-  const onbGel = await callTenantGateway(ordinaryUid, {
+  // 2. completeOnboarding con gelateria_weight_cafe -> PASS en emulador
+  const retailUserUid = `user_retail_${suffix}`
+  await auth.createUser({ uid: retailUserUid, email: `${retailUserUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario QA Comercio' })
+  const onbGel = await callTenantGateway(retailUserUid, {
     action: 'completeOnboarding',
     requestId: `onb_gel_${suffix}`,
-    companyName: 'Retail Bypass',
+    companyName: 'Comercio QA',
     businessType: 'gelateria_weight_cafe',
   })
-  assert.equal(onbGel.body.error?.status, 'FAILED_PRECONDITION')
-  assert(onbGel.body.error?.message?.includes('todavía no está disponible para crear empresas'))
-  pass('tenantGateway completeOnboarding con gelateria_weight_cafe es DENEGADO (failed-precondition)')
+  assert.equal(onbGel.response.status, 200, JSON.stringify(onbGel.body))
+  assert.equal(onbGel.body.result?.template?.businessType, 'gelateria_weight_cafe')
+  pass('onboarding aislado de emulador crea Retail usando su plantilla técnica disponible')
 
-  // 3. createTenant con coming-soon BusinessType -> DENIED / failed-precondition
-  const createComingSoon = await callTenantGateway(ordinaryUid, {
+  // 3. createTenant de Retail en emulador -> PASS
+  const createRetailUserUid = `user_create_retail_${suffix}`
+  await auth.createUser({ uid: createRetailUserUid, email: `${createRetailUserUid}@example.test`, password: 'Emulator123!', displayName: 'Usuario QA Create Retail' })
+  const createRetail = await callTenantGateway(createRetailUserUid, {
     action: 'createTenant',
-    operationId: `create_hamb_${suffix}`,
-    name: 'Hamburguesas Create Bypass',
-    businessType: 'hamburger_shop',
+    operationId: `create_retail_${suffix}`,
+    name: 'Comercio Create QA',
+    businessType: 'gelateria_weight_cafe',
   })
-  assert.equal(createComingSoon.body.error?.status, 'FAILED_PRECONDITION')
-  assert(createComingSoon.body.error?.message?.includes('todavía no está disponible para crear empresas'))
-  pass('createTenant vía tenantGateway con coming-soon BusinessType es DENEGADO')
+  assert.equal(createRetail.response.status, 200, JSON.stringify(createRetail.body))
+  assert.equal((await db.doc(`tenants/${createRetail.body.result.tenantId}`).get()).data()?.businessType, 'gelateria_weight_cafe')
+  pass('createTenant en emulador crea Retail sin afectar el cierre del endpoint en Production')
 
   // 4. completeOnboarding con route_distribution -> PASS
   const onbDist = await callTenantGateway(ordinaryUid, {

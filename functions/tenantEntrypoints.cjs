@@ -12,6 +12,7 @@ const commercialOnboarding = require('./commercialOnboarding.cjs');
 const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
 const { executeRestaurantCommand } = require('./restaurant.cjs');
+const { executeRetailCommand } = require('./retailTenant.cjs');
 const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
 const { assertPublicTenantCreationClosed } = require('./publicTenantCreation.cjs');
 const { getTemplate } = require('./generated/templates.js');
@@ -35,6 +36,7 @@ function assertProvisionableTemplate(businessType) {
 exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
+    case 'retailCommand': return executeRetailCommand(db, request);
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);
     case 'completeOnboarding': {

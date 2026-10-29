@@ -566,7 +566,9 @@ try {
   const hambTenantId = `hamb_${suffix}`
   const hambRoot = db.doc(`tenants/${hambTenantId}`)
   const hambTemplate = getTemplate('hamburger_shop')
-  await hambRoot.set({ tenantId: hambTenantId, name: 'Burger Express QA', businessType: 'hamburger_shop', configuration: hambTemplate.defaults })
+  await hambRoot.set({ tenantId: hambTenantId, name: 'Burger Express QA', businessType: 'hamburger_shop',
+    billingEnforcement: true, subscriptionStatus: 'active', billingAccessUntil: new Date(Date.now() + 30 * 86_400_000),
+    configuration: hambTemplate.defaults })
   await hambRoot.collection('branches').doc('main').set({ id: 'main', name: 'Principal', active: true })
   for (const role of hambTemplate.roles) {
     await hambRoot.collection('roles').doc(role.id).set({ ...role, tenantId: hambTenantId })
@@ -595,6 +597,21 @@ try {
   // Abrir turno en hamburger_shop
   const hambShift = await hambCall('hamb_cashier', 'openShift', 'hamb-shift-1', { openingFloat: 100 })
   assert.ok(hambShift.shiftId)
+  const restaurantOperationsBeforeSuspension = await hambRoot.collection('restaurantOperations').get()
+  await hambRoot.update({ subscriptionStatus: 'suspended' })
+  await assert.rejects(
+    () => hambCall('hamb_cashier', 'addOrder', 'hamb-suspended-sale', { items: [{ productId: 'not-used', quantity: 1 }] }),
+    error => error.code === 'permission-denied',
+    'Suspended Hamburger subscription must reject sales before writes',
+  )
+  await assert.rejects(
+    () => hambCall('hamb_cashier', 'closeShift', 'hamb-suspended-cash', { countedCash: 100 }),
+    error => error.code === 'permission-denied',
+    'Suspended Hamburger subscription must reject cash operations before writes',
+  )
+  assert.equal((await hambRoot.collection('restaurantOperations').get()).size, restaurantOperationsBeforeSuspension.size)
+  await hambRoot.update({ subscriptionStatus: 'active' })
+  console.log('PASS Hamburger suscripción suspendida deniega venta y caja sin registrar operaciones y conserva acceso al reactivarla.')
   console.log('PASS Turno abierto con éxito en tenant hamburger_shop.')
 
   // 28. Validación de Recetas e Insumos en saveProduct

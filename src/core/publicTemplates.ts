@@ -63,7 +63,9 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/hamburger',
     studioTemplateId: 'hamburger',
     status: 'coming_soon',
-    provisioningStatus: 'coming_soon',
+    // Hamburger Shop is now supported by the canonical Restaurant experience
+    // and server operations; public self-service registration remains globally closed.
+    provisioningStatus: 'available',
     demoStatus: 'available',
   },
   {
@@ -85,7 +87,8 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     demoPath: '/demo/retail',
     studioTemplateId: 'retail',
     status: 'coming_soon',
-    provisioningStatus: 'coming_soon',
+    // Retail has a dedicated tenant UI and server-authoritative operations.
+    provisioningStatus: 'available',
     demoStatus: 'available',
   },
   {
