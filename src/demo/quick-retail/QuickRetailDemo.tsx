@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -58,38 +58,45 @@ export function QuickRetailDemo({
   simulatedRole = 'admin',
   onSelectRole,
   datasetMode = 'full',
-  resetKey = 0,
+  resetKey: _resetKey = 0,
+  companyName,
+  isStudioEmbed = false,
 }: {
   mode?: 'team' | 'simulated_role'
   simulatedRole?: string
   onSelectRole?: (roleId: string) => void
   datasetMode?: DemoDatasetMode
   resetKey?: number
+  companyName?: string
+  logoUrl?: string
+  themeColors?: { primary: string; accent: string }
+  isStudioEmbed?: boolean
 }) {
+  void _resetKey
   const [activeModule, setActiveModule] = useState<QuickRetailModuleId>('dashboard')
-  const initial = useRef(createRetailDataset(datasetMode))
-  const [products, setProducts] = useState<RetailProduct[]>(() => initial.current.products)
-  const [sales, setSales] = useState<CompletedRetailSale[]>(() => initial.current.sales)
+  const [products] = useState<RetailProduct[]>(() => createRetailDataset(datasetMode).products)
+  const [sales, setSales] = useState<CompletedRetailSale[]>(() => createRetailDataset(datasetMode).sales)
 
-  const prevResetRef = useRef(`${datasetMode}:${resetKey}`)
-  if (prevResetRef.current !== `${datasetMode}:${resetKey}`) {
-    prevResetRef.current = `${datasetMode}:${resetKey}`
-    const fresh = createRetailDataset(datasetMode)
-    setProducts(fresh.products)
-    setSales(fresh.sales)
-  }
+
 
   const visibleModules = QUICK_RETAIL_MODULES.filter((m) => {
     if (mode === 'team') return true
-    return m.roles.includes(simulatedRole as any)
+    return (m.roles as readonly string[]).includes(simulatedRole)
   })
+
+  if (mode === 'simulated_role' && !visibleModules.some(m => m.id === activeModule)) {
+    setActiveModule(visibleModules[0]?.id || 'dashboard')
+  }
 
   const handleCompleteSale = (newSale: CompletedRetailSale) => {
     setSales((prev) => [newSale, ...prev])
   }
 
   return (
-    <div className="w-full flex flex-col space-y-5">
+    <div className={`w-full flex flex-col space-y-5 ${isStudioEmbed ? 'p-3 sm:p-5' : ''}`}>
+        {companyName && !isStudioEmbed && (
+          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">{companyName}</div>
+        )}
       {/* Barra horizontal de módulos */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-2 shadow-xs overflow-x-auto no-scrollbar">
         <div className="flex items-center gap-1 min-w-max">
@@ -119,6 +126,7 @@ export function QuickRetailDemo({
         {activeModule === 'dashboard' && (
           <QuickRetailDashboard
             sales={sales}
+            companyName={companyName}
             onNavigate={(mod) => setActiveModule(mod as QuickRetailModuleId)}
           />
         )}

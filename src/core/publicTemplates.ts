@@ -1,7 +1,7 @@
 import type { BusinessType } from './platform.ts'
 
 export type PublicTemplateStatus = 'available' | 'coming_soon'
-export type PublicTemplateId = 'restaurant' | 'hamburger' | 'distribution' | 'retail' | 'nightclub'
+export type PublicTemplateId = 'restaurant' | 'hamburger' | 'distribution' | 'retail' | 'nightclub' | 'parcel'
 
 export interface PublicDemoConfiguration {
   id: string
@@ -104,13 +104,24 @@ export const PUBLIC_TEMPLATES: readonly PublicTemplateDefinition[] = Object.free
     // provisioning remains a separate commercial/tenant capability.
     demoStatus: 'available',
   },
+  {
+    id: 'parcel',
+    businessType: 'route_distribution',
+    title: 'PACHAX Encomiendas',
+    shortDescription: 'Recepción ágil de paquetes, guías con QR, manifiestos de despacho, cobro en destino (COD) y entrega con firma digital.',
+    demoPath: '/demo/parcel',
+    studioTemplateId: 'parcel',
+    status: 'coming_soon',
+    provisioningStatus: 'available',
+    demoStatus: 'available',
+  },
 ])
 
 export const OFFICIAL_COMMERCIAL_TEMPLATES = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail', 'custom'] as const)
 export const PLAN_ELIGIBLE_TEMPLATE_IDS = Object.freeze(['restaurant', 'distribution', 'nightclub', 'retail'] as const)
 
 /** Static public demos are independent of commercial and tenant provisioning state. */
-const FREE_DEMO_TEMPLATE_IDS = Object.freeze(['hamburger', 'retail'] as const)
+const FREE_DEMO_TEMPLATE_IDS = Object.freeze(['hamburger', 'retail', 'parcel'] as const)
 export type FreeDemoTemplateId = (typeof FREE_DEMO_TEMPLATE_IDS)[number]
 
 /** A public route is usable only when implemented and not explicitly disabled by Admin. */

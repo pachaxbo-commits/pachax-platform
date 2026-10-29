@@ -1,4 +1,4 @@
-import { Utensils, Truck, Store, Music2, ArrowRight, Sparkles } from 'lucide-react'
+import { Utensils, Truck, Store, Music2, ArrowRight, Sparkles, Package } from 'lucide-react'
 import { BrandMark } from '../public/components/BrandMark'
 import { PUBLIC_TEMPLATES } from '../core/publicTemplates'
 
@@ -23,6 +23,10 @@ export function DemoGallery() {
     nightclub: {
       company: 'Nocturna Demo', icon: Music2, tag: 'Nocturno & Barra',
       highlights: ['Mesas y zonas VIP', 'Varias rondas por cuenta', 'Barra / preparación', 'Caja nocturna'],
+    },
+    parcel: {
+      company: 'Trans-Bolivia Demo', icon: Package, tag: 'Encomiendas & Paquetería',
+      highlights: ['Recepción ágil con QR', 'Guías y comprobantes', 'Manifiestos de despacho', 'Entrega con firma digital'],
     },
   } as const
   const demos = PUBLIC_TEMPLATES.map(template => ({

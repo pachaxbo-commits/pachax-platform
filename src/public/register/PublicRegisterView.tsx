@@ -7,6 +7,7 @@ import {
   Store,
   Music2,
   Check,
+  Package,
 } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { usePublicRouter } from '../routing/usePublicRouter'
@@ -28,6 +29,7 @@ const REGISTER_PRESENTATION = {
   distribution: { icon: Truck, badgeColor: 'text-blue-700 bg-blue-50 border-blue-200' },
   retail: { icon: Store, badgeColor: 'text-teal-700 bg-teal-50 border-teal-200' },
   nightclub: { icon: Music2, badgeColor: 'text-purple-700 bg-purple-50 border-purple-200' },
+  parcel: { icon: Package, badgeColor: 'text-teal-700 bg-teal-50 border-teal-200' },
 } as const
 
 const REGISTER_TEMPLATES = PUBLIC_TEMPLATES.map(template => ({

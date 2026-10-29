@@ -10,7 +10,7 @@ const studioDemoRoutingPlugin = {
       if (url === '/studio' || url.startsWith('/studio?') || url.startsWith('/studio/')) {
         const q = url.indexOf('?')
         req.url = '/studio.html' + (q >= 0 ? url.slice(q) : '')
-      } else if (url === '/demo/hamburger' || url.startsWith('/demo/hamburger?') || url === '/demo/retail' || url.startsWith('/demo/retail?')) {
+      } else if (!url.includes('embed=studio') && (url === '/demo/hamburger' || url.startsWith('/demo/hamburger?') || url === '/demo/retail' || url.startsWith('/demo/retail?'))) {
         const q = url.indexOf('?')
         req.url = '/demo-isolated.html' + (q >= 0 ? url.slice(q) : '')
       } else if (url === '/demo' || url.startsWith('/demo?') || url.startsWith('/demo/')) {

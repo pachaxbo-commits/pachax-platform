@@ -5,35 +5,45 @@ import { PUBLIC_TEMPLATES } from '../src/core/publicTemplates.ts'
 import { createFullParcelDataset, createEmptyParcelDataset } from '../src/demo/datasets/parcel/parcelDatasets.ts'
 import { DemoParcelController } from '../src/demo/parcel/demoParcelController.ts'
 
-test('1. PUBLIC_TEMPLATES preserves exactly 5 public templates (zero public catalog leakage)', () => {
-  assert.equal(PUBLIC_TEMPLATES.length, 5)
+test('1. PUBLIC_TEMPLATES includes PACHAX Encomiendas as an approved public template', () => {
+  assert.equal(PUBLIC_TEMPLATES.length, 6)
   assert.deepEqual(
     PUBLIC_TEMPLATES.map(item => item.id),
-    ['restaurant', 'hamburger', 'distribution', 'retail', 'nightclub']
+    ['restaurant', 'hamburger', 'distribution', 'retail', 'nightclub', 'parcel']
   )
-  assert.ok(!PUBLIC_TEMPLATES.some(item => (item.id as string) === 'parcel'))
+  const parcel = PUBLIC_TEMPLATES.find(item => item.id === 'parcel')
+  assert.ok(parcel)
+  assert.equal(parcel.demoPath, '/demo/parcel')
+  assert.equal(parcel.demoStatus, 'available')
+  assert.equal(parcel.title, 'PACHAX Encomiendas')
 })
 
-test('2. Studio Home exposes PACHAX Encomiendas as an internal admin template only', () => {
+test('2. Studio Home exposes both canonical public templates and the internal Syndicate edition for operator validation', () => {
   const studioHomeCode = readFileSync(new URL('../src/studio/StudioHome.tsx', import.meta.url), 'utf8')
   assert.match(studioHomeCode, /id: 'parcel'/)
-  assert.match(studioHomeCode, /title: 'PACHAX Encomiendas'/)
-  assert.match(studioHomeCode, /Interno Admin/)
+  assert.match(studioHomeCode, /Edición Sindicato/)
   assert.match(studioHomeCode, /isInternal: true/)
 })
 
-test('3. ParcelDemo enforces fail-closed Platform Operator authentication guard in production', () => {
+test('3. ParcelDemo enforces fail-closed Platform Operator authentication guard for syndicate edition in production', () => {
   const demoCode = readFileSync(new URL('../src/demo/parcel/ParcelDemo.tsx', import.meta.url), 'utf8')
   assert.match(demoCode, /useAdminAuth/)
-  assert.match(demoCode, /!import\.meta\.env\.DEV && !isAuthenticated/)
+  assert.match(demoCode, /currentEdition === 'sindicato' && !import\.meta\.env\.DEV && !isAuthenticated/)
   assert.match(demoCode, /Acceso Exclusivo PACHAX Admin \/ Studio/)
   assert.doesNotMatch(demoCode, /tenantGateway|platformGateway|firebase\/firestore/)
 })
 
-test('4. DemoParcelController operates in pure isolated local state without cloud mutations', () => {
+test('4. DemoParcelController operates in pure isolated local state with studio and demo storage scopes', () => {
   const controllerCode = readFileSync(new URL('../src/demo/parcel/demoParcelController.ts', import.meta.url), 'utf8')
   assert.match(controllerCode, /pachax:parcel-studio/)
+  assert.match(controllerCode, /pachax:parcel-demo/)
   assert.doesNotMatch(controllerCode, /firestore|tenantGateway|platformGateway|firebaseAuth/)
+
+  // Verify separate scopes don't collide
+  const studioCtrl = new DemoParcelController('standard', 'full', 'studio')
+  const demoCtrl = new DemoParcelController('standard', 'full', 'demo')
+  assert.equal(studioCtrl.getStorageKey(), 'pachax:parcel-studio:standard:full:v1')
+  assert.equal(demoCtrl.getStorageKey(), 'pachax:parcel-demo:standard:full:v1')
 })
 
 test('5. Parcel Datasets: full dataset has preloaded operational fixtures, empty dataset is pristine', () => {
@@ -100,4 +110,14 @@ test('7. Edition switching purges syndicate state in controller to prevent cross
       joinedAt: '2026-10-28',
     })
   }, /Operación no permitida: Esta función es exclusiva de la edición Sindicato/i)
+})
+
+test('8. Public demo enforces standard edition and isolates UI from syndicate modules', () => {
+  const demoCode = readFileSync(new URL('../src/demo/parcel/ParcelDemo.tsx', import.meta.url), 'utf8')
+  assert.match(demoCode, /if \(isPublic\) return 'standard'/)
+  assert.match(demoCode, /allowEditionSwitch={!isPublic}/)
+
+  const expCode = readFileSync(new URL('../src/modules/parcel/views/ParcelExperience.tsx', import.meta.url), 'utf8')
+  assert.match(expCode, /allowEditionSwitch &&/)
+  assert.match(expCode, /isSyndicate && \(/)
 })

@@ -1200,3 +1200,33 @@ test('21. Caso 2: Conciliación de movimientos pendientes diferencia anulación 
   const expectedFinalCash = 200 + shipment.finalAmount - 40
   assert.equal(reconciledShift.expectedCash, expectedFinalCash)
 })
+
+test('22. Integración con PACHAX Core BusinessIdentity en documentos de encomiendas', async () => {
+  const { toDocumentCompanyContext, generateShipmentReceptionPdf } = await import('../src/modules/parcel/domain/parcelDocuments.ts')
+  const { createFullParcelDataset } = await import('../src/demo/datasets/parcel/parcelDatasets.ts')
+  const data = createFullParcelDataset('standard')
+
+  // Mock BusinessIdentity from PACHAX Core
+  const coreIdentity = {
+    tradeName: 'Logística & Encomiendas Andina',
+    legalName: 'Transportes Andina S.R.L.',
+    taxId: '5566778899',
+    phone: '3-3334455',
+    whatsapp: '+59178899000',
+    address: 'Av. Santos Dumont #300',
+    city: 'Santa Cruz de la Sierra',
+    logoUrl: 'https://pachax.app/logos/andina.png',
+  }
+
+  const normalized = toDocumentCompanyContext(coreIdentity as any)
+  assert.equal(normalized.name, 'Logística & Encomiendas Andina')
+  assert.equal(normalized.legalName, 'Transportes Andina S.R.L.')
+  assert.equal(normalized.taxId, '5566778899')
+  assert.equal(normalized.phone, '3-3334455')
+  assert.equal(normalized.city, 'Santa Cruz de la Sierra')
+  assert.equal(normalized.logoUrl, 'https://pachax.app/logos/andina.png')
+
+  // Emitir PDF usando BusinessIdentity directamente
+  const pdf = await generateShipmentReceptionPdf(data.shipments[0], { company: coreIdentity as any, format: '80mm' })
+  assert.ok(pdf.blob.size > 1000)
+})

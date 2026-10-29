@@ -53,10 +53,12 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
   const internalTemplatesList = [
     {
       id: 'parcel' as DemoTemplateId,
-      title: 'PACHAX Encomiendas',
-      description: 'Recepción rápida, guías con QR, manifiestos de despacho, entrega con firma y administración sindical de socios, cuotas y personal.',
+      title: 'PACHAX Encomiendas (Edición Sindicato)',
+      description: 'Gestión gremial y sindical: padrón de socios, aportes mensuales, pagos a choferes/personal, gastos institucionales y balance operativo consolidado.',
       isInternal: true,
       ...presentation.parcel,
+      badges: ['Edición Sindicato', 'Padrón de Socios', 'Mensualidades', 'Balance'],
+      internalNote: 'Acceso exclusivo Studio para validación de la directiva sindical.',
     },
   ]
 
@@ -114,7 +116,7 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
             return (
               <button
                 type="button"
-                key={t.id}
+                key={`${t.id}-${t.isInternal ? "internal" : "public"}`}
                 onClick={() => onSelectTemplate(t.id)}
                 className={`bg-white rounded-2xl border p-6 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between group text-left ${
                   t.isInternal

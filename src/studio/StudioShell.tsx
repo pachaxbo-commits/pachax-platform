@@ -18,7 +18,6 @@ import { BrandingDrawer } from './branding/BrandingDrawer'
 import './studioRestaurantPreview.css'
 import { getPublicTemplate } from '../core/publicTemplates'
 import { getTemplate } from '../core/templates'
-import { ParcelDemo } from '../demo/parcel/ParcelDemo'
 
 export type ViewportMode = 'responsive' | 'mobile_360' | 'mobile_390' | 'tablet_768' | 'laptop_1366'
 
@@ -55,14 +54,9 @@ export function StudioShell({
   const shellRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
-  const isParcel = templateId === 'parcel'
-  const publicTemplate = isParcel
-    ? { title: 'PACHAX Encomiendas', businessType: 'route_distribution' as const }
-    : getPublicTemplate(templateId)
+  const publicTemplate = getPublicTemplate(templateId)
   const templateRoles = getTemplate(publicTemplate.businessType).roles
-  const defaultCompany = isParcel
-    ? 'Trans-Bolivia Demo'
-    : ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo' }[templateId] || 'Trans-Bolivia Demo')
+  const defaultCompany = ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo', parcel: 'Trans-Bolivia Demo' }[templateId] || 'Trans-Bolivia Demo')
 
   // Enviar mensaje de sincronización seguro al iframe
   const sendSync = useCallback(() => {
@@ -123,7 +117,7 @@ export function StudioShell({
   }
 
   // Stable URL: role, branding and scenario changes travel through postMessage.
-  const iframeSrc = `/demo/${templateId}?embed=studio`
+  const iframeSrc = `/demo?template=${templateId}&embed=studio`
 
   return (
     <div ref={shellRef} className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
@@ -332,25 +326,12 @@ export function StudioShell({
               : 'w-full h-full rounded-xl shadow-xs'
           }`}
         >
-          {isParcel ? (
-            <div className="w-full h-full overflow-auto bg-slate-100">
-              <ParcelDemo
-                key={`parcel:${datasetMode}:${datasetResetKey}`}
-                datasetMode={datasetMode}
-                resetKey={datasetResetKey}
-                isStudioEmbed={true}
-                companyName={branding.companyName || defaultCompany}
-                logoUrl={branding.logoUrl}
-              />
-            </div>
-          ) : (
-            <iframe
-              ref={iframeRef}
-              src={iframeSrc}
-              title={`PACHAX Studio Preview - ${publicTemplate.title}`}
-              className="w-full h-full border-0 bg-white"
-            />
-          )}
+          <iframe
+            ref={iframeRef}
+            src={iframeSrc}
+            title={`PACHAX Studio Preview - ${publicTemplate.title}`}
+            className="w-full h-full border-0 bg-white"
+          />
         </div>
       </div>
 

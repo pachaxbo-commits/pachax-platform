@@ -40,6 +40,7 @@ interface ParcelExperienceProps {
   companyName?: string
   logoUrl?: string
   edition?: ParcelEdition
+  allowEditionSwitch?: boolean
   onEditionChange?: (edition: ParcelEdition) => void
 }
 
@@ -48,6 +49,7 @@ export function ParcelExperience({
   state,
   companyName = 'TRANS-BOLIVIA ENCOMIENDAS & LOGÍSTICA',
   edition = state.edition,
+  allowEditionSwitch = true,
   onEditionChange,
 }: ParcelExperienceProps) {
   const currentEdition = edition || state.edition
@@ -145,35 +147,37 @@ export function ParcelExperience({
             </div>
           </div>
 
-          {/* Selector de Perfil Canónico (Estándar vs Sindicato) */}
-          <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700">
-            <span className="text-[11px] font-bold text-slate-400 pl-2 hidden lg:inline">Perfil de Operación:</span>
-            <button
-              type="button"
-              onClick={() => handleSwitchEdition('standard')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                !isSyndicate
-                  ? 'bg-teal-500 text-slate-950 shadow-xs'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Package className="w-3.5 h-3.5" />
-              <span>Encomiendas Estándar</span>
-            </button>
+          {/* Selector de Perfil Canónico (Estándar vs Sindicato) - Visible exclusivamente en Studio */}
+          {allowEditionSwitch && (
+            <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700">
+              <span className="text-[11px] font-bold text-slate-400 pl-2 hidden lg:inline">Perfil de Operación:</span>
+              <button
+                type="button"
+                onClick={() => handleSwitchEdition('standard')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  !isSyndicate
+                    ? 'bg-teal-500 text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Package className="w-3.5 h-3.5" />
+                <span>Encomiendas Estándar</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => handleSwitchEdition('sindicato')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                isSyndicate
-                  ? 'bg-amber-400 text-slate-950 shadow-xs'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Edición Sindicato</span>
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => handleSwitchEdition('sindicato')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  isSyndicate
+                    ? 'bg-amber-400 text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Edición Sindicato</span>
+              </button>
+            </div>
+          )}
 
           {/* Estado de Caja */}
           <div className="flex items-center gap-2">
