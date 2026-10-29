@@ -127,7 +127,7 @@ try {
   const templates = await callGateway(ownerToken, { action: 'listAssistedTenantTemplates' });
   assert.equal(templates.response.ok, true, JSON.stringify(templates.payload));
   const templateTypes = templates.payload.result.templates.map(template => template.businessType);
-  assert.deepEqual(templateTypes.sort(), ['nightclub_lounge', 'restaurant_pos', 'route_distribution'].sort());
+  assert.deepEqual(templateTypes.sort(), ['gelateria_weight_cafe', 'hamburger_shop', 'nightclub_lounge', 'restaurant_pos', 'route_distribution'].sort());
   pass('la lista solo incluye las plantillas técnicamente disponibles');
 
   const denied = await callGateway(adminToken, { action: 'listAssistedTenantTemplates' });
@@ -137,11 +137,11 @@ try {
   assert.equal(deniedCreate.payload.error?.status, 'PERMISSION_DENIED');
   pass('Platform Admin no puede consultar ni crear altas asistidas');
 
-  const invalid = await callGateway(ownerToken, request(randomUUID(), { businessType: 'hamburger_shop' }));
+  const invalid = await callGateway(ownerToken, request(randomUUID(), { businessType: 'gelateria_unsupported' }));
   assert.equal(invalid.response.ok, false);
-  assert.equal(invalid.payload.error?.status, 'FAILED_PRECONDITION');
+  assert.equal(invalid.payload.error?.status, 'INVALID_ARGUMENT');
   await assert.rejects(auth.getUserByEmail(ownerEmail), error => error.code === 'auth/user-not-found');
-  pass('una plantilla no habilitada se rechaza antes de crear identidad Auth');
+  pass('una plantilla no reconocida se rechaza antes de crear identidad Auth');
 
   const unpaidEmail = `unpaid-${suffix}@example.test`;
   const unpaidPayload = await paidRequest(randomUUID(), { ownerEmail: unpaidEmail, paymentStatus: 'due' });
@@ -200,6 +200,31 @@ try {
   assert.equal(memberships.payload.result.length, 1);
   assert.equal(memberships.payload.result[0].tenant.tenantId, resultA.tenantId);
   pass('el enlace temporal permite al propietario configurar contraseña e ingresar a su tenant');
+
+  for (const [businessType, label] of [['hamburger_shop', 'Hamburger'], ['gelateria_weight_cafe', 'Comercio']]) {
+    const assistedOperationId = randomUUID();
+    const assistedEmail = `${label.toLowerCase()}-${suffix}@example.test`;
+    const assistedPayload = await paidRequest(assistedOperationId, {
+      businessType, companyName: `QA ${label} ${suffix}`, ownerEmail: assistedEmail,
+      ownerDisplayName: `Propietario ${label} QA`, industryProfile: undefined,
+    });
+    const provisioned = await callGateway(ownerToken, assistedPayload);
+    assert.equal(provisioned.response.ok, true, JSON.stringify(provisioned.payload));
+    const tenantId = provisioned.payload.result.tenantId;
+    assert.equal((await db.doc(`tenants/${tenantId}`).get()).data().businessType, businessType);
+    assert.equal((await db.doc(`tenants/${tenantId}/members/${provisioned.payload.result.ownerUid}`).get()).data().status, 'active');
+    const setupLink = new URL(provisioned.payload.result.ownerAccess.setupLink);
+    const reset = await fetch(`${resetUrlBase}/accounts:resetPassword?key=emulator`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ oobCode: setupLink.searchParams.get('oobCode'), newPassword: 'OwnerQaPass123!' }),
+    });
+    assert.equal(reset.ok, true, await reset.text());
+    const tenantOwnerToken = await signIn(assistedEmail, 'OwnerQaPass123!');
+    const tenantMemberships = await callTenantGateway(tenantOwnerToken, { action: 'listMemberships' });
+    assert.equal(tenantMemberships.response.ok, true, JSON.stringify(tenantMemberships.payload));
+    assert.equal(tenantMemberships.payload.result[0].tenant.businessType, businessType);
+    pass(`${label}: contrato pagado habilita alta asistida y el propietario entra a la plantilla correcta`);
+  }
 
   const existing = await auth.createUser({ email: existingEmail, password: 'ExistingOwner123!', displayName: 'Propietario existente' });
   const linkedId = randomUUID();

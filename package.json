@@ -10,6 +10,7 @@
     "test:free-demo-routes": "node --experimental-strip-types --test tests/freeDemoRoutes.test.ts",
     "test:public-commercial-closed": "node --test functions/tests/publicCommercialClosed.test.cjs",
     "test:billing-core": "npm run build:functions-core && firebase emulators:exec --config firebase.billing-test.json --only auth,firestore --project demo-pachax-billing-v1 \"node functions/tests/commercialBilling.test.cjs\"",
+    "test:retail-tenant": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only auth,firestore,functions --project demo-pachax-platform \"node functions/tests/retailTenant.test.cjs\"",
     "build:demos-app-assets": "npm run build:demos-only",
     "studio": "vite --open /studio",
     "dev:emulator": "vite --mode emulator",
