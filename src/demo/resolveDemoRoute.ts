@@ -15,7 +15,7 @@ export function resolveDemoRoute(path: string, search = ''): ResolvedDemoRoute {
   const isStudioEmbed = params.get('embed') === 'studio' || params.get('embed') === '1'
   const initialRole = params.get('role') || undefined
   const initialDatasetMode = params.get('data') === 'empty' ? 'empty' : 'full'
-  const template = PUBLIC_TEMPLATES.find(item => path === item.demoPath || path.startsWith(`${item.demoPath}/`) || (item.id === 'parcel' && (path === '/demo/encomiendas' || path.startsWith('/demo/encomiendas/'))) || queryTemplate === item.id)
+  const template = PUBLIC_TEMPLATES.find(item => path === item.demoPath || path.startsWith(`${item.demoPath}/`) || queryTemplate === item.id)
   if (template) return { isGallery: false, templateId: template.id, isStudioEmbed, initialRole, initialDatasetMode }
   return { isGallery: !isStudioEmbed, templateId: 'distribution', isStudioEmbed, initialRole, initialDatasetMode }
 }

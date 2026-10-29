@@ -53,12 +53,12 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
   const internalTemplatesList = [
     {
       id: 'parcel' as DemoTemplateId,
-      title: 'PACHAX Encomiendas (Edición Sindicato)',
-      description: 'Gestión gremial y sindical: padrón de socios, aportes mensuales, pagos a choferes/personal, gastos institucionales y balance operativo consolidado.',
+      title: 'PACHAX Encomiendas',
+      description: 'Recepción rápida, guías con QR, manifiestos de despacho, entrega con firma y administración gremial. Incluye selector interactivo entre Perfil Estándar y Edición Sindicato.',
       isInternal: true,
       ...presentation.parcel,
-      badges: ['Edición Sindicato', 'Padrón de Socios', 'Mensualidades', 'Balance'],
-      internalNote: 'Acceso exclusivo Studio para validación de la directiva sindical.',
+      badges: ['Estándar / Sindicato', 'Guías & Manifiestos', 'Socios & Cuotas', 'Arqueo Caja'],
+      internalNote: 'Validación interna para sindicatos de transporte y agencias de encomiendas.',
     },
   ]
 

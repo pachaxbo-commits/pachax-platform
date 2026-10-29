@@ -54,15 +54,15 @@ export function DemoRuntime({
   const [resetKey, setResetKey] = useState(0)
 
   const templateRoles = (function() {
-    const businessTypeMap: Record<DemoTemplateId, BusinessType> = {
+    if (templateId === 'parcel') return []
+    const businessTypeMap: Record<Exclude<DemoTemplateId, 'parcel'>, BusinessType> = {
       restaurant: 'restaurant_pos',
       hamburger: 'hamburger_shop',
       distribution: 'route_distribution',
       retail: 'gelateria_weight_cafe',
       nightclub: 'nightclub_lounge',
-      parcel: 'route_distribution',
     }
-    const bt = businessTypeMap[templateId]
+    const bt = businessTypeMap[templateId as Exclude<DemoTemplateId, 'parcel'>]
     return BusinessTemplateRegistry[bt]?.roles || []
   })()
 

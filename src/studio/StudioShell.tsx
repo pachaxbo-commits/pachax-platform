@@ -18,6 +18,7 @@ import { BrandingDrawer } from './branding/BrandingDrawer'
 import './studioRestaurantPreview.css'
 import { getPublicTemplate } from '../core/publicTemplates'
 import { getTemplate } from '../core/templates'
+import { ParcelDemo } from '../demo/parcel/ParcelDemo'
 
 export type ViewportMode = 'responsive' | 'mobile_360' | 'mobile_390' | 'tablet_768' | 'laptop_1366'
 
@@ -54,8 +55,17 @@ export function StudioShell({
   const shellRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
-  const publicTemplate = getPublicTemplate(templateId)
-  const templateRoles = getTemplate(publicTemplate.businessType).roles
+  const isParcel = templateId === 'parcel'
+  const templateTitle = isParcel
+    ? 'PACHAX Encomiendas'
+    : getPublicTemplate(templateId).title
+  const templateRoles = isParcel
+    ? [
+        { id: 'operator', name: 'Operador de Agencia' },
+        { id: 'driver', name: 'Conductor' },
+        { id: 'admin', name: 'Administrador / Directiva' },
+      ]
+    : getTemplate(getPublicTemplate(templateId).businessType).roles
   const defaultCompany = ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo', parcel: 'Trans-Bolivia Demo' }[templateId] || 'Trans-Bolivia Demo')
 
   // Enviar mensaje de sincronización seguro al iframe
@@ -137,7 +147,7 @@ export function StudioShell({
             <div className="h-4 w-px bg-slate-700 hidden sm:block" />
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-white">{publicTemplate.title}</span>
+              <span className="text-xs font-bold text-white">{templateTitle}</span>
               <span className="text-[11px] font-semibold text-teal-400 bg-teal-950/80 px-2 py-0.5 rounded-full border border-teal-800">
                 {branding.companyName || defaultCompany}
               </span>
@@ -326,12 +336,25 @@ export function StudioShell({
               : 'w-full h-full rounded-xl shadow-xs'
           }`}
         >
-          <iframe
-            ref={iframeRef}
-            src={iframeSrc}
-            title={`PACHAX Studio Preview - ${publicTemplate.title}`}
-            className="w-full h-full border-0 bg-white"
-          />
+          {isParcel ? (
+            <div className="w-full h-full overflow-auto bg-slate-100">
+              <ParcelDemo
+                key={`parcel:${datasetMode}:${datasetResetKey}`}
+                datasetMode={datasetMode}
+                resetKey={datasetResetKey}
+                isStudioEmbed={true}
+                companyName={branding.companyName || defaultCompany}
+                logoUrl={branding.logoUrl}
+              />
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              src={iframeSrc}
+              title={`PACHAX Studio Preview - ${templateTitle}`}
+              className="w-full h-full border-0 bg-white"
+            />
+          )}
         </div>
       </div>
 

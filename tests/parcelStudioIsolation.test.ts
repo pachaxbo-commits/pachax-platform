@@ -5,24 +5,20 @@ import { PUBLIC_TEMPLATES } from '../src/core/publicTemplates.ts'
 import { createFullParcelDataset, createEmptyParcelDataset } from '../src/demo/datasets/parcel/parcelDatasets.ts'
 import { DemoParcelController } from '../src/demo/parcel/demoParcelController.ts'
 
-test('1. PUBLIC_TEMPLATES includes PACHAX Encomiendas as an approved public template', () => {
-  assert.equal(PUBLIC_TEMPLATES.length, 6)
+test('1. PUBLIC_TEMPLATES preserves exactly 5 public templates (zero public catalog leakage)', () => {
+  assert.equal(PUBLIC_TEMPLATES.length, 5)
   assert.deepEqual(
     PUBLIC_TEMPLATES.map(item => item.id),
-    ['restaurant', 'hamburger', 'distribution', 'retail', 'nightclub', 'parcel']
+    ['restaurant', 'hamburger', 'distribution', 'retail', 'nightclub']
   )
-  const parcel = PUBLIC_TEMPLATES.find(item => item.id === 'parcel')
-  assert.ok(parcel)
-  assert.equal(parcel.demoPath, '/demo/parcel')
-  assert.equal(parcel.demoStatus, 'available')
-  assert.equal(parcel.title, 'PACHAX Encomiendas')
+  assert.ok(!PUBLIC_TEMPLATES.some(item => (item.id as string) === 'parcel'))
 })
 
-test('2. Studio Home exposes both canonical public templates and the internal Syndicate edition for operator validation', () => {
+test('2. Studio Home exposes PACHAX Encomiendas as a single internal template with selector Estándar / Sindicato', () => {
   const studioHomeCode = readFileSync(new URL('../src/studio/StudioHome.tsx', import.meta.url), 'utf8')
   assert.match(studioHomeCode, /id: 'parcel'/)
-  assert.match(studioHomeCode, /Edición Sindicato/)
   assert.match(studioHomeCode, /isInternal: true/)
+  assert.match(studioHomeCode, /Estándar \/ Sindicato/)
 })
 
 test('3. ParcelDemo enforces fail-closed Platform Operator authentication guard for syndicate edition in production', () => {
@@ -112,10 +108,18 @@ test('7. Edition switching purges syndicate state in controller to prevent cross
   }, /Operación no permitida: Esta función es exclusiva de la edición Sindicato/i)
 })
 
-test('8. Public demo enforces standard edition and isolates UI from syndicate modules', () => {
+test('8. StudioShell opens parcel as an internal template without requiring PUBLIC_TEMPLATES', () => {
+  const shellCode = readFileSync(new URL('../src/studio/StudioShell.tsx', import.meta.url), 'utf8')
+  assert.match(shellCode, /const isParcel = templateId === 'parcel'/)
+  assert.match(shellCode, /isParcel\s*\?\s*'PACHAX Encomiendas'/)
+  assert.match(shellCode, /isParcel \? \(/)
+  assert.match(shellCode, /<ParcelDemo/)
+})
+
+test('9. Studio Parcel Experience supports switching between Standard and Syndicate editions', () => {
   const demoCode = readFileSync(new URL('../src/demo/parcel/ParcelDemo.tsx', import.meta.url), 'utf8')
-  assert.match(demoCode, /if \(isPublic\) return 'standard'/)
   assert.match(demoCode, /allowEditionSwitch={!isPublic}/)
+  assert.match(demoCode, /storageScope = isPublic \? 'demo' : 'studio'/)
 
   const expCode = readFileSync(new URL('../src/modules/parcel/views/ParcelExperience.tsx', import.meta.url), 'utf8')
   assert.match(expCode, /allowEditionSwitch &&/)

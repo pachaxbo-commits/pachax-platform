@@ -2,7 +2,7 @@ import { gateway } from './gateway'
 
 export interface CommercialInterestRequest {
   requestId: string
-  templateId: 'restaurant' | 'hamburger' | 'distribution' | 'nightclub' | 'retail' | 'parcel' | 'parcel'
+  templateId: 'restaurant' | 'hamburger' | 'distribution' | 'nightclub' | 'retail'
   companyName: string
   contactPhone?: string
   needs?: string
@@ -22,7 +22,7 @@ export interface PublicCommercialInterestRequest {
   companyName: string
   email?: string
   contactPhone?: string
-  templateId: 'restaurant' | 'hamburger' | 'distribution' | 'nightclub' | 'retail' | 'parcel'
+  templateId: 'restaurant' | 'hamburger' | 'distribution' | 'nightclub' | 'retail'
   businessType: string
   needs?: string
   branchCount?: number
