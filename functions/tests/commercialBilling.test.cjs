@@ -13,7 +13,9 @@ const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const platform = require('../platform.cjs');
 const assisted = require('../assistedTenantProvisioning.cjs');
-const { hasPermission, tenantActor } = require('../authorization.cjs');
+const tenants = require('../tenants.cjs');
+const { hasPermission, hasTenantBillingAccess, tenantActor } = require('../authorization.cjs');
+const { processCommand } = require('../operations.cjs');
 
 const suffix = randomUUID().replace(/-/g, '');
 const app = initializeApp({ projectId }, `billing-core-${suffix}`);
@@ -27,6 +29,7 @@ const leadEmail = `billing-customer-${suffix}@example.test`;
 const planId = `billing-plan-${suffix}`;
 const nextPlanId = `billing-next-plan-${suffix}`;
 const extraId = `billing-extra-${suffix}`;
+const extraIdTwo = `billing-extra-two-${suffix}`;
 const createdPaths = [];
 const createdAuthUids = [];
 let rulesEnv;
@@ -55,6 +58,14 @@ async function seedPlan(id, name, monthly, annual) {
   await ref.set({ id, templateId: 'distribution', name, planKind: 'paid', status: 'published', priceApproval: 'approved',
     monthlyPriceUSD: monthly, annualPriceUSD: annual, currency: 'USD', commercialVersion: 1,
     includedFeatures: ['Inventario y rutas'], technicalEntitlements: [], createdAt: Timestamp.now() });
+}
+
+async function runDistributionAdjustment(tenantId, uid, label) {
+  const ref = db.doc(`tenants/${tenantId}/distOperations/${label}-${opId()}`);
+  await ref.set({ status: 'queued', tenantId, branchId: 'main', createdBy: uid, type: 'adjustment',
+    payload: { warehouseId: 'central', note: '', line: { productId: 'billing-access-test', quantity: 1 } } });
+  await processCommand(db, ref);
+  return (await ref.get()).data();
 }
 
 async function prepareAssistedInput(contractId, companyName, ownerEmail, operationId, ownerDisplayName = 'Propietario Billing QA') {
@@ -111,6 +122,9 @@ async function run() {
     await db.doc(`platformExtras/${extraId}`).set({ id: extraId, title: 'Configuración QA', pricingType: 'one_time',
       applicableTemplates: ['distribution'], status: 'published', commercialVersion: 1 });
     createdPaths.push(`platformExtras/${extraId}`);
+    await db.doc(`platformExtras/${extraIdTwo}`).set({ id: extraIdTwo, title: 'Capacitación QA', pricingType: 'one_time',
+      applicableTemplates: ['distribution'], status: 'published', commercialVersion: 1 });
+    createdPaths.push(`platformExtras/${extraIdTwo}`);
 
     const createId = opId();
     const intake = { action: 'createManualCommercialIntent', requestId: createId,
@@ -133,6 +147,17 @@ async function run() {
     assert.deepEqual(intent.requestedExtraSnapshots.map(item => item.id), [extraId]);
     await assert.rejects(platformCall(ownerUid, { ...intake, contactName: 'Datos distintos' }), error => error.code === 'already-exists');
     pass('registro manual de WhatsApp valida catálogo, captura plan/extras, es idempotente y no crea tenant');
+
+    for (const extraIds of [[extraId], [extraId, extraIdTwo]]) {
+      const noPlanInput = { ...intake, requestId: opId(), companyName: `${intake.companyName} sin plan ${extraIds.length}`,
+        email: `billing-extra-${extraIds.length}-${suffix}@example.test`, planId: null, extraIds };
+      const noPlanResult = await platformCall(ownerUid, noPlanInput);
+      const noPlanIntent = (await db.doc(`platformCommercialIntents/${noPlanResult.intentId}`).get()).data();
+      createdPaths.push(`platformCommercialIntents/${noPlanResult.intentId}`);
+      assert.equal(noPlanIntent.planSnapshot, null);
+      assert.deepEqual(noPlanIntent.requestedExtraSnapshots.map(item => item.id), extraIds);
+    }
+    pass('solicitudes sin plan conservan el primer extra y todos los extras solicitados');
 
     const quoteInput = { action: 'saveCommercialQuote', requestId: opId(), intentId: created.intentId,
       implementation: '50.00', monthly: '20.00', annual: '200.00', currency: 'USD', billingCycle: 'monthly',
@@ -221,6 +246,8 @@ async function run() {
     assert.equal(linkSnap.data().status, 'active');
     assert.equal(subscriptionSnap.data().status, 'active');
     assert(subscriptionSnap.data().nextRenewalAt);
+    assert(subscriptionSnap.data().billingAccessUntil);
+    assert(tenantSnap.data().billingAccessUntil);
     assert.equal(auth.getUser ? (await auth.getUser(provisionA.ownerUid)).disabled : true, false);
     const setupUrl = new URL(provisionA.ownerAccess.setupLink);
     const oobCode = setupUrl.searchParams.get('oobCode');
@@ -244,7 +271,63 @@ async function run() {
     delete legacyTenant.subscriptionStatus;
     assert.equal(hasPermission(legacyTenant, member, 'settings.manage'), true);
     assert.equal(hasPermission(tenant, { ...member, tenantId: 'other-tenant' }, 'settings.manage'), false);
-    pass('billingEnforcement bloquea tenants pendientes, conserva el acceso legacy y mantiene aislamiento de tenant');
+    pass('tenants con enforcement bloquean estados no activos; empresas legacy e aislamiento de tenant conservan su semántica');
+
+    const tenantClient = rulesEnv.authenticatedContext(provisionA.ownerUid).firestore();
+    const tenantDocument = doc(tenantClient, `tenants/${provisionA.tenantId}`);
+    const billingNow = Date.now();
+    const graceUntil = Timestamp.fromMillis(billingNow + 3 * 86_400_000);
+    await tenantRef.update({ subscriptionStatus: 'active', billingAccessUntil: graceUntil });
+    assert((await getDoc(tenantDocument)).exists());
+    assert(hasTenantBillingAccess((await tenantRef.get()).data()));
+    await tenantRef.update({ subscriptionStatus: 'overdue', billingAccessUntil: graceUntil });
+    assert((await getDoc(tenantDocument)).exists(), 'Firestore allows an overdue subscription inside grace');
+    assert(hasTenantBillingAccess((await tenantRef.get()).data()));
+    await tenantRef.update({ subscriptionStatus: 'active', billingAccessUntil: Timestamp.fromMillis(billingNow - 1) });
+    await assertFails(getDoc(tenantDocument));
+    assert.equal(hasTenantBillingAccess((await tenantRef.get()).data()), false);
+    await tenantRef.update({ subscriptionStatus: 'overdue', billingAccessUntil: Timestamp.fromMillis(billingNow - 1) });
+    await assertFails(getDoc(tenantDocument));
+    for (const status of ['suspended', 'cancelled', 'pending']) {
+      await tenantRef.update({ subscriptionStatus: status, billingAccessUntil: graceUntil });
+      await assertFails(getDoc(tenantDocument));
+      assert.equal(hasTenantBillingAccess((await tenantRef.get()).data()), false);
+    }
+    const distributionFunctionResults = [];
+    for (const [status, until] of [
+      ['active', graceUntil], ['overdue', graceUntil], ['active', Timestamp.fromMillis(billingNow - 1)],
+      ['suspended', graceUntil], ['cancelled', graceUntil],
+    ]) {
+      await tenantRef.update({ subscriptionStatus: status, billingAccessUntil: until });
+      distributionFunctionResults.push(await runDistributionAdjustment(provisionA.tenantId, provisionA.ownerUid, `billing-${status}`));
+    }
+    assert(!/suscripci[oó]n/i.test(distributionFunctionResults[0].error || ''), 'Active subscription reaches Distribution handler');
+    assert(!/suscripci[oó]n/i.test(distributionFunctionResults[1].error || ''), 'Grace subscription reaches Distribution handler');
+    for (const result of distributionFunctionResults.slice(2)) assert.match(result.error, /suscripci[oó]n/i);
+    const legacyWithNoBillingFields = { ...tenant };
+    delete legacyWithNoBillingFields.billingEnforcement;
+    delete legacyWithNoBillingFields.subscriptionStatus;
+    delete legacyWithNoBillingFields.billingAccessUntil;
+    await tenantRef.set(legacyWithNoBillingFields);
+    assert((await getDoc(tenantDocument)).exists(), 'Firestore preserves direct access for legacy tenant without billing fields');
+    assert(hasTenantBillingAccess((await tenantRef.get()).data()));
+    const legacyFunctionResult = await runDistributionAdjustment(provisionA.tenantId, provisionA.ownerUid, 'billing-legacy');
+    assert(!/suscripci[oó]n/i.test(legacyFunctionResult.error || ''), 'Legacy tenant reaches Distribution handler');
+    const validTenantFunction = await tenants.updateSettings(db, { auth: { uid: provisionA.ownerUid, token: {} }, data: { tenantId: provisionA.tenantId, name: 'Tenant QA acceso válido' } });
+    assert.equal(validTenantFunction.changed, true);
+    await tenantRef.update({ billingEnforcement: true, subscriptionStatus: 'suspended', billingAccessUntil: graceUntil });
+    await assert.rejects(() => tenants.updateSettings(db, { auth: { uid: provisionA.ownerUid, token: {} }, data: { tenantId: provisionA.tenantId, name: 'No debe guardarse' } }), error => error.code === 'permission-denied');
+    pass('Firestore Rules y Functions distinguen activa, gracia de 7 días, vencida, suspendida, cancelada, pendiente y legacy; Distribución y Function tenant bloquean acceso');
+
+    const subscriptionRef = db.doc(`platformSubscriptions/${contractResult.contractId}`);
+    await subscriptionRef.update({ status: 'overdue', currentPeriodEnd: Timestamp.fromMillis(billingNow - 1), billingAccessUntil: graceUntil });
+    let listed = await platformCall(ownerUid, { action: 'listBillingRecords', kind: 'subscriptions', limit: 100 });
+    assert.equal(listed.records.find(item => item.id === contractResult.contractId).effectiveStatus, 'grace');
+    await subscriptionRef.update({ currentPeriodEnd: Timestamp.fromMillis(billingNow - 8 * 86_400_000), billingAccessUntil: Timestamp.fromMillis(billingNow - 1) });
+    listed = await platformCall(ownerUid, { action: 'listBillingRecords', kind: 'subscriptions', limit: 100 });
+    assert.equal(listed.records.find(item => item.id === contractResult.contractId).effectiveStatus, 'expired');
+    await subscriptionRef.update({ status: 'active' });
+    pass('Admin recibe estados efectivos de gracia y vencida sin una Function programada');
 
     await db.doc(`platformSubscriptions/${contractResult.contractId}`).update({ currentPeriodEnd: Timestamp.fromMillis(Date.now() + 10 * 86_400_000) });
     const changeId = opId();
@@ -258,6 +341,7 @@ async function run() {
     assert.equal(scheduled.planKey, planId, 'the current plan remains effective until next renewal');
     assert.equal(scheduled.pendingPlanChange.planSnapshot.planId, nextPlanId);
     assert.equal((await db.doc(`platformContracts/${contractResult.contractId}`).get()).data().terms.plan.planId, planId, 'accepted terms remain immutable');
+    await subscriptionRef.update({ status: 'active', currentPeriodEnd: Timestamp.fromMillis(Date.now() + 10 * 86_400_000), billingAccessUntil: Timestamp.fromMillis(Date.now() + 17 * 86_400_000) });
     const renewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: contractResult.contractId, requestId: opId(), dueAt: dateAfter(7) });
     createdPaths.push(`platformBillingCharges/${renewal.chargeId}`);
     const duplicateRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: contractResult.contractId, requestId: opId(), dueAt: dateAfter(7) });

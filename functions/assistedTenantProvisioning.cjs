@@ -6,6 +6,7 @@ const { PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } = require('./generat
 const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
+const { billingAccessUntil: billingAccessUntilMillis } = require('./billingPolicy.cjs');
 
 async function ownerPlatformActor(db, request) {
   const actor = await platformActor(db, request, 'tenants.configure');
@@ -392,11 +393,13 @@ async function activateProvisionedTenant(db, actor, operation, reservation) {
       const start = new Date();
       const end = new Date(start);
       end.setUTCMonth(end.getUTCMonth() + (cycle === 'annual' ? 12 : 1));
-      Object.assign(activeFields, { subscriptionStatus: 'active', billingEnforcement: true, planKey: billingContract.data().terms.plan?.planId || null });
+      const periodEnd = Timestamp.fromDate(end);
+      const billingAccessUntil = Timestamp.fromMillis(billingAccessUntilMillis(periodEnd.toMillis()));
+      Object.assign(activeFields, { subscriptionStatus: 'active', billingEnforcement: true, planKey: billingContract.data().terms.plan?.planId || null, billingAccessUntil });
       tx.update(billingContractRef, { status: 'active', activatedAt: now, updatedAt: now });
       tx.update(subscriptionRef, {
         status: 'active', tenantId: operation.tenantId, currentPeriodStart: Timestamp.fromDate(start),
-        currentPeriodEnd: Timestamp.fromDate(end), nextRenewalAt: Timestamp.fromDate(end), activatedAt: now, updatedAt: now,
+        currentPeriodEnd: periodEnd, nextRenewalAt: periodEnd, billingAccessUntil, activatedAt: now, updatedAt: now,
       });
     }
     tx.update(root, activeFields);

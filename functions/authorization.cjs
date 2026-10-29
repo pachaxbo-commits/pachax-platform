@@ -10,9 +10,16 @@ function authenticated(request) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Inicia sesión para continuar.');
   return request.auth.uid;
 }
+function hasTenantBillingAccess(tenant, now = Date.now()) {
+  if (tenant?.billingEnforcement !== true) return true;
+  if (!['active', 'overdue'].includes(tenant.subscriptionStatus)) return false;
+  const until = tenant.billingAccessUntil?.toMillis?.()
+    ?? (tenant.billingAccessUntil instanceof Date ? tenant.billingAccessUntil.getTime() : NaN);
+  return Number.isFinite(until) && now < until;
+}
 function hasPermission(tenant, membership, permission) {
   if (membership?.status !== 'active' || membership.tenantId !== tenant.tenantId) return false;
-  if (tenant.billingEnforcement === true && tenant.subscriptionStatus !== 'active') return false;
+  if (!hasTenantBillingAccess(tenant)) return false;
   const template = getTemplate(tenant.businessType);
   if (tenant.businessType === 'nightclub_lounge' && permission === 'users.manage' && Array.isArray(membership.nightclubPermissions) && membership.nightclubPermissions.includes('special.manageUsers')) return tenant.configuration.features.users === true;
   const role = template.roles.find(item => item.id === membership.roleId);
@@ -44,4 +51,4 @@ function audit(db, tx, actor, action, resourceId, before = null, after = null, r
 function legacyMember(member) {
   return { ...member, role: member.roleId === 'owner' ? 'admin' : member.roleId, active: member.status === 'active', routeId: member.routeIds?.[0] || '', warehouseId: member.warehouseId || 'central' };
 }
-module.exports = { id, authenticated, tenantActor, hasPermission, audit, legacyMember, canUseModule };
+module.exports = { id, authenticated, tenantActor, hasPermission, hasTenantBillingAccess, audit, legacyMember, canUseModule };

@@ -1611,3 +1611,11 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - `test:platform` ejecutó 229 pruebas: 228 PASS y una falla previa no relacionada con Billing en `tests/publicTemplateCatalog.test.ts`, donde el fallback actual devuelve `hamburger` pero la expectativa versionada omite esa ficha. No se alteró el catálogo dentro de este bloque.
 - Sin tenants reales, usuarios reales, escrituras en Production, push, Preview, merge o deploy. Entregable local aún sin commit. Antes de crear Preview/PR revisar aislamiento de Firebase del deployment. Informe funcional: `docs/BILLING-CORE-MANUAL-V1.md`.
 - Siguiente entregable será una rama independiente para la habilitación técnica de Hamburger y Retail, después de respaldar/commitear Billing V1. No se integrará ni desplegará ninguno de los bloques sin autorización explícita.
+
+## Correcciones de revisión PR #7 — enforcement y extras (28/10/2026)
+
+- En `createManualCommercialIntent`, la lectura transaccional ya separa el snapshot opcional del plan de los extras; se verifican solicitudes sin plan con uno y varios extras.
+- La política de vencimiento es período pagado más 7 días de gracia. Activación y renovación persisten `billingAccessUntil`; Rules y Functions permiten solo `active`/`overdue` dentro del límite, y deniegan al vencer o ante `pending`, `suspended` y `cancelled`. Admin proyecta `grace`/`expired` en lectura, sin scheduler ni escrituras históricas.
+- `billingEnforcement != true` conserva expresamente el comportamiento legacy: no se cambian ni migran las siete empresas existentes.
+- Verificación focal de `test:billing-core`: 14 aserciones PASS, incluyendo acceso directo Firestore, `tenantActor`/ajuste de configuración y worker de Distribución; extras sin plan; y estados efectivos visibles para Admin. `build:functions-core`, `build:rules`, typecheck y `build:emulator` PASS. Build estándar no se ejecutó: faltan variables Firebase del entorno productivo; no se copiaron ni usaron secretos. ESLint focal se ejecutó sin reporte de errores. `git diff --check` pendiente al cerrar commit.
+- No se integró, publicó Preview ni desplegó. Candidato PR #7 aún requiere actualizar su rama remota y validar Preview; PR #8 debe incorporar este commit y repetir pruebas Retail/Comercio. No hubo escrituras fuera de `demo-pachax-billing-v1`.
