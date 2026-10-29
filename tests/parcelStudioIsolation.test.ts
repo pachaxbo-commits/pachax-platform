@@ -73,3 +73,31 @@ test('6. Dynamic Edition Switcher in DemoParcelController toggles standard vs si
   assert.equal(controller.getEdition(), 'sindicato')
   assert.equal(controller.getState().edition, 'sindicato')
 })
+
+test('7. Edition switching purges syndicate state in controller to prevent cross-profile leakage', () => {
+  const controller = new DemoParcelController('sindicato', 'full')
+  assert.ok(controller.getState().members.length > 0)
+  assert.ok(controller.getState().dues.length > 0)
+
+  controller.setEdition('standard')
+  assert.equal(controller.getState().edition, 'standard')
+  assert.equal(controller.getState().members.length, 0)
+  assert.equal(controller.getState().dues.length, 0)
+  assert.equal(controller.getState().workers.length, 0)
+  assert.equal(controller.getState().workerPayments.length, 0)
+  assert.equal(controller.getState().unionExpenses.length, 0)
+
+  // Exclusive syndicate method throws when standard is active
+  assert.throws(() => {
+    controller.addWorker({
+      fullName: 'No Permitido',
+      ci: '123',
+      phone: '000',
+      role: 'Chofer',
+      paymentModality: 'monthly',
+      agreedAmount: 100,
+      status: 'active',
+      joinedAt: '2026-10-28',
+    })
+  }, /Operación no permitida: Esta función es exclusiva de la edición Sindicato/i)
+})

@@ -1,5 +1,22 @@
 # Continuidad del proyecto PACHAX
 
+## PACHAX Encomiendas + Edición Sindicato — Estabilización integral de tarifas, caja cerrada, cuotas, aislamiento y reportes (28/10/2026)
+
+- **Rama de trabajo exclusiva:** `gemini/encomiendas-sindicato-demo`. Ninguna modificación a `main`, `cambios-dario`, otras plantillas ni landing pública.
+- **Correcciones funcionales implementadas:**
+  1. **Tarifas y cobros dinámicos:** En `calculateParcelPricing`, `NewParcelModal` y `demoParcelController`, todos los parámetros de cobro (tarifa base, kilos libres, recargo por exceso de peso y entrega a domicilio) se obtienen dinámicamente de `ParcelTariffConfig`. Se eliminó el uso de `||` para preservar tarifas legítimas en cero (`0`). Idéntico motor de cálculo rige la vista y el controlador.
+  2. **Caja y conciliación sin pérdida de operaciones:** Toda cobranza o egreso genera un `CashMovement` financiero trazable. En ausencia de turno abierto de caja, las operaciones se registran con `shiftId: 'pending_reconciliation'`, preservando la trazabilidad en efectivo, QR y transferencias bancarias sin bloqueos ficticios ni pérdida de información contable.
+  3. **Mensualidades sindicales y protección contra sobrepagos:** `applyDuePayment` rechaza estrictamente cobros mayores al saldo pendiente (`amount > due.balance`). Se incorporó el procedimiento de reversión `revertDuePayment` con restitución de saldos, registro de motivo y movimiento de reversión. Las cuotas respetan la configuración individual del socio (incluso cuota `0` para socios honorarios/exonerados).
+  4. **Aislamiento estricto de perfiles:** Conmutar al perfil estándar purga listas sindicales (socios, cuotas, personal, egresos). Invocar métodos exclusivos del sindicato en perfil estándar arroja error explícito bloqueante.
+  5. **Declaración jurada y control de entregas:** La declaración de sustancias prohibidas requiere aceptación explícita (inicia desmarcada). Se valida la identidad del receptor, parentesco/relación y motivo de cambio autorizado si no es titular. Se bloquean entregas duplicadas sobre encomiendas en estado terminal. Los números de guía, recibos y manifiestos utilizan el año en curso dinámico.
+  6. **Reportes y Resultado Operativo:** Botón de impresión aislado mediante iframe temporal del PDF sin imprimir la interfaz de Studio. Filtros de rango de fechas (`startDate`, `endDate`) aplicados de forma coherente a tablas, resúmenes y descargas PDF. Denominación consolidada como «Resultado Operativo & Resumen Financiero» con estricta desduplicación de egresos a trabajadores.
+- **Verificación y calidad:**
+  - Pruebas unitarias y de aislamiento: 29/29 PASS (`tests/parcelDomain.test.ts`, `tests/parcelStudioIsolation.test.ts`, `tests/publicTemplates.test.ts`, `tests/adminStudioReadiness.test.ts`).
+  - Verificación estricta de tipos TypeScript: `tsc -b` PASS (0 errores).
+  - Análisis estático de código: ESLint PASS (0 errores, 0 advertencias).
+  - Compilación de producción: `npm run build` PASS (0 errores).
+  - Verificación real en navegador con compilación de producción: confirmación de bloqueo fail-closed para accesos anónimos a Studio. Captura y actualización de 11 evidencias de QA visual en `docs/parcel-qa-evidence/` (escritorio, tablet y móvil).
+
 ## PACHAX Encomiendas + Edición Sindicato — Demo interna Studio, configuración dinámica y auditoría de verificación (28/10/2026)
 
 - **Rama aislada:** `gemini/encomiendas-sindicato-demo`, sincronizada e integrada con `origin/main` actualizado (commit `734aa37`, PR #6 de Codex). Ninguna modificación a `main`, `cambios-dario` ni ramas ajenas.

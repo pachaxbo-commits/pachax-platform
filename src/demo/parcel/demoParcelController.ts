@@ -36,6 +36,7 @@ import {
   validateParcelDelivery,
   generateMonthlyDuesForPeriod,
   applyDuePayment,
+  revertDuePayment,
 } from '../../modules/parcel/domain/parcelEngine.ts'
 
 export type DemoDatasetMode = 'full' | 'empty'
@@ -66,6 +67,13 @@ export class DemoParcelController {
           const parsed = JSON.parse(raw) as ParcelAppState
           if (parsed && Array.isArray(parsed.shipments)) {
             parsed.edition = this.edition
+            if (this.edition === 'standard') {
+              parsed.members = []
+              parsed.dues = []
+              parsed.workers = []
+              parsed.workerPayments = []
+              parsed.unionExpenses = []
+            }
             return parsed
           }
         }
@@ -113,13 +121,31 @@ export class DemoParcelController {
     return this.edition
   }
 
+  /**
+   * Valida que la edición activa sea Sindicato antes de ejecutar operaciones gremiales.
+   */
+  public ensureSyndicateEdition(): void {
+    if (this.edition !== 'sindicato') {
+      throw new Error('Operación no permitida: Esta función es exclusiva de la edición Sindicato.')
+    }
+  }
+
   public setEdition(newEdition: ParcelEdition): void {
     if (this.edition === newEdition) return
+    // 1. Guardar el estado de la edición saliente en su clave propia
+    this.saveState()
+    // 2. Cambiar de edición y cargar su estado independiente
     this.edition = newEdition
-    this.state = {
-      ...this.state,
-      edition: newEdition,
+    this.state = this.loadInitialState()
+    if (newEdition === 'standard') {
+      this.state.edition = 'standard'
+      this.state.members = []
+      this.state.dues = []
+      this.state.workers = []
+      this.state.workerPayments = []
+      this.state.unionExpenses = []
     }
+    // 3. Guardar el nuevo estado aislado y notificar
     this.saveState()
   }
 
@@ -152,13 +178,18 @@ export class DemoParcelController {
     sender: ParcelCustomer
     recipient: ParcelCustomer
     items: ParcelItemDeclaration[]
-    shippingFee: number
+    shippingFee?: number
     discount?: number
     paymentTiming: 'origin_paid' | 'destination_cod'
     paymentMethod?: 'cash' | 'qr' | 'transfer'
     operatorName?: string
     signatureCaptured?: string
+    prohibitedGoodsNoticeAccepted?: boolean
   }): ParcelShipment {
+    if (params.prohibitedGoodsNoticeAccepted !== true) {
+      throw new Error('Debe aceptarse la declaración jurada sobre sustancias prohibidas y mercancías restringidas.')
+    }
+
     const originBranch = this.state.branches.find(b => b.id === params.originBranchId) || this.state.branches[0]
     const destBranch = this.state.branches.find(b => b.id === params.destinationBranchId) || this.state.branches[1]
     const cashierName = params.operatorName || (this.state.activeShift?.operatorName || 'Operador de Ventanilla')
@@ -166,9 +197,20 @@ export class DemoParcelController {
     const existingCodes = this.state.shipments.map(s => s.trackingCode)
     const trackingCode = generateTrackingCode(existingCodes)
 
-    const pricing = calculateParcelPricing(params.shippingFee, params.discount || 0)
+    const totalWeightKg = params.items.reduce(
+      (acc, it) => acc + (typeof it.weightKg === 'number' && Number.isFinite(it.weightKg) ? Math.max(0, it.weightKg) : 0),
+      0
+    )
+
+    const pricing = calculateParcelPricing({
+      tariffConfig: this.state.tariffConfig,
+      customBaseFee: typeof params.shippingFee === 'number' && Number.isFinite(params.shippingFee) ? params.shippingFee : undefined,
+      weightKg: totalWeightKg,
+      deliveryType: params.deliveryType,
+      discount: typeof params.discount === 'number' && Number.isFinite(params.discount) ? params.discount : 0,
+    })
+
     const packageCount = params.items.reduce((acc, it) => acc + (it.quantity || 1), 0)
-    const totalWeightKg = params.items.reduce((acc, it) => acc + (it.weightKg || 0), 0)
     const declaredValueTotal = params.items.reduce((acc, it) => acc + (it.declaredValue || 0), 0)
     const isFragile = params.items.some(it => it.isFragile)
     const declaredSummary = params.items.map(it => `${it.quantity} ${it.packaging}(s) con ${it.description}`).join('; ')
@@ -203,7 +245,7 @@ export class DemoParcelController {
       paymentMethod: isPaidNow ? (params.paymentMethod || 'cash') : undefined,
       paidAt: isPaidNow ? now : undefined,
       paidBy: isPaidNow ? 'sender' : undefined,
-      cashierUid: this.state.activeShift?.operatorUid || 'op-cbb-01',
+      cashierUid: this.state.activeShift?.operatorUid || 'unassigned-shift',
       cashierName,
       status: 'received',
       history: [
@@ -226,31 +268,37 @@ export class DemoParcelController {
       updatedCustomers.push({ ...params.recipient, id: `cust-${Date.now()}-2` })
     }
 
-    // Si pagó en origen y hay turno de caja abierto, registrar movimiento de ingreso
+    // Trazabilidad financiera: Toda cobranza debe conservar un movimiento trazable
     const updatedMovements = [...this.state.cashMovements]
     const updatedShift = this.state.activeShift ? { ...this.state.activeShift } : null
 
-    if (isPaidNow && updatedShift) {
+    if (isPaidNow) {
+      const paymentMethod = params.paymentMethod || 'cash'
       const movement: CashMovement = {
         id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        shiftId: updatedShift.id,
+        shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
         timestamp: now,
         type: 'income',
         category: 'shipping_origin',
         amount: pricing.finalAmount,
-        paymentMethod: params.paymentMethod || 'cash',
-        concept: `Envío ${trackingCode} a ${destBranch.city}`,
+        paymentMethod,
+        concept: updatedShift
+          ? `Envío ${trackingCode} a ${destBranch.city}`
+          : `[Caja sin turno / Pendiente conciliación] Envío ${trackingCode} a ${destBranch.city}`,
         referenceId: shipment.id,
-        operatorUid: updatedShift.operatorUid,
+        operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
         operatorName: cashierName,
+        notes: updatedShift ? undefined : 'Cobro registrado sin turno abierto de caja. Requiere conciliación.',
       }
       updatedMovements.push(movement)
 
-      if (params.paymentMethod === 'cash' || !params.paymentMethod) {
-        updatedShift.totalCashIn += pricing.finalAmount
-        updatedShift.expectedCash += pricing.finalAmount
-      } else if (params.paymentMethod === 'qr') {
-        updatedShift.totalQrIn += pricing.finalAmount
+      if (updatedShift) {
+        if (paymentMethod === 'cash') {
+          updatedShift.totalCashIn += pricing.finalAmount
+          updatedShift.expectedCash += pricing.finalAmount
+        } else if (paymentMethod === 'qr') {
+          updatedShift.totalQrIn += pricing.finalAmount
+        }
       }
     }
 
@@ -383,6 +431,7 @@ export class DemoParcelController {
     receiverDoc: string
     recipientRelationship: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro'
     deliveryNotes?: string
+    authorizedChangeReason?: string
     isPayingNow?: boolean
     paymentMethod?: 'cash' | 'qr' | 'transfer'
     operatorName?: string
@@ -395,7 +444,9 @@ export class DemoParcelController {
       shipment,
       params.receiverName,
       params.receiverDoc,
-      params.isPayingNow
+      params.recipientRelationship,
+      params.isPayingNow,
+      params.authorizedChangeReason || params.deliveryNotes
     )
     if (!validation.canDeliver) {
       throw new Error(validation.error || 'No se puede entregar la encomienda.')
@@ -407,11 +458,12 @@ export class DemoParcelController {
 
     const deliveryRecord: ParcelDeliveryRecord = {
       deliveredAt: now,
-      deliveredByUid: this.state.activeShift?.operatorUid || 'op-dest',
+      deliveredByUid: this.state.activeShift?.operatorUid || 'unassigned-shift',
       deliveredByName: operator,
       receivedByName: params.receiverName.trim(),
       receivedByDoc: params.receiverDoc.trim(),
       recipientRelationship: params.recipientRelationship,
+      authorizedChangeReason: params.authorizedChangeReason,
       signatureCaptured: params.signatureCaptured,
       deliveryNotes: params.deliveryNotes,
     }
@@ -422,7 +474,7 @@ export class DemoParcelController {
       'delivered',
       operator,
       currentBranch.name,
-      `Entregado a ${params.receiverName} (${params.receiverDoc}).`
+      `Entregado a ${params.receiverName} (${params.receiverDoc}). Relación: ${params.recipientRelationship}.`
     )
 
     // Si se realizó cobro contraentrega (COD)
@@ -439,22 +491,25 @@ export class DemoParcelController {
         paidBy: 'recipient',
       }
 
-      if (updatedShift) {
-        const mov: CashMovement = {
-          id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          shiftId: updatedShift.id,
-          timestamp: now,
-          type: 'income',
-          category: 'shipping_destination',
-          amount: shipment.finalAmount,
-          paymentMethod,
-          concept: `Cobro contraentrega (COD) guía ${shipment.trackingCode}`,
-          referenceId: shipment.id,
-          operatorUid: updatedShift.operatorUid,
-          operatorName: operator,
-        }
-        updatedMovements.push(mov)
+      const mov: CashMovement = {
+        id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
+        timestamp: now,
+        type: 'income',
+        category: 'shipping_destination',
+        amount: shipment.finalAmount,
+        paymentMethod,
+        concept: updatedShift
+          ? `Cobro contraentrega (COD) guía ${shipment.trackingCode}`
+          : `[Caja sin turno / Pendiente conciliación] Cobro contraentrega (COD) guía ${shipment.trackingCode}`,
+        referenceId: shipment.id,
+        operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
+        operatorName: operator,
+        notes: updatedShift ? undefined : 'Cobro COD sin turno abierto de caja. Requiere conciliación.',
+      }
+      updatedMovements.push(mov)
 
+      if (updatedShift) {
         if (paymentMethod === 'cash') {
           updatedShift.totalCashIn += shipment.finalAmount
           updatedShift.expectedCash += shipment.finalAmount
@@ -537,6 +592,7 @@ export class DemoParcelController {
   // =========================================================================
 
   public createMember(member: Omit<UnionMember, 'id' | 'memberNumber'>): UnionMember {
+    this.ensureSyndicateEdition()
     const existingCount = this.state.members.length + 1
     const memberNumber = `SOC-${String(existingCount).padStart(3, '0')}`
 
@@ -554,13 +610,15 @@ export class DemoParcelController {
     return newMember
   }
 
-  public generateDuesPeriod(period: string, periodLabel: string, dueDate: string) {
+  public generateDuesPeriod(period: string, periodLabel: string, dueDate: string, standardFee = 150) {
+    this.ensureSyndicateEdition()
     const { createdDues, skippedCount } = generateMonthlyDuesForPeriod(
       this.state.members,
       this.state.dues,
       period,
       periodLabel,
-      dueDate
+      dueDate,
+      standardFee
     )
 
     this.state = {
@@ -578,6 +636,7 @@ export class DemoParcelController {
     notes?: string
     cashierName?: string
   }): UnionMonthlyDue {
+    this.ensureSyndicateEdition()
     const due = this.state.dues.find(d => d.id === params.dueId)
     if (!due) throw new Error('Cuota no encontrada.')
 
@@ -596,32 +655,80 @@ export class DemoParcelController {
       params.notes
     )
 
-    // Registrar ingreso en caja si hay turno activo
+    // Trazabilidad financiera: registrar siempre el movimiento
     const updatedMovements = [...this.state.cashMovements]
     const updatedShift = this.state.activeShift ? { ...this.state.activeShift } : null
 
-    if (updatedShift) {
-      const mov: CashMovement = {
-        id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        shiftId: updatedShift.id,
-        timestamp: new Date().toISOString(),
-        type: 'income',
-        category: 'union_due',
-        amount: params.amount,
-        paymentMethod: params.paymentMethod,
-        concept: `Cuota ${due.periodLabel} - ${due.memberName} (${due.memberNumber})`,
-        referenceId: due.id,
-        operatorUid: updatedShift.operatorUid,
-        operatorName: cashier,
-      }
-      updatedMovements.push(mov)
+    const mov: CashMovement = {
+      id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
+      timestamp: new Date().toISOString(),
+      type: 'income',
+      category: 'union_due',
+      amount: params.amount,
+      paymentMethod: params.paymentMethod,
+      concept: updatedShift
+        ? `Cuota ${due.periodLabel} - ${due.memberName} (${due.memberNumber})`
+        : `[Caja sin turno / Pendiente conciliación] Cuota ${due.periodLabel} - ${due.memberName} (${due.memberNumber})`,
+      referenceId: due.id,
+      operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
+      operatorName: cashier,
+      notes: updatedShift ? undefined : 'Cobro de cuota registrado sin turno abierto de caja. Requiere conciliación.',
+    }
+    updatedMovements.push(mov)
 
+    if (updatedShift) {
       if (params.paymentMethod === 'cash') {
         updatedShift.totalCashIn += params.amount
         updatedShift.expectedCash += params.amount
       } else if (params.paymentMethod === 'qr') {
         updatedShift.totalQrIn += params.amount
       }
+    }
+
+    this.state = {
+      ...this.state,
+      dues: this.state.dues.map(d => d.id === due.id ? updatedDue : d),
+      cashMovements: updatedMovements,
+      activeShift: updatedShift,
+      shifts: updatedShift
+        ? this.state.shifts.map(s => s.id === updatedShift.id ? updatedShift : s)
+        : this.state.shifts,
+    }
+
+    this.saveState()
+    return updatedDue
+  }
+
+  public revertDuePayment(dueId: string, paymentId: string, reason: string, cashierName?: string): UnionMonthlyDue {
+    this.ensureSyndicateEdition()
+    const due = this.state.dues.find(d => d.id === dueId)
+    if (!due) throw new Error('Cuota no encontrada.')
+
+    const cashier = cashierName || (this.state.activeShift?.operatorName || 'Secretaría de Hacienda')
+    const { updatedDue, revertedPayment } = revertDuePayment(due, paymentId, cashier, reason)
+
+    const updatedMovements = [...this.state.cashMovements]
+    const updatedShift = this.state.activeShift ? { ...this.state.activeShift } : null
+
+    const mov: CashMovement = {
+      id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
+      timestamp: new Date().toISOString(),
+      type: 'expense',
+      category: 'reversal',
+      amount: revertedPayment.amount,
+      paymentMethod: revertedPayment.paymentMethod,
+      concept: `Reversión/Anulación recibo ${revertedPayment.receiptNumber} (${due.memberName}). Motivo: ${reason}`,
+      referenceId: due.id,
+      operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
+      operatorName: cashier,
+    }
+    updatedMovements.push(mov)
+
+    if (updatedShift && revertedPayment.paymentMethod === 'cash') {
+      updatedShift.totalCashOut += revertedPayment.amount
+      updatedShift.expectedCash -= revertedPayment.amount
     }
 
     this.state = {
@@ -647,8 +754,10 @@ export class DemoParcelController {
     notes?: string
     registeredBy?: string
   }): UnionWorkerPayment {
+    this.ensureSyndicateEdition()
     const worker = this.state.workers.find(w => w.id === params.workerId)
     if (!worker) throw new Error('Trabajador no encontrado.')
+    if (params.amount <= 0) throw new Error('El importe debe ser mayor a cero.')
 
     const existingReceipts = this.state.workerPayments.map(p => p.receiptNumber)
     const receiptNumber = generateReceiptNumber(existingReceipts, 'PAGO-TRAB')
@@ -656,10 +765,11 @@ export class DemoParcelController {
     const operator = params.registeredBy || 'Secretaría de Hacienda'
 
     const payment: UnionWorkerPayment = {
-      id: `wpay-${Date.now()}`,
+      id: `wpay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       receiptNumber,
       workerId: worker.id,
       workerName: worker.fullName,
+      workerRole: worker.role,
       date: now,
       periodOrConcept: params.periodOrConcept,
       type: params.type,
@@ -669,30 +779,31 @@ export class DemoParcelController {
       notes: params.notes,
     }
 
-    // Registrar egreso en caja
+    // Trazabilidad financiera: registrar siempre el egreso
     const updatedMovements = [...this.state.cashMovements]
     const updatedShift = this.state.activeShift ? { ...this.state.activeShift } : null
 
-    if (updatedShift) {
-      const mov: CashMovement = {
-        id: `mov-${Date.now()}`,
-        shiftId: updatedShift.id,
-        timestamp: now,
-        type: 'expense',
-        category: 'worker_payment',
-        amount: params.amount,
-        paymentMethod: params.paymentMethod,
-        concept: `${params.periodOrConcept} - ${worker.fullName}`,
-        referenceId: payment.id,
-        operatorUid: updatedShift.operatorUid,
-        operatorName: operator,
-      }
-      updatedMovements.push(mov)
+    const mov: CashMovement = {
+      id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
+      timestamp: now,
+      type: 'expense',
+      category: 'worker_payment',
+      amount: params.amount,
+      paymentMethod: params.paymentMethod,
+      concept: updatedShift
+        ? `${params.periodOrConcept} - ${worker.fullName}`
+        : `[Caja sin turno / Pendiente conciliación] ${params.periodOrConcept} - ${worker.fullName}`,
+      referenceId: payment.id,
+      operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
+      operatorName: operator,
+      notes: updatedShift ? undefined : 'Egreso a trabajador registrado sin turno abierto de caja. Requiere conciliación.',
+    }
+    updatedMovements.push(mov)
 
-      if (params.paymentMethod === 'cash') {
-        updatedShift.totalCashOut += params.amount
-        updatedShift.expectedCash -= params.amount
-      }
+    if (updatedShift && params.paymentMethod === 'cash') {
+      updatedShift.totalCashOut += params.amount
+      updatedShift.expectedCash -= params.amount
     }
 
     this.state = {
@@ -717,13 +828,16 @@ export class DemoParcelController {
     invoiceOrVoucherNumber?: string
     registeredBy?: string
   }): UnionExpense {
+    this.ensureSyndicateEdition()
+    if (params.amount <= 0) throw new Error('El importe del gasto debe ser mayor a cero.')
+
     const existingReceipts = this.state.unionExpenses.map(e => e.receiptNumber)
     const receiptNumber = generateReceiptNumber(existingReceipts, 'GASTO')
     const now = new Date().toISOString()
     const operator = params.registeredBy || 'Secretaría de Hacienda'
 
     const expense: UnionExpense = {
-      id: `uexp-${Date.now()}`,
+      id: `uexp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       receiptNumber,
       date: now,
       category: params.category,
@@ -735,30 +849,31 @@ export class DemoParcelController {
       isWorkerPaymentLinked: false,
     }
 
-    // Registrar egreso en caja
+    // Trazabilidad financiera: registrar siempre el egreso
     const updatedMovements = [...this.state.cashMovements]
     const updatedShift = this.state.activeShift ? { ...this.state.activeShift } : null
 
-    if (updatedShift) {
-      const mov: CashMovement = {
-        id: `mov-${Date.now()}`,
-        shiftId: updatedShift.id,
-        timestamp: now,
-        type: 'expense',
-        category: 'utility_rent',
-        amount: params.amount,
-        paymentMethod: params.paymentMethod,
-        concept: `${params.description}`,
-        referenceId: expense.id,
-        operatorUid: updatedShift.operatorUid,
-        operatorName: operator,
-      }
-      updatedMovements.push(mov)
+    const mov: CashMovement = {
+      id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
+      timestamp: now,
+      type: 'expense',
+      category: 'utility_rent',
+      amount: params.amount,
+      paymentMethod: params.paymentMethod,
+      concept: updatedShift
+        ? `${params.description}`
+        : `[Caja sin turno / Pendiente conciliación] ${params.description}`,
+      referenceId: expense.id,
+      operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
+      operatorName: operator,
+      notes: updatedShift ? undefined : 'Gasto sindical registrado sin turno abierto de caja. Requiere conciliación.',
+    }
+    updatedMovements.push(mov)
 
-      if (params.paymentMethod === 'cash') {
-        updatedShift.totalCashOut += params.amount
-        updatedShift.expectedCash -= params.amount
-      }
+    if (updatedShift && params.paymentMethod === 'cash') {
+      updatedShift.totalCashOut += params.amount
+      updatedShift.expectedCash -= params.amount
     }
 
     this.state = {
@@ -826,6 +941,7 @@ export class DemoParcelController {
   }
 
   public addWorker(params: Omit<UnionWorker, 'id'>): UnionWorker {
+    this.ensureSyndicateEdition()
     const newWorker: UnionWorker = {
       ...params,
       id: `wrk-${Date.now()}`,

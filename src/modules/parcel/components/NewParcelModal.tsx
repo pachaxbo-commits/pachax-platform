@@ -13,6 +13,7 @@ import type {
   ParcelCustomer,
   ParcelItemDeclaration,
   ParcelPackaging,
+  ParcelTariffConfig,
 } from '../types'
 import { calculateParcelPricing } from '../domain/parcelEngine'
 
@@ -22,6 +23,7 @@ interface NewParcelModalProps {
   branches: ParcelBranch[]
   currentBranchId: string
   existingCustomers: ParcelCustomer[]
+  tariffConfig?: ParcelTariffConfig
   onSubmit: (data: {
     originBranchId: string
     destinationBranchId: string
@@ -34,6 +36,7 @@ interface NewParcelModalProps {
     discount: number
     paymentTiming: 'origin_paid' | 'destination_cod'
     paymentMethod: 'cash' | 'qr' | 'transfer'
+    prohibitedGoodsNoticeAccepted: boolean
   }) => void
 }
 
@@ -47,6 +50,7 @@ export function NewParcelModal({
   branches,
   currentBranchId,
   existingCustomers,
+  tariffConfig,
   onSubmit,
 }: NewParcelModalProps) {
   const originBranch = branches.find(b => b.id === currentBranchId) || branches[0]
@@ -81,14 +85,14 @@ export function NewParcelModal({
     },
   ])
 
-  // Tarifa y cobro
-  const [shippingFee, setShippingFee] = useState(35)
-  const [discount, setDiscount] = useState(0)
+  // Tarifa y cobro (obtenidos de la configuración vigente)
+  const [customBaseFee, setCustomBaseFee] = useState<number | undefined>(undefined)
+  const [discount, setDiscount] = useState<number>(0)
   const [paymentTiming, setPaymentTiming] = useState<'origin_paid' | 'destination_cod'>('origin_paid')
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr' | 'transfer'>('cash')
 
-  // Advertencia de seguridad
-  const [prohibitedAccepted, setProhibitedAccepted] = useState(true)
+  // Advertencia de seguridad (inicia en false por requisito de aceptación explícita)
+  const [prohibitedAccepted, setProhibitedAccepted] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const addItemRow = () => {
@@ -134,8 +138,17 @@ export function NewParcelModal({
     setRecipientPhone(c.phone)
   }
 
-  const totalWeight = items.reduce((acc, it) => acc + (Number(it.weightKg) || 0), 0)
-  const pricing = calculateParcelPricing(shippingFee, discount, totalWeight, 3)
+  const totalWeight = items.reduce(
+    (acc, it) => acc + (typeof it.weightKg === 'number' && Number.isFinite(it.weightKg) ? it.weightKg : 0),
+    0
+  )
+  const pricing = calculateParcelPricing({
+    tariffConfig,
+    customBaseFee,
+    weightKg: totalWeight,
+    deliveryType,
+    discount,
+  })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -194,10 +207,11 @@ export function NewParcelModal({
         phone: recipientPhone.trim(),
       },
       items,
-      shippingFee: pricing.baseFee + pricing.weightSurcharge,
+      shippingFee: pricing.baseFee,
       discount: pricing.discount,
       paymentTiming,
       paymentMethod,
+      prohibitedGoodsNoticeAccepted: prohibitedAccepted,
     })
   }
 
@@ -548,13 +562,18 @@ export function NewParcelModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tarifa de Envío (Bs.) *</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  Tarifa Base (Bs.) * {tariffConfig ? `(Vigente: ${tariffConfig.baseFee})` : ''}
+                </label>
                 <input
                   type="number"
-                  min="5"
-                  step="1"
-                  value={shippingFee}
-                  onChange={e => setShippingFee(parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="0.5"
+                  value={customBaseFee ?? tariffConfig?.baseFee ?? 35}
+                  onChange={e => {
+                    const val = parseFloat(e.target.value)
+                    setCustomBaseFee(Number.isFinite(val) ? Math.max(0, val) : 0)
+                  }}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 text-sm"
                   required
                 />
@@ -565,9 +584,12 @@ export function NewParcelModal({
                 <input
                   type="number"
                   min="0"
-                  step="1"
+                  step="0.5"
                   value={discount}
-                  onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
+                  onChange={e => {
+                    const val = parseFloat(e.target.value)
+                    setDiscount(Number.isFinite(val) ? Math.max(0, val) : 0)
+                  }}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-700 text-sm"
                 />
               </div>
@@ -603,8 +625,11 @@ export function NewParcelModal({
             <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-xl flex items-center justify-between">
               <div>
                 <span className="text-xs font-semibold text-teal-800">Total a liquidar:</span>
-                <span className="text-xs text-teal-600 ml-2">
-                  (Base: Bs. {pricing.baseFee} {pricing.weightSurcharge > 0 ? `+ Exceso peso: Bs. ${pricing.weightSurcharge}` : ''} {pricing.discount > 0 ? `- Descuento: Bs. ${pricing.discount}` : ''})
+                <span className="text-xs text-teal-700 ml-2">
+                  (Base: Bs. {pricing.baseFee.toFixed(2)}
+                  {pricing.weightSurcharge > 0 ? ` + Peso (${pricing.chargeableExcessWeightKg} kg): Bs. ${pricing.weightSurcharge.toFixed(2)}` : ''}
+                  {pricing.homeDeliveryFee > 0 ? ` + Domicilio: Bs. ${pricing.homeDeliveryFee.toFixed(2)}` : ''}
+                  {pricing.discount > 0 ? ` - Descuento: Bs. ${pricing.discount.toFixed(2)}` : ''})
                 </span>
               </div>
               <div className="text-xl font-black text-teal-900">

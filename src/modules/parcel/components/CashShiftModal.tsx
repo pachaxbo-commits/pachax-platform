@@ -26,9 +26,11 @@ export function CashShiftModal({
 }: CashShiftModalProps) {
   const [initialCash, setInitialCash] = useState<number>(200)
   const [operatorName, setOperatorName] = useState('Juan José Rocha')
-  const [actualCash, setActualCash] = useState<number>(activeShift?.expectedCash || 0)
+  const [actualCash, setActualCash] = useState<number>(activeShift?.expectedCash ?? 0)
   const [closingNotes, setClosingNotes] = useState('')
   const [isClosingConfirm, setIsClosingConfirm] = useState(false)
+
+  const pendingMovements = movements.filter(m => m.shiftId === 'pending_reconciliation')
 
   if (!isOpen) return null
 
@@ -74,8 +76,17 @@ export function CashShiftModal({
             <form onSubmit={handleOpen} className="space-y-4">
               <div className="p-4 bg-teal-50 border border-teal-200 rounded-xl text-teal-900 text-xs flex items-center gap-2.5">
                 <Unlock className="w-5 h-5 text-teal-700 shrink-0" />
-                <span>La caja de la agencia se encuentra cerrada. Abre un nuevo turno para registrar cobros y pagos.</span>
+                <span>La caja de la agencia se encuentra cerrada. Abre un nuevo turno para asignar cobranzas y arqueo.</span>
               </div>
+
+              {pendingMovements.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-1">
+                  <span className="font-bold block">Movimientos pendientes de conciliación ({pendingMovements.length}):</span>
+                  <p className="text-[11px] text-amber-800">
+                    Se registraron cobros o egresos fuera de turno por un neto de Bs. {pendingMovements.reduce((acc, m) => acc + (m.type === 'income' ? m.amount : -m.amount), 0).toFixed(2)}. Todos se encuentran preservados en el historial financiero.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">Cajero / Operador Responsable *</label>

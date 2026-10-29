@@ -16,6 +16,7 @@ export interface DocumentCompanyContext {
 export interface ParcelTariffConfig {
   baseFee: number
   freeWeightKg: number
+  includedWeightKg?: number
   extraKgRate: number
   homeDeliveryFee: number
 }
@@ -93,6 +94,7 @@ export interface ParcelDeliveryRecord {
   receivedByName: string
   receivedByDoc: string
   recipientRelationship: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro'
+  authorizedChangeReason?: string
   signatureCaptured?: string // SVG/Base64 o indicación de firma física comprobada
   deliveryNotes?: string
 }
@@ -178,6 +180,7 @@ export type CashCategory =
   | 'fuel'
   | 'other_income'
   | 'other_expense'
+  | 'reversal'
 
 export interface CashMovement {
   id: string
@@ -246,6 +249,9 @@ export interface UnionDuePayment {
   paymentMethod: PaymentMethod
   cashierName: string
   notes?: string
+  isReversed?: boolean
+  reversedAt?: string
+  reversalReason?: string
 }
 
 export interface UnionMonthlyDue {
@@ -282,6 +288,7 @@ export interface UnionWorkerPayment {
   receiptNumber: string
   workerId: string
   workerName: string
+  workerRole?: string
   date: string
   periodOrConcept: string
   type: 'salary' | 'advance' | 'bonus' | 'travel_allowance'

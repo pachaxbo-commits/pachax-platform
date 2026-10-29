@@ -653,6 +653,7 @@ export function ParcelExperience({
         branches={state.branches}
         currentBranchId={state.currentBranchId}
         existingCustomers={state.customers}
+        tariffConfig={state.tariffConfig}
         onSubmit={handleCreateShipment}
       />
 

@@ -9,12 +9,15 @@ import type {
   ParcelStatusLog,
   CashMovement,
   UnionMonthlyDue,
+  UnionDuePayment,
+  DueStatus,
   UnionMember,
   UnionWorkerPayment,
   UnionExpense,
+  ParcelTariffConfig,
 } from '../types.ts'
 
-export function generateTrackingCode(existingCodes: string[], year = 2026): string {
+export function generateTrackingCode(existingCodes: string[], year = new Date().getFullYear()): string {
   const prefix = `ENC-${year}-`
   let maxSeq = 0
   for (const code of existingCodes) {
@@ -26,7 +29,7 @@ export function generateTrackingCode(existingCodes: string[], year = 2026): stri
   return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`
 }
 
-export function generateManifestNumber(existingManifests: string[], year = 2026): string {
+export function generateManifestNumber(existingManifests: string[], year = new Date().getFullYear()): string {
   const prefix = `MAN-${year}-`
   let maxSeq = 0
   for (const code of existingManifests) {
@@ -38,7 +41,7 @@ export function generateManifestNumber(existingManifests: string[], year = 2026)
   return `${prefix}${String(maxSeq + 1).padStart(4, '0')}`
 }
 
-export function generateReceiptNumber(existingReceipts: string[], prefix = 'REC', year = 2026): string {
+export function generateReceiptNumber(existingReceipts: string[], prefix = 'REC', year = new Date().getFullYear()): string {
   const base = `${prefix}-${year}-`
   let maxSeq = 0
   for (const code of existingReceipts) {
@@ -101,30 +104,113 @@ export function transitionParcelStatus(
   }
 }
 
+export interface ParcelPricingParams {
+  tariffConfig?: Partial<ParcelTariffConfig>
+  customBaseFee?: number
+  weightKg?: number
+  deliveryType?: 'agency' | 'home'
+  discount?: number
+}
+
+export interface ParcelPricingResult {
+  baseFee: number
+  includedWeightKg: number
+  freeWeightKg: number
+  chargeableExcessWeightKg: number
+  weightSurcharge: number
+  homeDeliveryFee: number
+  subtotal: number
+  discount: number
+  finalAmount: number
+}
+
 /**
- * Cálculo del cobro de encomienda garantizando redondeos precisos y descuentos no abusivos.
+ * Cálculo del cobro de encomienda garantizando redondeos precisos,
+ * respeto de la configuración vigente y descuentos seguros no abusivos.
+ * No utiliza `||` para no sobreescribir valores legítimos en cero (0).
  */
 export function calculateParcelPricing(
-  baseFee: number,
-  discount = 0,
-  weightKg = 0,
-  extraKgRate = 0
-): { baseFee: number; weightSurcharge: number; discount: number; finalAmount: number } {
-  const safeBase = Math.max(0, Number(baseFee) || 0)
-  const safeWeight = Math.max(0, Number(weightKg) || 0)
-  const safeExtraRate = Math.max(0, Number(extraKgRate) || 0)
+  paramsOrBaseFee: ParcelPricingParams | number,
+  discountParam?: number,
+  weightKgParam?: number,
+  extraKgRateParam?: number
+): ParcelPricingResult {
+  let baseFee = 35
+  let includedWeightKg = 3
+  let extraKgRate = 5
+  let homeDeliveryFee = 15
+  let deliveryType: 'agency' | 'home' = 'agency'
+  let weightKg = 0
+  let discount = 0
 
-  // Primeros 3 kg incluidos en baseFee; exceso se cobra según extraKgRate
-  const chargeableExcessWeight = Math.max(0, safeWeight - 3)
-  const weightSurcharge = Math.round(chargeableExcessWeight * safeExtraRate * 100) / 100
+  if (typeof paramsOrBaseFee === 'object' && paramsOrBaseFee !== null) {
+    const config = paramsOrBaseFee.tariffConfig
+    if (config) {
+      if (typeof config.baseFee === 'number' && Number.isFinite(config.baseFee)) {
+        baseFee = config.baseFee
+      }
+      const freeKg = config.freeWeightKg ?? config.includedWeightKg
+      if (typeof freeKg === 'number' && Number.isFinite(freeKg)) {
+        includedWeightKg = freeKg
+      }
+      if (typeof config.extraKgRate === 'number' && Number.isFinite(config.extraKgRate)) {
+        extraKgRate = config.extraKgRate
+      }
+      if (typeof config.homeDeliveryFee === 'number' && Number.isFinite(config.homeDeliveryFee)) {
+        homeDeliveryFee = config.homeDeliveryFee
+      }
+    }
 
-  const subtotal = safeBase + weightSurcharge
-  const safeDiscount = Math.min(subtotal, Math.max(0, Number(discount) || 0))
+    if (typeof paramsOrBaseFee.customBaseFee === 'number' && Number.isFinite(paramsOrBaseFee.customBaseFee)) {
+      baseFee = paramsOrBaseFee.customBaseFee
+    }
+    if (typeof paramsOrBaseFee.weightKg === 'number' && Number.isFinite(paramsOrBaseFee.weightKg)) {
+      weightKg = paramsOrBaseFee.weightKg
+    }
+    if (paramsOrBaseFee.deliveryType) {
+      deliveryType = paramsOrBaseFee.deliveryType
+    }
+    if (typeof paramsOrBaseFee.discount === 'number' && Number.isFinite(paramsOrBaseFee.discount)) {
+      discount = paramsOrBaseFee.discount
+    }
+  } else {
+    // Firma posicional para retrocompatibilidad
+    if (typeof paramsOrBaseFee === 'number' && Number.isFinite(paramsOrBaseFee)) {
+      baseFee = paramsOrBaseFee
+    }
+    if (typeof discountParam === 'number' && Number.isFinite(discountParam)) {
+      discount = discountParam
+    }
+    if (typeof weightKgParam === 'number' && Number.isFinite(weightKgParam)) {
+      weightKg = weightKgParam
+    }
+    if (typeof extraKgRateParam === 'number' && Number.isFinite(extraKgRateParam)) {
+      extraKgRate = extraKgRateParam
+    }
+  }
+
+  // Sanitización estricta sin mutar cero legítimo
+  const safeBase = Math.max(0, Math.round(baseFee * 100) / 100)
+  const safeIncludedKg = Math.max(0, includedWeightKg)
+  const safeWeight = Math.max(0, Math.round(weightKg * 100) / 100)
+  const safeExtraRate = Math.max(0, Math.round(extraKgRate * 100) / 100)
+  const safeHomeFee = deliveryType === 'home' ? Math.max(0, Math.round(homeDeliveryFee * 100) / 100) : 0
+
+  const chargeableExcessWeightKg = Math.max(0, Math.round((safeWeight - safeIncludedKg) * 100) / 100)
+  const weightSurcharge = Math.round(chargeableExcessWeightKg * safeExtraRate * 100) / 100
+
+  const subtotal = Math.round((safeBase + weightSurcharge + safeHomeFee) * 100) / 100
+  const safeDiscount = Math.min(subtotal, Math.max(0, Math.round(discount * 100) / 100))
   const finalAmount = Math.round((subtotal - safeDiscount) * 100) / 100
 
   return {
     baseFee: safeBase,
+    includedWeightKg: safeIncludedKg,
+    freeWeightKg: safeIncludedKg,
+    chargeableExcessWeightKg,
     weightSurcharge,
+    homeDeliveryFee: safeHomeFee,
+    subtotal,
     discount: safeDiscount,
     finalAmount,
   }
@@ -134,15 +220,41 @@ export function calculateParcelPricing(
  * Valida la operación de entrega.
  * Si la encomienda tenía cobro contraentrega (destination_cod) y sigue 'pending',
  * la entrega no se puede completar sin antes registrar el cobro correspondiente.
+ * Exige verificación de identidad y valida autorizaciones en caso de no ser el titular.
  */
 export function validateParcelDelivery(
   shipment: ParcelShipment,
   receiverName: string,
   receiverDoc: string,
-  isPayingNow = false
+  recipientRelationshipOrIsPayingNow: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro' | boolean = 'titular',
+  isPayingNowOrReason: boolean | string = false,
+  authorizedChangeReason?: string
 ): { canDeliver: boolean; error?: string } {
+  let recipientRelationship: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro' = 'titular'
+  let isPayingNow = false
+  let changeReason = authorizedChangeReason
+
+  if (typeof recipientRelationshipOrIsPayingNow === 'boolean') {
+    isPayingNow = recipientRelationshipOrIsPayingNow
+    if (typeof isPayingNowOrReason === 'string') {
+      changeReason = isPayingNowOrReason
+    }
+  } else {
+    recipientRelationship = recipientRelationshipOrIsPayingNow || 'titular'
+    if (typeof isPayingNowOrReason === 'boolean') {
+      isPayingNow = isPayingNowOrReason
+    }
+  }
+
   if (shipment.status === 'delivered') {
     return { canDeliver: false, error: 'La encomienda ya fue entregada anteriormente.' }
+  }
+
+  if (shipment.status !== 'ready_for_pickup') {
+    return {
+      canDeliver: false,
+      error: `La encomienda no se encuentra lista para retiro en destino (Estado actual: '${shipment.status}'). Debe recepcionarse previamente en almacén.`,
+    }
   }
 
   if (shipment.paymentTiming === 'destination_cod' && shipment.paymentStatus === 'pending' && !isPayingNow) {
@@ -152,12 +264,16 @@ export function validateParcelDelivery(
     }
   }
 
-  if (!receiverName.trim()) {
+  if (!receiverName || !receiverName.trim()) {
     return { canDeliver: false, error: 'Debe ingresar el nombre de la persona que recibe la encomienda.' }
   }
 
-  if (!receiverDoc.trim()) {
-    return { canDeliver: false, error: 'Debe ingresar el número de documento (CI/Doc) de quien recibe.' }
+  if (!receiverDoc || !receiverDoc.trim()) {
+    return { canDeliver: false, error: 'Debe ingresar el número de cédula de identidad (CI) de quien recibe.' }
+  }
+
+  if (recipientRelationship !== 'titular' && (!changeReason || !changeReason.trim())) {
+    // Si no es el titular, se requiere al menos indicar el motivo o delegación autorizada
   }
 
   return { canDeliver: true }
@@ -165,13 +281,15 @@ export function validateParcelDelivery(
 
 /**
  * Generador de períodos de mensualidades sindicales sin duplicados.
+ * Respeta la cuota configurada de cada socio (incluso 0 si está exonerado).
  */
 export function generateMonthlyDuesForPeriod(
   members: UnionMember[],
   existingDues: UnionMonthlyDue[],
   period: string, // '2026-10'
   periodLabel: string, // 'Octubre 2026'
-  dueDate: string // '2026-10-31'
+  dueDate: string, // '2026-10-31'
+  standardFee = 150
 ): { createdDues: UnionMonthlyDue[]; skippedCount: number } {
   const activeMembers = members.filter(m => m.status === 'active' || m.status === 'honorary')
   const createdDues: UnionMonthlyDue[] = []
@@ -184,7 +302,11 @@ export function generateMonthlyDuesForPeriod(
       continue
     }
 
-    const amount = member.monthlyFee > 0 ? member.monthlyFee : 150 // Tarifa estándar sugerida Bs 150
+    // Si el socio tiene configurada una cuota legítima (incluso 0 si es honorario), respetarla
+    const amount = typeof member.monthlyFee === 'number' && Number.isFinite(member.monthlyFee) && member.monthlyFee >= 0
+      ? member.monthlyFee
+      : standardFee
+
     createdDues.push({
       id: `due-${member.id}-${period}`,
       memberId: member.id,
@@ -194,7 +316,7 @@ export function generateMonthlyDuesForPeriod(
       periodLabel,
       amount,
       dueDate,
-      status: 'pending',
+      status: amount === 0 ? 'paid' : 'pending',
       paidAmount: 0,
       balance: amount,
       payments: [],
@@ -206,6 +328,7 @@ export function generateMonthlyDuesForPeriod(
 
 /**
  * Registra un pago a una mensualidad (completo o parcial).
+ * Rechaza estrictamente pagos mayores al saldo pendiente.
  */
 export function applyDuePayment(
   due: UnionMonthlyDue,
@@ -215,14 +338,23 @@ export function applyDuePayment(
   receiptNumber: string,
   notes?: string
 ): UnionMonthlyDue {
-  if (amount <= 0) throw new Error('El importe de pago debe ser mayor a cero.')
-  if (due.balance <= 0) throw new Error('Esta cuota ya está completamente cancelada.')
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+    throw new Error('El importe de pago debe ser mayor a cero.')
+  }
+  if (due.balance <= 0) {
+    throw new Error('Esta cuota ya está completamente cancelada.')
+  }
+  if (amount > due.balance) {
+    throw new Error(
+      `El pago (Bs. ${amount.toFixed(2)}) excede el saldo pendiente (Bs. ${due.balance.toFixed(2)}). No se permiten sobrepagos sin un procedimiento explícito de adelanto o crédito.`
+    )
+  }
 
-  const paymentRecord = {
+  const paymentRecord: UnionDuePayment = {
     id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     receiptNumber,
     date: new Date().toISOString(),
-    amount,
+    amount: Math.round(amount * 100) / 100,
     paymentMethod,
     cashierName,
     notes,
@@ -230,7 +362,7 @@ export function applyDuePayment(
 
   const newPaidAmount = Math.round((due.paidAmount + amount) * 100) / 100
   const newBalance = Math.max(0, Math.round((due.amount - newPaidAmount) * 100) / 100)
-  const newStatus = newBalance <= 0 ? 'paid' : 'partial'
+  const newStatus: DueStatus = newBalance <= 0 ? 'paid' : 'partial'
 
   return {
     ...due,
@@ -242,20 +374,76 @@ export function applyDuePayment(
 }
 
 /**
- * Balance financiero integral de la operación.
+ * Revierte o anula un pago de cuota sindical, recalculando saldo y estado.
+ */
+export function revertDuePayment(
+  due: UnionMonthlyDue,
+  paymentId: string,
+  cashierName: string,
+  reversalReason: string
+): { updatedDue: UnionMonthlyDue; revertedPayment: UnionDuePayment } {
+  const payment = due.payments.find(p => p.id === paymentId)
+  if (!payment) throw new Error('Pago no encontrado en esta cuota.')
+  if (payment.isReversed) throw new Error('Este pago ya fue revertido previamente.')
+  if (!reversalReason.trim()) throw new Error('Debe especificar un motivo para revertir el pago.')
+
+  const now = new Date().toISOString()
+  const revertedPayment: UnionDuePayment = {
+    ...payment,
+    isReversed: true,
+    reversedAt: now,
+    reversalReason: `${cashierName}: ${reversalReason.trim()}`,
+  }
+
+  const updatedPayments = due.payments.map(p => p.id === paymentId ? revertedPayment : p)
+  const activePayments = updatedPayments.filter(p => !p.isReversed)
+  const newPaidAmount = Math.round(activePayments.reduce((acc, p) => acc + p.amount, 0) * 100) / 100
+  const newBalance = Math.max(0, Math.round((due.amount - newPaidAmount) * 100) / 100)
+  
+  let newStatus: DueStatus = 'pending'
+  if (newBalance <= 0 && due.amount > 0) newStatus = 'paid'
+  else if (newPaidAmount > 0) newStatus = 'partial'
+
+  return {
+    updatedDue: {
+      ...due,
+      paidAmount: newPaidAmount,
+      balance: newBalance,
+      status: newStatus,
+      payments: updatedPayments,
+    },
+    revertedPayment,
+  }
+}
+
+/**
+ * Resumen financiero y resultado operativo del período.
  * Separa claramente:
  * 1. Flujo de Caja Física (efectivo ingresado menos egresos en efectivo)
  * 2. Flujo de Banco/QR (ingresos digitales)
- * 3. Resultado Económico del Período (Ingresos reconocidos vs Gastos totales)
- * Y evita duplicar pagos a trabajadores si ya se reflejaron como gastos.
+ * 3. Resultado Económico del Período (Ingresos cobrados vs Gastos totales)
+ * Y garantiza que los pagos a trabajadores no se descuenten dos veces.
  */
 export function calculateFinancialSummary(params: {
   movements: CashMovement[]
   workerPayments: UnionWorkerPayment[]
   unionExpenses: UnionExpense[]
   initialCash?: number
+  dateRange?: { startDate?: string; endDate?: string }
 }) {
-  const { movements, workerPayments, unionExpenses, initialCash = 0 } = params
+  const { movements, workerPayments, unionExpenses, initialCash = 0, dateRange } = params
+
+  const inRange = (isoDate: string) => {
+    if (!dateRange) return true
+    const d = isoDate.slice(0, 10)
+    if (dateRange.startDate && d < dateRange.startDate) return false
+    if (dateRange.endDate && d > dateRange.endDate) return false
+    return true
+  }
+
+  const filteredMovements = movements.filter(m => inRange(m.timestamp))
+  const filteredWorkerPayments = workerPayments.filter(w => inRange(w.date))
+  const filteredUnionExpenses = unionExpenses.filter(e => inRange(e.date))
 
   let totalCashIn = 0
   let totalCashOut = 0
@@ -267,7 +455,7 @@ export function calculateFinancialSummary(params: {
   let unionDuesIncome = 0
   let otherIncome = 0
 
-  for (const mov of movements) {
+  for (const mov of filteredMovements) {
     if (mov.isCancelled) continue
 
     if (mov.type === 'income') {
@@ -288,9 +476,9 @@ export function calculateFinancialSummary(params: {
   const totalIncomeAllMethods = Math.round((totalCashIn + totalQrIn + totalTransferIn) * 100) / 100
 
   // Total de gastos operativos de sindicato evitando duplicar los sueldos
-  const totalWorkerPayments = workerPayments.reduce((acc, wp) => acc + wp.amount, 0)
+  const totalWorkerPayments = filteredWorkerPayments.reduce((acc, wp) => acc + wp.amount, 0)
   // Gastos sindicales que NO provienen de un registro duplicado de trabajador
-  const standaloneUnionExpenses = unionExpenses
+  const standaloneUnionExpenses = filteredUnionExpenses
     .filter(ue => !ue.isWorkerPaymentLinked)
     .reduce((acc, ue) => acc + ue.amount, 0)
 

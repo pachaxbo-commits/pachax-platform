@@ -10,10 +10,11 @@ import {
   validateParcelDelivery,
   generateMonthlyDuesForPeriod,
   applyDuePayment,
+  revertDuePayment,
   calculateFinancialSummary,
 } from '../src/modules/parcel/domain/parcelEngine.ts'
 import { DemoParcelController } from '../src/demo/parcel/demoParcelController.ts'
-import type { ParcelShipment, UnionMember } from '../src/modules/parcel/types.ts'
+import type { ParcelShipment, UnionMember, CashMovement } from '../src/modules/parcel/types.ts'
 
 test('1. Generador de códigos únicos de guía, manifiesto y recibos', () => {
   const codes = ['ENC-2026-00101', 'ENC-2026-00102']
@@ -280,6 +281,7 @@ test('6. DemoParcelController: ciclo completo de recepción, manifiesto y entreg
     items: [{ description: 'Caja con zapatos', category: 'clothing', quantity: 2, packaging: 'caja', weightKg: 4, isFragile: false }],
     shippingFee: 50,
     paymentTiming: 'destination_cod',
+    prohibitedGoodsNoticeAccepted: true,
   })
 
   assert.ok(shipment.trackingCode.startsWith('ENC-2026-'))
@@ -434,4 +436,264 @@ test('8. Configuración dinámica: agencias, tarifas, datos de empresa y registr
   })
   assert.ok(worker.id.startsWith('wrk-'))
   assert.equal(controller.getState().workers.find(w => w.id === worker.id)?.fullName, 'David Mamani Quispe')
+})
+
+test('9. Motor de Tarifas: respeta configuración dinámica, tarifa cero legítima y entrega a domicilio', () => {
+  // Caso 1: Tarifa promocional con baseFee = 0 (no debe sobreescribirse con 35 mediante ||)
+  const zeroBase = calculateParcelPricing({
+    tariffConfig: { baseFee: 0, includedWeightKg: 2, extraKgRate: 4, homeDeliveryFee: 12 },
+    weightKg: 2,
+    deliveryType: 'agency',
+    discount: 0,
+  })
+  assert.equal(zeroBase.baseFee, 0)
+  assert.equal(zeroBase.weightSurcharge, 0)
+  assert.equal(zeroBase.homeDeliveryFee, 0)
+  assert.equal(zeroBase.finalAmount, 0)
+
+  // Caso 2: Entrega a domicilio con exceso de peso y decimales
+  const homeWithExcess = calculateParcelPricing({
+    tariffConfig: { baseFee: 25, includedWeightKg: 3, extraKgRate: 5, homeDeliveryFee: 15 },
+    weightKg: 5.5, // 2.5 kg exceso * 5 = 12.50
+    deliveryType: 'home', // +15
+    discount: 2.5,
+  })
+  assert.equal(homeWithExcess.baseFee, 25)
+  assert.equal(homeWithExcess.chargeableExcessWeightKg, 2.5)
+  assert.equal(homeWithExcess.weightSurcharge, 12.5)
+  assert.equal(homeWithExcess.homeDeliveryFee, 15)
+  assert.equal(homeWithExcess.subtotal, 52.5)
+  assert.equal(homeWithExcess.discount, 2.5)
+  assert.equal(homeWithExcess.finalAmount, 50)
+
+  // Caso 3: Descuento que no puede superar el subtotal
+  const excessiveDiscount = calculateParcelPricing({
+    tariffConfig: { baseFee: 30, includedWeightKg: 3, extraKgRate: 0, homeDeliveryFee: 0 },
+    weightKg: 1,
+    deliveryType: 'agency',
+    discount: 100, // no debe dar negativo
+  })
+  assert.equal(excessiveDiscount.subtotal, 30)
+  assert.equal(excessiveDiscount.discount, 30)
+  assert.equal(excessiveDiscount.finalAmount, 0)
+})
+
+test('10. Conciliación y Caja Cerrada: todas las operaciones conservan movimiento financiero trazable', () => {
+  const controller = new DemoParcelController('sindicato', 'empty')
+  // Asegurar que no hay turno abierto
+  assert.equal(controller.getState().activeShift, null)
+
+  const initialMovements = controller.getState().cashMovements.length
+
+  // Registrar envío pagado en origen con caja cerrada
+  const shipment = controller.registerShipment({
+    originBranchId: controller.getState().branches[0].id,
+    destinationBranchId: controller.getState().branches[1].id,
+    deliveryType: 'agency',
+    sender: { id: 'c1', name: 'Remitente Test', docType: 'CI', phone: '7000' },
+    recipient: { id: 'c2', name: 'Receptor Test', docType: 'CI', phone: '7001' },
+    items: [{ description: 'Sobre de documentos', category: 'documents', quantity: 1, packaging: 'sobre', weightKg: 0.5, isFragile: false }],
+    paymentTiming: 'origin_paid',
+    paymentMethod: 'qr',
+    prohibitedGoodsNoticeAccepted: true,
+  })
+  assert.equal(shipment.paymentStatus, 'paid')
+
+  // Se registró el movimiento con shiftId 'pending_reconciliation'
+  const movementsAfterShipment = controller.getState().cashMovements
+  assert.equal(movementsAfterShipment.length, initialMovements + 1)
+  const movShipment = movementsAfterShipment[0]
+  assert.equal(movShipment.shiftId, 'pending_reconciliation')
+  assert.equal(movShipment.paymentMethod, 'qr')
+  assert.equal(movShipment.amount, shipment.finalAmount)
+
+  // Registrar gasto sindical con caja cerrada
+  const expense = controller.registerUnionExpense({
+    category: 'combustible_mantenimiento',
+    description: 'Gasolina auxilio mecánico',
+    amount: 80,
+    paymentMethod: 'cash',
+    receiptNumber: 'GAS-0099',
+  })
+  assert.equal(expense.amount, 80)
+
+  const movementsAfterExpense = controller.getState().cashMovements
+  assert.equal(movementsAfterExpense.length, initialMovements + 2)
+  const movExpense = movementsAfterExpense.find(m => m.referenceId === expense.id) || movementsAfterExpense[movementsAfterExpense.length - 1]
+  assert.equal(movExpense.shiftId, 'pending_reconciliation')
+  assert.equal(movExpense.type, 'expense')
+  assert.equal(movExpense.amount, 80)
+
+  // El resumen financiero incluye los movimientos aun con turno cerrado
+  const summary = calculateFinancialSummary({
+    movements: controller.getState().cashMovements,
+    workerPayments: controller.getState().workerPayments,
+    unionExpenses: controller.getState().unionExpenses,
+  })
+  assert.ok(summary.totalIncomeAllMethods > 0)
+})
+
+test('11. Mensualidades Sindicales: rechazo de sobrepagos, cuota cero y reversión de pago', () => {
+  const member: UnionMember = {
+    id: 'm-test',
+    memberNumber: 'SOC-999',
+    fullName: 'Socio De Prueba',
+    ci: '999999',
+    phone: '799999',
+    joinedAt: '2026-01-01',
+    status: 'active',
+    category: 'propietario_transporte',
+    monthlyFee: 200,
+  }
+
+  const { createdDues } = generateMonthlyDuesForPeriod([member], [], '2026-11', 'Noviembre 2026', '2026-11-30')
+  const due = createdDues[0]
+  assert.equal(due.amount, 200)
+  assert.equal(due.balance, 200)
+
+  // 1. Intento de sobrepago debe ser estrictamente rechazado
+  assert.throws(() => {
+    applyDuePayment(due, 250, 'cash', 'Cajero', 'REC-ERR')
+  }, /No se permiten sobrepagos sin un procedimiento explícito de adelanto o crédito/)
+
+  // 2. Pago parcial legítimo
+  const partial = applyDuePayment(due, 120, 'transfer', 'Cajero', 'REC-001')
+  assert.equal(partial.paidAmount, 120)
+  assert.equal(partial.balance, 80)
+  assert.equal(partial.status, 'partial')
+  const paymentId = partial.payments[0].id
+
+  // 3. Reversión del pago
+  const { updatedDue, revertedPayment } = revertDuePayment(partial, paymentId, 'Supervisor', 'Error en comprobante bancario')
+  assert.equal(revertedPayment.isReversed, true)
+  assert.match(revertedPayment.reversalReason || '', /Error en comprobante/)
+  assert.equal(updatedDue.paidAmount, 0)
+  assert.equal(updatedDue.balance, 200)
+  assert.equal(updatedDue.status, 'pending')
+
+  // 4. Socio con cuota 0 (exonerado u honorario)
+  const exemptMember: UnionMember = {
+    ...member,
+    id: 'm-exempt',
+    memberNumber: 'SOC-000',
+    status: 'honorary',
+    monthlyFee: 0,
+  }
+  const { createdDues: exemptDues } = generateMonthlyDuesForPeriod([exemptMember], [], '2026-11', 'Noviembre 2026', '2026-11-30')
+  assert.equal(exemptDues[0].amount, 0)
+  assert.equal(exemptDues[0].status, 'paid')
+})
+
+test('12. Aislamiento estricto de perfiles: Standard no accede ni copia datos sindicales', () => {
+  const controller = new DemoParcelController('sindicato', 'full')
+  assert.ok(controller.getState().members.length > 0)
+  assert.ok(controller.getState().workers.length > 0)
+
+  // Al conmutar al perfil standard, los datos sindicales se aíslan y limpian
+  controller.setEdition('standard')
+  assert.equal(controller.getEdition(), 'standard')
+  assert.equal(controller.getState().members.length, 0)
+  assert.equal(controller.getState().workers.length, 0)
+  assert.equal(controller.getState().dues.length, 0)
+  assert.equal(controller.getState().workerPayments.length, 0)
+  assert.equal(controller.getState().unionExpenses.length, 0)
+
+  // Los métodos de sindicato quedan bloqueados lanzando error
+  assert.throws(() => {
+    controller.payDue({ dueId: 'any', amount: 50, paymentMethod: 'cash' })
+  }, /Operación no permitida: Esta función es exclusiva de la edición Sindicato/i)
+
+  assert.throws(() => {
+    controller.registerWorkerPayment({
+      workerId: 'w1',
+      workerName: 'Pedro',
+      amount: 100,
+      paymentMethod: 'cash',
+      type: 'salary',
+      periodOrConcept: 'Semana',
+    })
+  }, /Operación no permitida: Esta función es exclusiva de la edición Sindicato/i)
+
+  assert.throws(() => {
+    controller.registerUnionExpense({
+      category: 'impresion_facturacion',
+      description: 'Papelería',
+      amount: 30,
+      paymentMethod: 'cash',
+    })
+  }, /Operación no permitida: Esta función es exclusiva de la edición Sindicato/i)
+})
+
+test('13. Declaración de mercancías restringidas e integridad de entregas', () => {
+  const controller = new DemoParcelController('standard', 'empty')
+
+  // Rechazo por no aceptar la declaración jurada
+  assert.throws(() => {
+    controller.registerShipment({
+      originBranchId: controller.getState().branches[0].id,
+      destinationBranchId: controller.getState().branches[1].id,
+      deliveryType: 'agency',
+      sender: { id: 'c1', name: 'Rem', docType: 'CI', phone: '1' },
+      recipient: { id: 'c2', name: 'Rec', docType: 'CI', phone: '2' },
+      items: [{ description: 'Caja', category: 'general', quantity: 1, packaging: 'caja', weightKg: 1, isFragile: false }],
+      paymentTiming: 'origin_paid',
+      prohibitedGoodsNoticeAccepted: false,
+    })
+  }, /Debe aceptarse la declaración jurada sobre sustancias prohibidas/)
+
+  // Entrega no permite doble entrega
+  const fakeDeliveredShipment: ParcelShipment = {
+    id: 's-delivered',
+    trackingCode: 'ENC-2026-00050',
+    createdAt: new Date().toISOString(),
+    originBranchId: 'cbb',
+    originCity: 'Cochabamba',
+    destinationBranchId: 'lpz',
+    destinationCity: 'La Paz',
+    deliveryType: 'agency',
+    sender: { id: 'c1', name: 'A', docType: 'CI', phone: '1' },
+    recipient: { id: 'c2', name: 'B', docType: 'CI', phone: '2' },
+    items: [],
+    declaredSummary: 'Paquete',
+    packageCount: 1,
+    totalWeightKg: 1,
+    declaredValueTotal: 0,
+    isFragile: false,
+    prohibitedGoodsNoticeAccepted: true,
+    shippingFee: 35,
+    discount: 0,
+    finalAmount: 35,
+    paymentTiming: 'origin_paid',
+    paymentStatus: 'paid',
+    cashierUid: 'u1',
+    cashierName: 'Op',
+    status: 'delivered',
+    history: [],
+  }
+
+  const dupDelivery = validateParcelDelivery(fakeDeliveredShipment, 'Receptor', '999', 'titular')
+  assert.equal(dupDelivery.canDeliver, false)
+  assert.match(dupDelivery.error || '', /ya fue entregada anteriormente/)
+})
+
+test('14. Filtros de rango de fechas en Resultado Operativo & Resumen Financiero', () => {
+  const movements: CashMovement[] = [
+    { id: '1', shiftId: 's1', timestamp: '2026-10-01T10:00:00Z', type: 'income', category: 'shipping_origin', amount: 100, paymentMethod: 'cash', concept: 'Envío 1', operatorUid: 'u1', operatorName: 'Op' },
+    { id: '2', shiftId: 's1', timestamp: '2026-10-15T10:00:00Z', type: 'income', category: 'shipping_origin', amount: 200, paymentMethod: 'cash', concept: 'Envío 2', operatorUid: 'u1', operatorName: 'Op' },
+    { id: '3', shiftId: 's1', timestamp: '2026-10-28T10:00:00Z', type: 'income', category: 'shipping_origin', amount: 300, paymentMethod: 'cash', concept: 'Envío 3', operatorUid: 'u1', operatorName: 'Op' },
+  ]
+
+  // Sin filtro toma todos: 600
+  const totalAll = calculateFinancialSummary({ movements, workerPayments: [], unionExpenses: [] })
+  assert.equal(totalAll.totalCashIn, 600)
+
+  // Con filtro entre 2026-10-10 y 2026-10-20 toma solo el de 200
+  const filtered = calculateFinancialSummary({
+    movements,
+    workerPayments: [],
+    unionExpenses: [],
+    dateRange: { startDate: '2026-10-10', endDate: '2026-10-20' },
+  })
+  assert.equal(filtered.totalCashIn, 200)
+  assert.equal(filtered.totalIncomeAllMethods, 200)
 })

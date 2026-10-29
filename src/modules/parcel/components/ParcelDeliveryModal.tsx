@@ -23,6 +23,7 @@ interface ParcelDeliveryModalProps {
     receiverDoc: string
     recipientRelationship: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro'
     deliveryNotes?: string
+    authorizedChangeReason?: string
     isPayingNow?: boolean
     paymentMethod?: 'cash' | 'qr' | 'transfer'
     signatureCaptured?: string
@@ -48,6 +49,7 @@ export function ParcelDeliveryModal({
     preselectedShipment?.recipient.docNumber || readyShipments[0]?.recipient.docNumber || ''
   )
   const [relationship, setRelationship] = useState<'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro'>('titular')
+  const [authorizedChangeReason, setAuthorizedChangeReason] = useState('')
   const [deliveryNotes, setDeliveryNotes] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr' | 'transfer'>('cash')
 
@@ -156,6 +158,11 @@ export function ParcelDeliveryModal({
       return
     }
 
+    if (relationship !== 'titular' && !authorizedChangeReason.trim()) {
+      setError('Al entregar a un familiar, apoderado o tercero, debes indicar el motivo o respaldo de la autorización.')
+      return
+    }
+
     try {
       const isCodPending = selectedShipment.paymentTiming === 'destination_cod' && selectedShipment.paymentStatus === 'pending'
       
@@ -170,6 +177,7 @@ export function ParcelDeliveryModal({
         receiverDoc: receiverDoc.trim(),
         recipientRelationship: relationship,
         deliveryNotes: deliveryNotes.trim() || undefined,
+        authorizedChangeReason: authorizedChangeReason.trim() || undefined,
         isPayingNow: isCodPending,
         paymentMethod,
         signatureCaptured: signatureDataUrl,
@@ -436,6 +444,23 @@ export function ParcelDeliveryModal({
                   </select>
                 </div>
               </div>
+
+              {relationship !== 'titular' && (
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs space-y-1">
+                  <label className="block font-bold">Respaldo / Autorización de Retiro por Tercero *</label>
+                  <input
+                    type="text"
+                    value={authorizedChangeReason}
+                    onChange={e => setAuthorizedChangeReason(e.target.value)}
+                    placeholder="Ej. Autorización telefónica del remitente, carta poder o fotocopia de CI"
+                    className="w-full bg-white border border-amber-300 rounded-lg p-1.5 text-xs font-medium text-slate-900"
+                    required
+                  />
+                  <p className="text-[10px] text-amber-800">
+                    Al entregar a alguien que no es el titular, debe registrarse el motivo o comprobante de autorización.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Observaciones de Entrega (Opcional)</label>
