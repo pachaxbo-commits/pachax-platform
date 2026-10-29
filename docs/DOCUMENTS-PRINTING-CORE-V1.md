@@ -44,4 +44,3 @@ Para tenants con `billingEnforcement`, los controles de UI y los servicios clien
 - Tres pruebas antiguas de `src/services/printing/__tests__/printEngine.test.ts` no pasaron al invocar esa suite aisladamente: escenarios de lease/recovery (dos) y raster de logo. No son parte de los archivos de lógica modificados; la suite no se usa para declarar hardware validado y debe resolverse antes de considerar recovery/impresión física certificados.
 - ESLint focal de los archivos nuevos y de Admin/Retail pasó. El lint del conjunto modificado también encuentra deuda heredada de tipos/`catch` en `receiptService`, `NightclubExperience` y `printOrchestratorService`; no se amplió este bloque para refactorizarla.
 - No se creó Preview ni se modificó Production, Firebase, Rules, IAM, facturación, demos publicadas o código de Encomiendas.
-

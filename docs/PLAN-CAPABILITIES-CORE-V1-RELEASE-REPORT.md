@@ -20,4 +20,3 @@
 ## Compatibilidad
 
 Los tenants legacy sin `billingEnforcement: true` mantienen el comportamiento previo y no recibieron migraciones ni cambios de datos. El nuevo índice se limita a la colección Retail indicada. No se desplegaron Storage Rules, pasarelas de pago ni servicios ajenos a PR #12.
-

@@ -67,4 +67,3 @@ test('shared receipt projection preserves totals and company branding', () => {
   assert.equal(payload.grandTotal, 14)
   assert.equal(payload.items[0].lineTotal, 14)
 })
-
