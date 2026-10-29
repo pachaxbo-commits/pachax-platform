@@ -485,6 +485,12 @@ export async function updatePlanInStore(
     if (updated.status === 'published' && (updated.technicalEntitlements || []).length > 0) {
       return { success: false, error: 'Billing Core no valida entitlements todavía. Quita las asignaciones técnicas antes de publicar.' }
     }
+    if (updated.status === 'published' && updated.planKind === 'free') {
+      return { success: false, error: 'Plan Free sigue sin publicación hasta completar el flujo seguro, anuncios y controles antiabuso.' }
+    }
+    if (updated.status === 'published' && (!updated.capabilitiesV1 || updated.capabilitiesV1.version !== 1)) {
+      return { success: false, error: 'Completa el contrato de capacidades V1 antes de publicar el plan.' }
+    }
     if (updated.status === 'published' && updated.planKind !== 'free' && (!(Number(updated.monthlyPriceUSD) > 0) || !(Number(updated.annualPriceUSD) > 0))) {
       return { success: false, error: 'Completa precios mensual y anual mayores que cero antes de publicar el plan de pago.' }
     }
@@ -554,28 +560,18 @@ export async function togglePublishPlanInStore(
       if ((targetPlan.technicalEntitlements || []).length > 0) {
         return { success: false, error: 'Billing Core no valida entitlements todavía. Quita las asignaciones técnicas antes de publicar.' }
       }
-      if (targetPlan.planKind !== 'free' && (!(targetPlan.monthlyPriceUSD > 0) || !(targetPlan.annualPriceUSD > 0))) {
+      if (targetPlan.planKind === 'free') return { success: false, error: 'Plan Free sigue sin publicación hasta completar el flujo seguro, anuncios y controles antiabuso.' }
+      if (!targetPlan.capabilitiesV1 || targetPlan.capabilitiesV1.version !== 1) return { success: false, error: 'Completa el contrato de capacidades V1 antes de publicar el plan.' }
+      if (!(targetPlan.monthlyPriceUSD > 0) || !(targetPlan.annualPriceUSD > 0)) {
         return { success: false, error: 'Completa precios mensual y anual mayores que cero antes de publicar el plan de pago.' }
       }
-      if (targetPlan.planKind === 'free') {
-        const publishedFreeCount = current.plans.filter(
-          (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published' && p.planKind === 'free',
-        ).length
-        if (publishedFreeCount >= 1) {
-          return {
-            success: false,
-            error: 'Cada plantilla permite un máximo de 1 plan gratuito activo publicado simultáneamente en el catálogo.',
-          }
-        }
-      } else {
-        const publishedPaidCount = current.plans.filter(
-          (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published' && p.planKind !== 'free',
-        ).length
-        if (publishedPaidCount >= 3) {
-          return {
-            success: false,
-            error: 'Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
-          }
+      const publishedPaidCount = current.plans.filter(
+        (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published' && p.planKind !== 'free',
+      ).length
+      if (publishedPaidCount >= 3) {
+        return {
+          success: false,
+          error: 'Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.',
         }
       }
     }

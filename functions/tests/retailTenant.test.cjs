@@ -76,7 +76,11 @@ async function main() {
     const template = require('../generated/templates.js').getTemplate('gelateria_weight_cafe')
     await db.doc(`tenants/${tenantId}`).set({ tenantId, name: 'QA Comercio', businessType: 'gelateria_weight_cafe', ownerUid,
       billingEnforcement: true, subscriptionStatus: 'active', billingAccessUntil: new Date(Date.now() + 30 * 86_400_000),
+      commercialCapabilities: { version: 1, businessType: 'gelateria_weight_cafe', limits: { activeUsers: 100, activeProducts: 200, activeBranches: 1 },
+        features: { reports: { basic: true, detailed: false, export: false }, receipts: { digital: false },
+          printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } },
       configuration: { features: template.defaults.features } })
+    await db.doc(`tenants/${tenantId}/commercialUsage/active`).set({ activeUsers: 1, activeProducts: 0, activeBranches: 1 })
     await db.doc(`tenants/${tenantId}/branches/main`).set({ tenantId, branchId: 'main', active: true })
     await db.doc(`tenants/${tenantId}/branches/other`).set({ tenantId, branchId: 'other', active: true })
     await Promise.all(template.roles.map(role => db.doc(`tenants/${tenantId}/roles/${role.id}`).set({ ...role, tenantId })))
@@ -124,6 +128,52 @@ async function main() {
 
     const weighted = await mustPass(ownerToken, { commandType: 'saveProduct', operationId: `weighted-${suffix}`, payload: { name: 'Café a granel', category: 'A granel', sku: 'CAF-1', soldBy: 'weight', priceMinor: 10000 } })
     const unit = await mustPass(ownerToken, { commandType: 'saveProduct', operationId: `unit-${suffix}`, payload: { name: 'Taza', category: 'Cafetería', sku: 'TAZ-1', soldBy: 'unit', priceMinor: 2500 } })
+    assert.equal((await db.doc(`tenants/${tenantId}/commercialUsage/active`).get()).data().activeProducts, 2)
+    const archivedUnitInput = { commandType: 'archiveProduct', operationId: `archive-unit-${suffix}`, payload: { productId: unit.productId, reason: 'Producto discontinuado QA' } }
+    const archivedUnit = await mustPass(ownerToken, archivedUnitInput)
+    assert.equal(archivedUnit.status, 'archived')
+    const archiveReplay = await mustPass(ownerToken, archivedUnitInput)
+    assert.equal(archiveReplay.productId, unit.productId)
+    assert.equal((await db.doc(`tenants/${tenantId}/commercialUsage/active`).get()).data().activeProducts, 1,
+      'Archiving releases exactly one active product slot.')
+    const archivedDoc = await db.doc(`tenants/${tenantId}/retailProducts/${unit.productId}`).get()
+    assert.equal(archivedDoc.exists, true, 'Archiving must preserve the product document and references.')
+    assert.equal(archivedDoc.data().active, false)
+    assert.equal(archivedDoc.data().archiveReason, 'Producto discontinuado QA')
+    const repeatedArchive = await mustPass(ownerToken, { commandType: 'archiveProduct', operationId: `archive-again-${suffix}`,
+      payload: { productId: unit.productId, reason: 'No reemplazar el motivo original' } })
+    assert.equal(repeatedArchive.status, 'already_archived')
+    const afterRepeatedArchive = await db.doc(`tenants/${tenantId}/retailProducts/${unit.productId}`).get()
+    assert.equal(afterRepeatedArchive.data().archiveReason, archivedDoc.data().archiveReason)
+    assert.equal(afterRepeatedArchive.data().archivedAt, archivedDoc.data().archivedAt)
+    assert.equal((await db.doc(`tenants/${tenantId}/commercialUsage/active`).get()).data().activeProducts, 1)
+    const stateAfterArchive = await mustPass(ownerToken, { commandType: 'load' })
+    assert.equal(stateAfterArchive.products.some(product => product.id === unit.productId), false)
+    assert.equal(stateAfterArchive.archivedProducts.some(product => product.id === unit.productId), true)
+    const archiveAudit = await db.collection(`tenants/${tenantId}/auditLogs`).where('resourceId', '==', unit.productId).get()
+    assert(archiveAudit.docs.some(item => item.data().action === 'retail.archiveProduct'
+      && item.data().after?.reason === 'Producto discontinuado QA'))
+    await mustDeny(cashierToken, { ...archivedUnitInput, operationId: `cashier-archive-${suffix}` })
+    await mustDeny(cashierToken, { commandType: 'restoreProduct', operationId: `cashier-restore-${suffix}`, payload: { productId: unit.productId } })
+    const [reactivatedA, reactivatedB] = await Promise.all([
+      mustPass(ownerToken, { commandType: 'restoreProduct', operationId: `reactivate-a-${suffix}`, payload: { productId: unit.productId } }),
+      mustPass(ownerToken, { commandType: 'restoreProduct', operationId: `reactivate-b-${suffix}`, payload: { productId: unit.productId } }),
+    ])
+    assert.equal(reactivatedA.productId, unit.productId)
+    assert.equal(reactivatedB.productId, unit.productId)
+    assert.equal([reactivatedA, reactivatedB].filter(result => result.restored).length, 1)
+    assert.equal([reactivatedA, reactivatedB].filter(result => result.status === 'already_active').length, 1)
+    assert.equal((await db.doc(`tenants/${tenantId}/commercialUsage/active`).get()).data().activeProducts, 2,
+      'Concurrent reactivation may consume only one active slot.')
+    const restoredDoc = await db.doc(`tenants/${tenantId}/retailProducts/${unit.productId}`).get()
+    assert.equal(restoredDoc.data().active, true)
+    assert.equal(restoredDoc.data().archivedAt, null)
+    const restoreAudit = await db.collection(`tenants/${tenantId}/auditLogs`).where('resourceId', '==', unit.productId).get()
+    assert(restoreAudit.docs.some(item => item.data().action === 'retail.restoreProduct'))
+    const stateAfterRestore = await mustPass(ownerToken, { commandType: 'load' })
+    assert.equal(stateAfterRestore.products.some(product => product.id === unit.productId), true)
+    assert.equal(stateAfterRestore.archivedProducts.some(product => product.id === unit.productId), false)
+    pass('archivado transaccional conserva historial, audita motivo, libera cupo una sola vez y reactivar concurrentemente lo consume una sola vez')
     await mustPass(stockToken, { commandType: 'adjustStock', operationId: `stock-w-${suffix}`, payload: { productId: weighted.productId, delta: 1000, reason: 'Ingreso inicial de prueba' } })
     await mustPass(stockToken, { commandType: 'adjustStock', operationId: `stock-u-${suffix}`, payload: { productId: unit.productId, delta: 1, reason: 'Ingreso inicial de prueba' } })
     pass('producto por kg y por unidad persiste precio menor y existencias en unidades base inequívocas')

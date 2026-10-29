@@ -22,6 +22,10 @@ const operatorUid = `platform-owner-${suffix}`;
 const adminUid = `platform-admin-${suffix}`;
 const ownerEmail = `qa-owner-${suffix}@example.test`;
 const existingEmail = `existing-owner-${suffix}@example.test`;
+const capabilitiesFor = businessType => ({ version: 1, businessType,
+  limits: { activeUsers: 5, activeProducts: 50, activeBranches: 1 },
+  features: { reports: { basic: true, detailed: false, export: false }, receipts: { digital: false },
+    printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } });
 const resetUrlBase = `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1`;
 let env;
 let passed = 0;
@@ -77,7 +81,8 @@ async function paidRequest(operationId, overrides = {}) {
   await db.doc(`platformContracts/${billingContractId}`).set({
     contractId: billingContractId, status: 'ready_for_activation', businessType: payload.businessType,
     customer: { companyName: payload.companyName, email: payload.ownerEmail },
-    terms: { companyName: payload.companyName, billingCycle: 'monthly', currency: 'USD', recurringMinor: 1200, plan: null },
+    terms: { companyName: payload.companyName, billingCycle: 'monthly', currency: 'USD', recurringMinor: 1200, plan: null,
+      capabilitiesV1: capabilitiesFor(payload.businessType) },
     initialChargeId, createdAt: new Date(),
   });
   await db.doc(`platformBillingCharges/${initialChargeId}`).set({
@@ -174,6 +179,11 @@ try {
   ]);
   assert.equal(tenantSnap.data().status, 'active');
   assert.equal(tenantSnap.data().businessType, 'route_distribution');
+  assert.deepEqual(tenantSnap.data().commercialCapabilities, capabilitiesFor('route_distribution'));
+  const usage = (await tenantRef.collection('commercialUsage').doc('active').get()).data();
+  assert.equal(usage.activeUsers, 1);
+  assert.equal(usage.activeProducts, 0);
+  assert.equal(usage.activeBranches, 1);
   assert.equal(tenantSnap.data().planKey, null);
   assert.deepEqual(tenantSnap.data().entitlements, {});
   assert.equal(memberSnap.data().roleId, 'owner');

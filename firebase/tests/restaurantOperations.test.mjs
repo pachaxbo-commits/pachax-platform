@@ -568,7 +568,11 @@ try {
   const hambTemplate = getTemplate('hamburger_shop')
   await hambRoot.set({ tenantId: hambTenantId, name: 'Burger Express QA', businessType: 'hamburger_shop',
     billingEnforcement: true, subscriptionStatus: 'active', billingAccessUntil: new Date(Date.now() + 30 * 86_400_000),
+    commercialCapabilities: { version: 1, businessType: 'hamburger_shop', limits: { activeUsers: 100, activeProducts: 200, activeBranches: 1 },
+      features: { reports: { basic: true, detailed: false, export: false }, receipts: { digital: false },
+        printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } },
     configuration: hambTemplate.defaults })
+  await hambRoot.collection('commercialUsage').doc('active').set({ activeUsers: 4, activeProducts: 0, activeBranches: 1 })
   await hambRoot.collection('branches').doc('main').set({ id: 'main', name: 'Principal', active: true })
   for (const role of hambTemplate.roles) {
     await hambRoot.collection('roles').doc(role.id).set({ ...role, tenantId: hambTenantId })

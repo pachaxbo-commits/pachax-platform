@@ -1,6 +1,7 @@
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { authenticated, id, hasPermission } = require('./authorization.cjs')
+const { adjustProductUsage } = require('./commercialCapabilities.cjs')
 
 const MONEY_LIMIT = 9_000_000_000
 const validMinor = value => Number.isSafeInteger(value) && value >= 0 && value <= MONEY_LIMIT
@@ -58,8 +59,9 @@ async function load(db, request) {
   const branchId = id(request.data?.branchId || 'main')
   const actor = await retailActor(db, request, ['sales.read', 'inventory.read', 'reports.read', 'cash.close'], branchId)
   const { root, tenantId } = actor
-  const [productsSnap, stateSnap, salesSnap] = await Promise.all([
-    root.collection('retailProducts').where('branchId', '==', branchId).limit(201).get(),
+  const [productsSnap, archivedProductsSnap, stateSnap, salesSnap] = await Promise.all([
+    root.collection('retailProducts').where('branchId', '==', branchId).where('active', '==', true).limit(201).get(),
+    root.collection('retailProducts').where('branchId', '==', branchId).where('active', '==', false).limit(201).get(),
     root.collection('retailOperationalState').doc(branchId).get(),
     hasPermission(actor.tenant, actor.member, 'reports.read')
       ? root.collection('retailSales').where('branchId', '==', branchId).orderBy('createdAt', 'desc').limit(50).get()
@@ -74,6 +76,8 @@ async function load(db, request) {
   } else if (shiftId) shift = { id: shiftId, status: 'open' }
   return {
     products: productsSnap.docs.map(doc => doc.data()).filter(product => product.active !== false),
+    archivedProducts: archivedProductsSnap.docs.slice(0, 200).map(doc => doc.data()),
+    archivedProductsComplete: archivedProductsSnap.size <= 200,
     activeShift: shift,
     recentSales: salesSnap ? salesSnap.docs.map(doc => doc.data()) : [],
     historyLimit: 50,
@@ -88,6 +92,8 @@ async function mutate(db, request) {
   const payload = request.data?.payload || {}
   const requirements = {
     saveProduct: ['products.manage'],
+    archiveProduct: ['products.manage'],
+    restoreProduct: ['products.manage'],
     adjustStock: ['inventory.manage'],
     openShift: ['cash.close'],
     recordSale: ['sales.create'],
@@ -115,18 +121,18 @@ async function mutate(db, request) {
     }
 
     const stateRef = root.collection('retailOperationalState').doc(branchId)
-    const result = await applyMutation({ tx, root, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef, permission: permission[0] })
+    const result = await applyMutation({ tx, root, tenant, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef, permission: permission[0] })
     tx.create(opRef, { operationId, tenantId, branchId, actorUid: uid, commandType, requestHash: hash, result, createdAt: now })
     tx.create(root.collection('auditLogs').doc(), {
       tenantId, branchId, actorUid: uid, actorType: 'tenant', action: `retail.${commandType}`,
       resource: 'retail', resourceId: result.productId || result.saleId || result.shiftId || result.movementId || operationId,
-      after: { status: result.status || 'confirmed' }, createdAt: now,
+      after: { status: result.status || 'confirmed', ...(result.archived ? { archived: true } : {}), ...(result.reason ? { reason: result.reason } : {}) }, createdAt: now,
     })
     return result
   })
 }
 
-async function applyMutation({ tx, root, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef }) {
+async function applyMutation({ tx, root, tenant, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef }) {
   const stateSnap = await tx.get(stateRef)
   const state = stateSnap.data() || {}
   const activeShiftId = state.activeShiftId || null
@@ -143,8 +149,38 @@ async function applyMutation({ tx, root, tenantId, uid, branchId, operationId, c
       product.createdAt = existing.data().createdAt
       product.createdBy = existing.data().createdBy
     }
+    const wasActive = existing.exists && existing.data().active !== false
+    await adjustProductUsage(tx, root, tenant, Number(product.active !== false) - Number(wasActive))
     tx.set(ref, product)
     return { productId, status: 'saved' }
+  }
+
+  if (commandType === 'archiveProduct') {
+    const productId = id(payload.productId)
+    const reason = text(payload.reason, 'Motivo de archivo', 160)
+    const ref = root.collection('retailProducts').doc(productId)
+    const productSnap = await tx.get(ref)
+    if (!productSnap.exists || productSnap.data().tenantId !== tenantId || productSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Producto no encontrado en esta sucursal.')
+    }
+    const product = productSnap.data()
+    if (product.active === false) return { productId, status: 'already_archived', archived: false, reason }
+    await adjustProductUsage(tx, root, tenant, -1)
+    tx.update(ref, { active: false, archivedAt: now, archivedBy: uid, archiveReason: reason, updatedAt: now })
+    return { productId, status: 'archived', archived: true, reason }
+  }
+
+  if (commandType === 'restoreProduct') {
+    const productId = id(payload.productId)
+    const ref = root.collection('retailProducts').doc(productId)
+    const productSnap = await tx.get(ref)
+    if (!productSnap.exists || productSnap.data().tenantId !== tenantId || productSnap.data().branchId !== branchId) {
+      throw new HttpsError('not-found', 'Producto no encontrado en esta sucursal.')
+    }
+    if (productSnap.data().active !== false) return { productId, status: 'already_active', restored: false }
+    await adjustProductUsage(tx, root, tenant, 1)
+    tx.update(ref, { active: true, archivedAt: null, archivedBy: null, archiveReason: null, updatedAt: now })
+    return { productId, status: 'restored', restored: true }
   }
 
   if (commandType === 'adjustStock') {

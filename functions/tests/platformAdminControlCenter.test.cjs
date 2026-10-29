@@ -114,6 +114,10 @@ async function main() {
       id: planId, templateId: 'hamburger', name: 'Plan ficticio', planKind: 'paid',
       priceApproval: 'pending', monthlyPriceUSD: 50, annualPriceUSD: 500,
       currency: 'USD', billingPeriod: 'monthly', clientProfile: 'Emulador',
+      capabilitiesV1: { version: 1, businessType: 'hamburger_shop',
+        limits: { activeUsers: 2, activeProducts: 20, activeBranches: 1 },
+        features: { reports: { basic: true, detailed: false, export: false }, receipts: { digital: false },
+          printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } },
       includedFeatures: ['Función ficticia'], technicalEntitlements: [], ctaLabel: 'Consultar',
       status: 'draft', order: 1,
     };

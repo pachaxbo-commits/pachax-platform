@@ -6,6 +6,7 @@ const { authenticated, id, tenantActor, audit, hasPermission } = require('./auth
 const { normalizeNightclubPermissions } = require('./nightclubUsers.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
+const { adjustUsage } = require('./commercialCapabilities.cjs');
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 36);
 function text(value, max = 100) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) throw new HttpsError('invalid-argument', 'Texto inválido.');
@@ -292,6 +293,7 @@ async function manageMember(db, auth, request) {
       const [tenant, fresh, current] = await Promise.all([tx.get(actor.root), tx.get(actor.root.collection('members').doc(actor.uid)), tx.get(ref)]);
       if (!hasPermission(tenant.data(), fresh.data(), 'users.manage')) throw new HttpsError('permission-denied', 'Permiso revocado.');
       if (current.exists) return;
+      await adjustUsage(tx, actor.root, tenant.data(), 'users', 1);
       if (assignedCashboxIds !== undefined) {
         if (tenant.data().businessType !== 'nightclub_lounge' || !['owner', 'admin'].includes(fresh.data()?.roleId)) throw new HttpsError('permission-denied', 'Solo Administración puede asignar cajas a usuarios.');
         await validateCashboxIds(actor.root, actor.tenantId, assignedCashboxIds, branchIds, tx);
@@ -345,6 +347,13 @@ async function manageMember(db, auth, request) {
     }
     if (input.action === 'deleteMember' || input.active === false) patch.status = 'disabled';
     else if (input.active === true) patch.status = 'active';
+    const wasActive = current.data().status === 'active';
+    const willBeActive = (patch.status || current.data().status) === 'active';
+    const userDelta = Number(willBeActive) - Number(wasActive);
+    if (userDelta) {
+      await adjustUsage(tx, actor.root, tenant.data(), 'users', userDelta);
+      tx.update(actor.root, { userCount: Math.max(0, Number(tenant.data().userCount || 0) + userDelta) });
+    }
     if (roleId) {
       if (!getTemplate(tenant.data().businessType).roles.some(role => role.id === roleId && role.id !== 'owner')) throw new HttpsError('invalid-argument', 'Rol inválido.');
       patch.roleId = roleId;

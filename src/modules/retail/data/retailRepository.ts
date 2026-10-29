@@ -42,6 +42,8 @@ export interface RetailTenantSale {
 
 export interface RetailTenantState {
   products: RetailTenantProduct[]
+  archivedProducts: RetailTenantProduct[]
+  archivedProductsComplete: boolean
   activeShift: RetailTenantShift | null
   recentSales: RetailTenantSale[]
   historyLimit: number
@@ -104,7 +106,7 @@ export async function loadRetailState(tenantId: string, branchId: string): Promi
 export async function runRetailCommand<T extends RetailCommandResult>(
   tenantId: string,
   branchId: string,
-  commandType: 'saveProduct' | 'adjustStock' | 'openShift' | 'recordSale' | 'recordCashMovement' | 'closeShift',
+  commandType: 'saveProduct' | 'archiveProduct' | 'restoreProduct' | 'adjustStock' | 'openShift' | 'recordSale' | 'recordCashMovement' | 'closeShift',
   operationId: string,
   payload: Record<string, unknown>,
 ): Promise<T> {

@@ -42,6 +42,12 @@
       return request.resource.data.tenantId == tenantId;
     }
 
+    // Enforced tenants use tenantGateway for quota-aware product writes;
+    // direct client writes remain available to legacy tenants only.
+    function tDistClientProductWriteAllowed(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)).data.get('billingEnforcement', false) != true;
+    }
+
     // Break-glass intake switch. Missing means enabled for compatibility;
     // only privileged server-side access may create this control document.
     function tDistAcceptsOperations(tenantId) {
@@ -53,7 +59,7 @@
     // administracion (los precios son configuracion, no operacion diaria).
     match /tenants/{tenantId}/distProducts/{productId} {
       allow read: if tDistWorker(tenantId);
-      allow create, update: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
+      allow create, update: if tDistAdmin(tenantId) && tDistClientProductWriteAllowed(tenantId) && tDistTenantMatches(tenantId)
         && (resource == null
           ? request.resource.data.unitType in ['kg','unit','package']
           : request.resource.data.unitType == resource.data.unitType)
@@ -183,7 +189,7 @@
         && ((request.resource.data.type in ['sale','collection','expense','creditStatus'] && (tDistAdmin(tenantId) || tDistDistributor(tenantId)))
           || (request.resource.data.type in ['intake','transfer','dispatch','addition','closure'] && (tDistAdmin(tenantId)||tDistWarehouse(tenantId)))
           || (request.resource.data.type == 'closure' && tDistDistributor(tenantId))
-          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct','creditOverride'] && tDistAdmin(tenantId)));
+          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct','saveProduct','creditOverride'] && tDistAdmin(tenantId)));
       allow update: if tIsActiveMember(tenantId) && resource.data.createdBy == request.auth.uid && resource.data.status == 'rejected'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']) && request.resource.data.acknowledged == true;
       allow delete: if false;
