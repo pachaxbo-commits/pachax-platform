@@ -10,6 +10,7 @@ interface ParcelDemoProps {
   datasetMode?: DemoDatasetMode
   resetKey?: number
   isStudioEmbed?: boolean
+  isPublicDemo?: boolean
   companyName?: string
   logoUrl?: string
 }
@@ -18,13 +19,19 @@ export function ParcelDemo({
   initialEdition,
   datasetMode = 'full',
   resetKey = 0,
+  isStudioEmbed = false,
+  isPublicDemo = false,
   companyName,
   logoUrl,
 }: ParcelDemoProps) {
   const { isAuthenticated } = useAdminAuth()
 
-  // Respetar parámetro URL si existe (?profile=sindicato o ?edition=standard)
+  // Detectar si estamos en demo pública o en Studio/Admin
+  const isPublic = isPublicDemo || (!isStudioEmbed && typeof window !== 'undefined' && !window.location.search.includes('embed=studio') && !window.location.pathname.startsWith('/studio'))
+
+  // En demo pública, la edición se fuerza OBLIGATORIAMENTE a 'standard', ignorando cualquier intento de override (?profile=sindicato o ?edition=sindicato)
   const resolvedEdition: ParcelEdition = useMemo(() => {
+    if (isPublic) return 'standard'
     if (initialEdition) return initialEdition
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
@@ -32,14 +39,16 @@ export function ParcelDemo({
       if (p === 'standard') return 'standard'
     }
     return 'sindicato'
-  }, [initialEdition])
+  }, [isPublic, initialEdition])
 
-  const [currentEdition, setCurrentEdition] = useState<ParcelEdition>(resolvedEdition)
+  const [selectedEdition, setSelectedEdition] = useState<ParcelEdition>(resolvedEdition)
+  const currentEdition: ParcelEdition = isPublic ? 'standard' : selectedEdition
 
-  // Instancia única y reactiva del controlador
+  // Instancia única y reactiva del controlador con scope de almacenamiento aislado
+  const storageScope = isPublic ? 'demo' : 'studio'
   const controller = useMemo(() => {
-    return new DemoParcelController(currentEdition, datasetMode)
-  }, [currentEdition, datasetMode])
+    return new DemoParcelController(currentEdition, datasetMode, storageScope)
+  }, [currentEdition, datasetMode, storageScope])
 
   const [state, setState] = useState<ParcelAppState>(() => controller.getState())
 
@@ -56,8 +65,9 @@ export function ParcelDemo({
   }, [resetKey, controller, datasetMode])
 
   // REGLA OBLIGATORIA DE SEGURIDAD Y AISLAMIENTO:
-  // En producción, solo Platform Operators autenticados pueden ver la demo de Encomiendas / Sindicato.
-  if (!import.meta.env.DEV && !isAuthenticated) {
+  // La Edición Sindicato es de acceso exclusivo de Platform Operators en producción.
+  // La Edición Estándar pública es accesible abiertamente para cualquier visitante.
+  if (currentEdition === 'sindicato' && !import.meta.env.DEV && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 text-center font-sans">
         <div className="max-w-md space-y-4">
@@ -66,10 +76,10 @@ export function ParcelDemo({
           </div>
           <h1 className="text-xl font-black tracking-tight">Acceso Exclusivo PACHAX Admin / Studio</h1>
           <p className="text-sm text-slate-300 leading-relaxed">
-            La plantilla <strong>PACHAX Encomiendas</strong> se encuentra en fase de validación interna y no está disponible en el catálogo público ni en demos abiertas.
+            La <strong>Edición Sindicato</strong> de PACHAX Encomiendas es un módulo de gestión interna y requiere autorización de Platform Operator.
           </p>
           <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-200">
-            Requiere autorización y sesión activa de Platform Operator.
+            Requiere sesión activa de Platform Operator para su validación.
           </div>
           <a
             href="/admin/login"
@@ -87,7 +97,10 @@ export function ParcelDemo({
       controller={controller}
       state={state}
       edition={currentEdition}
-      onEditionChange={ed => setCurrentEdition(ed)}
+      allowEditionSwitch={!isPublic}
+      onEditionChange={ed => {
+        if (!isPublic) setSelectedEdition(ed)
+      }}
       companyName={companyName}
       logoUrl={logoUrl}
     />

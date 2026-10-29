@@ -54,9 +54,11 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
     {
       id: 'parcel' as DemoTemplateId,
       title: 'PACHAX Encomiendas',
-      description: 'Recepción rápida, guías con QR, manifiestos de despacho, entrega con firma y administración sindical de socios, cuotas y personal.',
+      description: 'Recepción rápida, guías con QR, manifiestos de despacho, entrega con firma y administración gremial. Incluye selector interactivo entre Perfil Estándar y Edición Sindicato.',
       isInternal: true,
       ...presentation.parcel,
+      badges: ['Estándar / Sindicato', 'Guías & Manifiestos', 'Socios & Cuotas', 'Arqueo Caja'],
+      internalNote: 'Validación interna para sindicatos de transporte y agencias de encomiendas.',
     },
   ]
 
@@ -114,7 +116,7 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
             return (
               <button
                 type="button"
-                key={t.id}
+                key={`${t.id}-${t.isInternal ? "internal" : "public"}`}
                 onClick={() => onSelectTemplate(t.id)}
                 className={`bg-white rounded-2xl border p-6 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between group text-left ${
                   t.isInternal

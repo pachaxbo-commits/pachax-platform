@@ -10,6 +10,7 @@ import type {
   UnionDuePayment,
   DispatchManifest,
 } from '../types.ts'
+import type { BusinessIdentity, BusinessDocumentContext } from '../../../core/businessIdentity.ts'
 
 export interface DocumentCompanyContext {
   name: string
@@ -18,6 +19,7 @@ export interface DocumentCompanyContext {
   address?: string
   city?: string
   taxId?: string
+  logoUrl?: string
 }
 
 export const DEFAULT_PARCEL_COMPANY: DocumentCompanyContext = {
@@ -30,13 +32,40 @@ export const DEFAULT_PARCEL_COMPANY: DocumentCompanyContext = {
 }
 
 /**
+ * Normaliza cualquier fuente de identidad corporativa de PACHAX Core (BusinessIdentity,
+ * BusinessDocumentContext o DocumentCompanyContext) para su uso en documentos de encomiendas.
+ */
+export function toDocumentCompanyContext(
+  source?: Partial<BusinessIdentity> | Partial<BusinessDocumentContext> | DocumentCompanyContext | null
+): DocumentCompanyContext {
+  if (!source) return DEFAULT_PARCEL_COMPANY
+  const name = ('tradeName' in source && source.tradeName)
+    ? source.tradeName
+    : ('companyName' in source && source.companyName)
+      ? source.companyName
+      : ('name' in source && source.name)
+        ? source.name
+        : DEFAULT_PARCEL_COMPANY.name
+
+  return {
+    name,
+    legalName: source.legalName || DEFAULT_PARCEL_COMPANY.legalName,
+    phone: source.phone || ('whatsapp' in source ? source.whatsapp : undefined) || DEFAULT_PARCEL_COMPANY.phone,
+    address: source.address || DEFAULT_PARCEL_COMPANY.address,
+    city: source.city || DEFAULT_PARCEL_COMPANY.city,
+    taxId: source.taxId || DEFAULT_PARCEL_COMPANY.taxId,
+    logoUrl: source.logoUrl,
+  }
+}
+
+/**
  * Genera el comprobante oficial de recepción de encomienda en formato PDF.
  * Permite emitir 'ticket' (80mm) o 'a4'.
  */
 export async function generateShipmentReceptionPdf(
   shipment: ParcelShipment,
   options: {
-    company?: DocumentCompanyContext
+    company?: DocumentCompanyContext | Partial<BusinessIdentity> | Partial<BusinessDocumentContext>
     format?: '80mm' | 'a4'
     isCopy?: boolean
     copyLabel?: 'ORIGINAL CLIENTE' | 'COPIA AGENCIA' | 'REIMPRESIÓN' | 'REIMPRESIÓN / COPIA' | string
@@ -45,7 +74,7 @@ export async function generateShipmentReceptionPdf(
   const { jsPDF } = await import('jspdf')
   const { default: autoTable } = await import('jspdf-autotable')
 
-  const company = options.company || DEFAULT_PARCEL_COMPANY
+  const company = toDocumentCompanyContext(options.company)
   const format = options.format || 'a4'
   const copyLabel = options.copyLabel || (options.isCopy ? 'REIMPRESIÓN / COPIA' : 'ORIGINAL CLIENTE')
 
@@ -560,13 +589,13 @@ export async function generateOperationalReportPdf(params: {
   headers: string[]
   rows: (string | number)[][]
   summaryLines?: string[]
-  company?: DocumentCompanyContext
+  company?: DocumentCompanyContext | Partial<BusinessIdentity> | Partial<BusinessDocumentContext>
 }): Promise<{ blob: Blob; url: string; filename: string }> {
   const { jsPDF } = await import('jspdf')
   const { default: autoTable } = await import('jspdf-autotable')
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-  const company = params.company || DEFAULT_PARCEL_COMPANY
+  const company = toDocumentCompanyContext(params.company)
 
   doc.setFillColor(30, 41, 59)
   doc.rect(0, 0, 297, 22, 'F')

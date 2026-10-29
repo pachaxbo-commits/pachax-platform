@@ -56,13 +56,17 @@ export function StudioShell({
   const previewRef = useRef<HTMLDivElement>(null)
 
   const isParcel = templateId === 'parcel'
-  const publicTemplate = isParcel
-    ? { title: 'PACHAX Encomiendas', businessType: 'route_distribution' as const }
-    : getPublicTemplate(templateId)
-  const templateRoles = getTemplate(publicTemplate.businessType).roles
-  const defaultCompany = isParcel
-    ? 'Trans-Bolivia Demo'
-    : ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo' }[templateId] || 'Trans-Bolivia Demo')
+  const templateTitle = isParcel
+    ? 'PACHAX Encomiendas'
+    : getPublicTemplate(templateId).title
+  const templateRoles = isParcel
+    ? [
+        { id: 'operator', name: 'Operador de Agencia' },
+        { id: 'driver', name: 'Conductor' },
+        { id: 'admin', name: 'Administrador / Directiva' },
+      ]
+    : getTemplate(getPublicTemplate(templateId).businessType).roles
+  const defaultCompany = ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo', parcel: 'Trans-Bolivia Demo' }[templateId] || 'Trans-Bolivia Demo')
 
   // Enviar mensaje de sincronización seguro al iframe
   const sendSync = useCallback(() => {
@@ -73,6 +77,8 @@ export function StudioShell({
           type: 'PACHAX_STUDIO_SYNC',
           payload: {
             templateId,
+            mode: isTeamMode ? 'team' : 'simulated_role',
+            isTeamMode,
             role: currentRole,
             branding,
             datasetMode,
@@ -84,7 +90,7 @@ export function StudioShell({
     } catch {
       // Ignorar en contextos donde el iframe aún no esté listo
     }
-  }, [templateId, currentRole, branding, datasetMode, datasetResetKey])
+  }, [templateId, currentRole, isTeamMode, branding, datasetMode, datasetResetKey])
 
   // Despachar sincronización cuando cambien rol, branding o datasetMode
   useEffect(() => {
@@ -123,7 +129,7 @@ export function StudioShell({
   }
 
   // Stable URL: role, branding and scenario changes travel through postMessage.
-  const iframeSrc = `/demo/${templateId}?embed=studio`
+  const iframeSrc = `/demo?template=${templateId}&embed=studio`
 
   return (
     <div ref={shellRef} className="min-h-screen flex flex-col bg-slate-900 text-slate-100 font-sans">
@@ -143,7 +149,7 @@ export function StudioShell({
             <div className="h-4 w-px bg-slate-700 hidden sm:block" />
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-white">{publicTemplate.title}</span>
+              <span className="text-xs font-bold text-white">{templateTitle}</span>
               <span className="text-[11px] font-semibold text-teal-400 bg-teal-950/80 px-2 py-0.5 rounded-full border border-teal-800">
                 {branding.companyName || defaultCompany}
               </span>
@@ -152,44 +158,48 @@ export function StudioShell({
 
           {/* Centro: Selector de Modo (Equipo vs Simular Rol) y Selector de Dataset (Vacío vs Completo) */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
-              <button
-                onClick={() => {
-                  setIsTeamMode(true)
-                  onSelectRole('admin')
-                }}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                  isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>Equipo</span>
-              </button>
+            {!isParcel && (
+              <>
+                <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
+                  <button
+                    onClick={() => {
+                      setIsTeamMode(true)
+                      onSelectRole('admin')
+                    }}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                      isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Equipo</span>
+                  </button>
 
-              <button
-                onClick={() => setIsTeamMode(false)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                  !isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>Simular rol</span>
-              </button>
-            </div>
+                  <button
+                    onClick={() => setIsTeamMode(false)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                      !isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>Simular rol</span>
+                  </button>
+                </div>
 
-            {/* Selector de Rol cuando Simular Rol está activo */}
-            {!isTeamMode && (
-              <select
-                value={currentRole}
-                onChange={(e) => onSelectRole(e.target.value)}
-                className="text-xs font-bold bg-slate-800 border border-slate-700 text-teal-300 px-2.5 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer"
-              >
-                {templateRoles.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    Rol: {r.name}
-                  </option>
-                ))}
-              </select>
+                {/* Selector de Rol cuando Simular Rol está activo */}
+                {!isTeamMode && (
+                  <select
+                    value={currentRole}
+                    onChange={(e) => onSelectRole(e.target.value)}
+                    className="text-xs font-bold bg-slate-800 border border-slate-700 text-teal-300 px-2.5 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer"
+                  >
+                    {templateRoles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        Rol: {r.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </>
             )}
 
             {/* Selector de Dataset: Vacío vs Completo */}
@@ -347,7 +357,7 @@ export function StudioShell({
             <iframe
               ref={iframeRef}
               src={iframeSrc}
-              title={`PACHAX Studio Preview - ${publicTemplate.title}`}
+              title={`PACHAX Studio Preview - ${templateTitle}`}
               className="w-full h-full border-0 bg-white"
             />
           )}
