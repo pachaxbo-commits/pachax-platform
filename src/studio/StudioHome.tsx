@@ -1,4 +1,4 @@
-import { Utensils, Truck, Store, Music2, ArrowRight, Shield } from 'lucide-react'
+import { Utensils, Truck, Store, Music2, Package, ArrowRight, Shield } from 'lucide-react'
 import type { DemoTemplateId } from '../demo/demoTypes'
 import { PUBLIC_TEMPLATES } from '../core/publicTemplates'
 
@@ -34,8 +34,33 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
       badges: ['VIP & Reservados', 'Rondas', 'Barra'],
       internalNote: 'Base independiente para operación nocturna y evolución visual propia.',
     },
+    parcel: {
+      company: 'Trans-Bolivia Demo',
+      icon: Package,
+      badges: ['Perfil Estándar', 'Edición Sindicato', 'Guías & Manifiestos', 'Arqueo Caja'],
+      internalNote: 'Validación interna para sindicatos de transporte y empresas de encomiendas.',
+    },
   } as const
-  const templates = PUBLIC_TEMPLATES.map(template => ({ id: template.studioTemplateId as DemoTemplateId, title: template.title, description: template.shortDescription, ...presentation[template.id] }))
+
+  const publicTemplatesList = PUBLIC_TEMPLATES.map(template => ({
+    id: template.studioTemplateId as DemoTemplateId,
+    title: template.title,
+    description: template.shortDescription,
+    isInternal: false,
+    ...presentation[template.id],
+  }))
+
+  const internalTemplatesList = [
+    {
+      id: 'parcel' as DemoTemplateId,
+      title: 'PACHAX Encomiendas',
+      description: 'Recepción rápida, guías con QR, manifiestos de despacho, entrega con firma y administración sindical de socios, cuotas y personal.',
+      isInternal: true,
+      ...presentation.parcel,
+    },
+  ]
+
+  const templates = [...publicTemplatesList, ...internalTemplatesList]
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col justify-between">
@@ -83,7 +108,7 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
         </div>
 
         {/* Tarjetas de plantillas canónicas */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {templates.map((t) => {
             const Icon = t.icon
             return (
@@ -91,16 +116,27 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
                 type="button"
                 key={t.id}
                 onClick={() => onSelectTemplate(t.id)}
-                className="bg-white rounded-2xl border border-slate-200/90 hover:border-slate-400 p-6 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between group text-left"
+                className={`bg-white rounded-2xl border p-6 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between group text-left ${
+                  t.isInternal
+                    ? 'border-amber-300/80 hover:border-amber-500 ring-2 ring-amber-400/20'
+                    : 'border-slate-200/90 hover:border-slate-400'
+                }`}
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-900 flex items-center justify-center group-hover:bg-slate-900 group-hover:text-white transition">
                       <Icon className="w-6 h-6" />
                     </div>
-                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
-                      {t.company}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {t.isInternal && (
+                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-950 bg-amber-200/90 px-2 py-0.5 rounded-full border border-amber-300">
+                          Interno Admin
+                        </span>
+                      )}
+                      <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                        {t.company}
+                      </span>
+                    </div>
                   </div>
 
                   <h2 className="text-xl font-bold text-slate-900 group-hover:text-teal-700 transition">
