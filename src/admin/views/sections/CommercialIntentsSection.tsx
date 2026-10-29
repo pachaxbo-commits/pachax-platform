@@ -194,7 +194,7 @@ export function CommercialIntentsSection() {
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Solicitudes comerciales</h2>
-          <p className="mt-1 text-sm text-slate-600">Prepara propuestas no vinculantes. La activación y facturación siguen deshabilitadas.</p>
+          <p className="mt-1 text-sm text-slate-600">Prepara cotizaciones. El contrato se activa después de la aceptación, el pago manual verificado y el alta asistida.</p>
         </div>
         <div className="flex gap-2"><button type="button" onClick={() => { setLoading(true); setError(''); void refresh() }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800">Actualizar</button><button type="button" onClick={() => setIntakeOpen(value => !value)} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white">Registrar contacto de WhatsApp</button></div>
       </header>
@@ -268,7 +268,7 @@ export function CommercialIntentsSection() {
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="text-xs font-semibold text-slate-800">Implementación única<input inputMode="decimal" value={implementation} onChange={(event) => setImplementation(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
               <label className="text-xs font-semibold text-slate-800">Mensualidad<input inputMode="decimal" value={monthly} onChange={(event) => setMonthly(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
-              <label className="text-xs font-semibold text-slate-800">Anualidad<input inputMode="decimal" value={annual} onChange={(event) => setAnnual(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
+              <label className="text-xs font-semibold text-slate-800">Anualidad<input inputMode="decimal" aria-describedby="quote-annual-help" value={annual} onChange={(event) => setAnnual(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /><span id="quote-annual-help" className="mt-1 block font-normal text-slate-600">Opcional para ciclo mensual; requerido para cotización anual.</span></label>
               <label className="text-xs font-semibold text-slate-800">Moneda<select value={currency} onChange={(event) => setCurrency(event.target.value as 'USD' | 'BOB')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="USD">USD</option><option value="BOB">BOB</option></select></label>
               <label className="text-xs font-semibold text-slate-800">Ciclo contratado<select value={billingCycle} onChange={event => setBillingCycle(event.target.value as 'monthly' | 'annual')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="monthly">Mensual</option><option value="annual">Anual</option></select></label>
               <label className="text-xs font-semibold text-slate-800">Descuento autorizado<input inputMode="decimal" value={discount} onChange={event => setDiscount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
