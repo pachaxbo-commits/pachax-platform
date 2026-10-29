@@ -5,10 +5,18 @@
     function tMemberData(tenantId) {
       return get(/databases/$(database)/documents/tenants/$(tenantId)/members/$(request.auth.uid)).data;
     }
+    function tBillingAccessAllowed(tenantId) {
+      let tenant = get(/databases/$(database)/documents/tenants/$(tenantId)).data;
+      return tenant.get('billingEnforcement', false) != true
+        || (tenant.get('subscriptionStatus', '') in ['active', 'overdue']
+          && tenant.get('billingAccessUntil', null) is timestamp
+          && request.time < tenant.billingAccessUntil);
+    }
     function tIsActiveMember(tenantId) {
       return request.auth != null && !tPlatform()
         && exists(/databases/$(database)/documents/tenants/$(tenantId)/members/$(request.auth.uid))
-        && tMemberData(tenantId).status == 'active';
+        && tMemberData(tenantId).status == 'active'
+        && tBillingAccessAllowed(tenantId);
     }
     function tHasRole(tenantId, roles) {
       return tIsActiveMember(tenantId) && (tMemberData(tenantId).roleId in roles || (tMemberData(tenantId).roleId == 'owner' && 'admin' in roles));

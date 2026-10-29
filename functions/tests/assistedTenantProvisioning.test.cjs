@@ -67,6 +67,29 @@ function request(operationId, overrides = {}) {
   };
 }
 
+async function paidRequest(operationId, overrides = {}) {
+  const { paymentStatus, ...requestOverrides } = overrides;
+  const payload = request(operationId, requestOverrides);
+  const billingContractId = `qa-contract-${operationId}`;
+  const initialChargeId = `qa-charge-${operationId}`;
+  payload.billingContractId = billingContractId;
+  const paid = paymentStatus !== 'due';
+  await db.doc(`platformContracts/${billingContractId}`).set({
+    contractId: billingContractId, status: 'ready_for_activation', businessType: payload.businessType,
+    customer: { companyName: payload.companyName, email: payload.ownerEmail },
+    terms: { companyName: payload.companyName, billingCycle: 'monthly', currency: 'USD', recurringMinor: 1200, plan: null },
+    initialChargeId, createdAt: new Date(),
+  });
+  await db.doc(`platformBillingCharges/${initialChargeId}`).set({
+    chargeId: initialChargeId, contractId: billingContractId, kind: 'initial', currency: 'USD',
+    amountMinor: 1200, paidMinor: paid ? 1200 : 0, pendingMinor: 0, status: paid ? 'paid' : 'due', createdAt: new Date(),
+  });
+  await db.doc(`platformSubscriptions/${billingContractId}`).set({
+    contractId: billingContractId, status: 'pending', tenantId: null, createdAt: new Date(),
+  });
+  return payload;
+}
+
 async function cleanup() {
   const ops = await db.collection('platformAssistedTenantOperations').where('actorUid', '==', operatorUid).get();
   for (const operation of ops.docs) {
@@ -120,8 +143,21 @@ try {
   await assert.rejects(auth.getUserByEmail(ownerEmail), error => error.code === 'auth/user-not-found');
   pass('una plantilla no habilitada se rechaza antes de crear identidad Auth');
 
+  const unpaidEmail = `unpaid-${suffix}@example.test`;
+  const unpaidPayload = await paidRequest(randomUUID(), { ownerEmail: unpaidEmail, paymentStatus: 'due' });
+  const unpaid = await callGateway(ownerToken, unpaidPayload);
+  assert.equal(unpaid.response.ok, false);
+  assert.equal(unpaid.payload.error?.status, 'FAILED_PRECONDITION', JSON.stringify(unpaid.payload.error));
+  await assert.rejects(auth.getUserByEmail(unpaidEmail), error => error.code === 'auth/user-not-found');
+  const noContractEmail = `no-contract-${suffix}@example.test`;
+  const noContract = await callGateway(ownerToken, request(randomUUID(), { ownerEmail: noContractEmail }));
+  assert.equal(noContract.response.ok, false);
+  assert.equal(noContract.payload.error?.status, 'FAILED_PRECONDITION');
+  await assert.rejects(auth.getUserByEmail(noContractEmail), error => error.code === 'auth/user-not-found');
+  pass('alta asistida rechaza contrato ausente o saldo inicial no pagado antes de crear Auth');
+
   const operationId = randomUUID();
-  const payload = request(operationId);
+  const payload = await paidRequest(operationId);
   const [createdA, createdB] = await Promise.all([callGateway(ownerToken, payload), callGateway(ownerToken, payload)]);
   assert.equal(createdA.response.ok, true, JSON.stringify(createdA.payload));
   assert.equal(createdB.response.ok, true, JSON.stringify(createdB.payload));
@@ -167,10 +203,11 @@ try {
 
   const existing = await auth.createUser({ email: existingEmail, password: 'ExistingOwner123!', displayName: 'Propietario existente' });
   const linkedId = randomUUID();
-  const linked = await callGateway(ownerToken, request(linkedId, {
+  const linkedPayload = await paidRequest(linkedId, {
     companyName: `QA Empresa vinculada ${suffix}`, ownerEmail: existingEmail,
     ownerDisplayName: 'Propietario existente', businessType: 'restaurant_pos', industryProfile: undefined,
-  }));
+  });
+  const linked = await callGateway(ownerToken, linkedPayload);
   assert.equal(linked.response.ok, true, JSON.stringify(linked.payload));
   assert.equal(linked.payload.result.ownerUid, existing.uid);
   assert.deepEqual(linked.payload.result.ownerAccess, { method: 'existing_account', setupLink: null, setupLinkPending: false });
@@ -181,7 +218,7 @@ try {
   pass('la identidad Auth existente se vincula sin cambiar su contraseña y conserva acceso');
 
   const failingId = randomUUID();
-  const failingRequest = request(failingId, { companyName: `QA Reintento ${suffix}`, ownerEmail: `retry-${suffix}@example.test` });
+  const failingRequest = await paidRequest(failingId, { companyName: `QA Reintento ${suffix}`, ownerEmail: `retry-${suffix}@example.test` });
   const syntheticRequest = { auth: { uid: operatorUid, token: { platform: true } }, data: failingRequest };
   await assert.rejects(assisted.createAssistedTenant(db, auth, syntheticRequest, { afterProvisioningRecords: async () => { throw new Error('forced-qa-interruption'); } }));
   const failedOperation = (await db.doc(`platformAssistedTenantOperations/${failingId}`).get()).data();
@@ -195,7 +232,7 @@ try {
   assert.equal((await db.doc(`tenants/${failedOperation.tenantId}`).get()).data().status, 'active');
   pass('una interrupción deja el tenant y la identidad pendientes, sin acceso; el mismo reintento los completa');
 
-  const changedRetry = await callGateway(ownerToken, request(operationId, { companyName: 'Nombre cambiado' }));
+  const changedRetry = await callGateway(ownerToken, request(operationId, { companyName: 'Nombre cambiado', billingContractId: payload.billingContractId }));
   assert.equal(changedRetry.response.ok, false);
   assert.equal(changedRetry.payload.error?.status, 'ALREADY_EXISTS');
   pass('reutilizar operationId con datos diferentes se rechaza sin duplicar empresa');

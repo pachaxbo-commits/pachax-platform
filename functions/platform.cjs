@@ -18,6 +18,7 @@ const { settingsPatch } = require('./tenants.cjs');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
 const commercialOnboarding = require('./commercialOnboarding.cjs');
 const assistedTenantProvisioning = require('./assistedTenantProvisioning.cjs');
+const commercialBilling = require('./commercialBilling.cjs');
 
 const DIRECTORY_LIMIT = 50;
 // La identidad canónica técnica viene del registro público; no duplicar una lista
@@ -1181,6 +1182,20 @@ async function platformGateway(db, request, auth = null) {
     case 'listCommercialIntents': return commercialOnboarding.listCommercialIntents(db, request);
     case 'prepareCommercialProposal': return commercialOnboarding.prepareCommercialProposal(db, request);
     case 'updateCommercialIntentStatus': return commercialOnboarding.updateCommercialIntentStatus(db, request);
+    case 'createManualCommercialIntent': return commercialBilling.createManualCommercialIntent(db, request);
+    case 'saveCommercialQuote': return commercialBilling.saveCommercialQuote(db, request);
+    case 'offerCommercialQuote': return commercialBilling.offerCommercialQuote(db, request);
+    case 'withdrawCommercialQuote': return commercialBilling.withdrawCommercialQuote(db, request);
+    case 'recordCommercialAcceptance': return commercialBilling.recordCommercialAcceptance(db, request);
+    case 'createCommercialContract': return commercialBilling.createCommercialContract(db, request);
+    case 'recordManualPaymentReference': return commercialBilling.recordManualPaymentReference(db, request);
+    case 'confirmManualPayment': return commercialBilling.confirmManualPayment(db, request);
+    case 'rejectManualPayment': return commercialBilling.rejectManualPayment(db, request);
+    case 'createRenewalCharge': return commercialBilling.createRenewalCharge(db, request);
+    case 'requestSubscriptionPlanChange': return commercialBilling.requestSubscriptionPlanChange(db, request);
+    case 'listPublishedBillingPlans': return commercialBilling.listPublishedBillingPlans(db, request);
+    case 'changeSubscriptionStatus': return commercialBilling.changeSubscriptionStatus(db, request);
+    case 'listBillingRecords': return commercialBilling.listBillingRecords(db, request);
     case 'validateOperator': return validateOperator(db, request);
     case 'listTenants': return listTenants(db, request);
     case 'tenantDetail': return tenantDetail(db, request);
@@ -1215,6 +1230,7 @@ module.exports = {
   listCommercialIntents: commercialOnboarding.listCommercialIntents,
   prepareCommercialProposal: commercialOnboarding.prepareCommercialProposal,
   updateCommercialIntentStatus: commercialOnboarding.updateCommercialIntentStatus,
+  commercialBilling,
   validateOperator,
   listTenants,
   tenantDetail,
