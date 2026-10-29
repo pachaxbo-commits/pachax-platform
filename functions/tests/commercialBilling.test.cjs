@@ -139,6 +139,7 @@ async function run() {
       applicableTemplates: ['distribution'], status: 'published', commercialVersion: 1 });
     createdPaths.push(`platformExtras/${extraId}`);
     await db.doc(`platformExtras/${extraIdTwo}`).set({ id: extraIdTwo, title: 'Capacitación QA', pricingType: 'one_time',
+      capabilityAdjustments: { activeUsers: 2, activeProducts: 1 },
       applicableTemplates: ['distribution'], status: 'published', commercialVersion: 1 });
     createdPaths.push(`platformExtras/${extraIdTwo}`);
 
@@ -472,7 +473,8 @@ async function run() {
     const monthlyOnlyQuoteInput = {
       action: 'saveCommercialQuote', requestId: opId(), intentId: monthlyOnlyLead.intentId,
       implementation: '0', monthly: '30.00', annual: '', currency: 'BOB', billingCycle: 'monthly',
-      discount: '0', capabilitiesV1: distributionCapabilities, extras: [],
+      discount: '0', capabilitiesV1: distributionCapabilities,
+      extras: [{ id: extraId, oneTime: '0', monthly: '0', annual: '0' }, { id: extraIdTwo, oneTime: '0', monthly: '0', annual: '0' }],
     };
     const monthlyOnlyQuote = await platformCall(ownerUid, monthlyOnlyQuoteInput);
     const monthlyOnlyReplay = await platformCall(ownerUid, monthlyOnlyQuoteInput);
@@ -483,7 +485,9 @@ async function run() {
     assert.equal(monthlyQuote.annualMinor, 0);
     assert.equal(monthlyQuote.initialDueMinor, 3000);
     assert.equal(monthlyQuote.recurringMinor, 3000);
-    assert.deepEqual(monthlyQuote.capabilitiesV1, distributionCapabilities);
+    assert.equal(monthlyQuote.capabilitiesV1.limits.activeUsers, distributionCapabilities.limits.activeUsers + 3,
+      'Extras augment explicit capabilities when the quote has no plan snapshot.')
+    assert.equal(monthlyQuote.capabilitiesV1.limits.activeProducts, distributionCapabilities.limits.activeProducts + 2)
     await assert.rejects(platformCall(ownerUid, {
       ...monthlyOnlyQuoteInput, requestId: opId(), billingCycle: 'annual', annual: '0',
     }), error => error.code === 'failed-precondition');
@@ -499,7 +503,8 @@ async function run() {
     assert.equal(monthlyContract.terms.plan, null);
     assert.equal(monthlyContract.terms.billingCycle, 'monthly');
     assert.equal(monthlyContract.terms.annualMinor, 0);
-    assert.deepEqual(monthlyContract.terms.capabilitiesV1, distributionCapabilities);
+    assert.equal(monthlyContract.terms.capabilitiesV1.limits.activeUsers, distributionCapabilities.limits.activeUsers + 3)
+    assert.equal(monthlyContract.terms.capabilitiesV1.limits.activeProducts, distributionCapabilities.limits.activeProducts + 2)
     assert.equal(monthlyContract.terms.initialDueMinor, 3000);
     const monthlyPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
       chargeId: monthlyOnlyContract.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-MONTHLY-${suffix}` });
@@ -529,6 +534,27 @@ async function run() {
     const monthlyTenantActor = await tenantActor(db, { auth: { uid: monthlyLogin.localId, token: {} },
       data: { tenantId: monthlyProvision.tenantId } }, 'settings.manage');
     assert.equal(monthlyTenantActor.uid, monthlyProvision.ownerUid);
+    await db.doc(`platformPlans/${nextPlanId}`).update({ status: 'published', currency: 'BOB' })
+    const manualContractChangeId = opId()
+    const manualContractChange = await platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: manualContractChangeId,
+      contractId: monthlyOnlyContract.contractId, planId: nextPlanId, billingCycle: 'monthly' })
+    const manualContractChangeReplay = await platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: manualContractChangeId,
+      contractId: monthlyOnlyContract.contractId, planId: nextPlanId, billingCycle: 'monthly' })
+    assert.equal(manualContractChange.idempotent, false)
+    assert.equal(manualContractChangeReplay.idempotent, true)
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.businessType, 'route_distribution')
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.limits.activeUsers, 6,
+      'Contract extras are applied once to the destination plan.')
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.limits.activeProducts, 4)
+    const wrongBusinessPlanId = `billing-wrong-business-${suffix}`
+    createdPaths.push(`platformPlans/${wrongBusinessPlanId}`)
+    await db.doc(`platformPlans/${wrongBusinessPlanId}`).set({ id: wrongBusinessPlanId, templateId: 'retail', name: 'Plan Comercio QA',
+      planKind: 'paid', status: 'published', priceApproval: 'approved', monthlyPriceUSD: 20, annualPriceUSD: 200, currency: 'BOB',
+      commercialVersion: 1, includedFeatures: [], technicalEntitlements: [],
+      capabilitiesV1: { ...distributionCapabilities, businessType: 'gelateria_weight_cafe' } })
+    await assert.rejects(platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: opId(),
+      contractId: monthlyOnlyContract.contractId, planId: wrongBusinessPlanId, billingCycle: 'monthly' }),
+    error => error.code === 'failed-precondition')
     pass('sin plan de Distribución publicado: contacto WhatsApp, cotización mensual idempotente, aceptación, pago confirmado, alta asistida y acceso del propietario');
 
     const anonymous = rulesEnv.unauthenticatedContext().firestore();

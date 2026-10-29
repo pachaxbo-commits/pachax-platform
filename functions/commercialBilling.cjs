@@ -181,10 +181,14 @@ async function saveCommercialQuote(db, request) {
       monthlyMinor: normalized[index].monthlyMinor,
       annualMinor: normalized[index].annualMinor,
     }));
-    const capabilitiesV1 = intent.planSnapshot?.capabilitiesV1
-      ? extraLines.reduce((snapshot, line) => applyCapabilityAdjustments(snapshot, line.capabilityAdjustments), intent.planSnapshot.capabilitiesV1)
+    const baseCapabilities = intent.planSnapshot?.capabilitiesV1
+      ? normalizeCapabilitiesV1(intent.planSnapshot.capabilitiesV1, intent.businessType)
       : (input.capabilitiesV1 ? normalizeCapabilitiesV1(input.capabilitiesV1, intent.businessType) : null);
-    if (!capabilitiesV1) throw new HttpsError('failed-precondition', 'Define y revisa las capacidades V1 de esta cotización antes de ofrecerla.');
+    if (!baseCapabilities) throw new HttpsError('failed-precondition', 'Define y revisa las capacidades V1 de esta cotización antes de ofrecerla.');
+    const capabilitiesV1 = extraLines.reduce(
+      (snapshot, line) => applyCapabilityAdjustments(snapshot, line.capabilityAdjustments),
+      baseCapabilities,
+    );
     for (const line of extraLines) {
       if (!['recurring', 'one_time', 'custom_quote'].includes(line.pricingType)) throw new HttpsError('failed-precondition', 'Un extra tiene una modalidad de cobro no reconocida.');
       if (line.pricingType === 'recurring' && line.oneTimeMinor !== 0) throw new HttpsError('invalid-argument', 'Un extra recurrente no puede cotizarse como importe único.');
@@ -626,10 +630,16 @@ async function requestSubscriptionPlanChange(db, request) {
     const contract = contractSnap.data();
     const subscription = subscriptionSnap.data();
     const plan = planSnap.data();
-    const contractedCapabilities = contract.terms?.plan?.capabilitiesV1;
+    const contractedCapabilities = contract.terms?.capabilitiesV1 || contract.terms?.plan?.capabilitiesV1;
     const contractedBusinessType = contractedCapabilities?.businessType;
     if (typeof contractedBusinessType !== 'string' || !contractedBusinessType) {
       throw new HttpsError('failed-precondition', 'El contrato no tiene una plantilla de capacidades verificable para programar el cambio de plan.');
+    }
+    const canonicalContractCapabilities = normalizeCapabilitiesV1(contractedCapabilities, contract.businessType || contractedBusinessType);
+    if (templateFor(contract.templateId).businessType !== canonicalContractCapabilities.businessType
+      || plan.templateId !== contract.templateId
+      || templateFor(plan.templateId).businessType !== canonicalContractCapabilities.businessType) {
+      throw new HttpsError('failed-precondition', 'El plan destino no corresponde a la plantilla y capacidades del contrato.');
     }
     const monthlyMinor = moneyMinor(Number(plan.monthlyPriceUSD).toFixed(2), 'Mensualidad', { allowZero: false });
     const annualMinor = moneyMinor(Number(plan.annualPriceUSD).toFixed(2), 'Anualidad', { allowZero: false });
@@ -653,7 +663,7 @@ async function requestSubscriptionPlanChange(db, request) {
     if (contract.status !== 'active' || subscription.status !== 'active' || !subscription.tenantId) throw new HttpsError('failed-precondition', 'Solo una suscripción activa puede programar un cambio de plan.');
     if (subscription.pendingRenewalChargeId) throw new HttpsError('failed-precondition', 'Ya existe un cargo de renovación pendiente; concílialo antes de cambiar el plan.');
     if (plan.status !== 'published' || plan.priceApproval !== 'approved' || plan.planKind === 'free'
-      || plan.templateId !== contract.templateId || !Array.isArray(plan.technicalEntitlements) || plan.technicalEntitlements.length !== 0
+      || !Array.isArray(plan.technicalEntitlements) || plan.technicalEntitlements.length !== 0
       || !Number.isSafeInteger(recurringMinor) || recurringMinor <= 0) {
       throw new HttpsError('failed-precondition', 'El plan no es una oferta pagada aprobada para la plantilla contratada.');
     }

@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "retailProducts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "retailSales",
       "queryScope": "COLLECTION",
       "fields": [

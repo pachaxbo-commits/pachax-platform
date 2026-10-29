@@ -46,6 +46,14 @@ El contrato puede representar `adsRequired`, pero no existe contratación Free, 
 ## Release
 
 Esta rama es una PR independiente basada en `origin/main`. No se ha desplegado a Firebase Production, no se han publicado Rules/Functions/índices y no se ha modificado ningún tenant real. Free permanece inactivo; formulario público y altas autónomas siguen cerrados.
+
+## Correcciones focales de revisión PR #12 (29/10/2026)
+
+- `requestSubscriptionPlanChange` toma el `businessType` del snapshot canónico `contract.terms.capabilitiesV1` (con compatibilidad al snapshot de plan antiguo), lo valida contra la identidad de plantilla del contrato y rechaza el destino si su plantilla/negocio no coincide.
+- `saveCommercialQuote` normaliza el snapshot de plan o las capacidades explícitas de una cotización manual y aplica cada ajuste de extra una vez a ambas variantes.
+- Retail permite archivar productos mediante una operación `archiveProduct` autorizada por `products.manage`, transaccional e idempotente. Se conserva el documento, se guarda motivo/responsable/fecha, se libera el contador y se audita. Repetir el archivado no pisa el motivo ni la fecha originales. La UI separa activos y archivados y ofrece `restoreProduct`, que vuelve a consumir el cupo transaccionalmente; solicitudes concurrentes solo lo incrementan una vez. La consulta operativa carga solo activos; se añade el índice compuesto `(branchId ASC, active ASC)`.
+- Pruebas Node 22 / emuladores: `test:billing-core` 16 aserciones PASS (incluye cambio desde contrato manual sin plan, extras múltiples y de negocio incompatible, idempotencia y renovación); `test:retail-tenant` 13 aserciones PASS (archivado, conservación, auditoría, permiso, concurrencia de reactivación); `test:commercial-capabilities` PASS (concurrencia de cuotas, legacy y Rules). Typecheck, build Functions/Rules y ESLint focal PASS.
+- Estas correcciones son solo locales en la rama PR #12; Staging/Previews siguen bloqueados por la cuota de Billing. No hubo push, merge ni despliegue.
 # Preview Firebase isolation
 
 `pachax-app` currently has no staging Firebase project configured. Vercel Preview was verified to target the same Firebase Production configuration as Production, so automatic Preview deployments are disabled on the project until isolation is established. The project setting was verified through the Vercel API; Production deployment settings and variables were not changed.
