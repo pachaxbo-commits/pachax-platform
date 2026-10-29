@@ -166,7 +166,7 @@ export interface DispatchManifest {
   receivedByName?: string
 }
 
-export type CashMovementType = 'income' | 'expense'
+export type CashMovementType = 'income' | 'expense' | 'reversal'
 
 export type CashCategory =
   | 'shipping_origin'
@@ -178,6 +178,16 @@ export type CashCategory =
   | 'maintenance'
   | 'supplies'
   | 'fuel'
+  | 'alquiler'
+  | 'energia_electrica'
+  | 'agua'
+  | 'internet_telefonia'
+  | 'mantenimiento'
+  | 'suministros'
+  | 'combustible'
+  | 'combustible_mantenimiento'
+  | 'tramites_legales'
+  | 'impresion_facturacion'
   | 'other_income'
   | 'other_expense'
   | 'reversal'
@@ -188,6 +198,7 @@ export interface CashMovement {
   timestamp: string
   type: CashMovementType
   category: CashCategory
+  expenseCategory?: string
   amount: number
   paymentMethod: PaymentMethod
   concept: string
@@ -196,6 +207,11 @@ export interface CashMovement {
   operatorName: string
   notes?: string
   isCancelled?: boolean
+  reversalType?: 'documentary_void' | 'refund'
+  isPhysicalCashOut?: boolean
+  reconciledAt?: string
+  reconciledBy?: string
+  reconciledShiftId?: string
 }
 
 export interface CashShift {
@@ -252,6 +268,8 @@ export interface UnionDuePayment {
   isReversed?: boolean
   reversedAt?: string
   reversalReason?: string
+  reversalType?: 'documentary_void' | 'refund'
+  refundMethod?: 'none' | 'cash' | 'transfer'
 }
 
 export interface UnionMonthlyDue {
@@ -302,7 +320,18 @@ export interface UnionExpense {
   id: string
   receiptNumber: string
   date: string
-  category: 'alquiler' | 'energia_electrica' | 'agua' | 'internet_telefonia' | 'mantenimiento' | 'suministros' | 'combustible' | 'tramites_legales' | 'otro'
+  category:
+    | 'alquiler'
+    | 'energia_electrica'
+    | 'agua'
+    | 'internet_telefonia'
+    | 'mantenimiento'
+    | 'suministros'
+    | 'combustible'
+    | 'combustible_mantenimiento'
+    | 'tramites_legales'
+    | 'impresion_facturacion'
+    | 'otro'
   description: string
   amount: number
   paymentMethod: PaymentMethod

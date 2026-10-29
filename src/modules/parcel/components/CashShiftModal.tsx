@@ -4,6 +4,11 @@ import {
   Wallet,
   Lock,
   Unlock,
+  CheckSquare,
+  Square,
+  CheckCircle2,
+  AlertCircle,
+  FileSpreadsheet,
 } from 'lucide-react'
 import type { CashShift, CashMovement } from '../types'
 
@@ -14,6 +19,7 @@ interface CashShiftModalProps {
   movements: CashMovement[]
   onOpenShift: (initialCash: number, operatorName?: string) => void
   onCloseShift: (actualCash: number, notes?: string) => void
+  onReconcileMovements?: (movementIds: string[], supervisorName: string, notes?: string) => void
 }
 
 export function CashShiftModal({
@@ -23,6 +29,7 @@ export function CashShiftModal({
   movements,
   onOpenShift,
   onCloseShift,
+  onReconcileMovements,
 }: CashShiftModalProps) {
   const [initialCash, setInitialCash] = useState<number>(200)
   const [operatorName, setOperatorName] = useState('Juan José Rocha')
@@ -30,7 +37,14 @@ export function CashShiftModal({
   const [closingNotes, setClosingNotes] = useState('')
   const [isClosingConfirm, setIsClosingConfirm] = useState(false)
 
-  const pendingMovements = movements.filter(m => m.shiftId === 'pending_reconciliation')
+  // Estados de conciliación
+  const [isReconcilingView, setIsReconcilingView] = useState(false)
+  const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([])
+  const [supervisorName, setSupervisorName] = useState(activeShift?.operatorName || 'Secretaría de Hacienda')
+  const [reconcileNotes, setReconcileNotes] = useState('')
+  const [reconcileFeedback, setReconcileFeedback] = useState<string | null>(null)
+
+  const pendingMovements = movements.filter(m => m.shiftId === 'pending_reconciliation' && !m.isCancelled)
 
   if (!isOpen) return null
 
@@ -43,6 +57,40 @@ export function CashShiftModal({
     e.preventDefault()
     onCloseShift(actualCash, closingNotes.trim() || undefined)
     setIsClosingConfirm(false)
+  }
+
+  const handleExecuteReconciliation = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (selectedPendingIds.length === 0) return
+    if (!onReconcileMovements) return
+
+    onReconcileMovements(
+      selectedPendingIds,
+      supervisorName.trim() || 'Auditoría de Caja',
+      reconcileNotes.trim() || undefined
+    )
+
+    setReconcileFeedback(`¡Se conciliaron ${selectedPendingIds.length} movimiento(s) exitosamente!`)
+    setSelectedPendingIds([])
+    setReconcileNotes('')
+    setTimeout(() => {
+      setReconcileFeedback(null)
+      setIsReconcilingView(false)
+    }, 2500)
+  }
+
+  const toggleSelectAllPending = () => {
+    if (selectedPendingIds.length === pendingMovements.length) {
+      setSelectedPendingIds([])
+    } else {
+      setSelectedPendingIds(pendingMovements.map(m => m.id))
+    }
+  }
+
+  const toggleSelectMovement = (id: string) => {
+    setSelectedPendingIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
   }
 
   const shiftMovements = activeShift
@@ -62,7 +110,7 @@ export function CashShiftModal({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-black tracking-tight">Caja & Arqueo de Turno</h2>
-              <p className="text-xs text-slate-300">Control de apertura, cobros del día y cierre de ventanilla</p>
+              <p className="text-xs text-slate-300">Control de apertura, cobros del día, conciliación y cierre</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg">
@@ -71,7 +119,159 @@ export function CashShiftModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs sm:text-sm">
-          {!activeShift ? (
+          {/* Vista especial de Conciliación de Movimientos Fuera de Turno */}
+          {isReconcilingView ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">Conciliación de Movimientos Pendientes</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Operaciones registradas fuera de turno que requieren asignación contable auditada.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsReconcilingView(false)}
+                  className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold text-xs"
+                >
+                  Volver a Turno
+                </button>
+              </div>
+
+              {reconcileFeedback && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>{reconcileFeedback}</span>
+                </div>
+              )}
+
+              {pendingMovements.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-xl space-y-2">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
+                  <p className="font-bold text-slate-700">¡No hay movimientos pendientes de conciliación!</p>
+                  <p className="text-xs">Todas las operaciones están debidamente asignadas y auditadas.</p>
+                </div>
+              ) : (
+                <form onSubmit={handleExecuteReconciliation} className="space-y-3.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <button
+                      type="button"
+                      onClick={toggleSelectAllPending}
+                      className="font-bold text-teal-700 hover:text-teal-800 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {selectedPendingIds.length === pendingMovements.length ? (
+                        <CheckSquare className="w-4 h-4" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                      <span>Seleccionar Todos ({pendingMovements.length})</span>
+                    </button>
+                    <span className="text-slate-500 font-medium">
+                      Seleccionados: <strong>{selectedPendingIds.length}</strong>
+                    </span>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl max-h-52 overflow-y-auto divide-y divide-slate-100 text-xs bg-slate-50/50">
+                    {pendingMovements.map(m => {
+                      const isSelected = selectedPendingIds.includes(m.id)
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={() => toggleSelectMovement(m.id)}
+                          className={`p-2.5 flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-amber-50/80' : 'hover:bg-slate-100/70'}`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded text-amber-600 pointer-events-none"
+                            />
+                            <div>
+                              <div className="font-bold text-slate-900">{m.concept}</div>
+                              <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                                <span>{new Date(m.timestamp).toLocaleTimeString('es-BO')}</span>
+                                <span>·</span>
+                                <span className="font-semibold uppercase">{m.paymentMethod}</span>
+                                <span>·</span>
+                                <span>Operador: {m.operatorName}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className={`font-black text-right ${m.type === 'income' ? 'text-emerald-700' : 'text-red-700'}`}>
+                            {m.type === 'income' ? '+' : '-'} Bs. {m.amount.toFixed(2)}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-2">
+                    <div className="font-bold text-amber-950 flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span>Destino de la Conciliación:</span>
+                    </div>
+                    {activeShift ? (
+                      <p className="text-[11px] text-amber-900">
+                        Los movimientos seleccionados se incorporarán formalmente al <strong>Turno Activo #{activeShift.id}</strong> (Cajero: <strong>{activeShift.operatorName}</strong>). El efectivo y cobros digitales se sumarán al arqueo del turno.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-amber-900">
+                        La caja está cerrada actualmente. La conciliación se asentará como <strong>auditoría administrativa</strong> con sello de fecha y responsable, sin asignarse a turnos cerrados.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Responsable / Supervisor de la Conciliación *
+                      </label>
+                      <input
+                        type="text"
+                        value={supervisorName}
+                        onChange={e => setSupervisorName(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Glosa / Acta de Conciliación
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Conciliación turno tarde..."
+                        value={reconcileNotes}
+                        onChange={e => setReconcileNotes(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded-lg p-2"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsReconcilingView(false)}
+                      className="px-4 py-2 rounded-xl border border-slate-300 font-bold text-slate-700 hover:bg-slate-100"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={selectedPendingIds.length === 0}
+                      className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 font-bold text-white shadow-xs disabled:opacity-50 transition"
+                    >
+                      Confirmar Conciliación ({selectedPendingIds.length})
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : !activeShift ? (
             /* Formulario de apertura de turno */
             <form onSubmit={handleOpen} className="space-y-4">
               <div className="p-4 bg-teal-50 border border-teal-200 rounded-xl text-teal-900 text-xs flex items-center gap-2.5">
@@ -80,10 +280,27 @@ export function CashShiftModal({
               </div>
 
               {pendingMovements.length > 0 && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-1">
-                  <span className="font-bold block">Movimientos pendientes de conciliación ({pendingMovements.length}):</span>
+                <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold block">
+                      Operaciones pendientes de conciliación ({pendingMovements.length}):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsReconcilingView(true)}
+                      className="px-2.5 py-1 bg-amber-600 text-white rounded-lg font-bold text-[11px] hover:bg-amber-500 transition"
+                    >
+                      Revisar y Conciliar →
+                    </button>
+                  </div>
                   <p className="text-[11px] text-amber-800">
-                    Se registraron cobros o egresos fuera de turno por un neto de Bs. {pendingMovements.reduce((acc, m) => acc + (m.type === 'income' ? m.amount : -m.amount), 0).toFixed(2)}. Todos se encuentran preservados en el historial financiero.
+                    Se registraron cobros o egresos fuera de turno por un neto de Bs.{' '}
+                    <strong>
+                      {pendingMovements
+                        .reduce((acc, m) => acc + (m.type === 'income' ? m.amount : -m.amount), 0)
+                        .toFixed(2)}
+                    </strong>
+                    . Puedes revisarlos ahora o incorporarlos una vez abierto el turno.
                   </p>
                 </div>
               )}
@@ -217,6 +434,29 @@ export function CashShiftModal({
                 </div>
               </div>
 
+              {pendingMovements.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-center justify-between">
+                  <div>
+                    <span className="font-bold block">
+                      Hay {pendingMovements.length} movimiento(s) pendientes de conciliación fuera de turno.
+                    </span>
+                    <span className="text-[10px] text-amber-800">
+                      Total pendiente: Bs.{' '}
+                      {pendingMovements
+                        .reduce((acc, m) => acc + (m.type === 'income' ? m.amount : -m.amount), 0)
+                        .toFixed(2)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsReconcilingView(true)}
+                    className="px-3 py-1 bg-amber-600 text-white rounded-lg font-bold text-xs hover:bg-amber-500 shadow-xs transition"
+                  >
+                    Conciliar Ahora
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="p-2.5 bg-slate-50 border rounded-lg">
                   <span className="text-[10px] text-slate-500 block">Fondo Inicial:</span>
@@ -239,7 +479,7 @@ export function CashShiftModal({
               {/* Movimientos del turno */}
               <div>
                 <span className="font-bold text-slate-800 text-xs block mb-1.5 uppercase">
-                  Movimientos Registrados en este Turno ({shiftMovements.length})
+                  Movimientos Asignados a este Turno ({shiftMovements.length})
                 </span>
                 {shiftMovements.length === 0 ? (
                   <div className="p-4 text-center text-slate-400 bg-slate-50 rounded-xl text-xs">
@@ -251,7 +491,9 @@ export function CashShiftModal({
                       <div key={m.id} className="p-2.5 flex items-center justify-between">
                         <div>
                           <div className="font-semibold text-slate-800">{m.concept}</div>
-                          <div className="text-[10px] text-slate-400">{new Date(m.timestamp).toLocaleTimeString('es-BO')} · {m.paymentMethod.toUpperCase()}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {new Date(m.timestamp).toLocaleTimeString('es-BO')} · {m.paymentMethod.toUpperCase()}
+                          </div>
                         </div>
                         <div className={`font-bold text-right ${m.type === 'income' ? 'text-emerald-700' : 'text-red-700'}`}>
                           {m.type === 'income' ? '+' : '-'} Bs. {m.amount.toFixed(2)}

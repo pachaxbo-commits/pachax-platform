@@ -12,6 +12,22 @@ import type {
 import { generateOperationalReportPdf } from '../domain/parcelDocuments'
 import { calculateFinancialSummary } from '../domain/parcelEngine'
 
+const EXPENSE_CATEGORY_NAMES: Record<string, string> = {
+  alquiler: 'Alquiler de Inmueble',
+  energia_electrica: 'Energía Eléctrica',
+  agua: 'Agua Potable',
+  internet_telefonia: 'Internet y Telefonía',
+  mantenimiento: 'Mantenimiento y Reparación',
+  suministros: 'Suministros de Oficina',
+  combustible: 'Combustible y Lubricantes',
+  combustible_mantenimiento: 'Combustible y Mantenimiento',
+  tramites_legales: 'Trámites Legales',
+  impresion_facturacion: 'Impresión y Facturación',
+  otro: 'Otros Gastos Operativos',
+  utility_rent: 'Alquiler / Inmueble',
+  utility_services: 'Servicios Básicos',
+}
+
 interface ParcelReportsViewProps {
   state: ParcelAppState
 }
@@ -168,25 +184,32 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
     }
 
     if (activeReport === 'union_dues') {
-      const rows = duesFiltered.map(d => [
-        d.periodLabel,
-        d.memberNumber,
-        d.memberName,
-        `Bs. ${d.amount.toFixed(2)}`,
-        `Bs. ${d.paidAmount.toFixed(2)}`,
-        `Bs. ${d.balance.toFixed(2)}`,
-        d.status === 'paid' ? 'AL DÍA' : d.status === 'partial' ? 'PARCIAL' : 'PENDIENTE',
-      ])
-      const totalRec = duesFiltered.reduce((acc, d) => acc + d.paidAmount, 0)
+      const rows = duesFiltered.map(d => {
+        const periodPayments = d.payments.filter(p => !p.isReversed && inDateRange(p.date))
+        const effectiveRec = periodPayments.reduce((acc, p) => acc + p.amount, 0)
+        return [
+          d.periodLabel,
+          d.memberNumber,
+          d.memberName,
+          `Bs. ${d.amount.toFixed(2)}`,
+          `Bs. ${effectiveRec.toFixed(2)}`,
+          `Bs. ${d.balance.toFixed(2)}`,
+          d.status === 'paid' ? 'AL DÍA' : d.status === 'partial' ? 'PARCIAL' : 'PENDIENTE',
+        ]
+      })
+      const totalEffectiveRec = duesFiltered.reduce((acc, d) => {
+        const periodPayments = d.payments.filter(p => !p.isReversed && inDateRange(p.date))
+        return acc + periodPayments.reduce((pAcc, p) => pAcc + p.amount, 0)
+      }, 0)
       const totalDeb = duesFiltered.reduce((acc, d) => acc + d.balance, 0)
       return generateOperationalReportPdf({
         title: 'Reporte de Cuotas y Mensualidades Sindicales',
-        subtitle: dateSubtitle,
-        headers: ['Período', 'N° Socio', 'Nombre del Socio', 'Obligación', 'Abonado', 'Saldo', 'Estado'],
+        subtitle: `${dateSubtitle} · Recaudación efectiva por fechas de pago vs Saldo deudor`,
+        headers: ['Período', 'N° Socio', 'Nombre del Socio', 'Obligación', 'Recaudado Efectivo', 'Saldo Deudor', 'Estado'],
         rows,
         summaryLines: [
-          `Total Recaudado por Aportes: Bs. ${totalRec.toFixed(2)}`,
-          `Deuda Acumulada por Cobrar: Bs. ${totalDeb.toFixed(2)}`,
+          `Recaudación Efectiva (fechas de pago seleccionadas): Bs. ${totalEffectiveRec.toFixed(2)}`,
+          `Deuda Pendiente de Cobro (obligaciones del período): Bs. ${totalDeb.toFixed(2)}`,
         ],
       })
     }
@@ -215,7 +238,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
       const rows = expensesFiltered.map(e => [
         new Date(e.date).toLocaleDateString('es-BO'),
         e.receiptNumber,
-        e.category.toUpperCase(),
+        (EXPENSE_CATEGORY_NAMES[e.category] || e.category).toUpperCase(),
         e.description,
         e.paymentMethod.toUpperCase(),
         e.invoiceOrVoucherNumber || 'S/N',
@@ -688,8 +711,8 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
                 Recaudación y Deuda de Mensualidades Sindicales
               </h4>
               <div className="text-xs space-x-3">
-                <span>Cobrado: <strong className="text-emerald-800">Bs. {duesFiltered.reduce((acc, d) => acc + d.paidAmount, 0).toFixed(2)}</strong></span>
-                <span>Pendiente: <strong className="text-amber-800">Bs. {duesFiltered.reduce((acc, d) => acc + d.balance, 0).toFixed(2)}</strong></span>
+                <span>Recaudación Efectiva (fechas seleccionadas): <strong className="text-emerald-800">Bs. {duesFiltered.reduce((acc, d) => acc + d.payments.filter(p => !p.isReversed && inDateRange(p.date)).reduce((pAcc, p) => pAcc + p.amount, 0), 0).toFixed(2)}</strong></span>
+                <span>Deuda de Cuotas del Período: <strong className="text-amber-800">Bs. {duesFiltered.reduce((acc, d) => acc + d.balance, 0).toFixed(2)}</strong></span>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -700,7 +723,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
                     <th className="py-2.5 px-3">Socio</th>
                     <th className="py-2.5 px-3">Vencimiento</th>
                     <th className="py-2.5 px-3 text-right">Monto Cuota</th>
-                    <th className="py-2.5 px-3 text-right">Abonado</th>
+                    <th className="py-2.5 px-3 text-right">Recaudado Efectivo</th>
                     <th className="py-2.5 px-3 text-right">Saldo Deudor</th>
                     <th className="py-2.5 px-3 text-center">Estado</th>
                   </tr>
@@ -713,21 +736,26 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
                       </td>
                     </tr>
                   ) : (
-                    duesFiltered.map(d => (
-                      <tr key={d.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-3 font-semibold text-slate-900">{d.periodLabel}</td>
-                        <td className="py-2 px-3 text-slate-800">{d.memberName} ({d.memberNumber})</td>
-                        <td className="py-2 px-3 text-slate-500">{d.dueDate}</td>
-                        <td className="py-2 px-3 text-right font-medium text-slate-900">Bs. {d.amount.toFixed(2)}</td>
-                        <td className="py-2 px-3 text-right font-bold text-emerald-700">Bs. {d.paidAmount.toFixed(2)}</td>
-                        <td className="py-2 px-3 text-right font-black text-amber-900">Bs. {d.balance.toFixed(2)}</td>
-                        <td className="py-2 px-3 text-center">
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${d.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : d.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}>
-                            {d.status === 'paid' ? 'Al día' : d.status === 'partial' ? 'Parcial' : 'Pendiente'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
+                    duesFiltered.map(d => {
+                      const effectivePaid = d.payments
+                        .filter(p => !p.isReversed && inDateRange(p.date))
+                        .reduce((acc, p) => acc + p.amount, 0)
+                      return (
+                        <tr key={d.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-semibold text-slate-900">{d.periodLabel}</td>
+                          <td className="py-2 px-3 text-slate-800">{d.memberName} ({d.memberNumber})</td>
+                          <td className="py-2 px-3 text-slate-500">{d.dueDate}</td>
+                          <td className="py-2 px-3 text-right font-medium text-slate-900">Bs. {d.amount.toFixed(2)}</td>
+                          <td className="py-2 px-3 text-right font-bold text-emerald-700">Bs. {effectivePaid.toFixed(2)}</td>
+                          <td className="py-2 px-3 text-right font-black text-amber-900">Bs. {d.balance.toFixed(2)}</td>
+                          <td className="py-2 px-3 text-center">
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${d.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : d.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}>
+                              {d.status === 'paid' ? 'Al día' : d.status === 'partial' ? 'Parcial' : 'Pendiente'}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
@@ -819,7 +847,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
                       <tr key={e.id} className="hover:bg-slate-50">
                         <td className="py-2 px-3 text-slate-500">{new Date(e.date).toLocaleDateString('es-BO')}</td>
                         <td className="py-2 px-3 font-mono font-bold text-slate-900">{e.receiptNumber}</td>
-                        <td className="py-2 px-3 font-semibold text-slate-800 uppercase text-[11px]">{e.category}</td>
+                        <td className="py-2 px-3 font-semibold text-slate-800 uppercase text-[11px]">{EXPENSE_CATEGORY_NAMES[e.category] || e.category}</td>
                         <td className="py-2 px-3 text-slate-700">{e.description}</td>
                         <td className="py-2 px-3 font-medium text-slate-600 uppercase">{e.paymentMethod}</td>
                         <td className="py-2 px-3 font-mono text-slate-600">{e.invoiceOrVoucherNumber || 'S/N'}</td>

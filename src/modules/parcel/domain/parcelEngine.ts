@@ -273,7 +273,10 @@ export function validateParcelDelivery(
   }
 
   if (recipientRelationship !== 'titular' && (!changeReason || !changeReason.trim())) {
-    // Si no es el titular, se requiere al menos indicar el motivo o delegación autorizada
+    return {
+      canDeliver: false,
+      error: `Al no ser el titular quien recibe (relación indicada: '${recipientRelationship}'), es obligatorio registrar la justificación, autorización expresa o motivo debidamente respaldado.`,
+    }
   }
 
   return { canDeliver: true }
@@ -377,22 +380,51 @@ export function applyDuePayment(
  * Revierte o anula un pago de cuota sindical, recalculando saldo y estado.
  */
 export function revertDuePayment(
-  due: UnionMonthlyDue,
-  paymentId: string,
-  cashierName: string,
-  reversalReason: string
+  dueOrParams: UnionMonthlyDue | {
+    due: UnionMonthlyDue
+    paymentId: string
+    revertedBy?: string
+    cashierName?: string
+    reason?: string
+    reversalReason?: string
+    reversalType?: 'documentary_void' | 'refund'
+    refundMethod?: 'none' | 'cash' | 'transfer'
+  },
+  paymentIdParam?: string,
+  cashierNameParam?: string,
+  reversalReasonParam?: string,
+  reversalTypeParam: 'documentary_void' | 'refund' = 'documentary_void',
+  refundMethodParam: 'none' | 'cash' | 'transfer' = 'none'
 ): { updatedDue: UnionMonthlyDue; revertedPayment: UnionDuePayment } {
+  const isObj = typeof dueOrParams === 'object' && 'due' in dueOrParams
+  const due = isObj ? dueOrParams.due : (dueOrParams as UnionMonthlyDue)
+  const paymentId = isObj ? dueOrParams.paymentId : paymentIdParam!
+  const cashierName = isObj
+    ? (dueOrParams.revertedBy || dueOrParams.cashierName || 'Secretaría de Hacienda')
+    : (cashierNameParam || 'Secretaría de Hacienda')
+  const rawReason = isObj
+    ? (dueOrParams.reason || dueOrParams.reversalReason || '')
+    : (reversalReasonParam || '')
+  const reversalType = isObj
+    ? (dueOrParams.reversalType || 'documentary_void')
+    : reversalTypeParam
+  const refundMethod = isObj
+    ? (dueOrParams.refundMethod || 'none')
+    : refundMethodParam
+
   const payment = due.payments.find(p => p.id === paymentId)
   if (!payment) throw new Error('Pago no encontrado en esta cuota.')
   if (payment.isReversed) throw new Error('Este pago ya fue revertido previamente.')
-  if (!reversalReason.trim()) throw new Error('Debe especificar un motivo para revertir el pago.')
+  if (!rawReason.trim()) throw new Error('Debe especificar un motivo para revertir el pago.')
 
   const now = new Date().toISOString()
   const revertedPayment: UnionDuePayment = {
     ...payment,
     isReversed: true,
     reversedAt: now,
-    reversalReason: `${cashierName}: ${reversalReason.trim()}`,
+    reversalReason: `${cashierName}: ${rawReason.trim()}`,
+    reversalType,
+    refundMethod,
   }
 
   const updatedPayments = due.payments.map(p => p.id === paymentId ? revertedPayment : p)
@@ -421,8 +453,8 @@ export function revertDuePayment(
  * Separa claramente:
  * 1. Flujo de Caja Física (efectivo ingresado menos egresos en efectivo)
  * 2. Flujo de Banco/QR (ingresos digitales)
- * 3. Resultado Económico del Período (Ingresos cobrados vs Gastos totales)
- * Y garantiza que los pagos a trabajadores no se descuenten dos veces.
+ * 3. Resultado Económico del Período (Ingresos reconocidos netos vs Gastos operativos)
+ * Y garantiza que los pagos a trabajadores no se descuenten dos veces, ni las reversiones inflen egresos.
  */
 export function calculateFinancialSummary(params: {
   movements: CashMovement[]
@@ -458,7 +490,39 @@ export function calculateFinancialSummary(params: {
   for (const mov of filteredMovements) {
     if (mov.isCancelled) continue
 
-    if (mov.type === 'income') {
+    if (mov.type === 'reversal' || mov.category === 'reversal') {
+      // Reversión compensatoria de cobranza
+      if (mov.category === 'union_due' || mov.category === 'reversal') {
+        unionDuesIncome = Math.max(0, unionDuesIncome - mov.amount)
+      } else if (mov.category === 'shipping_origin') {
+        shippingOriginIncome = Math.max(0, shippingOriginIncome - mov.amount)
+      } else if (mov.category === 'shipping_destination') {
+        shippingDestIncome = Math.max(0, shippingDestIncome - mov.amount)
+      } else {
+        otherIncome = Math.max(0, otherIncome - mov.amount)
+      }
+
+      if (mov.reversalType === 'refund') {
+        // Devolución efectiva de dinero al socio
+        if (mov.paymentMethod === 'cash' || mov.isPhysicalCashOut) {
+          totalCashOut += mov.amount
+        } else if (mov.paymentMethod === 'qr') {
+          totalQrIn = Math.max(0, totalQrIn - mov.amount)
+        } else if (mov.paymentMethod === 'transfer') {
+          totalTransferIn = Math.max(0, totalTransferIn - mov.amount)
+        }
+      } else {
+        // Anulación de registro (documentary void): corrección de un cobro erróneo
+        // No hay egreso físico en la gaveta; se resta del ingreso computado
+        if (mov.paymentMethod === 'cash') {
+          totalCashIn = Math.max(0, totalCashIn - mov.amount)
+        } else if (mov.paymentMethod === 'qr') {
+          totalQrIn = Math.max(0, totalQrIn - mov.amount)
+        } else if (mov.paymentMethod === 'transfer') {
+          totalTransferIn = Math.max(0, totalTransferIn - mov.amount)
+        }
+      }
+    } else if (mov.type === 'income') {
       if (mov.paymentMethod === 'cash') totalCashIn += mov.amount
       else if (mov.paymentMethod === 'qr') totalQrIn += mov.amount
       else if (mov.paymentMethod === 'transfer') totalTransferIn += mov.amount
@@ -473,7 +537,9 @@ export function calculateFinancialSummary(params: {
   }
 
   const expectedCashInDrawer = Math.round((initialCash + totalCashIn - totalCashOut) * 100) / 100
-  const totalIncomeAllMethods = Math.round((totalCashIn + totalQrIn + totalTransferIn) * 100) / 100
+  const totalIncomeAllMethods = Math.round(
+    (shippingOriginIncome + shippingDestIncome + unionDuesIncome + otherIncome) * 100
+  ) / 100
 
   // Total de gastos operativos de sindicato evitando duplicar los sueldos
   const totalWorkerPayments = filteredWorkerPayments.reduce((acc, wp) => acc + wp.amount, 0)

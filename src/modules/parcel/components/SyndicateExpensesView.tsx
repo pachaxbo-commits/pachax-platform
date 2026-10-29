@@ -58,7 +58,9 @@ export function SyndicateExpensesView({
     mantenimiento: 'Mantenimiento & Reparaciones',
     suministros: 'Suministros de Oficina / Embalaje',
     combustible: 'Combustible / Lubricantes',
+    combustible_mantenimiento: 'Combustible & Mantenimiento de Flota',
     tramites_legales: 'Trámites & Asesoría Legal',
+    impresion_facturacion: 'Impresión & Talonarios / Facturación',
     otro: 'Otros Egresos Generales',
   }
 

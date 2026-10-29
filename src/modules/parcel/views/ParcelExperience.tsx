@@ -615,6 +615,7 @@ export function ParcelExperience({
             members={state.members}
             onGeneratePeriod={(p, l, d) => controller.generateDuesPeriod(p, l, d)}
             onPayDue={params => controller.payDue(params)}
+            onRevertPayment={params => controller.revertDuePayment(params)}
           />
         )}
 
@@ -691,6 +692,9 @@ export function ParcelExperience({
         movements={state.cashMovements}
         onOpenShift={(cash, op) => controller.openCashShift(cash, op)}
         onCloseShift={(actual, notes) => controller.closeCashShift(actual, notes)}
+        onReconcileMovements={(ids, sup, notes) =>
+          controller.reconcilePendingMovements({ movementIds: ids, supervisorName: sup, notes })
+        }
       />
     </div>
   )

@@ -1,5 +1,35 @@
 # Continuidad del proyecto PACHAX
 
+## PACHAX Encomiendas + Edición Sindicato — Corrección focal: entregas a terceros, anulación vs reversión de cuotas, multianualidad, conciliación de caja y reportes (28/10/2026)
+
+- **Rama exclusiva de trabajo:** `gemini/encomiendas-sindicato-demo`. Sin fusiones ni alteraciones en `main`, `cambios-dario`, otras plantillas ni landing comercial.
+- **Correcciones focales implementadas:**
+  1. **Validación estricta de entregas a terceros (`validateParcelDelivery` y `deliverShipment`):**
+     - En `parcelEngine.ts` y `demoParcelController.ts`, se exige de manera imperativa justificación documentada (`authorizedChangeReason`) cuando quien recibe la encomienda no es el titular (`recipientRelationship !== 'titular'`). Si no se provee o consta solo de espacios en blanco, el motor y el controlador rechazan la entrega arrojando un error bloqueante antes de transicionar el estado.
+     - Pruebas directas contra el controlador validan que terceros sin autorización sean rechazados y con respaldo notarial o justificación válida sean entregados y auditados en `delivery` e historial.
+  2. **Anulación documental vs Reversión con devolución y consistencia en Resultado Operativo:**
+     - En `revertDuePayment`, `demoParcelController` y `calculateFinancialSummary`, se distingue con precisión contable la anulación documental (`documentary_void`, corrección de error tipográfico sin flujo físico de dinero) frente a la devolución efectiva (`refund`, salida física de efectivo por ventanilla o transferencia).
+     - Ambos tipos descuentan el ingreso de cuotas reconocido de los ingresos brutos en `calculateFinancialSummary` para evitar duplicación o ingresos fantasma en el `netOperatingBalance`.
+     - La anulación documental ajusta la cobranza sin registrar falsos egresos de gaveta (`totalCashOut`), mientras que la devolución efectiva en efectivo registra el egreso auditable (`totalCashOut`), logrando paridad contable y matemática perfecta comprobada en tests numéricos unitarios.
+     - En la interfaz de cuotas sindicales (`SyndicateDuesView.tsx`), se integró el modal interactivo de historial y anulación/reversión de recibos para que supervisores y cajeros puedan ejecutar ambas operaciones con motivo obligatorio.
+  3. **Períodos multianuales sin restricciones de año fijo:**
+     - `SyndicateDuesView.tsx` sustituye los períodos fijos 2026 por selectores dinámicos de año (año actual, previo y siguientes como 2027, 2028+) y mes (1 a 12), con cálculo automático del último día para `dueDate`.
+     - Permite ver «Todos los períodos» consolidados o filtrar rápidamente mediante chips/pills sobre períodos con cuotas existentes, habilitando la generación de cuotas futuras o pasadas sin restricciones.
+  4. **Conciliación activa de caja (`CashShiftModal.tsx` & `DemoParcelController`):**
+     - Se implementó un flujo visual y operativo completo de revisión y conciliación de movimientos `pending_reconciliation`.
+     - Se visualiza el listado de operaciones sin turno con detalles de guía/recibo, método de pago, monto y fecha.
+     - El supervisor selecciona los movimientos a incorporar, ingresa su nombre y notas de auditoría, y los incorpora al turno activo abierto.
+     - Se rechaza estrictamente la asignación a turnos cerrados (`status !== 'open'`), y cada movimiento conciliado queda registrado con `reconciledAt`, `reconciledBy` y `reconciledShiftId`.
+  5. **Conservación de categorías auténticas y recaudación efectiva en reportes:**
+     - En `demoParcelController.ts`, `registerUnionExpense` preserva la categoría auténtica del egreso (`combustible_mantenimiento`, `alquiler`, `energia_electrica`, etc.) en el `CashMovement`.
+     - En `ParcelReportsView.tsx`, se mapean los nombres legibles de todas las categorías de egresos tanto en la tabla como en el PDF descargable.
+     - En el reporte de mensualidades sindicales, la columna y total de cobranzas consideran los pagos efectivos realizados dentro del rango de fechas (`payment.date`), diferenciándose claramente del saldo de deuda del período de la cuota (`due.balance`).
+- **Verificación y calidad:**
+  - Pruebas unitarias de dominio y aislamiento: 34/34 PASS (`tests/parcelDomain.test.ts` con 19 pruebas integrales, `tests/parcelStudioIsolation.test.ts`, `tests/publicTemplates.test.ts`, `tests/adminStudioReadiness.test.ts`).
+  - Chequeo de tipos estricto (`npm run typecheck` / `tsc -b`): PASS (0 errores).
+  - Análisis estático de código (`npx eslint`): PASS (0 errores, 0 advertencias).
+  - Compilación de producción (`npm run build`): PASS (bundle y demos aisladas generadas exitosamente).
+
 ## PACHAX Encomiendas + Edición Sindicato — Estabilización integral de tarifas, caja cerrada, cuotas, aislamiento y reportes (28/10/2026)
 
 - **Rama de trabajo exclusiva:** `gemini/encomiendas-sindicato-demo`. Ninguna modificación a `main`, `cambios-dario`, otras plantillas ni landing pública.

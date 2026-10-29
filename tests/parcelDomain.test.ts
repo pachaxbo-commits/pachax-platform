@@ -697,3 +697,331 @@ test('14. Filtros de rango de fechas en Resultado Operativo & Resumen Financiero
   assert.equal(filtered.totalCashIn, 200)
   assert.equal(filtered.totalIncomeAllMethods, 200)
 })
+
+test('15. Validación estricta de entregas a terceros sin autorización o justificación', () => {
+  const controller = new DemoParcelController('standard', 'empty')
+  const branch1 = controller.getState().branches[0]
+  const branch2 = controller.getState().branches[1]
+
+  // Abrir turno para operar
+  controller.openCashShift(branch2.id, 100, 'Operador Destino')
+
+  const shipment = controller.registerShipment({
+    originBranchId: branch1.id,
+    destinationBranchId: branch2.id,
+    deliveryType: 'agency',
+    sender: { id: 'c1', name: 'Carlos Remitente', docType: 'CI', phone: '70001111' },
+    recipient: { id: 'c2', name: 'Elena Titular', docType: 'CI', phone: '70002222' },
+    items: [{ description: 'Documentos importantes', category: 'documentos', quantity: 1, packaging: 'sobre', weightKg: 0.5, isFragile: false }],
+    paymentTiming: 'origin_paid',
+    paymentMethod: 'cash',
+    prohibitedGoodsNoticeAccepted: true,
+  })
+
+  // Despachar en manifiesto y recepcionar en destino
+  const manifest = controller.createDispatchManifest({
+    originBranchId: branch1.id,
+    destinationBranchId: branch2.id,
+    driverOrResponsible: 'Conductor 445566',
+    vehiclePlate: '1234-XYZ',
+    parcelIds: [shipment.id],
+  })
+  controller.receiveManifestAtDestination(manifest.id, 'Operador Destino')
+
+  // 1. Intentar entregar a un familiar o apoderado SIN justificación ni autorización
+  assert.throws(() => {
+    controller.deliverShipment({
+      shipmentId: shipment.id,
+      receiverName: 'Mario Hermano',
+      receiverDoc: '998877 CI',
+      recipientRelationship: 'familiar',
+      // Sin authorizedChangeReason
+    })
+  }, /Al no ser el titular quien recibe.*es obligatorio registrar la justificación/i)
+
+  // 2. Intentar entregar a un apoderado con justificación vacía (espacios)
+  assert.throws(() => {
+    controller.deliverShipment({
+      shipmentId: shipment.id,
+      receiverName: 'Abogado Perez',
+      receiverDoc: '332211 CI',
+      recipientRelationship: 'apoderado',
+      authorizedChangeReason: '   ',
+    })
+  }, /Al no ser el titular quien recibe.*es obligatorio registrar la justificación/i)
+
+  // 3. Entregar con justificación válida y debidamente respaldada
+  const delivered = controller.deliverShipment({
+    shipmentId: shipment.id,
+    receiverName: 'Mario Hermano',
+    receiverDoc: '998877 CI',
+    recipientRelationship: 'familiar',
+    authorizedChangeReason: 'Poder notariado nro. 45/2026 y copia de cédula del titular',
+    deliveryNotes: 'Verificada cédula original en ventanilla',
+    signatureCaptured: 'data:image/svg+xml;base64,mockSign',
+  })
+
+  assert.equal(delivered.status, 'delivered')
+  assert.equal(delivered.delivery?.receivedByName, 'Mario Hermano')
+  assert.equal(delivered.delivery?.recipientRelationship, 'familiar')
+  assert.equal(delivered.delivery?.authorizedChangeReason, 'Poder notariado nro. 45/2026 y copia de cédula del titular')
+})
+
+test('16. Anulación vs Reversión de mensualidades y comprobación contable sin dobles registros', () => {
+  const member: UnionMember = {
+    id: 'm-audit',
+    memberNumber: 'SOC-900',
+    fullName: 'Roberto Valdivia',
+    ci: '5566778',
+    phone: '77665544',
+    status: 'active',
+    joinedAt: '2026-01-01',
+    monthlyFee: 200,
+  }
+
+  const { createdDues } = generateMonthlyDuesForPeriod([member], [], '2026-10', 'Octubre 2026', '2026-10-31')
+  let due = createdDues[0]
+
+  // Paso 1: Registrar dos pagos parciales de Bs. 100 cada uno
+  due = applyDuePayment(due, 100, 'cash', 'Cajero 1', 'REC-001')
+  due = applyDuePayment(due, 100, 'cash', 'Cajero 1', 'REC-002')
+  assert.equal(due.status, 'paid')
+  assert.equal(due.paidAmount, 200)
+  assert.equal(due.balance, 0)
+
+  const payment1 = due.payments[0]
+  const payment2 = due.payments[1]
+
+  // Movimientos iniciales de caja correspondientes a los pagos
+  const initialMovements: CashMovement[] = [
+    {
+      id: 'mov-due-1',
+      shiftId: 's1',
+      timestamp: '2026-10-10T10:00:00Z',
+      type: 'income',
+      category: 'union_due',
+      amount: 100,
+      paymentMethod: 'cash',
+      concept: 'Cuota Octubre SOC-900 Recibo REC-001',
+      referenceId: payment1.id,
+      operatorUid: 'u1',
+      operatorName: 'Cajero 1',
+    },
+    {
+      id: 'mov-due-2',
+      shiftId: 's1',
+      timestamp: '2026-10-12T10:00:00Z',
+      type: 'income',
+      category: 'union_due',
+      amount: 100,
+      paymentMethod: 'cash',
+      concept: 'Cuota Octubre SOC-900 Recibo REC-002',
+      referenceId: payment2.id,
+      operatorUid: 'u1',
+      operatorName: 'Cajero 1',
+    },
+  ]
+
+  // Resumen inicial: Ingreso total 200, Caja 200, Resultado operativo 200
+  const summaryInitial = calculateFinancialSummary({
+    movements: initialMovements,
+    workerPayments: [],
+    unionExpenses: [],
+  })
+  assert.equal(summaryInitial.byCategory.unionDuesIncome, 200)
+  assert.equal(summaryInitial.totalCashIn, 200)
+  assert.equal(summaryInitial.totalCashOut, 0)
+  assert.equal(summaryInitial.netOperatingBalance, 200)
+
+  // Paso 2: Anulación Documental (documentary_void) del pago 1 (error de digitación, no hubo salida física de dinero)
+  const voidResult = revertDuePayment({
+    due,
+    paymentId: payment1.id,
+    revertedBy: 'Supervisor Contable',
+    reason: 'Error de tipeo en folio, duplicación documental involuntaria',
+    reversalType: 'documentary_void',
+    refundMethod: 'none',
+  })
+  due = voidResult.updatedDue
+  assert.equal(due.paidAmount, 100)
+  assert.equal(due.balance, 100)
+  assert.equal(due.status, 'partial')
+
+  // Movimiento de anulación documental
+  const voidMovement: CashMovement = {
+    id: 'mov-void-1',
+    shiftId: 's1',
+    timestamp: '2026-10-15T11:00:00Z',
+    type: 'reversal',
+    category: 'reversal',
+    amount: 100,
+    paymentMethod: 'cash',
+    concept: 'Anulación documental de cuota REC-001',
+    referenceId: payment1.id,
+    operatorUid: 'u2',
+    operatorName: 'Supervisor Contable',
+    reversalType: 'documentary_void',
+    isPhysicalCashOut: false,
+  }
+
+  const movementsAfterVoid = [...initialMovements, voidMovement]
+  const summaryAfterVoid = calculateFinancialSummary({
+    movements: movementsAfterVoid,
+    workerPayments: [],
+    unionExpenses: [],
+  })
+
+  // Ingreso neto de cuotas debe descontar la anulación (200 - 100 = 100)
+  assert.equal(summaryAfterVoid.byCategory.unionDuesIncome, 100)
+  // Al ser documental, NO debe inflar la salida física de caja
+  assert.equal(summaryAfterVoid.totalCashOut, 0)
+  // El ingreso total reconocido baja a 100
+  assert.equal(summaryAfterVoid.totalIncomeAllMethods, 100)
+  // Resultado operativo exacto: 100
+  assert.equal(summaryAfterVoid.netOperatingBalance, 100)
+
+  // Paso 3: Devolución Efectiva (refund) del pago 2 (devolución física de efectivo de Bs. 100 al socio)
+  const refundResult = revertDuePayment({
+    due,
+    paymentId: payment2.id,
+    revertedBy: 'Supervisor Contable',
+    reason: 'Socio solicitó baja y devolución en ventanilla',
+    reversalType: 'refund',
+    refundMethod: 'cash',
+  })
+  due = refundResult.updatedDue
+  assert.equal(due.paidAmount, 0)
+  assert.equal(due.balance, 200)
+  assert.equal(due.status, 'pending')
+
+  // Movimiento de devolución en efectivo
+  const refundMovement: CashMovement = {
+    id: 'mov-refund-2',
+    shiftId: 's1',
+    timestamp: '2026-10-16T12:00:00Z',
+    type: 'reversal',
+    category: 'reversal',
+    amount: 100,
+    paymentMethod: 'cash',
+    concept: 'Devolución en efectivo de cuota REC-002',
+    referenceId: payment2.id,
+    operatorUid: 'u2',
+    operatorName: 'Supervisor Contable',
+    reversalType: 'refund',
+    isPhysicalCashOut: true,
+  }
+
+  const movementsAfterRefund = [...movementsAfterVoid, refundMovement]
+  const summaryAfterRefund = calculateFinancialSummary({
+    movements: movementsAfterRefund,
+    workerPayments: [],
+    unionExpenses: [],
+  })
+
+  // Ambos ingresos quedaron anulados/revertidos
+  assert.equal(summaryAfterRefund.byCategory.unionDuesIncome, 0)
+  // Salida física de caja registra exactamente los Bs. 100 devueltos
+  assert.equal(summaryAfterRefund.totalCashOut, 100)
+  // Saldo en gaveta: 100 neto de efectivo ingresado - 100 devuelto = 0
+  assert.equal(summaryAfterRefund.expectedCashInDrawer, 0)
+  // Resultado operativo: 0 neto de cuotas - 0 gastos operativos = 0
+  assert.equal(summaryAfterRefund.netOperatingBalance, 0)
+})
+
+test('17. Conciliación de caja: Bloqueo a turnos cerrados y asignación auditable a turno abierto', () => {
+  const controller = new DemoParcelController('sindicato', 'empty')
+  const branch = controller.getState().branches[0]
+
+  // Operación registrada con caja cerrada -> genera movimiento 'pending_reconciliation'
+  const shipment = controller.registerShipment({
+    originBranchId: branch.id,
+    destinationBranchId: controller.getState().branches[1].id,
+    deliveryType: 'agency',
+    sender: { id: 'c1', name: 'Ana Lopez', docType: 'CI', phone: '70003333' },
+    recipient: { id: 'c2', name: 'Carlos Ramos', docType: 'CI', phone: '70004444' },
+    items: [{ description: 'Caja repuestos', category: 'repuestos', quantity: 1, packaging: 'caja', weightKg: 2, isFragile: false }],
+    paymentTiming: 'origin_paid',
+    paymentMethod: 'cash',
+    prohibitedGoodsNoticeAccepted: true,
+  })
+
+  const pending = controller.getState().cashMovements.find(m => m.shiftId === 'pending_reconciliation')
+  assert.ok(pending, 'Debe existir un movimiento pendiente de conciliación')
+  assert.equal(pending.amount, shipment.finalAmount)
+
+  // 1. Intentar conciliar cuando no hay turno abierto -> debe rechazarse
+  assert.throws(() => {
+    controller.reconcilePendingMovements({
+      movementIds: [pending.id],
+      supervisorName: 'Supervisor General',
+      notes: 'Intento sin turno',
+    })
+  }, /No se pueden conciliar movimientos porque no hay un turno de caja abierto/i)
+
+  // 2. Abrir turno en la sucursal
+  controller.openCashShift(50, 'Cajero Oficial')
+  const openShiftId = controller.getState().activeShift?.id
+  assert.ok(openShiftId)
+
+  // 3. Conciliar exitosamente al turno abierto
+  controller.reconcilePendingMovements({
+    movementIds: [pending.id],
+    supervisorName: 'Supervisor General',
+    notes: 'Revisado y validado en arqueo físico',
+  })
+
+  // Comprobar que el movimiento fue incorporado al turno
+  const reconciled = controller.getState().cashMovements.find(m => m.id === pending.id)
+  assert.equal(reconciled?.shiftId, openShiftId)
+  assert.equal(reconciled?.reconciledBy, 'Supervisor General')
+  assert.equal(reconciled?.reconciledShiftId, openShiftId)
+  assert.ok(reconciled?.reconciledAt)
+
+  // Comprobar que el turno activo incorporó el monto en efectivo
+  const activeShift = controller.getState().activeShift
+  assert.equal(activeShift?.totalCashIn, shipment.finalAmount)
+  assert.equal(activeShift?.expectedCash, 50 + shipment.finalAmount)
+})
+
+test('18. Soporte multianual de cuotas sindicales (2027 y posteriores)', () => {
+  const member: UnionMember = {
+    id: 'm-future',
+    memberNumber: 'SOC-2027',
+    fullName: 'David Quiroga',
+    ci: '8877665',
+    phone: '71122334',
+    status: 'active',
+    joinedAt: '2026-12-01',
+    monthlyFee: 150,
+  }
+
+  // Generar cuota para Febrero de 2027
+  const { createdDues } = generateMonthlyDuesForPeriod([member], [], '2027-02', 'Febrero 2027', '2027-02-28')
+  assert.equal(createdDues.length, 1)
+  assert.equal(createdDues[0].period, '2027-02')
+  assert.equal(createdDues[0].periodLabel, 'Febrero 2027')
+  assert.equal(createdDues[0].dueDate, '2027-02-28')
+  assert.equal(createdDues[0].amount, 150)
+  assert.equal(createdDues[0].balance, 150)
+})
+
+test('19. Conservación de categoría auténtica de egresos sindicales', () => {
+  const controller = new DemoParcelController('sindicato', 'empty')
+  const branch = controller.getState().branches[0]
+  controller.openCashShift(branch.id, 500, 'Tesorero Sindicato')
+
+  const expense = controller.registerUnionExpense({
+    category: 'combustible_mantenimiento',
+    description: 'Compra de diésel para furgón de ruta interprovincial',
+    amount: 180,
+    paymentMethod: 'cash',
+    invoiceOrVoucherNumber: 'FAC-9912',
+  })
+
+  assert.equal(expense.category, 'combustible_mantenimiento')
+  const movement = controller.getState().cashMovements.find(m => m.referenceId === expense.id)
+  assert.ok(movement)
+  assert.equal(movement.category, 'combustible_mantenimiento')
+  assert.equal(movement.expenseCategory, 'combustible_mantenimiento')
+  assert.equal(movement.amount, 180)
+})

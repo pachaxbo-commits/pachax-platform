@@ -17,6 +17,7 @@ import type {
   UnionWorker,
   DispatchManifest,
   CashMovement,
+  CashCategory,
   CashShift,
   UnionMember,
   UnionMonthlyDue,
@@ -446,7 +447,7 @@ export class DemoParcelController {
       params.receiverDoc,
       params.recipientRelationship,
       params.isPayingNow,
-      params.authorizedChangeReason || params.deliveryNotes
+      params.authorizedChangeReason
     )
     if (!validation.canDeliver) {
       throw new Error(validation.error || 'No se puede entregar la encomienda.')
@@ -587,6 +588,88 @@ export class DemoParcelController {
     return closed
   }
 
+  public reconcilePendingMovements(params: {
+    movementIds: string[]
+    supervisorName: string
+    targetShiftId?: string
+    notes?: string
+  }): { reconciledCount: number; assignedShiftId?: string } {
+    if (!params.movementIds || params.movementIds.length === 0) {
+      throw new Error('Debe seleccionar al menos un movimiento para conciliar.')
+    }
+    if (!params.supervisorName || !params.supervisorName.trim()) {
+      throw new Error('Debe especificar el nombre del responsable de la conciliación.')
+    }
+
+    const targetShift = params.targetShiftId
+      ? this.state.shifts.find(s => s.id === params.targetShiftId)
+      : this.state.activeShift
+
+    if (!targetShift) {
+      throw new Error('No se pueden conciliar movimientos porque no hay un turno de caja abierto para incorporar los fondos.')
+    }
+
+    if (targetShift.status !== 'open') {
+      throw new Error('Operación rechazada: No se pueden asignar movimientos pendientes a un turno de caja que ya está cerrado.')
+    }
+
+    const now = new Date().toISOString()
+    const targetShiftId = targetShift ? targetShift.id : undefined
+    const updatedShift = targetShift && this.state.activeShift?.id === targetShift.id
+      ? { ...this.state.activeShift }
+      : null
+
+    let reconciledCount = 0
+
+    const updatedMovements = this.state.cashMovements.map(m => {
+      if (params.movementIds.includes(m.id)) {
+        if (m.shiftId !== 'pending_reconciliation') {
+          return m // Ya no está pendiente
+        }
+
+        reconciledCount++
+
+        if (updatedShift) {
+          if (m.paymentMethod === 'cash') {
+            if (m.type === 'income') {
+              updatedShift.totalCashIn += m.amount
+              updatedShift.expectedCash += m.amount
+            } else if (m.type === 'expense' || m.type === 'reversal') {
+              updatedShift.totalCashOut += m.amount
+              updatedShift.expectedCash -= m.amount
+            }
+          } else if (m.paymentMethod === 'qr' && m.type === 'income') {
+            updatedShift.totalQrIn += m.amount
+          }
+        }
+
+        const auditNote = `[Conciliado el ${now.slice(0, 10)} por ${params.supervisorName.trim()}${targetShiftId ? ` en turno ${targetShiftId}` : ''}${params.notes ? `: ${params.notes.trim()}` : ''}]`
+
+        return {
+          ...m,
+          shiftId: targetShiftId || 'reconciled_audit',
+          reconciledShiftId: targetShiftId,
+          reconciledAt: now,
+          reconciledBy: params.supervisorName.trim(),
+          notes: m.notes ? `${m.notes} · ${auditNote}` : auditNote,
+        }
+      }
+      return m
+    })
+
+    this.state = {
+      ...this.state,
+      cashMovements: updatedMovements,
+      activeShift: updatedShift || this.state.activeShift,
+      shifts: updatedShift
+        ? this.state.shifts.map(s => s.id === updatedShift.id ? updatedShift : s)
+        : this.state.shifts,
+    }
+
+    this.saveState()
+    return { reconciledCount, assignedShiftId: targetShiftId }
+  }
+
   // =========================================================================
   // MÓDULOS DE LA EXTENSIÓN SINDICATO
   // =========================================================================
@@ -700,35 +783,84 @@ export class DemoParcelController {
     return updatedDue
   }
 
-  public revertDuePayment(dueId: string, paymentId: string, reason: string, cashierName?: string): UnionMonthlyDue {
+  public revertDuePayment(
+    dueIdOrParams: string | {
+      dueId: string
+      paymentId: string
+      reason: string
+      cashierName?: string
+      reversalType?: 'documentary_void' | 'refund'
+      refundMethod?: 'none' | 'cash' | 'transfer'
+    },
+    paymentIdParam?: string,
+    reasonParam?: string,
+    cashierNameParam?: string,
+    reversalTypeParam: 'documentary_void' | 'refund' = 'documentary_void',
+    refundMethodParam: 'none' | 'cash' | 'transfer' = 'none'
+  ): UnionMonthlyDue {
     this.ensureSyndicateEdition()
+
+    const dueId = typeof dueIdOrParams === 'object' ? dueIdOrParams.dueId : dueIdOrParams
+    const paymentId = typeof dueIdOrParams === 'object' ? dueIdOrParams.paymentId : paymentIdParam!
+    const reason = typeof dueIdOrParams === 'object' ? dueIdOrParams.reason : reasonParam!
+    const cashierName = typeof dueIdOrParams === 'object' ? dueIdOrParams.cashierName : cashierNameParam
+    const reversalType = typeof dueIdOrParams === 'object'
+      ? (dueIdOrParams.reversalType || 'documentary_void')
+      : reversalTypeParam
+    const refundMethod = typeof dueIdOrParams === 'object'
+      ? (dueIdOrParams.refundMethod || 'none')
+      : refundMethodParam
+
     const due = this.state.dues.find(d => d.id === dueId)
     if (!due) throw new Error('Cuota no encontrada.')
 
     const cashier = cashierName || (this.state.activeShift?.operatorName || 'Secretaría de Hacienda')
-    const { updatedDue, revertedPayment } = revertDuePayment(due, paymentId, cashier, reason)
+    const { updatedDue, revertedPayment } = revertDuePayment(
+      due,
+      paymentId,
+      cashier,
+      reason,
+      reversalType,
+      refundMethod
+    )
 
     const updatedMovements = [...this.state.cashMovements]
     const updatedShift = this.state.activeShift ? { ...this.state.activeShift } : null
+
+    const isPhysicalCashOut = reversalType === 'refund' && (refundMethod === 'cash' || (refundMethod === 'none' && revertedPayment.paymentMethod === 'cash'))
 
     const mov: CashMovement = {
       id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
       timestamp: new Date().toISOString(),
-      type: 'expense',
+      type: 'reversal',
       category: 'reversal',
       amount: revertedPayment.amount,
-      paymentMethod: revertedPayment.paymentMethod,
-      concept: `Reversión/Anulación recibo ${revertedPayment.receiptNumber} (${due.memberName}). Motivo: ${reason}`,
+      paymentMethod: isPhysicalCashOut ? 'cash' : revertedPayment.paymentMethod,
+      concept: reversalType === 'refund'
+        ? `Devolución efectiva de aporte recibo ${revertedPayment.receiptNumber} (${due.memberName}). Motivo: ${reason}`
+        : `Anulación de registro recibo ${revertedPayment.receiptNumber} (${due.memberName}). Motivo: ${reason}`,
       referenceId: due.id,
       operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
       operatorName: cashier,
+      reversalType,
+      isPhysicalCashOut,
     }
     updatedMovements.push(mov)
 
-    if (updatedShift && revertedPayment.paymentMethod === 'cash') {
-      updatedShift.totalCashOut += revertedPayment.amount
-      updatedShift.expectedCash -= revertedPayment.amount
+    // Ajustes en el turno de caja activo:
+    if (updatedShift) {
+      if (isPhysicalCashOut) {
+        // Devolución física real: dinero en efectivo sale de la gaveta
+        updatedShift.totalCashOut += revertedPayment.amount
+        updatedShift.expectedCash -= revertedPayment.amount
+      } else if (reversalType === 'documentary_void' && revertedPayment.paymentMethod === 'cash') {
+        // Anulación documental: corrección de un ingreso que no debe computarse como efectivo en gaveta
+        updatedShift.totalCashIn = Math.max(0, updatedShift.totalCashIn - revertedPayment.amount)
+        updatedShift.expectedCash = Math.max(0, updatedShift.expectedCash - revertedPayment.amount)
+      } else if (reversalType === 'documentary_void' && revertedPayment.paymentMethod === 'qr') {
+        updatedShift.totalQrIn = Math.max(0, updatedShift.totalQrIn - revertedPayment.amount)
+      }
     }
 
     this.state = {
@@ -858,7 +990,8 @@ export class DemoParcelController {
       shiftId: updatedShift ? updatedShift.id : 'pending_reconciliation',
       timestamp: now,
       type: 'expense',
-      category: 'utility_rent',
+      category: params.category as CashCategory,
+      expenseCategory: params.category,
       amount: params.amount,
       paymentMethod: params.paymentMethod,
       concept: updatedShift
