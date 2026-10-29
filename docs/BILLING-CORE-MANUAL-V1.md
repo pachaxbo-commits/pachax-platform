@@ -35,8 +35,16 @@ Una implementación futura debe conformar operaciones privadas `createOrder`, `c
 
 La activación únicamente se reserva para las tres plantillas cuyo aprovisionamiento ya está disponible. `hamburger_shop` y `gelateria_weight_cafe` pueden conservarse en catálogo/solicitudes, pero no se puede emitirles un contrato activable hasta completar la segunda entrega. No hay cobro prorrateado de cambios de plan: se aplican al próximo ciclo pagado. Los extras se conservan desde el snapshot del contrato.
 
+## Acceso, vencimiento y compatibilidad
+
+- Un contrato pagado inicia un período mensual/anual y persiste `billingAccessUntil`: fin del período más 7 días de gracia. La renovación íntegramente conciliada calcula y persiste el próximo límite; no hay Function programada.
+- Durante el período y la gracia, los estados `active` y `overdue` conservan acceso. Al vencer `billingAccessUntil`, o si el estado es `pending`, `suspended` o `cancelled`, Functions y Firestore Rules deniegan operaciones/read paths de tenant. Login e identificación de membresías siguen disponibles.
+- Admin calcula `effectiveStatus` al consultar suscripciones: `grace` durante la gracia y `expired` al agotarla; no se altera el historial ni depende de una tarea programada.
+- El control aplica solo si `billingEnforcement == true`. Las empresas existentes sin ese campo no se migran y conservan sus permisos históricos. Si un tenant nuevo enforcement-enabled carece de fecha válida, el acceso falla cerrado.
+- `createManualCommercialIntent` conserva extras aunque `planId` sea null. No se publican ni activan suscripciones como resultado de crear una solicitud.
+
 ## Pruebas locales
 
-`npm run test:billing-core` construye los artefactos Functions y usa solo `demo-pachax-billing-v1`, Firestore/Auth emulados y puertos aislados 8285/9295. La suite cubre ingreso manual, idempotencia, roles, cotización, aceptación, pago parcial/total, rechazo sin cargo pagado, alta pagada, acceso inicial del propietario, aislamiento, compatibilidad legacy, cambio de plan diferido, renovación y denegación por Rules.
+`npm run test:billing-core` construye los artefactos Functions y usa solo `demo-pachax-billing-v1`, Firestore/Auth emulados y puertos aislados 8285/9295. La suite cubre ingreso manual, idempotencia, roles, extras sin plan (uno y varios), cotización, aceptación, pago parcial/total, rechazo sin cargo pagado, alta pagada, acceso inicial del propietario, aislamiento, compatibilidad legacy, estados activo/gracia/vencido/suspendido/cancelado/pendiente por Rules y Functions, acceso al worker de Distribución, detección de expiración en Admin, cambio de plan diferido, renovación y denegación por Rules. En esta corrección pasó con 14 aserciones.
 
 No se modificó Firebase Production, Vercel, IAM ni datos de empresas existentes. Esta rama no debe desplegarse hasta aprobar la PR y programar el release de backend, reglas y frontend de forma coordinada.

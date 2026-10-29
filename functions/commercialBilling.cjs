@@ -3,8 +3,10 @@ const { HttpsError } = require('firebase-functions/v2/https');
 const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
 const { PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
+const { BILLING_GRACE_PERIOD_DAYS, billingAccessUntil: billingAccessUntilMillis } = require('./billingPolicy.cjs');
 
 const BILLING_STATUSES = Object.freeze(['pending', 'active', 'overdue', 'suspended', 'cancelled']);
+const addGracePeriod = periodEnd => Timestamp.fromMillis(billingAccessUntilMillis(periodEnd.toMillis()));
 const moneyMinor = (value, label, { allowZero = true } = {}) => {
   const raw = typeof value === 'string' ? value.trim() : String(value);
   const match = /^(0|[1-9]\d{0,8})(?:\.(\d{1,2}))?$/.exec(raw);
@@ -71,10 +73,13 @@ async function createManualCommercialIntent(db, request) {
   const planRef = planId ? db.doc(`platformPlans/${planId}`) : null;
   const fingerprint = digest(JSON.stringify({ contactName, companyName, email, contactPhone, templateId: template.id, needs, planId, extraIds, billingCycle }));
   return db.runTransaction(async tx => {
-    const [operationSnap, intentSnap, planSnap, ...extraSnaps] = await Promise.all([
-      tx.get(operationRef), tx.get(intentRef), ...(planRef ? [tx.get(planRef)] : []),
+    const [operationSnap, intentSnap, ...catalogSnaps] = await Promise.all([
+      tx.get(operationRef), tx.get(intentRef),
+      ...(planRef ? [tx.get(planRef)] : []),
       ...extraIds.map(id => tx.get(db.doc(`platformExtras/${id}`))),
     ]);
+    const planSnap = planRef ? catalogSnaps[0] : null;
+    const extraSnaps = catalogSnaps.slice(planRef ? 1 : 0);
     if (operationSnap.exists) {
       if (operationSnap.data().intentId !== intentId || operationSnap.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador ya se utilizó con otros datos.');
       return { success: true, intentId, idempotent: true };
@@ -440,9 +445,10 @@ async function confirmManualPayment(db, request) {
       if (['active', 'overdue'].includes(subscription.status)) {
         const start = charge.periodStart || Timestamp.fromMillis(Math.max(Date.now(), subscription.currentPeriodEnd?.toMillis?.() || Date.now()));
         const end = charge.periodEnd || start;
+        const billingAccessUntil = addGracePeriod(end);
         const pendingPlanChange = subscription.pendingPlanChange || null;
         tx.update(subscriptionRef, {
-          status: 'active', currentPeriodStart: start, currentPeriodEnd: end, nextRenewalAt: end,
+          status: 'active', currentPeriodStart: start, currentPeriodEnd: end, nextRenewalAt: end, billingAccessUntil,
           pendingRenewalChargeId: FieldValue.delete(),
           ...(pendingPlanChange ? {
             planKey: pendingPlanChange.planSnapshot.planId,
@@ -455,7 +461,7 @@ async function confirmManualPayment(db, request) {
           updatedAt: now,
         });
         if (subscription.tenantId) tx.update(db.doc(`tenants/${subscription.tenantId}`), {
-          subscriptionStatus: 'active', status: 'active', updatedAt: now,
+          subscriptionStatus: 'active', status: 'active', billingAccessUntil, updatedAt: now,
           ...(pendingPlanChange ? { planKey: pendingPlanChange.planSnapshot.planId } : {}),
         });
       } else {
@@ -519,7 +525,7 @@ async function createRenewalCharge(db, request) {
       return { success: true, chargeId: operation.data().chargeId, idempotent: true };
     }
     const current = subscription.data();
-    if (current.status !== 'active' || !current.tenantId) throw new HttpsError('failed-precondition', 'Solo una suscripción activa con empresa puede renovarse.');
+    if (!['active', 'overdue'].includes(current.status) || !current.tenantId) throw new HttpsError('failed-precondition', 'Solo una suscripción activa o vencida con empresa puede renovarse.');
     if (current.currentPeriodEnd?.toMillis?.() > Date.now() + 31 * 86_400_000) throw new HttpsError('failed-precondition', 'La renovación puede emitirse dentro de los 30 días previos al vencimiento.');
     const pendingPlanChange = current.pendingPlanChange || null;
     const amountMinor = pendingPlanChange?.recurringMinor || current.recurringMinor || contract.data().terms.recurringMinor;
@@ -652,7 +658,8 @@ async function changeSubscriptionStatus(db, request) {
     tx.update(contractRef, { subscriptionStatus: status, updatedAt: now });
     if (subscription.data().tenantId) {
       tx.update(db.doc(`tenants/${subscription.data().tenantId}`), {
-        status: status === 'cancelled' ? 'cancelled' : 'suspended', subscriptionStatus: status, updatedAt: now,
+        status: status === 'cancelled' ? 'cancelled' : status === 'suspended' ? 'suspended' : 'active',
+        subscriptionStatus: status, updatedAt: now,
       });
     }
     tx.create(op, { actorUid: actor.uid, fingerprint, createdAt: now });
@@ -672,11 +679,22 @@ async function listBillingRecords(db, request) {
   let query = db.collection(collections[kind]).orderBy('createdAt', 'desc').limit(limit);
   if (request.data?.status) query = query.where('status', '==', cleanText(request.data.status, 'Estado', 1, 40));
   const snapshot = await query.get();
-  return { records: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) };
+  const now = Date.now();
+  return { records: snapshot.docs.map(doc => {
+    const record = { id: doc.id, ...doc.data() };
+    if (kind !== 'subscriptions') return record;
+    const currentPeriodEnd = record.currentPeriodEnd?.toMillis?.();
+    const billingAccessUntil = record.billingAccessUntil?.toMillis?.();
+    const effectiveStatus = ['suspended', 'cancelled', 'pending'].includes(record.status) ? record.status
+      : billingAccessUntil == null || billingAccessUntil <= now ? 'expired'
+        : currentPeriodEnd != null && currentPeriodEnd <= now ? 'grace'
+          : record.status;
+    return { ...record, effectiveStatus };
+  }) };
 }
 
 module.exports = {
-  BILLING_STATUSES, moneyMinor,
+  BILLING_STATUSES, BILLING_GRACE_PERIOD_DAYS, moneyMinor,
   createManualCommercialIntent, saveCommercialQuote, offerCommercialQuote, withdrawCommercialQuote, recordCommercialAcceptance,
   createCommercialContract, recordManualPaymentReference, confirmManualPayment, rejectManualPayment,
   createRenewalCharge, requestSubscriptionPlanChange, listPublishedBillingPlans, changeSubscriptionStatus, listBillingRecords,
