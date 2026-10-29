@@ -342,7 +342,11 @@ test('7. Generación de documentos y comprobantes en PDF (A4 y 80mm)', async () 
 
   // Mock URL.createObjectURL para entorno Node
   if (typeof URL.createObjectURL !== 'function') {
-    (URL as any).createObjectURL = (blob: any) => `blob:mock-url-${blob?.size || 0}`
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: (blob: Blob) => `blob:mock-url-${blob?.size || 0}`,
+      writable: true,
+      configurable: true,
+    })
   }
 
   // 1. Guía A4
@@ -383,4 +387,51 @@ test('7. Generación de documentos y comprobantes en PDF (A4 y 80mm)', async () 
   })
   assert.ok(repDoc.blob.size > 1000)
   assert.match(repDoc.filename, /reporte-general-de-encomiendas\.pdf/)
+})
+
+test('8. Configuración dinámica: agencias, tarifas, datos de empresa y registro de personal', () => {
+  const controller = new DemoParcelController('sindicato', 'empty')
+
+  // 1. Agregar nueva agencia
+  const branch = controller.addBranch({
+    name: 'Sucre - Terminal Interdepartamental',
+    city: 'Sucre',
+    department: 'Chuquisaca',
+    address: 'Av. Ostria Gutiérrez',
+    phone: '4-6451234',
+    code: 'SUC-01',
+    isActive: true,
+  })
+  assert.ok(branch.id.startsWith('branch-'))
+  assert.equal(controller.getState().branches.find(b => b.code === 'SUC-01')?.city, 'Sucre')
+
+  // 2. Desactivar / Activar agencia
+  controller.toggleBranchActive(branch.id)
+  assert.equal(controller.getState().branches.find(b => b.id === branch.id)?.isActive, false)
+  controller.toggleBranchActive(branch.id)
+  assert.equal(controller.getState().branches.find(b => b.id === branch.id)?.isActive, true)
+
+  // 3. Modificar tarifas de encomienda
+  controller.updateTariffConfig({ baseFee: 20, freeWeightKg: 5, extraKgRate: 3 })
+  assert.equal(controller.getState().tariffConfig?.baseFee, 20)
+  assert.equal(controller.getState().tariffConfig?.freeWeightKg, 5)
+
+  // 4. Modificar datos de empresa
+  controller.updateCompanyInfo({ name: 'TRANS-ANDINA SINDICATO MIXTO', taxId: '987654321' })
+  assert.equal(controller.getState().companyInfo?.name, 'TRANS-ANDINA SINDICATO MIXTO')
+  assert.equal(controller.getState().companyInfo?.taxId, '987654321')
+
+  // 5. Agregar nuevo trabajador
+  const worker = controller.addWorker({
+    fullName: 'David Mamani Quispe',
+    ci: '7654321 LP',
+    phone: '71234567',
+    role: 'Conductor Titular',
+    paymentModality: 'monthly',
+    agreedAmount: 3200,
+    status: 'active',
+    joinedAt: '2026-10-28',
+  })
+  assert.ok(worker.id.startsWith('wrk-'))
+  assert.equal(controller.getState().workers.find(w => w.id === worker.id)?.fullName, 'David Mamani Quispe')
 })

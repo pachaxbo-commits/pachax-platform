@@ -1,11 +1,16 @@
 # Continuidad del proyecto PACHAX
 
-## PACHAX Encomiendas + Edición Sindicato — Demo interna Studio y arquitectura offline (28/10/2026)
+## PACHAX Encomiendas + Edición Sindicato — Demo interna Studio, configuración dinámica y auditoría de verificación (28/10/2026)
 
-- **Rama aislada:** `gemini/encomiendas-sindicato-demo`, creada a partir de `origin/main` (commit `b9f47ce`). Ninguna modificación a `main`, `cambios-dario` ni ramas ajenas.
+- **Rama aislada:** `gemini/encomiendas-sindicato-demo`, sincronizada e integrada con `origin/main` actualizado (commit `734aa37`, PR #6 de Codex). Ninguna modificación a `main`, `cambios-dario` ni ramas ajenas.
 - **Plantilla canónica única con dos perfiles:**
-  - **Perfil A (Estándar):** Gestión integral de encomiendas y paquetería (guías con QR `ENC-2026-XXXXX`, remitentes, destinatarios, contenido declarado obligatorio, avisos de sustancias peligrosas, tarifas automáticas por peso y cálculo de contraentrega COD), manifiestos de despacho agrupados (`MAN-2026-XXXX`), entregas con verificación de identidad y descarga de constancia, arqueo/apertura/cierre de turnos de caja, reportes operativos e impresión en tickets térmicos de 80mm y documentos A4 mediante jsPDF.
-  - **Perfil B (Sindicato):** Extensión administrativa sobre la misma base canónica para empresas de transporte organizadas como sindicato. Directorio de socios afiliados, cuotas sindicales mensuales con generación idempotente y pagos parciales con recibos numerados (`REC-2026-XXXXX`), gestión de trabajadores (sueldos y anticipos) y control de egresos sindicales operativos (alquileres, servicios, combustible) con estricta desduplicación frente a pagos a personal en el balance financiero consolidado.
+  - **Perfil A (Estándar):** Gestión integral de encomiendas y paquetería (guías con QR `ENC-2026-XXXXX`, remitentes, destinatarios, contenido declarado obligatorio, avisos de sustancias peligrosas, tarifas automáticas por peso y cálculo de contraentrega COD), manifiestos de despacho agrupados (`MAN-2026-XXXX`), entregas con verificación de identidad, captura interactiva de firma digital en canvas HTML5 con incrustación en PDF y descarga de constancia, arqueo/apertura/cierre de turnos de caja, reportes operativos e impresión en tickets térmicos de 80mm y documentos A4 mediante jsPDF.
+  - **Perfil B (Sindicato):** Extensión administrativa sobre la misma base canónica para empresas de transporte organizadas como sindicato. Directorio de socios afiliados, cuotas sindicales mensuales con generación idempotente y pagos parciales con recibos numerados (`REC-2026-XXXXX`), gestión de trabajadores (sueldos, viáticos y anticipos), registro de nuevo personal y control de egresos sindicales operativos (alquileres, servicios, combustible) con estricta desduplicación frente a pagos a personal en el balance financiero consolidado.
+- **Configuración dinámica y parametrización operativa (`ParcelConfigView`):**
+  - Administración de agencias y destinos (añadir agencias con ciudad, departamento, dirección, teléfono y código; habilitar/deshabilitar).
+  - Tarifario flexible: tarifa base, kilos libres, recargo por kilo adicional y flete a domicilio.
+  - Identidad institucional dinámica: razón social, nombre comercial, NIT, teléfono y dirección reflejados en tiempo real en los comprobantes y reportes generados.
+  - Registro de personal del sindicato: altas con CI, rol, modalidad de pago acordada y tarifa base.
 - **Aislamiento y seguridad estricta:**
   - Cero exposición pública: `PUBLIC_TEMPLATES` en `src/core/publicTemplates.ts` mantiene exactamente sus 5 plantillas públicas canónicas. La landing, catálogo comercial, carrusel y formulario de registro (`register.html`) no sufren ninguna alteración.
   - Registro exclusivo interno en PACHAX Studio: visible únicamente desde el entorno de administración interna mediante la tarjeta con distintivo `Interno Admin`.
@@ -13,9 +18,15 @@
   - Control reactivo aislado en frontend: `DemoParcelController` persiste en `sessionStorage` local (clave `pachax:parcel-studio:`) sin mutaciones remotas, llamadas a Cloud Functions ni dependencias de Firebase Firestore.
 - **Arquitectura de Escritorio Offline:** Documentada en detalle en `docs/ENCOMIENDAS-OFFLINE-DESKTOP-ARCHITECTURE.md` evaluando Tauri v2 (Rust + WebView2) frente a Electron, esquema relacional SQLite en modo WAL, spooler directo de Windows y comunicación ESC/POS cruda por USB/COM para impresión térmica sin latencias, arquitectura LAN de contingencia para múltiples ventanillas sin internet y estrategia de copias de seguridad ante cortes eléctricos en terminales.
 - **Verificación y calidad:**
-  - 21 pruebas unitarias y de aislamiento ejecutadas con éxito (`tests/parcelDomain.test.ts`, `tests/parcelStudioIsolation.test.ts`, `tests/publicTemplates.test.ts`, `tests/adminStudioReadiness.test.ts`).
+  - 22 pruebas unitarias y de aislamiento ejecutadas con éxito (`tests/parcelDomain.test.ts`, `tests/parcelStudioIsolation.test.ts`, `tests/publicTemplates.test.ts`, `tests/adminStudioReadiness.test.ts`).
   - Pruebas de rutas de demostración libres (`npm run test:free-demo-routes`): 2/2 PASS.
   - Chequeo estricto del compilador TypeScript (`npm run typecheck` / `tsc -b`): 0 errores.
+  - Compilación de producción (`npm run build`): 0 errores (`dist` generado con éxito).
+  - Análisis estático ESLint en módulos parcel: 0 errores, 0 advertencias.
+- **Auditoría funcional y QA visual:**
+  - 9 capturas de alta resolución documentadas en `docs/parcel-qa-evidence/` verificando el tablero en escritorio, registro de encomiendas, manifiestos de despacho, entrega con firma en canvas, administración de socios y cuotas, personal y egresos, configuración de agencias/tarifas, y adaptabilidad responsive en tablet y móvil.
+
+
 
 ## Catálogo público: fichas operativas y opción editorial a medida — hotfix preparado (28/10/2026)
 

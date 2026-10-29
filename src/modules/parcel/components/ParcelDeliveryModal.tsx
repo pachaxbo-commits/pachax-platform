@@ -1,12 +1,13 @@
-import React, { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   X,
+  FileCheck,
   CheckCircle,
+  FileDown,
   AlertTriangle,
   Search,
-  FileCheck,
-  DollarSign,
-  FileDown,
+  PenTool,
+  RotateCcw,
 } from 'lucide-react'
 import type { ParcelShipment } from '../types'
 import { generateDeliveryReceiptPdf } from '../domain/parcelDocuments'
@@ -15,7 +16,7 @@ interface ParcelDeliveryModalProps {
   isOpen: boolean
   onClose: () => void
   readyShipments: ParcelShipment[]
-  preselectedShipment?: ParcelShipment | null
+  preselectedShipment: ParcelShipment | null
   onDeliver: (params: {
     shipmentId: string
     receiverName: string
@@ -24,6 +25,7 @@ interface ParcelDeliveryModalProps {
     deliveryNotes?: string
     isPayingNow?: boolean
     paymentMethod?: 'cash' | 'qr' | 'transfer'
+    signatureCaptured?: string
   }) => ParcelShipment
 }
 
@@ -49,8 +51,73 @@ export function ParcelDeliveryModal({
   const [deliveryNotes, setDeliveryNotes] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr' | 'transfer'>('cash')
 
+  // Canvas de firma digital en pantalla
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [hasSignature, setHasSignature] = useState(false)
+
   const [deliveredResult, setDeliveredResult] = useState<ParcelShipment | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Configuración del canvas cuando se monta
+  useEffect(() => {
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d')
+      if (ctx) {
+        ctx.strokeStyle = '#0f172a'
+        ctx.lineWidth = 2.5
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+      }
+    }
+  }, [selectedShipment, isOpen])
+
+  const clearSignature = () => {
+    if (!canvasRef.current) return
+    const ctx = canvasRef.current.getContext('2d')
+    if (ctx) {
+      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+    }
+    setHasSignature(false)
+  }
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    const x = (e.clientX - rect.left) * scaleX
+    const y = (e.clientY - rect.top) * scaleY
+
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    setIsDrawing(true)
+    setHasSignature(true)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !canvasRef.current) return
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    const x = (e.clientX - rect.left) * scaleX
+    const y = (e.clientY - rect.top) * scaleY
+
+    ctx.lineTo(x, y)
+    ctx.stroke()
+  }
+
+  const handlePointerUp = () => {
+    setIsDrawing(false)
+  }
 
   const filteredShipments = readyShipments.filter(s => {
     if (!searchTerm.trim()) return true
@@ -68,6 +135,7 @@ export function ParcelDeliveryModal({
     setReceiverDoc(s.recipient.docNumber || '')
     setRelationship('titular')
     setError(null)
+    clearSignature()
   }
 
   const handleConfirmDelivery = (e: React.FormEvent) => {
@@ -90,6 +158,12 @@ export function ParcelDeliveryModal({
 
     try {
       const isCodPending = selectedShipment.paymentTiming === 'destination_cod' && selectedShipment.paymentStatus === 'pending'
+      
+      let signatureDataUrl: string | undefined = undefined
+      if (hasSignature && canvasRef.current) {
+        signatureDataUrl = canvasRef.current.toDataURL('image/png')
+      }
+
       const updated = onDeliver({
         shipmentId: selectedShipment.id,
         receiverName: receiverName.trim(),
@@ -98,10 +172,11 @@ export function ParcelDeliveryModal({
         deliveryNotes: deliveryNotes.trim() || undefined,
         isPayingNow: isCodPending,
         paymentMethod,
+        signatureCaptured: signatureDataUrl,
       })
       setDeliveredResult(updated)
-    } catch (err: any) {
-      setError(err?.message || 'Error completando la entrega.')
+    } catch (err: unknown) {
+      setError((err as Error)?.message || 'Error completando la entrega.')
     }
   }
 
@@ -129,7 +204,7 @@ export function ParcelDeliveryModal({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-black tracking-tight">Entrega de Encomienda</h2>
-              <p className="text-xs text-slate-300">Verificación de identidad, cobro contraentrega (si aplica) y conformidad</p>
+              <p className="text-xs text-slate-300">Verificación de identidad, cobro contraentrega (si aplica) y firma</p>
             </div>
           </div>
           <button
@@ -143,42 +218,66 @@ export function ParcelDeliveryModal({
 
         {deliveredResult ? (
           /* Pantalla de confirmación de entrega */
-          <div className="p-6 text-center space-y-4">
-            <div className="w-14 h-14 bg-teal-100 text-teal-800 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle className="w-8 h-8" />
+          <div className="p-6 text-center space-y-4 font-sans">
+            <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto text-2xl">
+              <CheckCircle className="w-8 h-8 text-emerald-600" />
             </div>
-            <h3 className="text-xl font-black text-slate-900">¡Encomienda Entregada Conforme!</h3>
-            <p className="text-sm text-slate-600">
-              Guía <strong className="font-mono text-teal-800">{deliveredResult.trackingCode}</strong> entregada a{' '}
-              <strong>{deliveredResult.delivery?.receivedByName}</strong> (CI: {deliveredResult.delivery?.receivedByDoc}).
-            </p>
+            <div className="space-y-1">
+              <h3 className="text-lg font-black text-slate-900">¡Entrega Completada con Éxito!</h3>
+              <p className="text-xs text-slate-500">
+                La encomienda <strong className="font-mono text-slate-800">{deliveredResult.trackingCode}</strong> ha sido entregada y cerrada en el sistema.
+              </p>
+            </div>
 
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-left max-w-md mx-auto text-xs space-y-1">
-              <div><strong>Fecha y Hora:</strong> {new Date(deliveredResult.delivery?.deliveredAt || '').toLocaleString('es-BO')}</div>
-              <div><strong>Parentesco / Rol:</strong> {deliveredResult.delivery?.recipientRelationship?.toUpperCase()}</div>
-              <div><strong>Contenido:</strong> {deliveredResult.declaredSummary}</div>
-              <div><strong>Cobro Liquidado:</strong> Bs. {deliveredResult.finalAmount.toFixed(2)}</div>
+            <div className="p-4 bg-slate-50 rounded-xl text-left text-xs space-y-1.5 border border-slate-200 max-w-md mx-auto">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Receptor Registrado:</span>
+                <span className="font-bold text-slate-900">{deliveredResult.delivery?.receivedByName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">C.I. / Documento:</span>
+                <span className="font-bold text-slate-900">{deliveredResult.delivery?.receivedByDoc}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Parentesco / Relación:</span>
+                <span className="font-bold text-slate-900 uppercase text-[11px]">{deliveredResult.delivery?.recipientRelationship}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Firma Registrada:</span>
+                <span className="font-bold text-teal-700 text-[11px]">
+                  {deliveredResult.delivery?.signatureCaptured ? 'Firma Digital en Pantalla' : 'Línea para Firma Manuscrita en Acta'}
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                <span className="text-slate-500">Cobro Realizado:</span>
+                <span className="font-black text-emerald-800">
+                  {deliveredResult.paymentTiming === 'destination_cod'
+                    ? `Bs. ${deliveredResult.finalAmount.toFixed(2)} (${deliveredResult.paymentMethod?.toUpperCase()})`
+                    : 'Cancelado previamente en origen'}
+                </span>
+              </div>
             </div>
 
             <div className="flex items-center justify-center gap-3 pt-3">
               <button
                 type="button"
                 onClick={handleDownloadDeliveryPdf}
-                className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-md flex items-center gap-2 transition"
+                className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-2 shadow-xs transition"
               >
                 <FileDown className="w-4 h-4" />
-                <span>Descargar Constancia de Entrega (PDF)</span>
+                <span>Descargar Acta de Entrega (PDF)</span>
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 font-bold text-xs text-slate-700 hover:bg-slate-100 transition"
+                className="px-5 py-2.5 rounded-xl border border-slate-300 font-bold text-xs text-slate-700 hover:bg-slate-100 transition"
               >
-                Listo / Cerrar
+                Cerrar Ventana
               </button>
             </div>
           </div>
         ) : (
+          /* Formulario de Entrega */
           <form onSubmit={handleConfirmDelivery} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 text-xs sm:text-sm">
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl flex items-center gap-2 text-xs font-semibold">
@@ -187,91 +286,99 @@ export function ParcelDeliveryModal({
               </div>
             )}
 
-            {/* Selector / Buscador de encomiendas por entregar */}
-            <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">Buscar Guía o Destinatario</label>
+            {/* Buscador de guías listas para entregar */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                1. Seleccionar Encomienda Lista para Entrega *
+              </label>
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Escribe número de guía, nombre o teléfono..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-teal-500"
+                  placeholder="Buscar por código de guía (ENC-...), nombre o teléfono del destinatario..."
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
-              {filteredShipments.length > 0 && !preselectedShipment && (
-                <div className="mt-2 border border-slate-200 rounded-xl divide-y max-h-36 overflow-y-auto bg-white">
-                  {filteredShipments.map(s => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => handleSelectShipment(s)}
-                      className={`w-full text-left p-2.5 text-xs flex items-center justify-between transition ${selectedShipment?.id === s.id ? 'bg-teal-50 border-l-4 border-teal-600' : 'hover:bg-slate-50'}`}
-                    >
-                      <div>
-                        <span className="font-mono font-bold text-slate-900">{s.trackingCode}</span>
-                        <span className="text-slate-600 ml-2">Destinatario: {s.recipient.name}</span>
-                        <span className="text-slate-500 block text-[10px]">{s.declaredSummary}</span>
+              {/* Lista filtrada de guías para entrega rápida */}
+              <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
+                {filteredShipments.length === 0 ? (
+                  <div className="p-3 text-center text-slate-400 text-xs">
+                    No hay encomiendas listas para entrega con los criterios ingresados.
+                  </div>
+                ) : (
+                  filteredShipments.map(s => {
+                    const isSelected = selectedShipment?.id === s.id
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => handleSelectShipment(s)}
+                        className={`p-2.5 cursor-pointer flex items-center justify-between text-xs transition ${
+                          isSelected ? 'bg-teal-50/80 border-l-4 border-teal-600' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <div>
+                          <div className="font-mono font-black text-slate-900 flex items-center gap-2">
+                            <span>{s.trackingCode}</span>
+                            <span className="text-[10px] font-sans font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              {s.packageCount} bulto(s) · {s.totalWeightKg} kg
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Destinatario: <strong className="text-slate-800">{s.recipient.name}</strong> ({s.recipient.phone})
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              s.paymentTiming === 'destination_cod' && s.paymentStatus === 'pending'
+                                ? 'bg-amber-100 text-amber-900 font-black'
+                                : 'bg-emerald-100 text-emerald-800 font-bold'
+                            }`}
+                          >
+                            {s.paymentTiming === 'destination_cod' && s.paymentStatus === 'pending'
+                              ? `Por Cobrar: Bs. ${s.finalAmount.toFixed(2)}`
+                              : 'Pagado'}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                          {s.originCity} → {s.destinationCity}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+                    )
+                  })
+                )}
+              </div>
             </div>
 
-            {/* Ficha de la encomienda seleccionada */}
+            {/* Panel de Cobro Contraentrega (Si aplica) */}
             {selectedShipment && (
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="font-bold text-slate-900 text-xs">
-                    Datos del Paquete: <span className="font-mono text-teal-800">{selectedShipment.trackingCode}</span>
-                  </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800">
-                    {selectedShipment.packageCount} bulto(s) · {selectedShipment.totalWeightKg} kg
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div><strong>Destinatario Esperado:</strong> {selectedShipment.recipient.name} (Tel: {selectedShipment.recipient.phone})</div>
-                  <div><strong>Origen:</strong> {selectedShipment.originCity} (Remite: {selectedShipment.sender.name})</div>
-                  <div className="col-span-2"><strong>Contenido:</strong> {selectedShipment.declaredSummary}</div>
-                </div>
-
-                {/* ALERTA DE COBRO CONTRAENTREGA (COD) */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <span className="font-bold text-slate-900 text-xs uppercase tracking-wider block">
+                  Estado Financiero del Envío
+                </span>
                 {selectedShipment.paymentTiming === 'destination_cod' && selectedShipment.paymentStatus === 'pending' ? (
-                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="w-5 h-5 text-amber-700" />
-                      <div>
-                        <div className="font-bold text-amber-950 text-xs uppercase">
-                          Cobro Obligatorio Contraentrega (COD)
-                        </div>
-                        <div className="text-[11px] text-amber-800">
-                          El destinatario debe cancelar el flete para completar la entrega.
-                        </div>
-                      </div>
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        Cobro Contraentrega Requerido (COD)
+                      </span>
+                      <span className="text-base font-black text-amber-950 font-mono">
+                        Bs. {selectedShipment.finalAmount.toFixed(2)}
+                      </span>
                     </div>
-
                     <div className="flex items-center gap-2">
+                      <label className="text-[11px] font-bold text-amber-900">Cobrar con:</label>
                       <select
                         value={paymentMethod}
-                        onChange={e => setPaymentMethod(e.target.value as any)}
-                        className="bg-white border border-amber-400 rounded-lg p-1.5 text-xs font-bold text-slate-900"
+                        onChange={e => setPaymentMethod(e.target.value as 'cash' | 'qr' | 'transfer')}
+                        className="bg-white border border-amber-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-900"
                       >
                         <option value="cash">Efectivo en Caja</option>
-                        <option value="qr">Pago QR Banco</option>
+                        <option value="qr">Pago QR</option>
                         <option value="transfer">Transferencia</option>
                       </select>
-                      <div className="text-base font-black text-amber-950">
-                        Bs. {selectedShipment.finalAmount.toFixed(2)}
-                      </div>
                     </div>
                   </div>
                 ) : (
@@ -318,7 +425,7 @@ export function ParcelDeliveryModal({
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Parentesco / Relación</label>
                   <select
                     value={relationship}
-                    onChange={e => setRelationship(e.target.value as any)}
+                    onChange={e => setRelationship(e.target.value as 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro')}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900"
                   >
                     <option value="titular">Mismo Destinatario (Titular)</option>
@@ -336,9 +443,51 @@ export function ParcelDeliveryModal({
                   type="text"
                   value={deliveryNotes}
                   onChange={e => setDeliveryNotes(e.target.value)}
-                  placeholder="Ej. Verificado con cédula original, paquete intacto."
+                  placeholder="Ej. Cédula verificada, paquete cerrado e intacto."
                   className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs"
                 />
+              </div>
+            </div>
+
+            {/* Firma del receptor: Digital en pantalla o manuscrita física */}
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-900 text-xs uppercase tracking-wider block">
+                    Firma de Conformidad del Receptor
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Dibuja la firma en el recuadro con el dedo o ratón, o déjalo vacío para firmar con bolígrafo en el acta impresa.
+                  </span>
+                </div>
+                {hasSignature && (
+                  <button
+                    type="button"
+                    onClick={clearSignature}
+                    className="text-xs text-red-600 hover:text-red-700 font-bold px-2 py-1 rounded-md hover:bg-red-50 border border-red-200 transition flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Borrar</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="relative border-2 border-dashed border-slate-300 rounded-xl bg-white overflow-hidden touch-none flex items-center justify-center">
+                <canvas
+                  ref={canvasRef}
+                  width={500}
+                  height={120}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  className="w-full h-28 cursor-crosshair bg-white"
+                />
+                {!hasSignature && (
+                  <div className="absolute pointer-events-none text-slate-400 text-xs flex items-center gap-1.5 font-medium select-none">
+                    <PenTool className="w-4 h-4 text-slate-400" />
+                    <span>Dibuja la firma aquí (o firmar en papel impreso)</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -353,7 +502,7 @@ export function ParcelDeliveryModal({
               <button
                 type="submit"
                 disabled={!selectedShipment}
-                className="px-6 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-md disabled:bg-slate-300 flex items-center gap-2"
+                className="px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-md disabled:bg-slate-300 flex items-center gap-2 transition"
               >
                 <CheckCircle className="w-4 h-4" />
                 <span>Confirmar Entrega y Emitir Acta</span>

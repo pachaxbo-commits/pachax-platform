@@ -10,7 +10,11 @@ import type {
   ParcelShipment,
   ParcelItemDeclaration,
   ParcelCustomer,
+  ParcelBranch,
   ParcelDeliveryRecord,
+  DocumentCompanyContext,
+  ParcelTariffConfig,
+  UnionWorker,
   DispatchManifest,
   CashMovement,
   CashShift,
@@ -153,6 +157,7 @@ export class DemoParcelController {
     paymentTiming: 'origin_paid' | 'destination_cod'
     paymentMethod?: 'cash' | 'qr' | 'transfer'
     operatorName?: string
+    signatureCaptured?: string
   }): ParcelShipment {
     const originBranch = this.state.branches.find(b => b.id === params.originBranchId) || this.state.branches[0]
     const destBranch = this.state.branches.find(b => b.id === params.destinationBranchId) || this.state.branches[1]
@@ -381,6 +386,7 @@ export class DemoParcelController {
     isPayingNow?: boolean
     paymentMethod?: 'cash' | 'qr' | 'transfer'
     operatorName?: string
+    signatureCaptured?: string
   }): ParcelShipment {
     const shipment = this.state.shipments.find(s => s.id === params.shipmentId)
     if (!shipment) throw new Error('Encomienda no encontrada.')
@@ -406,6 +412,7 @@ export class DemoParcelController {
       receivedByName: params.receiverName.trim(),
       receivedByDoc: params.receiverDoc.trim(),
       recipientRelationship: params.recipientRelationship,
+      signatureCaptured: params.signatureCaptured,
       deliveryNotes: params.deliveryNotes,
     }
 
@@ -766,5 +773,68 @@ export class DemoParcelController {
 
     this.saveState()
     return expense
+  }
+  public addBranch(params: Omit<ParcelBranch, 'id'>): ParcelBranch {
+    const newBranch: ParcelBranch = {
+      ...params,
+      id: `branch-${Date.now()}`,
+    }
+    this.state = {
+      ...this.state,
+      branches: [...this.state.branches, newBranch],
+    }
+    this.saveState()
+    return newBranch
+  }
+
+  public toggleBranchActive(branchId: string): void {
+    this.state = {
+      ...this.state,
+      branches: this.state.branches.map(b => (b.id === branchId ? { ...b, isActive: !b.isActive } : b)),
+    }
+    this.saveState()
+  }
+
+  public updateCompanyInfo(info: Partial<DocumentCompanyContext>): void {
+    const current = this.state.companyInfo || {
+      name: 'TRANS-BOLIVIA ENCOMIENDAS & LOGÍSTICA',
+      legalName: 'Sindicato Mixto de Transporte & Encomiendas Interdepartamental',
+      taxId: '1029384021',
+      phone: '4-4251234 / 70712345',
+      address: 'Av. Ayacucho #452 (Frente a Terminal de Buses)',
+      city: 'Cochabamba - Bolivia',
+    }
+    this.state = {
+      ...this.state,
+      companyInfo: { ...current, ...info },
+    }
+    this.saveState()
+  }
+
+  public updateTariffConfig(config: Partial<ParcelTariffConfig>): void {
+    const current = this.state.tariffConfig || {
+      baseFee: 15,
+      freeWeightKg: 3,
+      extraKgRate: 2,
+      homeDeliveryFee: 10,
+    }
+    this.state = {
+      ...this.state,
+      tariffConfig: { ...current, ...config },
+    }
+    this.saveState()
+  }
+
+  public addWorker(params: Omit<UnionWorker, 'id'>): UnionWorker {
+    const newWorker: UnionWorker = {
+      ...params,
+      id: `wrk-${Date.now()}`,
+    }
+    this.state = {
+      ...this.state,
+      workers: [...this.state.workers, newWorker],
+    }
+    this.saveState()
+    return newWorker
   }
 }

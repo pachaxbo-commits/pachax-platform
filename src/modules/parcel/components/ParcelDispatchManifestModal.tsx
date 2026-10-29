@@ -85,8 +85,8 @@ export function ParcelDispatchManifestModal({
         parcelIds: selectedIds,
       })
       setCreatedManifest(manifest)
-    } catch (err: any) {
-      setError(err?.message || 'Error creando el manifiesto de despacho.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error creando el manifiesto de despacho.')
     }
   }
 

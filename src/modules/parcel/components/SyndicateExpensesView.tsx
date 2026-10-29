@@ -157,7 +157,7 @@ export function SyndicateExpensesView({
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Categoría / Rubro *</label>
                   <select
                     value={category}
-                    onChange={e => setCategory(e.target.value as any)}
+                    onChange={e => setCategory(e.target.value as UnionExpense['category'])}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium"
                   >
                     {Object.entries(categoryLabels).map(([key, label]) => (
@@ -170,7 +170,7 @@ export function SyndicateExpensesView({
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Forma de Pago *</label>
                   <select
                     value={paymentMethod}
-                    onChange={e => setPaymentMethod(e.target.value as any)}
+                    onChange={e => setPaymentMethod(e.target.value as 'cash' | 'transfer' | 'qr')}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold"
                   >
                     <option value="cash">Efectivo de Caja</option>

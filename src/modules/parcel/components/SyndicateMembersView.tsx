@@ -286,7 +286,7 @@ export function SyndicateMembersView({
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Categoría</label>
                   <select
                     value={category}
-                    onChange={e => setCategory(e.target.value as any)}
+                    onChange={e => setCategory(e.target.value as 'propietario_transporte' | 'conductor' | 'socio_general')}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium"
                   >
                     <option value="propietario_transporte">Propietario de Transporte</option>

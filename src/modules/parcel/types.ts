@@ -4,6 +4,22 @@
  * y listo para la futura persistencia local offline (SQLite / Tauri).
  */
 
+export interface DocumentCompanyContext {
+  name: string
+  legalName?: string
+  phone?: string
+  address?: string
+  city?: string
+  taxId?: string
+}
+
+export interface ParcelTariffConfig {
+  baseFee: number
+  freeWeightKg: number
+  extraKgRate: number
+  homeDeliveryFee: number
+}
+
 export type ParcelEdition = 'standard' | 'sindicato'
 
 export type ParcelDocType = 'CI' | 'NIT' | 'PASAPORTE' | 'OTRO' | 'NINGUNO'
@@ -302,6 +318,9 @@ export interface ParcelAppState {
   shifts: CashShift[]
   activeShift: CashShift | null
   cashMovements: CashMovement[]
+  
+  companyInfo?: DocumentCompanyContext
+  tariffConfig?: ParcelTariffConfig
   
   // Extensiones exclusivas de Sindicato
   members: UnionMember[]

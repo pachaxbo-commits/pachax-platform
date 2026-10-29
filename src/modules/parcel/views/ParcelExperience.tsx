@@ -14,6 +14,7 @@ import {
   Printer,
   MapPin,
   ShieldCheck,
+  Settings,
 } from 'lucide-react'
 import type {
   ParcelAppState,
@@ -31,6 +32,7 @@ import { SyndicateDuesView } from '../components/SyndicateDuesView'
 import { SyndicateWorkersView } from '../components/SyndicateWorkersView'
 import { SyndicateExpensesView } from '../components/SyndicateExpensesView'
 import { ParcelReportsView } from '../components/ParcelReportsView'
+import { ParcelConfigView } from '../components/ParcelConfigView'
 
 interface ParcelExperienceProps {
   controller: DemoParcelController
@@ -91,7 +93,7 @@ export function ParcelExperience({
   const readyForPickupCount = state.shipments.filter(s => s.status === 'ready_for_pickup').length
   const pendingDispatchCount = state.shipments.filter(s => s.status === 'received' || s.status === 'pending_dispatch').length
 
-  const handleCreateShipment = (data: any) => {
+  const handleCreateShipment = (data: Parameters<typeof controller.registerShipment>[0]) => {
     const created = controller.registerShipment(data)
     setIsNewParcelOpen(false)
     setTicketShipment(created)
@@ -301,6 +303,19 @@ export function ParcelExperience({
             <FileText className="w-4 h-4" />
             <span>Reportes & PDF</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('config')}
+            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 ${
+              activeTab === 'config'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-200/60'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>Configuración</span>
+          </button>
+
 
           {/* Pestañas exclusivas de la Edición Sindicato */}
           {isSyndicate && (
@@ -608,6 +623,7 @@ export function ParcelExperience({
             workers={state.workers}
             payments={state.workerPayments}
             onRegisterPayment={params => controller.registerWorkerPayment(params)}
+            onAddWorker={worker => controller.addWorker(worker)}
           />
         )}
 
@@ -617,6 +633,17 @@ export function ParcelExperience({
             onAddExpense={params => controller.registerUnionExpense(params)}
           />
         )}
+
+        {activeTab === 'config' && (
+          <ParcelConfigView
+            state={state}
+            onAddBranch={branch => controller.addBranch(branch)}
+            onToggleBranchActive={id => controller.toggleBranchActive(id)}
+            onUpdateCompanyInfo={info => controller.updateCompanyInfo(info)}
+            onUpdateTariffConfig={cfg => controller.updateTariffConfig(cfg)}
+          />
+        )}
+
       </main>
 
       {/* Modales Compartidos */}

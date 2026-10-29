@@ -372,7 +372,7 @@ export function SyndicateDuesView({
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Medio de Pago *</label>
                   <select
                     value={payMethod}
-                    onChange={e => setPayMethod(e.target.value as any)}
+                    onChange={e => setPayMethod(e.target.value as 'cash' | 'qr' | 'transfer')}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 text-xs"
                   >
                     <option value="cash">Efectivo en Caja</option>

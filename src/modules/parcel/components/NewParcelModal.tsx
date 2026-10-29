@@ -37,6 +37,10 @@ interface NewParcelModalProps {
   }) => void
 }
 
+function createClientId(prefix: 's' | 'r'): string {
+  return `c-${prefix}-${Date.now()}`
+}
+
 export function NewParcelModal({
   isOpen,
   onClose,
@@ -106,7 +110,11 @@ export function NewParcelModal({
     setItems(items.filter((_, i) => i !== index))
   }
 
-  const updateItem = (index: number, field: keyof ParcelItemDeclaration, val: any) => {
+  const updateItem = <K extends keyof ParcelItemDeclaration>(
+    index: number,
+    field: K,
+    val: ParcelItemDeclaration[K]
+  ) => {
     const next = [...items]
     next[index] = { ...next[index], [field]: val }
     setItems(next)
@@ -171,7 +179,7 @@ export function NewParcelModal({
       deliveryType,
       deliveryAddress: deliveryType === 'home' ? deliveryAddress.trim() : undefined,
       sender: {
-        id: `c-s-${Date.now()}`,
+        id: createClientId('s'),
         name: senderName.trim(),
         docType: senderDoc.trim() ? 'CI' : 'NINGUNO',
         docNumber: senderDoc.trim() || undefined,
@@ -179,7 +187,7 @@ export function NewParcelModal({
         address: senderAddress.trim() || undefined,
       },
       recipient: {
-        id: `c-r-${Date.now()}`,
+        id: createClientId('r'),
         name: recipientName.trim(),
         docType: recipientDoc.trim() ? 'CI' : 'NINGUNO',
         docNumber: recipientDoc.trim() || undefined,
@@ -568,7 +576,7 @@ export function NewParcelModal({
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">¿Quién Paga?</label>
                 <select
                   value={paymentTiming}
-                  onChange={e => setPaymentTiming(e.target.value as any)}
+                  onChange={e => setPaymentTiming(e.target.value as 'origin_paid' | 'destination_cod')}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2 font-bold text-slate-900 text-xs sm:text-sm"
                 >
                   <option value="origin_paid">Pagado en Origen (Ahora)</option>
@@ -580,7 +588,7 @@ export function NewParcelModal({
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Medio de Pago</label>
                 <select
                   value={paymentMethod}
-                  onChange={e => setPaymentMethod(e.target.value as any)}
+                  onChange={e => setPaymentMethod(e.target.value as 'cash' | 'qr' | 'transfer')}
                   disabled={paymentTiming === 'destination_cod'}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900 text-xs sm:text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 >

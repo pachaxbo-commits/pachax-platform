@@ -373,11 +373,24 @@ export async function generateDeliveryReceiptPdf(
   doc.text('Constancia: El receptor certifica haber recibido a entera satisfacción el contenido declarado correspondiente a la guía arriba indicada.', 14, y, { maxWidth: 182 })
   y += 24
 
+  if (delivery.signatureCaptured && delivery.signatureCaptured.startsWith('data:image/')) {
+    try {
+      doc.addImage(delivery.signatureCaptured, 'PNG', 35, y - 22, 50, 18)
+    } catch {
+      // Si la imagen falla o formato no soportado, la línea impresa siempre está disponible
+    }
+  }
+
   doc.line(30, y, 90, y)
   doc.line(120, y, 180, y)
   y += 4
   doc.setFont('helvetica', 'bold')
-  doc.text('Firma de Quien Recibe', 60, y, { align: 'center' })
+  doc.text(
+    delivery.signatureCaptured ? 'Firma en Pantalla Registrada' : 'Firma de Quien Recibe',
+    60,
+    y,
+    { align: 'center' }
+  )
   doc.text('Firma Operador de Entrega', 150, y, { align: 'center' })
 
   const blob = doc.output('blob')
