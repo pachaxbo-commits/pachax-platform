@@ -1,11 +1,12 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
-const { FieldValue } = require('firebase-admin/firestore');
+const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getTemplate } = require('./generated/templates.js');
 const { PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
 const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
+const { billingAccessUntil: billingAccessUntilMillis } = require('./billingPolicy.cjs');
 
 async function ownerPlatformActor(db, request) {
   const actor = await platformActor(db, request, 'tenants.configure');
@@ -27,7 +28,7 @@ function publicProvisionableTemplates() {
 
 function normalizeInput(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new HttpsError('invalid-argument', 'Completa los datos de la empresa.');
-  const allowed = new Set(['action', 'operationId', 'companyName', 'businessType', 'ownerEmail', 'ownerDisplayName', 'ownerEmailConfirmed', 'industryProfile', 'currency', 'currencySymbol', 'timezone', 'branding', 'businessIdentity']);
+  const allowed = new Set(['action', 'operationId', 'companyName', 'businessType', 'ownerEmail', 'ownerDisplayName', 'ownerEmailConfirmed', 'industryProfile', 'currency', 'currencySymbol', 'timezone', 'branding', 'businessIdentity', 'billingContractId']);
   if (Object.keys(data).some(key => !allowed.has(key))) throw new HttpsError('invalid-argument', 'La solicitud contiene campos fuera del flujo de alta asistida.');
   if (typeof data.operationId !== 'string' || !OPERATION_ID.test(data.operationId)) throw new HttpsError('invalid-argument', 'Actualiza la pantalla e intenta nuevamente con una operación nueva.');
   const companyName = cleanText(data.companyName, 'Nombre de empresa', 2, 100).replace(/\s+/g, ' ');
@@ -84,6 +85,7 @@ function normalizeInput(data) {
   }
   return {
     operationId: data.operationId,
+    billingContractId: data.billingContractId ? cleanText(data.billingContractId, 'Contrato', 1, 120) : null,
     companyName,
     businessType: template.businessType,
     ownerEmail,
@@ -152,14 +154,26 @@ async function reserveOperation(db, actor, input, digest, ownerLookup) {
   const createdAuthUser = !ownerLookup;
   const companyKey = createHash('sha256').update(`${input.businessType}:${input.companyName.toLowerCase()}`).digest('hex');
   const companyRef = db.doc(`platformAssistedTenantNames/${companyKey}`);
+  const billingContractRef = input.billingContractId ? db.doc(`platformContracts/${input.billingContractId}`) : null;
   let operation;
   await db.runTransaction(async tx => {
     const existingTenantQuery = db.collection('tenants').where('nameKey', '==', input.companyName.toLowerCase()).limit(20);
-    const [current, existingName, existingTenants] = await Promise.all([tx.get(operationRef), tx.get(companyRef), tx.get(existingTenantQuery)]);
+    const [current, existingName, existingTenants, billingContract] = await Promise.all([tx.get(operationRef), tx.get(companyRef), tx.get(existingTenantQuery), ...(billingContractRef ? [tx.get(billingContractRef)] : [])]);
+    const contract = billingContractRef ? billingContract.data() : null;
+    const initialCharge = billingContractRef && billingContract?.exists && contract?.initialChargeId
+      ? await tx.get(db.doc(`platformBillingCharges/${contract.initialChargeId}`)) : null;
     if (current.exists) {
       const saved = current.data();
       if (saved.actorUid !== actor.uid || saved.requestHash !== digest || saved.ownerEmail !== input.ownerEmail) {
         throw new HttpsError('already-exists', 'Este identificador de operación ya se usó con otros datos. No se creó otra empresa.');
+      }
+      if (billingContractRef && (!billingContract?.exists
+        || !['ready_for_activation', 'provisioning', 'active'].includes(contract.status)
+        || contract.operationId && contract.operationId !== input.operationId
+        || !initialCharge?.exists || initialCharge.data()?.kind !== 'initial'
+        || initialCharge.data()?.status !== 'paid'
+        || initialCharge.data()?.paidMinor !== initialCharge.data()?.amountMinor)) {
+        throw new HttpsError('failed-precondition', 'El contrato pagado no está disponible para esta operación de alta.');
       }
       operation = saved;
       if (saved.status === 'failed') {
@@ -171,8 +185,22 @@ async function reserveOperation(db, actor, input, digest, ownerLookup) {
           tx.set(companyRef, { operationId: input.operationId, tenantId: saved.tenantId, status: 'pending', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         }
         operation = { ...saved, status: 'pending' };
+        if (billingContractRef && contract.status === 'ready_for_activation') {
+          tx.update(billingContractRef, { status: 'provisioning', operationId: input.operationId, tenantId: saved.tenantId, updatedAt: FieldValue.serverTimestamp() });
+        }
       }
       return;
+    }
+    if (billingContractRef) {
+      if (!billingContractRef || !billingContract?.exists || contract.status !== 'ready_for_activation'
+        || contract.businessType !== input.businessType
+        || contract.terms?.companyName?.trim().toLowerCase() !== input.companyName.trim().toLowerCase()
+        || contract.customer?.email?.toLowerCase() !== input.ownerEmail
+        || !initialCharge?.exists || initialCharge.data()?.kind !== 'initial'
+        || initialCharge.data()?.status !== 'paid'
+        || initialCharge.data()?.paidMinor !== initialCharge.data()?.amountMinor) {
+        throw new HttpsError('failed-precondition', 'El contrato no está pagado o los datos no coinciden con la contratación aceptada.');
+      }
     }
     if (existingName.exists && existingName.data()?.status !== 'failed') {
       throw new HttpsError('already-exists', 'Ya existe una empresa con el mismo nombre y plantilla. Revisa Clientes / Tenants antes de iniciar otra alta.');
@@ -192,22 +220,28 @@ async function reserveOperation(db, actor, input, digest, ownerLookup) {
       createdAuthUser,
       tenantId,
       companyKey,
+      billingContractId: input.billingContractId || null,
       status: 'pending',
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
     tx.create(operationRef, operation);
     tx.set(companyRef, { operationId: input.operationId, tenantId, status: 'pending', createdAt: FieldValue.serverTimestamp() });
+    if (billingContractRef) tx.update(billingContractRef, { status: 'provisioning', operationId: input.operationId, tenantId, updatedAt: FieldValue.serverTimestamp() });
   });
   return { operationRef, companyRef, operation };
 }
 
 async function failUnprovisionedOperation(db, reservation, actor, code) {
   await db.runTransaction(async tx => {
-    const [operation, company] = await Promise.all([tx.get(reservation.operationRef), tx.get(reservation.companyRef)]);
+    const contractRef = reservation.operation?.billingContractId ? db.doc(`platformContracts/${reservation.operation.billingContractId}`) : null;
+    const [operation, company, contract] = await Promise.all([tx.get(reservation.operationRef), tx.get(reservation.companyRef), ...(contractRef ? [tx.get(contractRef)] : [])]);
     if (!operation.exists || operation.data()?.status === 'complete' || operation.data()?.status === 'provisioned') return;
     tx.set(reservation.operationRef, { status: 'failed', failureCode: code, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     if (company.data()?.operationId === reservation.operationRef.id) tx.delete(reservation.companyRef);
+    if (contractRef && contract?.exists && contract.data()?.operationId === reservation.operationRef.id && contract.data()?.status === 'provisioning') {
+      tx.update(contractRef, { status: 'ready_for_activation', operationId: FieldValue.delete(), tenantId: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
+    }
     auditPlatform(db, tx, actor, 'tenant.assistedProvision.failed', {
       resource: reservation.operationRef.path,
       reason: 'Alta asistida no completada; no se activó una empresa.',
@@ -216,7 +250,7 @@ async function failUnprovisionedOperation(db, reservation, actor, code) {
   });
 }
 
-function tenantDataFor(input, tenantId, ownerUid, now) {
+function tenantDataFor(input, tenantId, ownerUid, now, billingContract = null) {
   const template = input.template;
   const configuration = structuredClone(template.defaults);
   configuration.currency = input.currency;
@@ -234,8 +268,9 @@ function tenantDataFor(input, tenantId, ownerUid, now) {
     businessIdentity: input.businessIdentity,
     configuration,
     entitlements: {},
-    planKey: null,
-    subscriptionStatus: 'trial',
+    planKey: billingContract?.terms?.plan?.planId || null,
+    subscriptionStatus: billingContract ? 'pending' : 'trial',
+    ...(billingContract ? { billingEnforcement: true, billingContractId: billingContract.contractId } : {}),
     schemaVersion: 1,
     templateVersion: template.version,
     provisioningOperationId: input.operationId,
@@ -254,14 +289,24 @@ async function createProvisioningRecords(db, actor, input, operation, reservatio
   const linkRef = db.doc(`users/${operation.ownerUid}/tenantLinks/${operation.tenantId}`);
   const catalogRef = root.collection('distSettings').doc('catalog');
   await db.runTransaction(async tx => {
-    const [freshOperation, tenant, member, profile, link, branch, roles, catalog, targetPlatformOperator] = await Promise.all([
+    const contractRef = operation.billingContractId ? db.doc(`platformContracts/${operation.billingContractId}`) : null;
+    const [freshOperation, tenant, member, profile, link, branch, roles, catalog, targetPlatformOperator, billingContract] = await Promise.all([
       tx.get(reservation.operationRef), tx.get(root), tx.get(membershipRef), tx.get(profileRef), tx.get(linkRef),
       tx.get(branchRef), tx.get(root.collection('roles')),
       input.industryProfile ? tx.get(catalogRef) : Promise.resolve(null),
       tx.get(db.doc(`platformOperators/${operation.ownerUid}`)),
+      ...(contractRef ? [tx.get(contractRef)] : []),
     ]);
+    const initialCharge = contractRef && billingContract?.exists && billingContract.data()?.initialChargeId
+      ? await tx.get(db.doc(`platformBillingCharges/${billingContract.data().initialChargeId}`)) : null;
     if (!freshOperation.exists || freshOperation.data()?.actorUid !== actor.uid) throw new HttpsError('permission-denied', 'La operación ya no pertenece al operador actual.');
     if (freshOperation.data()?.status === 'complete' || freshOperation.data()?.status === 'provisioned') return;
+    if (contractRef && (!billingContract?.exists || billingContract.data()?.status !== 'provisioning'
+      || billingContract.data()?.operationId !== operation.operationId || billingContract.data()?.tenantId !== operation.tenantId
+      || !initialCharge?.exists || initialCharge.data()?.status !== 'paid'
+      || initialCharge.data()?.paidMinor !== initialCharge.data()?.amountMinor)) {
+      throw new HttpsError('failed-precondition', 'El contrato dejó de estar reservado para esta operación.');
+    }
     const infrastructure = input.businessType === 'nightclub_lounge' ? await readNightclubBaseInfrastructure(tx, root) : null;
     if (tenant.exists || member.exists || link.exists || branch.exists || !roles.empty || catalog?.exists) {
       throw new HttpsError('failed-precondition', 'Se detectó una configuración previa o parcial; no se sobrescribieron datos. Revisa la operación con soporte.');
@@ -270,7 +315,7 @@ async function createProvisioningRecords(db, actor, input, operation, reservatio
     if (targetPlatformOperator.data()?.active === true) throw new HttpsError('failed-precondition', 'Una cuenta Platform activa no puede vincularse como propietario de una empresa. Usa una identidad de cliente separada.');
 
     const now = FieldValue.serverTimestamp();
-    const createdTenant = tenantDataFor(input, operation.tenantId, operation.ownerUid, now);
+    const createdTenant = tenantDataFor(input, operation.tenantId, operation.ownerUid, now, billingContract?.data() || null);
     const membership = {
       uid: operation.ownerUid,
       tenantId: operation.tenantId,
@@ -319,10 +364,15 @@ async function activateProvisionedTenant(db, actor, operation, reservation) {
   const root = db.doc(`tenants/${operation.tenantId}`);
   const memberRef = root.collection('members').doc(operation.ownerUid);
   const linkRef = db.doc(`users/${operation.ownerUid}/tenantLinks/${operation.tenantId}`);
+  const billingContractRef = operation.billingContractId ? db.doc(`platformContracts/${operation.billingContractId}`) : null;
+  const subscriptionRef = operation.billingContractId ? db.doc(`platformSubscriptions/${operation.billingContractId}`) : null;
   await db.runTransaction(async tx => {
-    const [freshOperation, tenant, member, link, company] = await Promise.all([
+    const [freshOperation, tenant, member, link, company, billingContract, subscription] = await Promise.all([
       tx.get(reservation.operationRef), tx.get(root), tx.get(memberRef), tx.get(linkRef), tx.get(reservation.companyRef),
+      ...(billingContractRef ? [tx.get(billingContractRef), tx.get(subscriptionRef)] : []),
     ]);
+    const initialCharge = billingContractRef && billingContract?.exists && billingContract.data()?.initialChargeId
+      ? await tx.get(db.doc(`platformBillingCharges/${billingContract.data().initialChargeId}`)) : null;
     if (!freshOperation.exists || freshOperation.data()?.actorUid !== actor.uid) throw new HttpsError('permission-denied', 'La operación ya no pertenece al operador actual.');
     const current = freshOperation.data();
     if (current.status === 'complete') return;
@@ -330,8 +380,29 @@ async function activateProvisionedTenant(db, actor, operation, reservation) {
       || !member.exists || !link.exists || member.data()?.status !== 'pending' || link.data()?.status !== 'pending') {
       throw new HttpsError('failed-precondition', 'El aprovisionamiento está incompleto y requiere revisión; no se activó el acceso del propietario.');
     }
+    if (billingContractRef && (!billingContract?.exists || billingContract.data()?.status !== 'provisioning'
+      || billingContract.data()?.operationId !== operation.operationId || !subscription?.exists || subscription.data()?.status !== 'pending'
+      || !initialCharge?.exists || initialCharge.data()?.status !== 'paid'
+      || initialCharge.data()?.paidMinor !== initialCharge.data()?.amountMinor)) {
+      throw new HttpsError('failed-precondition', 'La contratación pagada no coincide con la operación de activación.');
+    }
     const now = FieldValue.serverTimestamp();
-    tx.update(root, { status: 'active', updatedAt: now });
+    const activeFields = { status: 'active', updatedAt: now };
+    if (billingContractRef) {
+      const cycle = billingContract.data().terms.billingCycle;
+      const start = new Date();
+      const end = new Date(start);
+      end.setUTCMonth(end.getUTCMonth() + (cycle === 'annual' ? 12 : 1));
+      const periodEnd = Timestamp.fromDate(end);
+      const billingAccessUntil = Timestamp.fromMillis(billingAccessUntilMillis(periodEnd.toMillis()));
+      Object.assign(activeFields, { subscriptionStatus: 'active', billingEnforcement: true, planKey: billingContract.data().terms.plan?.planId || null, billingAccessUntil });
+      tx.update(billingContractRef, { status: 'active', activatedAt: now, updatedAt: now });
+      tx.update(subscriptionRef, {
+        status: 'active', tenantId: operation.tenantId, currentPeriodStart: Timestamp.fromDate(start),
+        currentPeriodEnd: periodEnd, nextRenewalAt: periodEnd, billingAccessUntil, activatedAt: now, updatedAt: now,
+      });
+    }
+    tx.update(root, activeFields);
     tx.update(memberRef, { status: 'active', updatedAt: now });
     tx.update(linkRef, { status: 'active', updatedAt: now });
     tx.set(reservation.operationRef, { status: 'complete', completedAt: now, updatedAt: now }, { merge: true });
@@ -358,6 +429,9 @@ async function listAssistedTenantTemplates(db, request) {
 async function createAssistedTenant(db, auth, request, hooks = {}) {
   const actor = await ownerPlatformActor(db, request);
   const input = normalizeInput(request.data);
+  if (!input.billingContractId) {
+    throw new HttpsError('failed-precondition', 'La activación asistida requiere un contrato con pago inicial confirmado. No se crean empresas ni suscripciones sin cobro verificado.');
+  }
   const digest = requestFingerprint(input);
   const operationRef = db.doc(`platformAssistedTenantOperations/${input.operationId}`);
   let existingOperation = await operationRef.get();
@@ -376,8 +450,8 @@ async function createAssistedTenant(db, auth, request, hooks = {}) {
     if (operation.createdAuthUser) {
       let link = null;
       try {
-        const account = await auth.getUser(operation.ownerUid);
-        if (account.disabled) return setupUrlResponse({ ...input, ...operation }, null, true, true);
+        let account = await auth.getUser(operation.ownerUid);
+        if (account.disabled) account = await auth.updateUser(operation.ownerUid, { disabled: false });
         link = await auth.generatePasswordResetLink(operation.ownerEmail);
       } catch { return setupUrlResponse({ ...input, ...operation }, null, true); }
       return setupUrlResponse({ ...input, ...operation }, link);
@@ -399,8 +473,8 @@ async function createAssistedTenant(db, auth, request, hooks = {}) {
       operation = { ...operation, status: 'provisioned' };
     }
     if (hooks.afterProvisioningRecords) await hooks.afterProvisioningRecords({ db, auth, operation, input });
-    if (operation.createdAuthUser && owner.user.disabled) await auth.updateUser(operation.ownerUid, { disabled: false });
     await activateProvisionedTenant(db, actor, operation, reservation);
+    if (operation.createdAuthUser && owner.user.disabled) await auth.updateUser(operation.ownerUid, { disabled: false });
   } catch (error) {
     const freshOperation = await reservation.operationRef.get();
     if (freshOperation.data()?.status === 'pending') {

@@ -22,6 +22,13 @@ interface AssistedTenantResult {
   }
 }
 
+interface PaidContractActivation {
+  id: string
+  status: string
+  businessType?: string
+  customer?: { companyName?: string; email?: string; contactName?: string }
+}
+
 const INDUSTRY_PROFILES = [
   ['food', 'Alimentos'], ['beverages', 'Bebidas'], ['cleaning', 'Limpieza'],
   ['hardware', 'Ferretería'], ['pharmacy', 'Farmacia'], ['pets', 'Mascotas'],
@@ -33,14 +40,14 @@ function errorMessage(error: unknown): string {
   return message.replace(/^FirebaseError:\s*/i, '').trim() || 'No se pudo completar el alta. Reintenta con la misma operación.'
 }
 
-export function AssistedTenantSection() {
+export function AssistedTenantSection({ activationContract = null }: { activationContract?: PaidContractActivation | null }) {
   const [templates, setTemplates] = useState<ProvisionableTemplate[]>([])
   const [loadingTemplates, setLoadingTemplates] = useState(true)
   const [templateError, setTemplateError] = useState<string | null>(null)
-  const [companyName, setCompanyName] = useState('')
-  const [businessType, setBusinessType] = useState('')
-  const [ownerName, setOwnerName] = useState('')
-  const [ownerEmail, setOwnerEmail] = useState('')
+  const [companyName, setCompanyName] = useState(activationContract?.customer?.companyName || '')
+  const [businessType, setBusinessType] = useState(activationContract?.businessType || '')
+  const [ownerName, setOwnerName] = useState(activationContract?.customer?.contactName || '')
+  const [ownerEmail, setOwnerEmail] = useState(activationContract?.customer?.email || '')
   const [legalName, setLegalName] = useState('')
   const [phone, setPhone] = useState('')
   const [city, setCity] = useState('')
@@ -52,6 +59,7 @@ export function AssistedTenantSection() {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [operationId, setOperationId] = useState<string | null>(null)
+  const [billingContractId] = useState<string | null>(activationContract?.id || null)
 
   useEffect(() => {
     let active = true
@@ -73,7 +81,7 @@ export function AssistedTenantSection() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!ownerEmailConfirmed || saving) return
+    if (!billingContractId || !ownerEmailConfirmed || saving) return
     setSaving(true)
     setError(null)
     setResult(null)
@@ -88,6 +96,7 @@ export function AssistedTenantSection() {
         ownerEmail,
         ownerDisplayName: ownerName,
         ownerEmailConfirmed: true,
+        billingContractId,
         ...(isDistribution ? { industryProfile } : {}),
         currency: 'BOB',
         currencySymbol: 'Bs',
@@ -127,9 +136,9 @@ export function AssistedTenantSection() {
         </div>
       </header>
 
-      <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-950">
+      <div className={`flex gap-3 rounded-xl border p-3.5 text-sm ${billingContractId ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-amber-200 bg-amber-50 text-amber-950'}`}>
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-        <p>No crea un plan, una suscripción ni cobros. Las altas públicas continúan cerradas. El propietario nuevo recibirá un enlace de un solo uso para configurar su contraseña; no se comparte ninguna contraseña.</p>
+        <p>{billingContractId ? `Activación del contrato pagado ${billingContractId}. El servidor volverá a comprobar el cargo inicial conciliado antes de crear la empresa. Las altas públicas siguen cerradas.` : 'Esta pantalla solo activa contrataciones cuyo pago inicial fue confirmado por Owner/Finance. Selecciona «Crear empresa pagada y preparar acceso» en Facturación después de verificar el ingreso; no se crean tenants gratuitos ni empresas sin pago.'} El propietario recibirá un enlace de un solo uso para configurar su contraseña; no se comparte ninguna contraseña.</p>
       </div>
 
       {templateError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">No se pudieron cargar las plantillas disponibles: {templateError}</div>}
@@ -155,8 +164,8 @@ export function AssistedTenantSection() {
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-semibold text-slate-800">Nombre comercial<input required minLength={2} maxLength={100} autoComplete="organization" value={companyName} onChange={event => setCompanyName(event.target.value)} disabled={retryLocked || saving} className={inputClass} /></label>
-            <label className="text-sm font-semibold text-slate-800">Plantilla disponible<select required value={businessType} onChange={event => setBusinessType(event.target.value)} disabled={loadingTemplates || retryLocked || saving || templates.length === 0} className={inputClass}>{loadingTemplates && <option value="">Cargando plantillas…</option>}{templates.map(template => <option key={template.businessType} value={template.businessType}>{template.name}</option>)}</select></label>
+            <label className="text-sm font-semibold text-slate-800">Nombre comercial<input required minLength={2} maxLength={100} autoComplete="organization" value={companyName} onChange={event => setCompanyName(event.target.value)} disabled={retryLocked || saving || Boolean(billingContractId)} className={inputClass} /></label>
+            <label className="text-sm font-semibold text-slate-800">Plantilla disponible<select required value={businessType} onChange={event => setBusinessType(event.target.value)} disabled={loadingTemplates || retryLocked || saving || templates.length === 0 || Boolean(billingContractId)} className={inputClass}>{loadingTemplates && <option value="">Cargando plantillas…</option>}{templates.map(template => <option key={template.businessType} value={template.businessType}>{template.name}</option>)}</select></label>
           </div>
           {selectedTemplate && <p className="-mt-3 text-xs leading-5 text-slate-500">{selectedTemplate.description}</p>}
 
@@ -166,7 +175,7 @@ export function AssistedTenantSection() {
             <legend className="px-1 text-sm font-bold text-slate-900">Propietario y acceso</legend>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-semibold text-slate-800">Nombre del propietario<input required minLength={2} maxLength={80} autoComplete="name" value={ownerName} onChange={event => setOwnerName(event.target.value)} disabled={retryLocked || saving} className={inputClass} /></label>
-              <label className="text-sm font-semibold text-slate-800">Correo del propietario<input required type="email" maxLength={160} autoComplete="email" value={ownerEmail} onChange={event => setOwnerEmail(event.target.value)} disabled={retryLocked || saving} className={inputClass} /></label>
+              <label className="text-sm font-semibold text-slate-800">Correo del propietario<input required type="email" maxLength={160} autoComplete="email" value={ownerEmail} onChange={event => setOwnerEmail(event.target.value)} disabled={retryLocked || saving || Boolean(billingContractId)} className={inputClass} /></label>
             </div>
             <label className="flex items-start gap-2.5 text-sm leading-5 text-slate-700"><input required type="checkbox" checked={ownerEmailConfirmed} onChange={event => setOwnerEmailConfirmed(event.target.checked)} disabled={retryLocked || saving} className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-600" /><span>Confirmo que este correo corresponde al propietario autorizado y que puede recibir acceso a la nueva empresa.</span></label>
           </fieldset>
@@ -184,7 +193,7 @@ export function AssistedTenantSection() {
 
           <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs leading-5 text-slate-500">{retryLocked ? 'Reintenta sin cambiar los datos; se conserva el mismo identificador para no duplicar la empresa.' : 'El formulario mantiene el mismo identificador al reintentar para no duplicar la empresa.'}</p>
-            <button type="submit" disabled={loadingTemplates || saving || templates.length === 0 || !ownerEmailConfirmed} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="submit" disabled={loadingTemplates || saving || templates.length === 0 || !ownerEmailConfirmed || !billingContractId} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
               {saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}{saving ? 'Creando empresa…' : retryLocked ? 'Reintentar la misma operación' : 'Crear empresa y preparar acceso'}
             </button>
           </div>

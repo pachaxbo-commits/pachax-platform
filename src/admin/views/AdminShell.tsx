@@ -30,6 +30,7 @@ import { ClientsSection } from './sections/ClientsSection'
 import { StudioAdminSection } from './sections/StudioAdminSection'
 import { AdministratorsSection } from './sections/AdministratorsSection'
 import { CommercialIntentsSection } from './sections/CommercialIntentsSection'
+import { CommercialBillingSection, type PaidContractActivation } from './sections/CommercialBillingSection'
 import { AssistedTenantSection } from './sections/AssistedTenantSection'
 import { AdminLoginView } from './AdminLoginView'
 
@@ -45,12 +46,14 @@ type AdminTab =
   | 'administrators'
   | 'assisted-tenants'
   | 'commercial-intents'
+  | 'commercial-billing'
 
 export function AdminShell() {
   const { user, isAuthenticated, logout, status } = useAdminAuth()
   const { navigate } = usePublicRouter()
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [paidContract, setPaidContract] = useState<PaidContractActivation | null>(null)
 
   // Guardia de seguridad: si no está autenticado, renderizar login directamente
   if (status === 'unauthenticated') {
@@ -109,6 +112,9 @@ export function AdminShell() {
     { id: 'studio', label: 'PACHAX Studio', icon: MonitorPlay },
     ...(['platform_owner', 'platform_admin'].includes(user.role)
       ? [{ id: 'commercial-intents' as AdminTab, label: 'Solicitudes comerciales', icon: MessageSquareText }]
+      : []),
+    ...(['platform_owner', 'platform_admin', 'platform_finance'].includes(user.role)
+      ? [{ id: 'commercial-billing' as AdminTab, label: 'Facturación PACHAX', icon: CreditCard }]
       : []),
     ...(user.role === 'platform_owner'
       ? [
@@ -251,8 +257,9 @@ export function AdminShell() {
           {activeTab === 'clients' && <ClientsSection />}
           {activeTab === 'studio' && <StudioAdminSection />}
           {activeTab === 'administrators' && <AdministratorsSection />}
-          {activeTab === 'assisted-tenants' && user.role === 'platform_owner' && <AssistedTenantSection />}
+          {activeTab === 'assisted-tenants' && user.role === 'platform_owner' && <AssistedTenantSection key={paidContract?.id || 'new-tenant'} activationContract={paidContract} />}
           {activeTab === 'commercial-intents' && <CommercialIntentsSection />}
+          {activeTab === 'commercial-billing' && <CommercialBillingSection onActivateContract={contract => { setPaidContract(contract); setActiveTab('assisted-tenants') }} />}
         </div>
       </main>
     </div>
