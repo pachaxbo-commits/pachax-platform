@@ -4,6 +4,8 @@ import { Modal } from '../ui/Modal'
 import type { BusinessDocumentContext } from '../../core/businessIdentity'
 import type { CanonicalReceiptData } from '../../core/receiptService'
 import { shareReceipt, generateReceiptPdf } from '../../core/receiptService'
+import { getActiveTenant } from '../../store/activeTenant'
+import { canUseDocumentCapability } from '../../core/documents/documentCapabilities'
 
 export function CanonicalReceiptModal({
   isOpen,
@@ -11,16 +13,20 @@ export function CanonicalReceiptModal({
   documentContext,
   receiptData,
   onPrint,
+  documentTitle = 'Recibo digital',
 }: {
   isOpen: boolean
   onClose: () => void
   documentContext: BusinessDocumentContext
   receiptData: CanonicalReceiptData
   onPrint?: () => unknown | Promise<unknown>
+  documentTitle?: string
 }) {
   const [sharing, setSharing] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const canDigitalReceipt = canUseDocumentCapability(getActiveTenant()?.tenant, 'receipts.digital')
+  const canManualPrint = canUseDocumentCapability(getActiveTenant()?.tenant, 'printing.manual')
 
   if (!isOpen) return null
 
@@ -85,11 +91,11 @@ export function CanonicalReceiptModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Recibo digital"
+      title={documentTitle}
       subtitle={`Comprobante #${receiptData.receiptNumber}`}
       footer={
         <div className="flex flex-col sm:flex-row gap-2 w-full">
-          {onPrint && (
+          {onPrint && canManualPrint && (
             <button
               type="button"
               disabled={printing}
@@ -101,7 +107,7 @@ export function CanonicalReceiptModal({
             </button>
           )}
 
-          <button
+          {canDigitalReceipt && <button
             type="button"
             disabled={sharing}
             onClick={handleShare}
@@ -110,7 +116,7 @@ export function CanonicalReceiptModal({
           >
             <Share2 size={16} />
             <span>{sharing ? 'Compartiendo...' : 'Compartir recibo'}</span>
-          </button>
+          </button>}
         </div>
       }
     >
@@ -120,6 +126,9 @@ export function CanonicalReceiptModal({
             <Check size={14} className="text-emerald-600" />
             <span>{statusMessage}</span>
           </div>
+        )}
+        {!canDigitalReceipt && !canManualPrint && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Los comprobantes digitales e impresión no están incluidos en las capacidades activas de esta empresa.</p>
         )}
 
         {/* Tarjeta simulada de comprobante / ticket térmico */}
@@ -292,7 +301,7 @@ export function CanonicalReceiptModal({
         </div>
 
         {/* Botón secundario para descargar PDF */}
-        <div className="flex justify-center">
+        {canDigitalReceipt && <div className="flex justify-center">
           <button
             type="button"
             onClick={handleDownloadPdf}
@@ -301,7 +310,7 @@ export function CanonicalReceiptModal({
             <Download size={13} />
             <span>Descargar archivo PDF</span>
           </button>
-        </div>
+        </div>}
       </div>
     </Modal>
   )

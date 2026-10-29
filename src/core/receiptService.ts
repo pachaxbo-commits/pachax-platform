@@ -6,6 +6,9 @@
 
 import { Capacitor } from '@capacitor/core'
 import type { BusinessDocumentContext } from './businessIdentity.ts'
+import { assertDocumentCapability } from './documents/documentCapabilities.ts'
+import { getActiveTenant } from '../store/activeTenant.ts'
+import type { PrintJobPayload } from '../types/printing.ts'
 
 export interface CanonicalReceiptItem {
   name: string
@@ -39,6 +42,51 @@ export interface CanonicalReceiptData {
   paymentDetails?: string[]
   notes?: string
   isCopy?: boolean
+}
+
+/** Shared projection to the existing printer engine; domain totals are passed through unchanged. */
+export function canonicalReceiptToPrintJobPayload(
+  receipt: CanonicalReceiptData,
+  docContext: BusinessDocumentContext,
+): PrintJobPayload {
+  return {
+    payloadSchemaVersion: 1,
+    templateVersion: '1.0',
+    restaurantName: docContext.companyName,
+    branchName: docContext.branchName || 'Sucursal principal',
+    branchAddress: docContext.address,
+    branchPhone: docContext.phone,
+    logoUrl: docContext.logoUrl,
+    headerDetails: docContext.formattedHeaderLines,
+    displayNumber: receipt.receiptNumber,
+    fulfillmentType: receipt.fulfillmentType,
+    tableInfo: receipt.tableOrPoint,
+    customerName: receipt.customer?.name,
+    customerPhone: receipt.customer?.phone,
+    items: receipt.items.map(item => ({
+      name: item.name,
+      basePrice: item.unitPrice,
+      quantity: item.quantity,
+      unitLabel: item.unitLabel,
+      lineTotal: item.lineTotal,
+      modifiersText: item.modifiers,
+      note: item.note,
+    })),
+    subtotal: receipt.subtotal,
+    discountTotal: receipt.discountTotal || 0,
+    taxTotal: 0,
+    deliveryFee: receipt.deliveryFee || 0,
+    grandTotal: receipt.total,
+    paymentMethod: receipt.paymentMethod,
+    paymentDetails: receipt.paymentDetails,
+    cashReceived: receipt.cashReceived,
+    changeAmount: receipt.changeAmount,
+    isCopy: Boolean(receipt.isCopy),
+    footerMessage: docContext.receiptFooter,
+    showManagedBy: docContext.showManagedBy,
+    copies: 1,
+    createdIso: receipt.dateIso,
+  }
 }
 
 /**
@@ -174,6 +222,7 @@ export async function generateReceiptPdf(
   docContext: BusinessDocumentContext,
   receipt: CanonicalReceiptData
 ): Promise<Uint8Array> {
+  assertDocumentCapability(getActiveTenant()?.tenant, 'receipts.digital')
   const { jsPDF } = await import('jspdf')
 
   // Estimación de altura en milímetros para formato rollo 80mm
@@ -398,6 +447,7 @@ export async function shareReceipt(
   receipt: CanonicalReceiptData,
   options?: { filename?: string; customerPhone?: string }
 ): Promise<{ success: boolean; method: string; message?: string }> {
+  assertDocumentCapability(getActiveTenant()?.tenant, 'receipts.digital')
   const filename = options?.filename || `Recibo_${receipt.receiptNumber}_${Date.now()}.pdf`
   const plainText = buildReceiptPlainText(docContext, receipt)
 

@@ -11,6 +11,7 @@
     "test:public-commercial-closed": "node --test functions/tests/publicCommercialClosed.test.cjs",
     "test:billing-core": "npm run build:functions-core && firebase emulators:exec --config firebase.billing-test.json --only auth,firestore --project demo-pachax-billing-v1 \"node functions/tests/commercialBilling.test.cjs\"",
     "test:commercial-capabilities": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --config firebase.plan-capabilities-test.json --only firestore --project demo-pachax-plan-capabilities \"node functions/tests/commercialCapabilities.test.cjs && node firebase/tests/commercialCapabilitiesRules.test.mjs\"",
+    "test:documents-printing-core": "node --experimental-strip-types --test tests/documentsPrintingCore.test.ts",
     "test:retail-tenant": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only auth,firestore,functions --project demo-pachax-platform \"node functions/tests/retailTenant.test.cjs\"",
     "build:demos-app-assets": "npm run build:demos-only",
     "studio": "vite --open /studio",

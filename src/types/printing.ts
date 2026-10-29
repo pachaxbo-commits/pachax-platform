@@ -243,6 +243,8 @@ export interface SubmitPrintRequestInput {
   idempotencyKey?: string
   payload: PrintJobPayload
   copies?: number
+  /** Defaults to manual; background kitchen dispatch must opt in explicitly. */
+  executionMode?: 'manual' | 'automatic'
 }
 
 export interface RequestReprintInput {

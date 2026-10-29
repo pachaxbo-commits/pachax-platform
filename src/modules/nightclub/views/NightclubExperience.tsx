@@ -28,9 +28,11 @@ import { NightclubReports } from './NightclubReports'
 import { NightclubSettings } from './NightclubSettings'
 import { NightclubZones } from './NightclubZones'
 import { createNightclubActionRunner, resolveNightclubVisibleModules } from '../application/nightclubActionRunner'
-import { buildBusinessDocumentContext, type BusinessDocumentContext, type BusinessIdentity } from '../../../core/businessIdentity'
+import { type BusinessDocumentContext, type BusinessIdentity } from '../../../core/businessIdentity'
+import { resolveBusinessDocumentContext } from '../../../core/documents/businessDocumentContext'
+import { printBusinessReceipt } from '../../../services/printing/businessDocumentPrintService'
 import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
-import { nightclubAccountToReceiptData, buildNightclubBarTicketPayload, nightclubReceiptToPrintPayload } from '../domain/nightclubReceipt'
+import { nightclubAccountToReceiptData, buildNightclubBarTicketPayload } from '../domain/nightclubReceipt'
 import { PrintEngineService, classifyPrintJobOutcome, type PrintJobOutcome } from '../../../services/printing/printEngineService'
 import { getActiveBarPrinter } from '../../../services/printing/printerBootstrap'
 import type { NightclubRound, NightclubAccount } from '../domain/nightclubAccounts'
@@ -181,11 +183,7 @@ export function NightclubExperience(props: Props) {
 
   const documentContext: BusinessDocumentContext = useMemo(
     () =>
-      buildBusinessDocumentContext(props.businessIdentity, {
-        companyName: effectiveCompanyName,
-        logoUrl: effectiveLogoUrl,
-        branchName: 'Principal',
-      }),
+      resolveBusinessDocumentContext({ ...props.businessIdentity, tradeName: effectiveCompanyName, logoUrl: effectiveLogoUrl }, { name: 'Sucursal principal' }),
     [props.businessIdentity, effectiveCompanyName, effectiveLogoUrl]
   )
 
@@ -199,28 +197,10 @@ export function NightclubExperience(props: Props) {
     }
     try {
       const receiptData = nightclubAccountToReceiptData(receiptModalAccount, data, props.businessIdentity)
-      const payload = nightclubReceiptToPrintPayload(receiptData, documentContext, receiptModalAccount.id)
-      const job = await PrintEngineService.getInstance().submitPrintRequest({
-        targetType: 'receipt',
-        tenantId: effectiveTenantId,
-        branchId: effectiveBranchId,
-        idempotencyKey: `receipt:${effectiveTenantId}:${effectiveBranchId}:${receiptModalAccount.id}:${Date.now()}`,
-        payload,
-      })
-      const outcome = classifyPrintJobOutcome(job, 'Recibo')
-      if (outcome.isSuccess) {
-        setNotice('Recibo enviado a la impresora.')
-        return 'Recibo enviado a la impresora.'
-      } else if (outcome.category === 'uncertain') {
-        setNotice('No se pudo confirmar si la impresión salió.')
-        return 'No se pudo confirmar si la impresión salió.'
-      } else if (outcome.category === 'pending') {
-        setNotice('Impresión de recibo pendiente de reintento.')
-        return 'Impresión de recibo pendiente de reintento.'
-      } else {
-        setNotice(outcome.message)
-        return outcome.message
-      }
+      const message = await printBusinessReceipt({ tenantId: effectiveTenantId, branchId: effectiveBranchId,
+        sourceId: receiptModalAccount.id, receipt: receiptData, identity: documentContext })
+      setNotice(message)
+      return message
     } catch (err: unknown) {
       const msg = `Falló la impresión: ${err instanceof Error ? err.message : String(err)}`
       setNotice(msg)
@@ -247,6 +227,7 @@ export function NightclubExperience(props: Props) {
 
       const job = await PrintEngineService.getInstance().submitPrintRequest({
         targetType: 'bar_ticket',
+        executionMode: 'automatic',
         printerProfileId: activeBarPrinter.id,
         tenantId: effectiveTenantId,
         branchId: effectiveBranchId,

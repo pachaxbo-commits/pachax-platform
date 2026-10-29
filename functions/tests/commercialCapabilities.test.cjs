@@ -41,20 +41,44 @@ async function main() {
     assert.throws(() => normalizeCapabilitiesV1({ ...validCapabilities, features: {
       ...validCapabilities.features, reports: { ...validCapabilities.features.reports, basic: false },
     } }, businessType), /capacidad base de V1/);
-    assert.throws(() => normalizeCapabilitiesV1({ ...validCapabilities, features: {
+    const documentCapabilities = normalizeCapabilitiesV1({ ...validCapabilities, features: {
       ...validCapabilities.features, printing: { manual: true, kitchenAutomatic: false },
+      receipts: { digital: true },
+    } }, businessType);
+    assert.equal(documentCapabilities.features.receipts.digital, true);
+    assert.equal(documentCapabilities.features.printing.manual, true);
+    assert.equal(documentCapabilities.features.printing.kitchenAutomatic, false);
+    assert.throws(() => normalizeCapabilitiesV1({ ...validCapabilities, features: {
+      ...validCapabilities.features, reports: { ...validCapabilities.features.reports, export: true },
     } }, businessType), /no tiene control técnico completo/);
     const adjusted = applyCapabilityAdjustments(validCapabilities, normalizeCapabilityAdjustments({ activeUsers: 1, activeProducts: 5 }));
     assert.equal(adjusted.limits.activeUsers, 4);
     assert.equal(adjusted.limits.activeProducts, 7);
     assert.throws(() => applyCapabilityAdjustments(validCapabilities, normalizeCapabilityAdjustments({ activeProducts: 199 })), /máximo técnico/);
     assert.equal(hasPlanFeature(tenant, 'reports.basic'), true);
+    assert.equal(hasPlanFeature(tenant, 'receipts.digital'), false);
+    assert.equal(hasPlanFeature({ ...tenant, commercialCapabilities: documentCapabilities }, 'receipts.digital'), true);
+    assert.equal(hasPlanFeature({ ...tenant, commercialCapabilities: documentCapabilities }, 'printing.manual'), true);
+    assert.equal(hasPlanFeature({ ...tenant, commercialCapabilities: documentCapabilities }, 'printing.kitchenAutomatic'), false);
     assert.equal(hasPlanFeature({ ...tenant, commercialCapabilities: { ...validCapabilities, features: {
       ...validCapabilities.features, reports: { ...validCapabilities.features.reports, basic: false },
     } } }, 'reports.basic'), false);
     assert.equal(tenantCapabilities({ businessType, billingEnforcement: false }), null, 'Legacy tenants do not gain enforcement implicitly.');
     assert.equal(hasPlanFeature({ businessType, billingEnforcement: false }, 'reports.basic'), true);
+    for (const template of ['restaurant_pos', 'hamburger_shop', 'route_distribution', 'gelateria_weight_cafe', 'nightclub_lounge']) {
+      const supported = normalizeCapabilitiesV1({ ...validCapabilities, businessType: template, features: {
+        ...validCapabilities.features, receipts: { digital: true },
+        printing: { manual: true, kitchenAutomatic: ['restaurant_pos', 'hamburger_shop', 'nightclub_lounge'].includes(template) },
+      } }, template);
+      assert.equal(supported.features.receipts.digital, true, `${template} supports digital receipts`);
+      assert.equal(supported.features.printing.manual, true, `${template} supports browser/manual printing`);
+      assert.equal(supported.features.printing.kitchenAutomatic, ['restaurant_pos', 'hamburger_shop', 'nightclub_lounge'].includes(template));
+    }
+    assert.throws(() => normalizeCapabilitiesV1({ ...validCapabilities, businessType: 'route_distribution', features: {
+      ...validCapabilities.features, printing: { manual: true, kitchenAutomatic: true },
+    } }, 'route_distribution'), /no está disponible/);
     console.log('PASS version, template identity, unsupported feature rejection, extra limits and legacy compatibility');
+    console.log('PASS document and printing capability matrix for all five templates');
 
     await root.set(tenant);
     const usageRef = root.collection('commercialUsage').doc('active');

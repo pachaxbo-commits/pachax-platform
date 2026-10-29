@@ -13,6 +13,7 @@ import type {
   SubmitPrintRequestInput,
 } from '../../types/printing.ts'
 import { getActiveTenant } from '../../store/activeTenant.ts'
+import { assertDocumentCapability, requiredPrintCapability } from '../../core/documents/documentCapabilities.ts'
 import { DiagnosticPrinterAdapter } from './diagnosticPrinterAdapter.ts'
 import { PrintQueueManager } from './printQueueManager.ts'
 
@@ -198,6 +199,8 @@ export class PrintEngineService {
 
   /** Main entry point for submitting any print request */
   async submitPrintRequest(input: SubmitPrintRequestInput): Promise<PrintJob> {
+    const activeTenant = getActiveTenant()?.tenant
+    assertDocumentCapability(activeTenant, requiredPrintCapability(input.targetType, input.executionMode))
     const selected = input.printerProfileId ? this.printers.get(input.printerProfileId) : undefined
     if (selected && input.tenantId && selected.restaurantId !== input.tenantId && selected.tenantId !== input.tenantId) {
       throw new Error(`La impresora seleccionada no pertenece a la empresa ${input.tenantId}`)

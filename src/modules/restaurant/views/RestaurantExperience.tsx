@@ -49,11 +49,10 @@ import { RestaurantSetupGuide } from '../components/RestaurantSetupGuide'
 import { RestaurantInteractiveTour } from '../components/RestaurantInteractiveTour'
 import type { KitchenPrinterConfig } from '../components/kitchenPrinterConfig'
 import type { BusinessIdentity } from '../../../core/businessIdentity'
-import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
+import { resolveBusinessDocumentContext } from '../../../core/documents/businessDocumentContext'
 import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
 import { orderToReceiptData } from '../../../core/receiptService'
-import { getActiveReceiptPrinter } from '../../../services/printing/printerBootstrap'
-import { PrintEngineService } from '../../../services/printing/printEngineService'
+import { printBusinessReceipt } from '../../../services/printing/businessDocumentPrintService'
 import type { KitchenTicketJob } from '../domain/kitchenPrint'
 import type { CatalogCategory, Order, OrderStatus, Product, ProductExtra } from '../../../types'
 import { getRestaurantSetupSteps, mayManageRestaurantSetup, restaurantSetupGuidePreferenceKey } from '../domain/restaurantSetupGuide'
@@ -145,6 +144,7 @@ export type RestaurantShift = {
 
 export interface RestaurantExperienceProps {
   session: RestaurantSession
+  branchId?: string
   isDemo?: boolean
   datasetMode?: 'full' | 'empty'
   logoUrl?: string
@@ -172,7 +172,7 @@ export interface RestaurantExperienceProps {
   onArchiveCustomer?: (id: string) => void | Promise<void>
   onAssignCustomer?: (orderId: string, customerId: string | undefined) => void | Promise<void>
   onUpdateTableStatus: (tableId: string, status: RestaurantTable['status']) => void | Promise<void>
-  onRequestBill: (tableId: string) => void | Promise<void>
+  onRequestBill: (tableId: string) => boolean | void | Promise<boolean | void>
   onReopenBill: (tableId: string) => void | Promise<void>
   onAddProduct: (orderId: string, input: { productId: string; quantity: number; note: string }) => void | Promise<void>
   onPrintBatch: (orderId: string) => boolean | Promise<boolean>
@@ -277,6 +277,7 @@ const RESTAURANT_TUTORIAL_MODULE_MAP: Record<RestaurantTutorialId, RestaurantMod
 
 export function RestaurantExperience({
   session,
+  branchId = 'main',
   isDemo = false,
   datasetMode = 'full',
   logoUrl,
@@ -352,6 +353,7 @@ export function RestaurantExperience({
   )
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [viewingReceiptOrder, setViewingReceiptOrder] = useState<Order | null>(null)
+  const [viewingPrebillOrder, setViewingPrebillOrder] = useState<Order | null>(null)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [isMoreDesktopOpen, setIsMoreDesktopOpen] = useState(false)
   const [isSignOutOpen, setIsSignOutOpen] = useState(false)
@@ -479,11 +481,7 @@ export function RestaurantExperience({
 
   const documentContext = useMemo(
     () =>
-      buildBusinessDocumentContext(businessIdentity, {
-        companyName: displayName,
-        logoUrl: effectiveLogoUrl,
-        branchName: 'Principal',
-      }),
+      resolveBusinessDocumentContext({ ...businessIdentity, tradeName: displayName, logoUrl: effectiveLogoUrl }, { name: 'Sucursal principal' }),
     [businessIdentity, displayName, effectiveLogoUrl]
   )
 
@@ -1139,7 +1137,12 @@ export function RestaurantExperience({
               onAssignCustomer={onAssignCustomer}
               onOpenTableOrder={onOpenTableOrder}
               onUpdateTableStatus={onUpdateTableStatus}
-              onRequestBill={onRequestBill}
+              onRequestBill={async (tableId) => {
+                const table = tables.find((item) => item.id === tableId)
+                const order = orders.find((item) => item.id === table?.activeOrderId)
+                const requested = await onRequestBill(tableId)
+                if (requested !== false && order) setViewingPrebillOrder(order)
+              }}
               onReopenBill={onReopenBill}
               onPayment={onPayment}
               onAddProduct={onAddProduct}
@@ -1527,55 +1530,18 @@ export function RestaurantExperience({
             customers.find((c) => c.id === viewingReceiptOrder.customerId)
           )}
           documentContext={documentContext}
-          onPrint={async () => {
-            const printer = getActiveReceiptPrinter(session.tenantId, 'main')
-            if (printer) {
-              await PrintEngineService.getInstance().submitPrintRequest({
-                targetType: 'receipt',
-                orderId: viewingReceiptOrder.id,
-                printerProfileId: printer.id,
-                payload: {
-                  payloadSchemaVersion: 1,
-                  templateVersion: '1.0',
-                  restaurantName: documentContext.companyName,
-                  branchName: documentContext.branchName || 'Principal',
-                  branchAddress: documentContext.address,
-                  branchPhone: documentContext.phone,
-                  logoUrl: documentContext.logoUrl,
-                  headerDetails: documentContext.formattedHeaderLines,
-                  orderId: viewingReceiptOrder.id,
-                  displayNumber: viewingReceiptOrder.displayNumber || viewingReceiptOrder.id.slice(-6).toUpperCase(),
-                  customerName: viewingReceiptOrder.customerName,
-                  customerPhone: viewingReceiptOrder.customerPhone,
-                  deliveryAddress: viewingReceiptOrder.deliveryAddress,
-                  items: viewingReceiptOrder.items.map((item) => ({
-                    productId: item.productId,
-                    name: item.name,
-                    basePrice: item.basePrice ?? (item.lineTotal / (item.quantity || 1)),
-                    quantity: item.quantity,
-                    lineTotal: item.lineTotal,
-                    modifiersText: Array.isArray(item.modifiers)
-                      ? item.modifiers
-                      : item.modifiers?.note
-                      ? [item.modifiers.note]
-                      : undefined,
-                    note: typeof item.modifiers?.note === 'string' ? item.modifiers.note : undefined,
-                  })),
-                  subtotal: viewingReceiptOrder.productSubtotal ?? viewingReceiptOrder.total,
-                  discountTotal: 0,
-                  taxTotal: 0,
-                  deliveryFee: viewingReceiptOrder.deliveryFee || 0,
-                  grandTotal: viewingReceiptOrder.total,
-                  paymentMethod: viewingReceiptOrder.paymentMethod || 'PAGADO',
-                  footerMessage: documentContext.receiptFooter,
-                  showManagedBy: documentContext.showManagedBy,
-                  isCopy: false,
-                  copies: 1,
-                  createdIso: new Date().toISOString(),
-                },
-              })
-            }
-          }}
+          documentTitle="Comprobante de pago"
+          onPrint={() => printBusinessReceipt({ tenantId: session.tenantId, branchId, sourceId: viewingReceiptOrder.id, kind: 'payment_voucher', receipt: orderToReceiptData(viewingReceiptOrder, customers.find((c) => c.id === viewingReceiptOrder.customerId)), identity: documentContext })}
+        />
+      )}
+      {viewingPrebillOrder && (
+        <CanonicalReceiptModal
+          isOpen={!!viewingPrebillOrder}
+          onClose={() => setViewingPrebillOrder(null)}
+          receiptData={{ ...orderToReceiptData(viewingPrebillOrder, customers.find((c) => c.id === viewingPrebillOrder.customerId)), paymentMethod: undefined }}
+          documentContext={documentContext}
+          documentTitle="Precuenta"
+          onPrint={() => printBusinessReceipt({ tenantId: session.tenantId, branchId, sourceId: `prebill:${viewingPrebillOrder.id}`, kind: 'prebill', receipt: { ...orderToReceiptData(viewingPrebillOrder), paymentMethod: undefined }, identity: documentContext })}
         />
       )}
     </div>

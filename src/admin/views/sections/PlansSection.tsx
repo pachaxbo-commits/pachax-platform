@@ -527,7 +527,7 @@ export function PlansSection() {
               </label>
 
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
-                <strong>Capacidades Core V1:</strong> el servidor aplica límites de usuarios/productos y reportes básicos a nuevos contratos con Billing habilitado. Históricos, exportación, recibos digitales, impresión y más de una sucursal todavía no están habilitados.
+                <strong>Capacidades Core V1:</strong> el servidor aplica límites de usuarios/productos y reportes básicos a nuevos contratos con Billing habilitado. Recibos e impresión usan el contexto de empresa/sucursal y los adaptadores compartidos. El diálogo web depende del navegador y los dispositivos físicos requieren validación en el equipo del cliente. Los reportes descargables y las sucursales adicionales siguen bloqueados.
               </div>
 
               {formData.capabilitiesV1 && (
@@ -550,7 +550,35 @@ export function PlansSection() {
                     ))}
                   </div>
                   <p className="text-xs font-semibold text-slate-700">✓ Resumen operativo básico incluido como capacidad base de V1.</p>
-                  <p className="text-[11px] text-slate-500">Reportes históricos/detallados, exportación, recibos digitales, impresión manual/automática y sucursales adicionales están bloqueados hasta integrar sus controles end-to-end. Las ampliaciones de extras solo aumentan los límites de usuarios y productos dentro del máximo técnico.</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      ['receipts.digital', 'Recibo digital / PDF'],
+                      ['printing.manual', 'Impresión manual'],
+                      ['printing.kitchenAutomatic', 'Impresión automática de cocina/barra'],
+                    ] as const).map(([key, label]) => {
+                      const supported = key !== 'printing.kitchenAutomatic' || ['restaurant_pos', 'hamburger_shop', 'nightclub_lounge'].includes(String(formData.capabilitiesV1?.businessType))
+                      const checked = key === 'receipts.digital'
+                        ? formData.capabilitiesV1!.features.receipts.digital
+                        : key === 'printing.manual'
+                          ? formData.capabilitiesV1!.features.printing.manual
+                          : formData.capabilitiesV1!.features.printing.kitchenAutomatic
+                      return <label key={key} className={`flex items-start gap-2 rounded-lg border p-2 text-xs ${supported ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-100 text-slate-400'}`}>
+                        <input type="checkbox" checked={checked} disabled={!supported || !canApprovePrice}
+                          onChange={(event) => {
+                            const enabled = event.target.checked
+                            const current = formData.capabilitiesV1!
+                            const features = key === 'receipts.digital'
+                              ? { ...current.features, receipts: { digital: enabled } }
+                              : key === 'printing.manual'
+                                ? { ...current.features, printing: { ...current.features.printing, manual: enabled } }
+                                : { ...current.features, printing: { ...current.features.printing, kitchenAutomatic: enabled } }
+                            setFormData({ ...formData, priceApproval: 'pending', capabilitiesV1: { ...current, features } })
+                          }} />
+                        <span>{label}{!supported ? ' · no aplica a esta plantilla' : ''}</span>
+                      </label>
+                    })}
+                  </div>
+                  <p className="text-[11px] text-slate-500">Reportes históricos/detallados, exportación y sucursales adicionales siguen bloqueados. Las ampliaciones de extras solo aumentan límites de usuarios y productos dentro del máximo técnico. La impresión no promete compatibilidad universal ni impresión silenciosa.</p>
                 </fieldset>
               )}
 

@@ -676,6 +676,7 @@ export function RestaurantApp({
               }
               const job = await engine.submitPrintRequest({
                 targetType: 'kitchen_ticket',
+                executionMode: 'automatic',
                 orderId: order.id,
                 idempotencyKey: `auto-kitchen:${order.id}:${Date.now()}`,
                 payload,
@@ -854,9 +855,11 @@ export function RestaurantApp({
                 console.warn('[RestaurantApp] Fallo de impresión de pre-cuenta (no bloqueante):', printErr)
               }
             }
+            return true
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : 'Error al pedir cuenta.'
             window.alert(msg)
+            return false
           }
         }}
         onReopenBill={async (tableId) => {

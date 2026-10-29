@@ -104,6 +104,7 @@ export class PrintOrchestratorService {
       try {
         const job = await this.engine.submitPrintRequest({
           targetType: 'kitchen_ticket',
+          executionMode: 'automatic',
           stationId,
           orderId: order.id,
           idempotencyKey: `ord-${order.id}-batch-${batchNumber}-station-${stationId}`,

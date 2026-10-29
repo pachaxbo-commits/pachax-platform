@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Boxes, ChartNoAxesCombined, LoaderCircle, PackagePlus, RefreshCw, ShoppingCart, Users, Wallet } from 'lucide-react'
 import { createRetailMember, loadRetailState, runRetailCommand, subscribeRetailMembers, updateRetailMember, type RetailTenantMember, type RetailTenantProduct, type RetailTenantSale, type RetailTenantState } from '../data/retailRepository'
+import type { BusinessIdentity } from '../../../core/businessIdentity'
+import { resolveBusinessDocumentContext } from '../../../core/documents/businessDocumentContext'
+import { type CanonicalReceiptData } from '../../../core/receiptService'
+import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
+import { printBusinessReceipt } from '../../../services/printing/businessDocumentPrintService'
 
 type Section = 'pos' | 'products' | 'inventory' | 'cash' | 'reports' | 'users'
 type CartLine = { productId: string; quantity: number }
@@ -39,9 +44,12 @@ export interface QuickRetailExperienceProps {
   userName: string
   role: string
   companyName: string
+  businessIdentity?: BusinessIdentity
+  logoUrl?: string
+  branchName?: string
 }
 
-export function QuickRetailExperience({ tenantId, branchId, uid, userName, role, companyName }: QuickRetailExperienceProps) {
+export function QuickRetailExperience({ tenantId, branchId, uid, userName, role, companyName, businessIdentity, logoUrl, branchName = 'Sucursal principal' }: QuickRetailExperienceProps) {
   const [section, setSection] = useState<Section>('pos')
   const [state, setState] = useState<RetailTenantState>(EMPTY_STATE)
   const [loading, setLoading] = useState(true)
@@ -66,11 +74,33 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
   const [lastSale, setLastSale] = useState<{ saleId: string; totalMinor: number; changeMinor: number } | null>(null)
   const [receiptDraft, setReceiptDraft] = useState<RetailReceiptDraft | null>(null)
   const [lastReceipt, setLastReceipt] = useState<RetailReceipt | null>(null)
+  const [receiptOpen, setReceiptOpen] = useState(false)
   const [productForm, setProductForm] = useState({ name: '', category: '', sku: '', soldBy: 'unit' as 'unit' | 'weight', price: '' })
   const [stockForm, setStockForm] = useState({ productId: '', quantity: '', direction: 'in' as 'in' | 'out', reason: '' })
   const [openingFloat, setOpeningFloat] = useState('')
   const [movement, setMovement] = useState({ type: 'expense' as 'income' | 'expense', amount: '', reason: '' })
   const [countedCash, setCountedCash] = useState('')
+  const documentContext = useMemo(() => resolveBusinessDocumentContext(businessIdentity, { name: branchName }, { companyName, logoUrl }), [businessIdentity, branchName, companyName, logoUrl])
+  const receiptData: CanonicalReceiptData | null = useMemo(() => lastReceipt ? {
+    receiptNumber: lastReceipt.saleId.slice(-8).toUpperCase(),
+    dateIso: lastReceipt.printedAt,
+    fulfillmentType: 'Venta rápida',
+    customer: undefined,
+    items: lastReceipt.items.map(item => ({
+      name: item.name,
+      quantity: item.quantity,
+      unitLabel: item.unit,
+      unitPrice: item.quantity ? item.totalMinor / 100 / item.quantity : 0,
+      lineTotal: item.totalMinor / 100,
+    })),
+    subtotal: lastReceipt.totalMinor / 100,
+    discountTotal: 0,
+    total: lastReceipt.totalMinor / 100,
+    paymentMethod: lastReceipt.method === 'qr' ? 'QR (registro manual)' : lastReceipt.method === 'mixed' ? 'Mixto' : 'Efectivo',
+    cashReceived: lastReceipt.method === 'qr' ? undefined : (lastReceipt.totalMinor + lastReceipt.changeMinor) / 100,
+    changeAmount: lastReceipt.changeMinor / 100,
+    notes: 'Comprobante interno. No es una factura fiscal.',
+  } : null, [lastReceipt])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -165,6 +195,7 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
     })
     if (result) {
       setLastReceipt({ ...currentReceiptDraft, saleId: String(result.saleId), totalMinor: Number(result.totalMinor), changeMinor: Number(result.changeMinor), printedAt: new Date().toISOString() })
+      setReceiptOpen(true)
       setReceiptDraft(null)
       setCart([]); setCashMinorInput(''); setCashReceivedInput('')
     } else setReceiptDraft(currentReceiptDraft)
@@ -270,7 +301,7 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
             {method === 'mixed' && <label className="block text-sm">Parte en efectivo<input inputMode="decimal" value={cashMinorInput} onChange={event => setCashMinorInput(event.target.value)} placeholder="Bs" className="mt-1 min-h-10 w-full rounded-lg border px-3" /></label>}
             {method !== 'qr' && <label className="block text-sm">Efectivo recibido<input inputMode="decimal" value={cashReceivedInput} onChange={event => setCashReceivedInput(event.target.value)} placeholder="Bs" className="mt-1 min-h-10 w-full rounded-lg border px-3" /></label>}
             <button type="button" disabled={!saleCart.length || !state.activeShift || saving} onClick={() => void submitSale()} className="min-h-11 w-full rounded-lg bg-slate-900 px-4 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Procesando…' : 'Cobrar y guardar venta'}</button>
-            {lastReceipt && <button type="button" onClick={() => window.print()} className="min-h-10 w-full rounded-lg border px-4 text-sm font-semibold">Imprimir comprobante</button>}
+            {lastReceipt && <button type="button" onClick={() => setReceiptOpen(true)} className="min-h-10 w-full rounded-lg border px-4 text-sm font-semibold">Ver comprobante</button>}
             {lastSale && <p className="text-xs text-slate-500">Última venta: {lastSale.saleId} · cambio {money(lastSale.changeMinor)}</p>}
           </div>
         </section>}
@@ -329,21 +360,12 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
         </section>}
       </>}
     </div>
-    {lastReceipt && <>
-      <style>{`@media screen {.retail-print-receipt{display:none}} @media print { @page { size: 80mm auto; margin: 0 } body * { visibility: hidden !important } .retail-print-receipt, .retail-print-receipt * { visibility: visible !important } .retail-print-receipt { display: block !important; position: absolute; left: 0; top: 0; width: 72mm; padding: 4mm; color: #000; background: #fff; font: 11px/1.35 Arial, sans-serif } }`}</style>
-      <article className="retail-print-receipt" aria-label="Comprobante interno de venta">
-        <h1 className="text-center text-base font-bold">{companyName}</h1>
-        <p className="text-center">Comprobante interno · Comercio / Venta rápida</p>
-        <p>Venta: {lastReceipt.saleId}</p>
-        <p>{new Date(lastReceipt.printedAt).toLocaleString('es-BO')}</p>
-        <hr className="my-2 border-dashed border-black" />
-        <ul>{lastReceipt.items.map((item, index) => <li key={`${item.name}-${index}`} className="flex justify-between gap-2 py-1"><span>{item.name} · {item.quantity} {item.unit}</span><span>{money(item.totalMinor)}</span></li>)}</ul>
-        <hr className="my-2 border-dashed border-black" />
-        <p>Pago: {lastReceipt.method === 'qr' ? 'QR (registro manual)' : lastReceipt.method === 'mixed' ? 'Mixto' : 'Efectivo'}</p>
-        <p className="flex justify-between font-bold"><span>Total</span><span>{money(lastReceipt.totalMinor)}</span></p>
-        <p className="flex justify-between"><span>Cambio</span><span>{money(lastReceipt.changeMinor)}</span></p>
-        <p className="mt-3 text-center">No es una factura fiscal.</p>
-      </article>
-    </>}
+    {receiptData && <CanonicalReceiptModal
+      isOpen={receiptOpen}
+      onClose={() => setReceiptOpen(false)}
+      documentContext={documentContext}
+      receiptData={receiptData}
+      onPrint={() => printBusinessReceipt({ tenantId, branchId, sourceId: String(lastReceipt?.saleId), receipt: receiptData, identity: documentContext })}
+    />}
   </main>
 }
