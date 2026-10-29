@@ -2,6 +2,7 @@ import type { BusinessDocumentContext } from '../../core/businessIdentity.ts'
 import { canonicalReceiptToPrintJobPayload, type CanonicalReceiptData } from '../../core/receiptService.ts'
 import { makeBusinessDocument, type BusinessDocumentKind } from '../../core/documents/documentTypes.ts'
 import { getActiveTenant } from '../../store/activeTenant.ts'
+import { isDemoModeActive } from '../../demo/core/demoContext.ts'
 import { PrintEngineService } from './printEngineService.ts'
 // Keep the import path recognizable by the demo-only build guard so public demos
 // resolve the isolated printer adapter instead of Firebase-backed printer config.
@@ -31,8 +32,14 @@ export async function printBusinessReceipt(input: {
   isCopy?: boolean
 }): Promise<string> {
   const active = getActiveTenant()
+  if (!active && !isDemoModeActive()) {
+    throw new Error('La empresa y sucursal activa deben cargarse antes de preparar documentos.')
+  }
   if (active && (active.tenantId !== input.tenantId || active.branchId !== input.branchId)) {
     throw new Error('El documento no coincide con la empresa o sucursal activa.')
+  }
+  if (input.isCopy && input.receipt.documentStatus !== 'payment_confirmed') {
+    throw new Error('Solo se puede reimprimir como copia un pago confirmado.')
   }
   const document = makeBusinessDocument({
     kind: input.kind || 'customer_receipt',
@@ -53,7 +60,11 @@ export async function printBusinessReceipt(input: {
     branchId: input.branchId,
     printerProfileId: printer.id,
     idempotencyKey: `document:${input.tenantId}:${input.branchId}:${input.sourceId}:${input.isCopy ? `copy:${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}` : 'original'}`,
-    payload: canonicalReceiptToPrintJobPayload(document.payload, document.identity),
+    payload: canonicalReceiptToPrintJobPayload({
+      ...document.payload,
+      isCopy: input.isCopy === true,
+      reprintReason: input.isCopy ? 'Copia de documento confirmado' : undefined,
+    }, document.identity),
   })
   return job.status === 'transmitted' || job.status === 'confirmed'
     ? 'Se abrió el diálogo o dispositivo de impresión.'

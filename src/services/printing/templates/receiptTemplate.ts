@@ -41,6 +41,11 @@ export function buildReceiptBytes(
   if (payload.displayNumber) {
     builder.bold(true).line(`TICKET: ${payload.displayNumber}`).bold(false)
   }
+  if (payload.documentStatus === 'prebill_pending') {
+    builder.bold(true).line('PRECUENTA - PENDIENTE DE PAGO').bold(false)
+  } else if (payload.documentStatus === 'payment_confirmed') {
+    builder.bold(true).line('PAGO CONFIRMADO').bold(false)
+  }
   builder.line(`FECHA: ${new Date(payload.createdIso).toLocaleString('es-BO')}`)
   if (payload.fulfillmentType) {
     builder.line(`TIPO: ${payload.fulfillmentType.toUpperCase()}`)

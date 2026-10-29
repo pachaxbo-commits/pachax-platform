@@ -1,4 +1,5 @@
 import type { Tenant } from '../platform.ts'
+import { isDemoModeActive } from '../../demo/core/demoContext.ts'
 
 export type DocumentCapability = 'receipts.digital' | 'printing.manual' | 'printing.kitchenAutomatic'
 
@@ -13,7 +14,10 @@ export function canUseDocumentCapability(
   tenant: Tenant | null | undefined,
   capability: DocumentCapability,
 ): boolean {
-  if (!tenant || tenant.billingEnforcement !== true) return true
+  // Missing tenant context is not evidence of an unrestricted tenant. The only
+  // null-context exception is the isolated, in-memory demo entrypoint.
+  if (!tenant) return isDemoModeActive()
+  if (tenant.billingEnforcement !== true) return true
   const features = tenant.commercialCapabilities?.features
   if (!features) return false
   if (capability === 'receipts.digital') return features.receipts?.digital === true

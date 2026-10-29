@@ -37,6 +37,8 @@ export interface CanonicalReceiptData {
   deliveryFee?: number
   total: number
   paymentMethod?: string
+  documentStatus?: 'prebill_pending' | 'payment_confirmed'
+  reprintReason?: string
   cashReceived?: number
   changeAmount?: number
   paymentDetails?: string[]
@@ -78,10 +80,12 @@ export function canonicalReceiptToPrintJobPayload(
     deliveryFee: receipt.deliveryFee || 0,
     grandTotal: receipt.total,
     paymentMethod: receipt.paymentMethod,
+    documentStatus: receipt.documentStatus,
     paymentDetails: receipt.paymentDetails,
     cashReceived: receipt.cashReceived,
     changeAmount: receipt.changeAmount,
     isCopy: Boolean(receipt.isCopy),
+    reprintReason: receipt.reprintReason,
     footerMessage: docContext.receiptFooter,
     showManagedBy: docContext.showManagedBy,
     copies: 1,
@@ -140,6 +144,8 @@ export function buildReceiptPlainText(
   }
   lines.push('--------------------------------')
   lines.push(`Comprobante: *#${receipt.receiptNumber}*`)
+  if (receipt.documentStatus === 'prebill_pending') lines.push('PRECUENTA — PENDIENTE DE PAGO')
+  if (receipt.documentStatus === 'payment_confirmed') lines.push('PAGO CONFIRMADO')
   lines.push(`Fecha: ${new Date(receipt.dateIso).toLocaleString('es-BO')}`)
   if (receipt.tableOrPoint) {
     lines.push(`Destino / Mesa: ${receipt.tableOrPoint}`)
@@ -229,6 +235,7 @@ export async function generateReceiptPdf(
   const estimatedHeight = Math.max(
     140,
     95 +
+      (receipt.documentStatus ? 5 : 0) +
       receipt.items.length * 10 +
       receipt.items.reduce((acc, it) => acc + (it.modifiers?.length || 0) * 4, 0) +
       (docContext.formattedHeaderLines.length || 0) * 5 +
@@ -295,6 +302,13 @@ export async function generateReceiptPdf(
     doc.text('(COPIA)', 75, cursorY, { align: 'right' })
   }
   cursorY += 4
+
+  if (receipt.documentStatus) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.text(receipt.documentStatus === 'prebill_pending' ? 'PRECUENTA — PENDIENTE DE PAGO' : 'PAGO CONFIRMADO', 40, cursorY, { align: 'center', maxWidth: 70 })
+    cursorY += 4
+  }
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.5)

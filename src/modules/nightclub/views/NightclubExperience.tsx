@@ -189,16 +189,16 @@ export function NightclubExperience(props: Props) {
 
   const [receiptModalAccount, setReceiptModalAccount] = useState<NightclubAccount | null>(null)
 
-  const handlePrintReceipt = async (): Promise<string> => {
+  const handlePrintReceipt = async (isCopy = false): Promise<string> => {
     if (!receiptModalAccount) return ''
     if (!canAccessReceipt) {
       setNotice('No tienes permiso para imprimir recibos.')
       return 'No tienes permiso para imprimir recibos.'
     }
     try {
-      const receiptData = nightclubAccountToReceiptData(receiptModalAccount, data, props.businessIdentity)
+      const receiptData = { ...nightclubAccountToReceiptData(receiptModalAccount, data, props.businessIdentity), documentStatus: receiptModalAccount.paidAt ? 'payment_confirmed' as const : undefined }
       const message = await printBusinessReceipt({ tenantId: effectiveTenantId, branchId: effectiveBranchId,
-        sourceId: receiptModalAccount.id, receipt: receiptData, identity: documentContext })
+        sourceId: receiptModalAccount.id, receipt: receiptData, identity: documentContext, isCopy })
       setNotice(message)
       return message
     } catch (err: unknown) {
@@ -729,10 +729,10 @@ export function NightclubExperience(props: Props) {
     {receiptModalAccount && canAccessReceipt && (
       <CanonicalReceiptModal
         isOpen={!!receiptModalAccount}
-        receiptData={nightclubAccountToReceiptData(receiptModalAccount, data, props.businessIdentity)}
+        receiptData={{ ...nightclubAccountToReceiptData(receiptModalAccount, data, props.businessIdentity), documentStatus: receiptModalAccount.paidAt ? 'payment_confirmed' : undefined }}
         documentContext={documentContext}
         onClose={() => setReceiptModalAccount(null)}
-        onPrint={handlePrintReceipt}
+        onPrint={(options) => handlePrintReceipt(options?.isCopy)}
       />
     )}
   </div>

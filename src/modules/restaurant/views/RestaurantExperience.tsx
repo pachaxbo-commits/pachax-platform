@@ -1525,23 +1525,23 @@ export function RestaurantExperience({
         <CanonicalReceiptModal
           isOpen={!!viewingReceiptOrder}
           onClose={() => setViewingReceiptOrder(null)}
-          receiptData={orderToReceiptData(
+          receiptData={{ ...orderToReceiptData(
             viewingReceiptOrder,
             customers.find((c) => c.id === viewingReceiptOrder.customerId)
-          )}
+          ), documentStatus: 'payment_confirmed' }}
           documentContext={documentContext}
-          documentTitle="Comprobante de pago"
-          onPrint={() => printBusinessReceipt({ tenantId: session.tenantId, branchId, sourceId: viewingReceiptOrder.id, kind: 'payment_voucher', receipt: orderToReceiptData(viewingReceiptOrder, customers.find((c) => c.id === viewingReceiptOrder.customerId)), identity: documentContext })}
+          documentTitle="Comprobante de pago confirmado"
+          onPrint={(options) => printBusinessReceipt({ tenantId: session.tenantId, branchId, sourceId: viewingReceiptOrder.id, kind: 'payment_voucher', receipt: { ...orderToReceiptData(viewingReceiptOrder, customers.find((c) => c.id === viewingReceiptOrder.customerId)), documentStatus: 'payment_confirmed' }, identity: documentContext, isCopy: options?.isCopy })}
         />
       )}
       {viewingPrebillOrder && (
         <CanonicalReceiptModal
           isOpen={!!viewingPrebillOrder}
           onClose={() => setViewingPrebillOrder(null)}
-          receiptData={{ ...orderToReceiptData(viewingPrebillOrder, customers.find((c) => c.id === viewingPrebillOrder.customerId)), paymentMethod: undefined }}
+          receiptData={{ ...orderToReceiptData(viewingPrebillOrder, customers.find((c) => c.id === viewingPrebillOrder.customerId)), paymentMethod: undefined, documentStatus: 'prebill_pending' }}
           documentContext={documentContext}
-          documentTitle="Precuenta"
-          onPrint={() => printBusinessReceipt({ tenantId: session.tenantId, branchId, sourceId: `prebill:${viewingPrebillOrder.id}`, kind: 'prebill', receipt: { ...orderToReceiptData(viewingPrebillOrder), paymentMethod: undefined }, identity: documentContext })}
+          documentTitle="PRECUENTA — PENDIENTE DE PAGO"
+          onPrint={() => printBusinessReceipt({ tenantId: session.tenantId, branchId, sourceId: `prebill:${viewingPrebillOrder.id}`, kind: 'prebill', receipt: { ...orderToReceiptData(viewingPrebillOrder), paymentMethod: undefined, documentStatus: 'prebill_pending' }, identity: documentContext })}
         />
       )}
     </div>

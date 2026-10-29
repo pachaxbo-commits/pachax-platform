@@ -142,6 +142,7 @@ export interface PrintJobPayload {
   deliveryFee: number
   grandTotal: number
   paymentMethod?: string
+  documentStatus?: 'prebill_pending' | 'payment_confirmed'
   /** Desglose visible para pagos mixtos o ventas con credito. */
   paymentDetails?: string[]
   cashReceived?: number

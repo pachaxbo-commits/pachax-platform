@@ -19,7 +19,7 @@ export function CanonicalReceiptModal({
   onClose: () => void
   documentContext: BusinessDocumentContext
   receiptData: CanonicalReceiptData
-  onPrint?: () => unknown | Promise<unknown>
+  onPrint?: (options?: { isCopy?: boolean }) => unknown | Promise<unknown>
   documentTitle?: string
 }) {
   const [sharing, setSharing] = useState(false)
@@ -49,18 +49,18 @@ export function CanonicalReceiptModal({
     }
   }
 
-  const handlePrint = async () => {
+  const handlePrint = async (isCopy = false) => {
     if (printing || !onPrint) return
     setPrinting(true)
     setStatusMessage(null)
     try {
-      const res = await onPrint()
+      const res = await onPrint({ isCopy })
       if (typeof res === 'string' && res.trim().length > 0) {
         setStatusMessage(res)
       } else if (res && typeof res === 'object' && 'message' in res && typeof (res as { message: unknown }).message === 'string') {
         setStatusMessage((res as { message: string }).message)
       } else {
-        setStatusMessage('Ticket enviado a impresión')
+        setStatusMessage('La solicitud de impresión fue procesada; verifica el diálogo o dispositivo.')
       }
       setTimeout(() => setStatusMessage(null), 3000)
     } catch {
@@ -99,11 +99,22 @@ export function CanonicalReceiptModal({
             <button
               type="button"
               disabled={printing}
-              onClick={handlePrint}
+              onClick={() => void handlePrint(false)}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs font-bold text-slate-800 hover:bg-slate-50 transition shadow-xs cursor-pointer disabled:opacity-50"
             >
               <Printer size={16} />
               <span>{printing ? 'Imprimiendo...' : 'Imprimir recibo'}</span>
+            </button>
+          )}
+          {onPrint && canManualPrint && receiptData.documentStatus === 'payment_confirmed' && (
+            <button
+              type="button"
+              disabled={printing}
+              onClick={() => void handlePrint(true)}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-xs font-bold text-amber-900 hover:bg-amber-100 transition shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              <Printer size={16} />
+              <span>{printing ? 'Preparando copia...' : 'Reimprimir copia'}</span>
             </button>
           )}
 
@@ -126,6 +137,12 @@ export function CanonicalReceiptModal({
             <Check size={14} className="text-emerald-600" />
             <span>{statusMessage}</span>
           </div>
+        )}
+        {receiptData.documentStatus === 'prebill_pending' && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-center text-sm font-extrabold tracking-wide text-amber-950">PRECUENTA — PENDIENTE DE PAGO</p>
+        )}
+        {receiptData.documentStatus === 'payment_confirmed' && (
+          <p className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-center text-sm font-extrabold tracking-wide text-emerald-950">PAGO CONFIRMADO</p>
         )}
         {!canDigitalReceipt && !canManualPrint && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Los comprobantes digitales e impresión no están incluidos en las capacidades activas de esta empresa.</p>

@@ -13,6 +13,7 @@ import type {
   SubmitPrintRequestInput,
 } from '../../types/printing.ts'
 import { getActiveTenant } from '../../store/activeTenant.ts'
+import { isDemoModeActive } from '../../demo/core/demoContext.ts'
 import { assertDocumentCapability, requiredPrintCapability } from '../../core/documents/documentCapabilities.ts'
 import { DiagnosticPrinterAdapter } from './diagnosticPrinterAdapter.ts'
 import { PrintQueueManager } from './printQueueManager.ts'
@@ -27,6 +28,24 @@ export interface PrintJobOutcome {
   job?: PrintJob
 }
 
+export function resolvePrintRequestScope(
+  active: { tenantId: string; branchId: string } | null,
+  requested: { tenantId?: string; branchId?: string },
+  isolatedDemo = false,
+): { tenantId?: string; branchId?: string } {
+  if (!active) {
+    if (!isolatedDemo) throw new Error('La empresa y sucursal activa deben cargarse antes de imprimir.')
+    return { tenantId: requested.tenantId, branchId: requested.branchId }
+  }
+  if (requested.tenantId && requested.tenantId !== active.tenantId) {
+    throw new Error('El documento no coincide con la empresa activa.')
+  }
+  if (requested.branchId && requested.branchId !== active.branchId) {
+    throw new Error('El documento no coincide con la sucursal activa.')
+  }
+  return { tenantId: active.tenantId, branchId: active.branchId }
+}
+
 export function classifyPrintJobOutcome(job: PrintJob, contextLabel: string = 'Impresión'): PrintJobOutcome {
   switch (job.status) {
     case 'confirmed':
@@ -38,6 +57,22 @@ export function classifyPrintJobOutcome(job: PrintJob, contextLabel: string = 'I
         job,
       }
     case 'transmitted':
+      if (job.connectionType === 'browser_dialog') {
+        return {
+          category: 'pending',
+          status: job.status,
+          isSuccess: false,
+          message: 'Se abrió el diálogo del navegador; la impresión física no está confirmada.',
+          job,
+        }
+      }
+      return {
+        category: 'success',
+        status: job.status,
+        isSuccess: true,
+        message: `${contextLabel} enviada a la impresora.`,
+        job,
+      }
     case 'resolved':
       return {
         category: 'success',
@@ -199,16 +234,22 @@ export class PrintEngineService {
 
   /** Main entry point for submitting any print request */
   async submitPrintRequest(input: SubmitPrintRequestInput): Promise<PrintJob> {
-    const activeTenant = getActiveTenant()?.tenant
+    const activeContext = getActiveTenant()
+    const scope = resolvePrintRequestScope(
+      activeContext ? { tenantId: activeContext.tenantId, branchId: activeContext.branchId } : null,
+      input,
+      isDemoModeActive(),
+    )
+    const activeTenant = activeContext?.tenant
     assertDocumentCapability(activeTenant, requiredPrintCapability(input.targetType, input.executionMode))
     const selected = input.printerProfileId ? this.printers.get(input.printerProfileId) : undefined
-    if (selected && input.tenantId && selected.restaurantId !== input.tenantId && selected.tenantId !== input.tenantId) {
-      throw new Error(`La impresora seleccionada no pertenece a la empresa ${input.tenantId}`)
+    if (selected && scope.tenantId && selected.restaurantId !== scope.tenantId && selected.tenantId !== scope.tenantId) {
+      throw new Error(`La impresora seleccionada no pertenece a la empresa ${scope.tenantId}`)
     }
-    if (selected && input.branchId && selected.branchId !== input.branchId) {
-      throw new Error(`La impresora seleccionada no pertenece a la sucursal ${input.branchId}`)
+    if (selected && scope.branchId && selected.branchId !== scope.branchId) {
+      throw new Error(`La impresora seleccionada no pertenece a la sucursal ${scope.branchId}`)
     }
-    const { primary, backup } = selected ? { primary: selected, backup: undefined } : this.resolveDestinationPrinters(input.targetType, input.stationId, input.tenantId, input.branchId)
+    const { primary, backup } = selected ? { primary: selected, backup: undefined } : this.resolveDestinationPrinters(input.targetType, input.stationId, scope.tenantId, scope.branchId)
     if (primary.id === 'default-diagnostic') throw new Error('Configura una impresora real antes de imprimir.')
     const adapter = this.queueManager.getAdapter(primary.connectionType)
     if (!adapter) throw new Error('No hay un adaptador disponible para esta impresora.')
@@ -251,7 +292,24 @@ export class PrintEngineService {
 
   /** Request authorized reprint creating a copy ticket */
   async requestReprint(input: RequestReprintInput, originalJob: PrintJob): Promise<PrintJob> {
+    if (!['transmitted', 'confirmed', 'resolved'].includes(originalJob.status)) {
+      throw new Error('Solo se puede reimprimir como copia un documento cuya impresión fue resuelta.')
+    }
+    const activeContext = getActiveTenant()
+    const scope = resolvePrintRequestScope(
+      activeContext ? { tenantId: activeContext.tenantId, branchId: activeContext.branchId } : null,
+      { tenantId: originalJob.restaurantId, branchId: originalJob.branchId },
+      isDemoModeActive(),
+    )
+    assertDocumentCapability(activeContext?.tenant, requiredPrintCapability(originalJob.targetType, 'manual'))
+    if (input.originalJobId !== originalJob.id) throw new Error('El trabajo original no coincide con la solicitud de reimpresión.')
     const printer = this.printers.get(originalJob.printerProfileId) || this.createDefaultFallbackProfile()
+    if (scope.tenantId && printer.restaurantId !== scope.tenantId && printer.tenantId !== scope.tenantId) {
+      throw new Error('La impresora de reimpresión no pertenece a la empresa activa.')
+    }
+    if (scope.branchId && printer.branchId !== scope.branchId) {
+      throw new Error('La impresora de reimpresión no pertenece a la sucursal activa.')
+    }
     return await this.queueManager.requestReprint(input, originalJob, printer)
   }
 

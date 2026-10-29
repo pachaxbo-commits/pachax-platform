@@ -97,6 +97,7 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
     discountTotal: 0,
     total: lastReceipt.totalMinor / 100,
     paymentMethod: lastReceipt.method === 'qr' ? 'QR (registro manual)' : lastReceipt.method === 'mixed' ? 'Mixto' : 'Efectivo',
+    documentStatus: 'payment_confirmed',
     cashReceived: lastReceipt.method === 'qr' ? undefined : (lastReceipt.totalMinor + lastReceipt.changeMinor) / 100,
     changeAmount: lastReceipt.changeMinor / 100,
     notes: 'Comprobante interno. No es una factura fiscal.',
@@ -365,7 +366,7 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
       onClose={() => setReceiptOpen(false)}
       documentContext={documentContext}
       receiptData={receiptData}
-      onPrint={() => printBusinessReceipt({ tenantId, branchId, sourceId: String(lastReceipt?.saleId), receipt: receiptData, identity: documentContext })}
+      onPrint={(options) => printBusinessReceipt({ tenantId, branchId, sourceId: String(lastReceipt?.saleId), receipt: receiptData, identity: documentContext, isCopy: options?.isCopy })}
     />}
   </main>
 }

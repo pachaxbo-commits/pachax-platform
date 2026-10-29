@@ -4,6 +4,12 @@ import { canUseDocumentCapability, requiredPrintCapability } from '../src/core/d
 import { resolveBusinessDocumentContext } from '../src/core/documents/businessDocumentContext.ts'
 import { makeBusinessDocument } from '../src/core/documents/documentTypes.ts'
 import { canonicalReceiptToPrintJobPayload } from '../src/core/receiptService.ts'
+import { buildReceiptPlainText, generateReceiptPdf } from '../src/core/receiptService.ts'
+import { resolvePrintRequestScope } from '../src/services/printing/printEngineService.ts'
+import { buildReceiptBytes } from '../src/services/printing/templates/receiptTemplate.ts'
+import { buildReceiptHtml } from '../src/adapters/printing/browserDialogPrinterAdapter.ts'
+import { defaultCapabilities } from '../src/admin/domain/planCapabilityDefaults.ts'
+import { enterDemoMode, exitDemoMode } from '../src/demo/core/demoContext.ts'
 import type { Tenant } from '../src/core/platform.ts'
 
 const legacy = { tenantId: 'legacy', name: 'Comercio', businessType: 'gelateria_weight_cafe', ownerUid: 'owner',
@@ -13,6 +19,7 @@ const legacy = { tenantId: 'legacy', name: 'Comercio', businessType: 'gelateria_
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' } satisfies Tenant
 
 test('document capabilities preserve legacy behavior and enforce active snapshots', () => {
+  assert.equal(canUseDocumentCapability(null, 'receipts.digital'), false)
   assert.equal(canUseDocumentCapability(legacy, 'receipts.digital'), true)
   const enforced = { ...legacy, billingEnforcement: true, commercialCapabilities: {
     version: 1 as const, businessType: legacy.businessType,
@@ -24,6 +31,22 @@ test('document capabilities preserve legacy behavior and enforce active snapshot
   assert.equal(canUseDocumentCapability(enforced, 'printing.manual'), false)
   assert.equal(canUseDocumentCapability(enforced, 'printing.kitchenAutomatic'), true)
   assert.equal(canUseDocumentCapability({ ...enforced, commercialCapabilities: undefined }, 'receipts.digital'), false)
+})
+
+test('isolated demos have local document capability without opening null tenant access in the app', () => {
+  assert.equal(canUseDocumentCapability(null, 'printing.manual'), false)
+  enterDemoMode('test-demo')
+  assert.equal(canUseDocumentCapability(null, 'printing.manual'), true)
+  exitDemoMode()
+  assert.equal(canUseDocumentCapability(null, 'printing.manual'), false)
+})
+
+test('print engine binds requests to the active tenant and branch', () => {
+  assert.throws(() => resolvePrintRequestScope(null, {}), /empresa y sucursal activa/)
+  assert.deepEqual(resolvePrintRequestScope(null, { tenantId: 'demo', branchId: 'main' }, true), { tenantId: 'demo', branchId: 'main' })
+  assert.deepEqual(resolvePrintRequestScope({ tenantId: 't1', branchId: 'b1' }, {}), { tenantId: 't1', branchId: 'b1' })
+  assert.throws(() => resolvePrintRequestScope({ tenantId: 't1', branchId: 'b1' }, { tenantId: 't2' }), /empresa activa/)
+  assert.throws(() => resolvePrintRequestScope({ tenantId: 't1', branchId: 'b1' }, { branchId: 'b2' }), /sucursal activa/)
 })
 
 test('print requests resolve the manual or automatic capability explicitly', () => {
@@ -66,4 +89,35 @@ test('shared receipt projection preserves totals and company branding', () => {
   assert.equal(payload.logoUrl, '/logo.png')
   assert.equal(payload.grandTotal, 14)
   assert.equal(payload.items[0].lineTotal, 14)
+})
+
+test('prebill and payment states stay explicit in modal data, share text, PDF, browser and ESC/POS', async () => {
+  const context = resolveBusinessDocumentContext({ tradeName: 'Mercado Uno', logoUrl: '/logo.png' }, { name: 'Sucursal Norte' })
+  const prebill = { receiptNumber: 'T-15', dateIso: '2026-10-29T12:00:00.000Z', items: [], subtotal: 25, total: 25,
+    documentStatus: 'prebill_pending' as const }
+  const paid = { ...prebill, documentStatus: 'payment_confirmed' as const, paymentMethod: 'QR' }
+  const plainText = buildReceiptPlainText(context, prebill)
+  assert.ok(plainText.includes('PRECUENTA — PENDIENTE DE PAGO'))
+  assert.ok(buildReceiptPlainText(context, paid).includes('PAGO CONFIRMADO'))
+  const payload = canonicalReceiptToPrintJobPayload(prebill, context)
+  assert.equal(payload.documentStatus, 'prebill_pending')
+  assert.ok(new TextDecoder().decode(buildReceiptBytes(payload, '80mm')).includes('PRECUENTA - PENDIENTE DE PAGO'))
+  const html = buildReceiptHtml({ ...payload, restaurantName: 'Mercado Uno', logoUrl: '/logo.png' })
+  assert.ok(html.includes('PRECUENTA — PENDIENTE DE PAGO'))
+  assert.ok(html.includes('src="/logo.png"'))
+  enterDemoMode('receipt-pdf-test')
+  try {
+    const pdfText = new TextDecoder().decode(await generateReceiptPdf(context, prebill))
+    assert.ok(pdfText.includes('PRECUENTA'))
+    assert.ok(!pdfText.toLowerCase().includes('factura fiscal'))
+  } finally {
+    exitDemoMode()
+  }
+})
+
+test('new Nightclub plans default to digital receipts without automatic bar printing', () => {
+  const defaults = defaultCapabilities('nightclub', 'paid')
+  assert.equal(defaults.features.receipts.digital, true)
+  assert.equal(defaults.features.printing.manual, false)
+  assert.equal(defaults.features.printing.kitchenAutomatic, false)
 })

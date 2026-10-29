@@ -39,6 +39,7 @@ import {
   sanitizeProductsForStorage,
 } from './demoProductImageStorage'
 import { createDemoProductImageAdapter } from './demoProductImageAdapter'
+import { enterDemoMode, exitDemoMode } from '../core/demoContext'
 
 type Shift = RestaurantShift
 type AuditEvent = {
@@ -321,6 +322,12 @@ export function RestaurantDemo({
   profile?: 'restaurant' | 'counter_service'
   isStudioEmbed?: boolean
 }) {
+  useEffect(() => {
+    if (isStudioEmbed) return
+    enterDemoMode(profile === 'counter_service' ? 'hamburger_shop' : 'restaurant_pos')
+    return () => exitDemoMode()
+  }, [isStudioEmbed, profile])
+
   const storageKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:v1' : STORAGE_KEY
   const legacyKey = profile === 'counter_service' ? 'pachax:hamburger-demo:operations:legacy' : LEGACY_KEY
   const themeKey = profile === 'counter_service' ? 'pachax:hamburger-demo:theme:v1' : THEME_KEY

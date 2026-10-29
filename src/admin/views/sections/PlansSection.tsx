@@ -4,24 +4,7 @@ import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { TemplateTierPlan } from '../../types'
 import type { TemplateKey } from '../../../public/config/pricingConfig'
 import { useAdminAuth } from '../../auth/adminAuthStore'
-
-function defaultCapabilities(templateId: TemplateKey, planKind: 'free' | 'paid') {
-  const businessTypeByTemplate: Record<TemplateKey, string> = {
-    restaurant: 'restaurant_pos', hamburger: 'hamburger_shop', distribution: 'route_distribution',
-    nightclub: 'nightclub_lounge', retail: 'gelateria_weight_cafe',
-  }
-  return {
-    version: 1 as const,
-    businessType: businessTypeByTemplate[templateId],
-    limits: { activeUsers: 1, activeProducts: 10, activeBranches: 1 },
-    features: {
-      reports: { basic: true, detailed: false, export: false },
-      receipts: { digital: false },
-      printing: { manual: false, kitchenAutomatic: false },
-      adsRequired: planKind === 'free',
-    },
-  }
-}
+import { defaultCapabilities } from '../../domain/planCapabilityDefaults'
 
 function withCapabilityDefaults(plan: TemplateTierPlan): TemplateTierPlan {
   return { ...plan, capabilitiesV1: plan.capabilitiesV1 || defaultCapabilities(plan.templateId, plan.planKind) }
