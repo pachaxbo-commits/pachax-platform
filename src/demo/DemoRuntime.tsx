@@ -41,6 +41,7 @@ export function DemoRuntime({
   const [activeRole, setActiveRole] = useState<string>(
     simulatedRole || initialRole || 'admin'
   )
+  const [currentMode, setCurrentMode] = useState<DemoMode>(mode || 'team')
   const effectiveRole = simulatedRole || activeRole
   const [branding, setBranding] = useState<StudioBranding | null>(null)
 
@@ -110,6 +111,11 @@ export function DemoRuntime({
 
       if (event.data?.type === 'PACHAX_STUDIO_SYNC') {
         const payload = event.data.payload || {}
+        if (payload.mode === 'team' || payload.mode === 'simulated_role') {
+          setCurrentMode(payload.mode)
+        } else if (typeof payload.isTeamMode === 'boolean') {
+          setCurrentMode(payload.isTeamMode ? 'team' : 'simulated_role')
+        }
         if (payload.role) {
           setActiveRole(payload.role)
         }
@@ -209,7 +215,7 @@ export function DemoRuntime({
         {templateId === 'hamburger' && (
           <RestaurantDemo
             key={`hamburger:${currentDatasetMode}:${resetKey}`}
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
@@ -223,7 +229,7 @@ export function DemoRuntime({
         )}
         {templateId === 'distribution' && (
           <DistributionDemo
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
@@ -235,7 +241,7 @@ export function DemoRuntime({
         {templateId === 'retail' && (
           <QuickRetailDemo
             key={`retail:${currentDatasetMode}:${resetKey}`}
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             datasetMode={currentDatasetMode}
@@ -433,7 +439,7 @@ export function DemoRuntime({
         {templateId === 'hamburger' && (
           <RestaurantDemo
             key={`hamburger:${currentDatasetMode}:${resetKey}`}
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
@@ -459,7 +465,7 @@ export function DemoRuntime({
         {templateId === 'retail' && (
           <QuickRetailDemo
             key={`retail:${currentDatasetMode}:${resetKey}`}
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             datasetMode={currentDatasetMode}

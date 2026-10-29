@@ -125,3 +125,23 @@ test('9. Studio Parcel Experience supports switching between Standard and Syndic
   assert.match(expCode, /allowEditionSwitch &&/)
   assert.match(expCode, /isSyndicate && \(/)
 })
+
+test('10. StudioShell synchronizes team/simulated_role mode with DemoRuntime via PACHAX_STUDIO_SYNC', () => {
+  const shellCode = readFileSync(new URL('../src/studio/StudioShell.tsx', import.meta.url), 'utf8')
+  assert.match(shellCode, /mode:\s*isTeamMode\s*\?\s*'team'\s*:\s*'simulated_role'/)
+  assert.match(shellCode, /isTeamMode,/)
+  assert.match(shellCode, /\[templateId,\s*currentRole,\s*isTeamMode,\s*branding,\s*datasetMode,\s*datasetResetKey\]/)
+
+  const runtimeCode = readFileSync(new URL('../src/demo/DemoRuntime.tsx', import.meta.url), 'utf8')
+  assert.match(runtimeCode, /const \[currentMode,\s*setCurrentMode\] = useState<DemoMode>/)
+  assert.match(runtimeCode, /payload\.mode === 'team' \|\| payload\.mode === 'simulated_role'/)
+  assert.match(runtimeCode, /setCurrentMode\(payload\.mode\)/)
+  assert.match(runtimeCode, /<RestaurantDemo[\s\S]*?mode={currentMode}/)
+  assert.match(runtimeCode, /<QuickRetailDemo[\s\S]*?mode={currentMode}/)
+})
+
+test('11. Studio hides role simulation controls for Encomiendas while preserving interactive Standard / Syndicate selector', () => {
+  const shellCode = readFileSync(new URL('../src/studio/StudioShell.tsx', import.meta.url), 'utf8')
+  assert.match(shellCode, /{!isParcel && \(/)
+  assert.match(shellCode, /{!isParcel && \([\s\S]*?Equipo[\s\S]*?!isTeamMode && \(/)
+})

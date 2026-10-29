@@ -84,9 +84,7 @@ export function QuickRetailDemo({
     return (m.roles as readonly string[]).includes(simulatedRole)
   })
 
-  if (mode === 'simulated_role' && !visibleModules.some(m => m.id === activeModule)) {
-    setActiveModule(visibleModules[0]?.id || 'dashboard')
-  }
+  const effectiveModule: QuickRetailModuleId = visibleModules.some(m => m.id === activeModule) ? activeModule : (visibleModules[0]?.id || 'dashboard')
 
   const handleCompleteSale = (newSale: CompletedRetailSale) => {
     setSales((prev) => [newSale, ...prev])
@@ -102,7 +100,7 @@ export function QuickRetailDemo({
         <div className="flex items-center gap-1 min-w-max">
           {visibleModules.map((m) => {
             const Icon = m.icon
-            const isActive = activeModule === m.id
+            const isActive = effectiveModule === m.id
             return (
               <button
                 key={m.id}
@@ -123,26 +121,26 @@ export function QuickRetailDemo({
 
       {/* Contenido del Módulo */}
       <div className="w-full">
-        {activeModule === 'dashboard' && (
+        {effectiveModule === 'dashboard' && (
           <QuickRetailDashboard
             sales={sales}
             companyName={companyName}
             onNavigate={(mod) => setActiveModule(mod as QuickRetailModuleId)}
           />
         )}
-        {activeModule === 'pos' && (
+        {effectiveModule === 'pos' && (
           <QuickRetailPOS products={products} onCompleteSale={handleCompleteSale} />
         )}
-        {activeModule === 'sales' && <QuickRetailSales sales={sales} />}
-        {activeModule === 'cash' && <QuickRetailCash sales={sales} />}
-        {activeModule === 'inventory' && <QuickRetailInventory products={products} />}
-        {activeModule === 'products' && <QuickRetailProducts products={products} />}
-        {activeModule === 'customers' && <QuickRetailCustomers />}
-        {activeModule === 'users' && (
+        {effectiveModule === 'sales' && <QuickRetailSales sales={sales} />}
+        {effectiveModule === 'cash' && <QuickRetailCash sales={sales} />}
+        {effectiveModule === 'inventory' && <QuickRetailInventory products={products} />}
+        {effectiveModule === 'products' && <QuickRetailProducts products={products} />}
+        {effectiveModule === 'customers' && <QuickRetailCustomers />}
+        {effectiveModule === 'users' && (
           <QuickRetailUsers currentRole={simulatedRole} onSelectRole={onSelectRole} />
         )}
-        {activeModule === 'reports' && <QuickRetailReports />}
-        {activeModule === 'settings' && <QuickRetailSettings />}
+        {effectiveModule === 'reports' && <QuickRetailReports />}
+        {effectiveModule === 'settings' && <QuickRetailSettings />}
       </div>
     </div>
   )

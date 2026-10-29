@@ -12,10 +12,11 @@
 ## 1. Resumen Ejecutivo y Ajuste Focal de Alcance
 
 En estricto cumplimiento de las instrucciones de la dirección de PACHAX Platform:
-- **Prioridad 1 Cumplida:** Se resolvió de raíz la estabilidad operativa de **Restaurante Rápido (Hamburger)** y **Comercio Rápido (Retail)** dentro de PACHAX Studio.
+- **Prioridad 1 Cumplida:** Se resolvió de raíz la estabilidad operativa de **Restaurante Rápido (Hamburger)** y **Comercio Rápido (Retail)** dentro de PACHAX Studio, incluyendo la sincronización en vivo del modo **Equipo vs Simular rol**.
 - **Decisión sobre Encomiendas:** La plantilla **PACHAX Encomiendas** permanece como **plantilla interna exclusiva de PACHAX Studio** para revisión y validación de ambas ediciones (Estándar y Sindicato) desde Admin.
 - **Cero Fuga Pública:** Se retiraron todas las publicaciones en `PUBLIC_TEMPLATES`, `FREE_DEMO_TEMPLATE_IDS`, `DemoGallery` y rutas públicas `/demo/parcel` y `/demo/encomiendas`.
 - **Tarjeta Unificada en Studio:** Se corrigió la duplicación en `StudioHome.tsx`. Queda una **única tarjeta interna** con selector dinámico interactivo entre **Perfil Estándar** y **Edición Sindicato**.
+- **Controles Coherentes en Encomiendas:** Dado que la simulación de roles no tiene permisos implementados en Encomiendas, se ocultaron los botones de "Equipo / Simular rol" en `StudioShell` para esta plantilla, evitando confusión y manteniendo su selector nativo Estándar / Sindicato.
 - **Independencia de BusinessType:** No se reutiliza `route_distribution` ni se habilita aprovisionamiento para Encomiendas; la integración de BusinessType, capacidades y planes queda reservada para la coordinación formal con Codex.
 - **Límite con Codex y Billing Core:** Cero modificaciones en Billing Core, planes comerciales, cotizaciones o archivos compartidos. Se preservan intactos los cambios del PR #10 de Codex.
 
@@ -33,8 +34,8 @@ El propietario reportó que Restaurante Rápido (Hamburger) y Comercio Rápido (
    Al intentar incrustar esas URLs en un `<iframe>` dentro de `studio.html`, el navegador bloqueaba la carga por política de seguridad.
 2. **Conflicto de Routing en Desarrollo (`vite.config.ts`):**  
    El middleware de desarrollo capturaba cualquier ruta `/demo/hamburger*` o `/demo/retail*` y la reescribía incondicionalmente hacia `demo-isolated.html`, ignorando el parámetro `?embed=studio` y montando `DemoOnlyApp.tsx` (que carecía de postMessage listeners `PACHAX_STUDIO_SYNC` y branding).
-3. **Incompatibilidad de Layout y Refs en Comercio Rápido:**  
-   `QuickRetailDemo.tsx` y `QuickRetailDashboard.tsx` no contaban con soporte de padding responsivo para los contenedores embebidos de Studio y realizaban lecturas de refs durante la fase de render.
+3. **Inconsistencia de Sincronización en Modo Equipo / Simular Rol:**  
+   `StudioShell.tsx` disponía del estado `isTeamMode`, pero este valor no se transmitía en el payload de `PACHAX_STUDIO_SYNC`, y `sendSync` no incluía `isTeamMode` en sus dependencias. `DemoRuntime.tsx` mantenía el modo fijado estáticamente a `'team'`. Como resultado, al seleccionar perfiles como Cajero o Inventario, la interfaz continuaba mostrando todos los módulos.
 
 ### 2.2. Solución Canónica Implementada
 
@@ -43,10 +44,12 @@ El propietario reportó que Restaurante Rápido (Hamburger) y Comercio Rápido (
    `const iframeSrc = '/demo?template=' + templateId + '&embed=studio'`  
    - En **Vercel**, el path base `/demo` reescribe a `demo.html` sin activar las cabeceras `DENY` asociadas exclusivamente a endpoints directos.
    - En **Vite DEV**, el middleware permite el paso de cualquier consulta con `embed=studio` hacia `demo.html`.
-2. **Sincronización Bidireccional (`DemoRuntime.tsx`):**  
-   Monta en modo Studio las experiencias canónicas, escucha `PACHAX_STUDIO_SYNC` y aplica marca, roles simulados y reseteos sin recargas de página.
+2. **Sincronización Bidireccional de Modo y Rol (`DemoRuntime.tsx`):**  
+   `StudioShell` ahora envía `mode: isTeamMode ? 'team' : 'simulated_role'` e `isTeamMode` en `PACHAX_STUDIO_SYNC`. `DemoRuntime` mantiene `currentMode` en estado reactivo y lo propaga a `RestaurantDemo` y `QuickRetailDemo`.
+   - **En Hamburger:** Al seleccionar Cocina, se activa exclusivamente la vista KDS/Cocina y pedidos; al volver a Equipo, se restauran instantáneamente todas las áreas operativas.
+   - **En Retail:** En modo Equipo se muestran los 10 módulos (`dashboard`, `pos`, `sales`, `cash`, `inventory`, `products`, `customers`, `users`, `reports`, `settings`). Al seleccionar **Cajero**, se filtran inmediatamente a los 5 módulos permitidos (`dashboard`, `pos`, `sales`, `cash`, `customers`). Al seleccionar **Inventario**, se filtran a 2 módulos (`inventory`, `products`). Al regresar a **Equipo**, se restauran los 10 módulos en tiempo real sin recargar la página ni perder datos.
 3. **Adaptación de `QuickRetailDemo.tsx` y `QuickRetailDashboard.tsx`:**  
-   Soporte de `companyName`, `isStudioEmbed`, padding responsivo y reseteo por clave de remontaje (`key={'retail:${datasetMode}:${resetKey}'}`), eliminando lecturas de refs en render y estabilizando el cambio de roles.
+   Soporte de `companyName`, `isStudioEmbed`, padding responsivo, derivación pura de `effectiveModule` (sin `setState` en render) y reseteo seguro por clave de remontaje.
 4. **Cero Mutaciones de Motores:**  
    Los motores de cálculo y lógica operativa (`restaurantEngine`, `restaurantOperations`, `retailRepository`) se mantuvieron 100% intactos.
 
@@ -62,15 +65,10 @@ Para evitar que `StudioShell` falle con `Plantilla pública no reconocida` al re
    const templateTitle = isParcel
      ? 'PACHAX Encomiendas'
      : getPublicTemplate(templateId).title
-   const templateRoles = isParcel
-     ? [
-         { id: 'operator', name: 'Operador de Agencia' },
-         { id: 'driver', name: 'Conductor' },
-         { id: 'admin', name: 'Administrador / Directiva' },
-       ]
-     : getTemplate(getPublicTemplate(templateId).businessType).roles
    ```
-2. **Montaje Directo de `ParcelDemo` en Studio:**
+2. **Ocultación de Controles No Aplicables en Encomiendas:**
+   Se agregaron guardias `{!isParcel && ( ... )}` en la barra de control de `StudioShell`, de modo que los botones de "Equipo / Simular rol" y el selector de rol solo se muestran en plantillas que los soportan funcionalmente.
+3. **Montaje Directo de `ParcelDemo` en Studio:**
    Cuando `isParcel` es verdadero, `StudioShell` renderiza directamente `ParcelDemo` en el contenedor responsive:
    ```tsx
    {isParcel ? (
@@ -93,7 +91,7 @@ Para evitar que `StudioShell` falle con `Plantilla pública no reconocida` al re
      />
    )}
    ```
-3. **Selector Dinámico Estándar / Sindicato:**
+4. **Selector Dinámico Estándar / Sindicato:**
    Al ejecutarse con `isStudioEmbed={true}`, `ParcelDemo` habilita el selector de ediciones en la cabecera (`allowEditionSwitch={true}`):
    - El operador puede alternar entre el **Perfil Estándar** (mostrador, guías, manifiestos, entregas, arqueo) y la **Edición Sindicato** (padrón de socios, cuotas, personal, egresos gremiales, balance).
    - En producción, la Edición Sindicato valida `useAdminAuth` (guardia fail-closed).
@@ -186,8 +184,12 @@ export interface ParcelEditorialShowcaseItem {
 | `tests/adminStudioReadiness.test.ts` | 5 | ✅ PASS |
 | `tests/publicTemplateCatalog.test.ts` | 3 | ✅ PASS |
 | `tests/parcelDomain.test.ts` | 22 | ✅ PASS |
-| `tests/parcelStudioIsolation.test.ts` | 9 | ✅ PASS |
-| **Total Pruebas Automatizadas** | **41** | **✅ 100% PASS** |
+| `tests/parcelStudioIsolation.test.ts` | 11 | ✅ PASS |
+| **Total Pruebas Automatizadas** | **43** | **✅ 100% PASS** |
 | `npm run typecheck` (`tsc -b`) | — | ✅ 0 errores |
 | `npx eslint` en archivos modificados | — | ✅ 0 errores |
 | `npm run build` (build + demos aislados) | — | ✅ Exitoso |
+| **Verificación Real en Chrome Headless** | 6 fases | ✅ **0 excepciones en runtime** |
+| - Hamburger (Equipo vs Cocina en iframe) | — | ✅ Filtrado verificado |
+| - Retail (Equipo: 10 mods, Cajero: 5, Inventario: 2) | — | ✅ Filtrado verificado |
+| - Encomiendas (Sin controles de rol; selector Estándar/Sindicato OK) | — | ✅ Verificado |

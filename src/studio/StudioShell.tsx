@@ -77,6 +77,8 @@ export function StudioShell({
           type: 'PACHAX_STUDIO_SYNC',
           payload: {
             templateId,
+            mode: isTeamMode ? 'team' : 'simulated_role',
+            isTeamMode,
             role: currentRole,
             branding,
             datasetMode,
@@ -88,7 +90,7 @@ export function StudioShell({
     } catch {
       // Ignorar en contextos donde el iframe aún no esté listo
     }
-  }, [templateId, currentRole, branding, datasetMode, datasetResetKey])
+  }, [templateId, currentRole, isTeamMode, branding, datasetMode, datasetResetKey])
 
   // Despachar sincronización cuando cambien rol, branding o datasetMode
   useEffect(() => {
@@ -156,44 +158,48 @@ export function StudioShell({
 
           {/* Centro: Selector de Modo (Equipo vs Simular Rol) y Selector de Dataset (Vacío vs Completo) */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
-              <button
-                onClick={() => {
-                  setIsTeamMode(true)
-                  onSelectRole('admin')
-                }}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                  isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>Equipo</span>
-              </button>
+            {!isParcel && (
+              <>
+                <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
+                  <button
+                    onClick={() => {
+                      setIsTeamMode(true)
+                      onSelectRole('admin')
+                    }}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                      isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Equipo</span>
+                  </button>
 
-              <button
-                onClick={() => setIsTeamMode(false)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                  !isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>Simular rol</span>
-              </button>
-            </div>
+                  <button
+                    onClick={() => setIsTeamMode(false)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                      !isTeamMode ? 'bg-teal-500 text-slate-950 shadow-xs' : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>Simular rol</span>
+                  </button>
+                </div>
 
-            {/* Selector de Rol cuando Simular Rol está activo */}
-            {!isTeamMode && (
-              <select
-                value={currentRole}
-                onChange={(e) => onSelectRole(e.target.value)}
-                className="text-xs font-bold bg-slate-800 border border-slate-700 text-teal-300 px-2.5 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer"
-              >
-                {templateRoles.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    Rol: {r.name}
-                  </option>
-                ))}
-              </select>
+                {/* Selector de Rol cuando Simular Rol está activo */}
+                {!isTeamMode && (
+                  <select
+                    value={currentRole}
+                    onChange={(e) => onSelectRole(e.target.value)}
+                    className="text-xs font-bold bg-slate-800 border border-slate-700 text-teal-300 px-2.5 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer"
+                  >
+                    {templateRoles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        Rol: {r.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </>
             )}
 
             {/* Selector de Dataset: Vacío vs Completo */}
