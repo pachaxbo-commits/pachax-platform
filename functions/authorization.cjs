@@ -12,6 +12,7 @@ function authenticated(request) {
 }
 function hasPermission(tenant, membership, permission) {
   if (membership?.status !== 'active' || membership.tenantId !== tenant.tenantId) return false;
+  if (tenant.billingEnforcement === true && tenant.subscriptionStatus !== 'active') return false;
   const template = getTemplate(tenant.businessType);
   if (tenant.businessType === 'nightclub_lounge' && permission === 'users.manage' && Array.isArray(membership.nightclubPermissions) && membership.nightclubPermissions.includes('special.manageUsers')) return tenant.configuration.features.users === true;
   const role = template.roles.find(item => item.id === membership.roleId);

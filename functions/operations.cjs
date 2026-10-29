@@ -1024,6 +1024,7 @@ async function processCommand(db, ref) {
       if (tenantScoped) {
         const [tenant, platform, maintenance] = await Promise.all([tx.get(root), tx.get(db.doc('platformOperators/' + command.createdBy)), tx.get(root.collection('maintenanceState').doc('reset'))]);
         const permission = ({ sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage', creditOverride: 'settings.manage' })[command.type];
+        check(tenant.data()?.billingEnforcement !== true || tenant.data()?.subscriptionStatus === 'active', 'La suscripción no está activa. Contacta a PACHAX.');
         check(tenant.data()?.businessType === 'route_distribution' && permission && hasPermission(tenant.data(), member, permission), 'Sin permiso para esta operación.');
         check(command.tenantId === root.id, 'Empresa de la operación inválida.');
         check(platform.data()?.active !== true && maintenance.data()?.active !== true, 'Operación no permitida durante soporte o mantenimiento.');
