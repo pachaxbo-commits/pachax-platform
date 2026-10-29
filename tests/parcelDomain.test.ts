@@ -703,8 +703,10 @@ test('15. Validación estricta de entregas a terceros sin autorización o justif
   const branch1 = controller.getState().branches[0]
   const branch2 = controller.getState().branches[1]
 
-  // Abrir turno para operar
-  controller.openCashShift(branch2.id, 100, 'Operador Destino')
+  // Abrir turno para operar con importe numérico válido
+  controller.openCashShift(100, 'Operador Destino')
+  assert.equal(controller.getState().activeShift?.initialCash, 100)
+  assert.equal(controller.getState().activeShift?.operatorName, 'Operador Destino')
 
   const shipment = controller.registerShipment({
     originBranchId: branch1.id,
@@ -1007,8 +1009,9 @@ test('18. Soporte multianual de cuotas sindicales (2027 y posteriores)', () => {
 
 test('19. Conservación de categoría auténtica de egresos sindicales', () => {
   const controller = new DemoParcelController('sindicato', 'empty')
-  const branch = controller.getState().branches[0]
-  controller.openCashShift(branch.id, 500, 'Tesorero Sindicato')
+  controller.openCashShift(500, 'Tesorero Sindicato')
+  assert.equal(controller.getState().activeShift?.initialCash, 500)
+  assert.equal(controller.getState().activeShift?.operatorName, 'Tesorero Sindicato')
 
   const expense = controller.registerUnionExpense({
     category: 'combustible_mantenimiento',
@@ -1024,4 +1027,176 @@ test('19. Conservación de categoría auténtica de egresos sindicales', () => {
   assert.equal(movement.category, 'combustible_mantenimiento')
   assert.equal(movement.expenseCategory, 'combustible_mantenimiento')
   assert.equal(movement.amount, 180)
+})
+
+test('20. Caso 1: Aporte cobrado en efectivo y posteriormente devuelto mediante transferencia', () => {
+  const controller = new DemoParcelController('sindicato', 'empty')
+  
+  // Abrir turno con Bs. 300 de fondo de cambio
+  controller.openCashShift(300, 'Cajero Principal')
+  assert.equal(controller.getState().activeShift?.expectedCash, 300)
+
+  // Crear un socio y su cuota de Bs. 150
+  const member: UnionMember = {
+    id: 'm-trans-ref',
+    memberNumber: 'SOC-777',
+    fullName: 'Gonzalo Morales',
+    ci: '4455667',
+    phone: '77889900',
+    status: 'active',
+    joinedAt: '2026-01-01',
+    monthlyFee: 150,
+  }
+  controller.getState().members.push(member)
+
+  const { createdDues } = generateMonthlyDuesForPeriod([member], [], '2026-10', 'Octubre 2026', '2026-10-31')
+  controller.getState().dues.push(...createdDues)
+  const due = createdDues[0]
+
+  // Paso 1: Cobrar la cuota en EFECTIVO
+  const paidDue = controller.payDue({
+    dueId: due.id,
+    amount: 150,
+    paymentMethod: 'cash',
+    cashierName: 'Cajero Principal',
+    notes: 'Pago en ventanilla efectivo',
+  })
+  assert.equal(paidDue.status, 'paid')
+  assert.equal(paidDue.paidAmount, 150)
+  assert.equal(paidDue.balance, 0)
+
+  // En el turno activo: ingresaron 150 en efectivo, expectedCash = 300 + 150 = 450
+  assert.equal(controller.getState().activeShift?.totalCashIn, 150)
+  assert.equal(controller.getState().activeShift?.totalCashOut, 0)
+  assert.equal(controller.getState().activeShift?.expectedCash, 450)
+
+  // Paso 2: Devolver el aporte mediante TRANSFERENCIA BANCARIA (desde cuenta del sindicato)
+  const paymentId = paidDue.payments[0].id
+  const updatedDue = controller.revertDuePayment({
+    dueId: due.id,
+    paymentId,
+    reason: 'Socio solicitó devolución por transferencia bancaria de la directiva',
+    cashierName: 'Secretaría de Hacienda',
+    reversalType: 'refund',
+    refundMethod: 'transfer',
+  })
+
+  assert.equal(updatedDue.balance, 150)
+  assert.equal(updatedDue.paidAmount, 0)
+  assert.equal(updatedDue.status, 'pending')
+
+  // Movimiento de reversión debe registrar estrictamente 'transfer' y isPhysicalCashOut = false
+  const reversalMov = controller.getState().cashMovements.find(m => m.referenceId === due.id && m.type === 'reversal')
+  assert.ok(reversalMov, 'Debe existir el movimiento de reversión')
+  assert.equal(reversalMov?.paymentMethod, 'transfer')
+  assert.equal(reversalMov?.reversalType, 'refund')
+  assert.equal(reversalMov?.isPhysicalCashOut, false)
+  assert.match(reversalMov?.concept || '', /TRANSFER/i)
+
+  // ¡VERIFICACIÓN CRÍTICA!: La caja física (gaveta) NO debe descontarse, porque no salió efectivo
+  const activeShift = controller.getState().activeShift
+  assert.equal(activeShift?.totalCashOut, 0, 'No debe haber egreso de caja física por devolución bancaria')
+  assert.equal(activeShift?.expectedCash, 450, 'El efectivo cobrado previamente continúa físicamente en la gaveta')
+
+  // En el resumen financiero global:
+  const summary = calculateFinancialSummary({
+    movements: controller.getState().cashMovements,
+    workerPayments: [],
+    unionExpenses: [],
+    initialCash: 300,
+  })
+  assert.equal(summary.totalCashOut, 0, 'Salida de caja física es 0')
+  assert.equal(summary.expectedCashInDrawer, 450, 'Efectivo en gaveta se preserva en 450')
+  assert.equal(summary.byCategory.unionDuesIncome, 0, 'Ingreso neto de cuota queda en 0 por la reversión')
+  assert.equal(summary.netOperatingBalance, 0, 'Resultado operativo queda en 0')
+})
+
+test('21. Caso 2: Conciliación de movimientos pendientes diferencia anulación documental de devolución efectiva', () => {
+  const controller = new DemoParcelController('sindicato', 'empty')
+
+  // Registrar operaciones mientras la caja está CERRADA (shiftId: 'pending_reconciliation')
+  // 1. Cobro de encomienda en efectivo: +shipment.finalAmount Bs
+  const branch1 = controller.getState().branches[0]
+  const branch2 = controller.getState().branches[1]
+  const shipment = controller.registerShipment({
+    originBranchId: branch1.id,
+    destinationBranchId: branch2.id,
+    deliveryType: 'agency',
+    sender: { id: 'c1', name: 'Remitente', docType: 'CI', phone: '70001111' },
+    recipient: { id: 'c2', name: 'Destinatario', docType: 'CI', phone: '70002222' },
+    items: [{ description: 'Paquete', category: 'general', quantity: 1, packaging: 'caja', weightKg: 1, isFragile: false }],
+    paymentTiming: 'origin_paid',
+    paymentMethod: 'cash',
+    prohibitedGoodsNoticeAccepted: true,
+  })
+  const movIncome = controller.getState().cashMovements.find(m => m.referenceId === shipment.id)!
+  assert.equal(movIncome.shiftId, 'pending_reconciliation')
+  assert.equal(movIncome.amount, shipment.finalAmount)
+
+  // 2. Anulación documental de un recibo erróneo (documentary_void): 100 Bs
+  // (No hubo dinero real; fue un error de registro de folio duplicado)
+  const movVoid: CashMovement = {
+    id: `mov-void-${Date.now()}`,
+    shiftId: 'pending_reconciliation',
+    timestamp: new Date().toISOString(),
+    type: 'reversal',
+    category: 'reversal',
+    amount: 100,
+    paymentMethod: 'cash',
+    concept: 'Anulación documental de cuota errónea',
+    operatorUid: 'u1',
+    operatorName: 'Supervisor',
+    reversalType: 'documentary_void',
+    isPhysicalCashOut: false,
+  }
+  controller.getState().cashMovements.push(movVoid)
+
+  // 3. Devolución efectiva de dinero en ventanilla (refund en efectivo): 40 Bs
+  // (El socio devolvió su cuota y se le entregaron 40 Bs en mano fuera de turno)
+  const movRefund: CashMovement = {
+    id: `mov-refund-${Date.now()}`,
+    shiftId: 'pending_reconciliation',
+    timestamp: new Date().toISOString(),
+    type: 'reversal',
+    category: 'reversal',
+    amount: 40,
+    paymentMethod: 'cash',
+    concept: 'Devolución física en efectivo a socio en ventanilla',
+    operatorUid: 'u1',
+    operatorName: 'Supervisor',
+    reversalType: 'refund',
+    isPhysicalCashOut: true,
+  }
+  controller.getState().cashMovements.push(movRefund)
+
+  // Ahora se abre un turno de caja formal con fondo de cambio de Bs. 200
+  controller.openCashShift(200, 'Cajero de Turno')
+  const activeShift = controller.getState().activeShift!
+  assert.equal(activeShift.initialCash, 200)
+  assert.equal(activeShift.expectedCash, 200)
+
+  // Conciliar los 3 movimientos pendientes
+  controller.reconcilePendingMovements({
+    movementIds: [movIncome.id, movVoid.id, movRefund.id],
+    supervisorName: 'Auditor Financiero',
+    notes: 'Conciliación de jornada matutina fuera de turno',
+  })
+
+  // VERIFICACIONES CRÍTICAS TRAS CONCILIACIÓN:
+  const reconciledShift = controller.getState().activeShift!
+
+  // 1. Los 3 movimientos quedan asociados al turno activo
+  assert.equal(controller.getState().cashMovements.find(m => m.id === movIncome.id)?.shiftId, reconciledShift.id)
+  assert.equal(controller.getState().cashMovements.find(m => m.id === movVoid.id)?.shiftId, reconciledShift.id)
+  assert.equal(controller.getState().cashMovements.find(m => m.id === movRefund.id)?.shiftId, reconciledShift.id)
+
+  // 2. Comportamiento en el turno de caja:
+  // - Ingreso en efectivo incorporado: +shipment.finalAmount
+  assert.equal(reconciledShift.totalCashIn, shipment.finalAmount)
+  // - Egreso en efectivo incorporado: DEBE SER ÚNICAMENTE LOS 40 Bs de la devolución física (refund)
+  //   La anulación documental (movVoid de 100 Bs) NUNCA debe convertirse en egreso físico de gaveta.
+  assert.equal(reconciledShift.totalCashOut, 40, 'totalCashOut debe sumar solo el refund de 40 Bs, NO la anulación documental de 100 Bs')
+  // - Saldo esperado en gaveta: initialCash (200) + income (shipment.finalAmount) - refund (40)
+  const expectedFinalCash = 200 + shipment.finalAmount - 40
+  assert.equal(reconciledShift.expectedCash, expectedFinalCash)
 })

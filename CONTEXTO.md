@@ -1,5 +1,24 @@
 # Continuidad del proyecto PACHAX
 
+## PACHAX Encomiendas + Edición Sindicato — Comprobación focal final: devolución por transferencia, anulación vs egreso en conciliación y argumentos válidos de caja (29/10/2026)
+
+- **Rama exclusiva de trabajo:** `gemini/encomiendas-sindicato-demo`. Sin fusiones ni alteraciones en `main`, `cambios-dario`, otras plantillas ni landing comercial.
+- **Ajustes y verificaciones finales implementadas:**
+  1. **Aportes cobrados en efectivo y devueltos por transferencia bancaria:**
+     - En `demoParcelController.ts`, `revertDuePayment` detecta el medio real de la devolución (`effectivePaymentMethod = 'transfer'`). El movimiento se crea con `paymentMethod: 'transfer'` y marca `isPhysicalCashOut: false`.
+     - Ni el turno de caja activo ni `calculateFinancialSummary` descuentan egresos físicos de gaveta (`totalCashOut` no se altera y `expectedCash` conserva los fondos físicos cobrados originalmente), reduciendo al mismo tiempo los ingresos reconocidos a 0 para el balance operativo. Comprobado en la prueba 20 de `tests/parcelDomain.test.ts`.
+  2. **Diferenciación estricta en conciliación de movimientos (`reconcilePendingMovements`):**
+     - Al incorporar movimientos pendientes fuera de turno al turno abierto, se distingue la anulación documental (`documentary_void`) de la devolución efectiva (`refund`).
+     - Una anulación documental nunca se computa como egreso físico (`totalCashOut` no se incrementa y `expectedCash` no se reduce erróneamente). Solo los reembolsos reales con salida de efectivo (`isPhysicalCashOut`) descuentan la gaveta física. Comprobado en la prueba 21 de `tests/parcelDomain.test.ts`.
+  3. **Corrección de firma y argumentos en `openCashShift`:**
+     - En las pruebas 15 y 19 de `tests/parcelDomain.test.ts`, se corrigió la invocación de `openCashShift` retirando el argumento `branchId` incompatible con la firma del método `(initialCash: number, operatorName?: string)`.
+     - Se añadió validación defensiva en `openCashShift` para garantizar que `initialCash` sea numérico finito (`safeInitial`), y se añadieron aserciones explícitas sobre `initialCash` y `expectedCash` en las pruebas de caja.
+- **Verificación y calidad:**
+  - Pruebas unitarias de dominio y aislamiento: 36/36 PASS (`tests/parcelDomain.test.ts` con 21 pruebas integrales, `tests/parcelStudioIsolation.test.ts`, `tests/publicTemplates.test.ts`, `tests/adminStudioReadiness.test.ts`).
+  - Chequeo de tipos estricto (`npm run typecheck` / `tsc -b`): PASS (0 errores).
+  - Análisis estático de código (`npx eslint`): PASS (0 errores, 0 advertencias).
+  - Compilación de producción (`npm run build`): PASS (bundle y demos aisladas generadas exitosamente).
+
 ## PACHAX Encomiendas + Edición Sindicato — Corrección focal: entregas a terceros, anulación vs reversión de cuotas, multianualidad, conciliación de caja y reportes (28/10/2026)
 
 - **Rama exclusiva de trabajo:** `gemini/encomiendas-sindicato-demo`. Sin fusiones ni alteraciones en `main`, `cambios-dario`, otras plantillas ni landing comercial.

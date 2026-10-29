@@ -541,17 +541,18 @@ export class DemoParcelController {
   // =========================================================================
 
   public openCashShift(initialCash: number, operatorName = 'Juan José Rocha'): CashShift {
+    const safeInitial = typeof initialCash === 'number' && Number.isFinite(initialCash) ? Math.max(0, initialCash) : 0
     const shift: CashShift = {
       id: `shift-${Date.now()}`,
       branchId: this.state.currentBranchId,
       openedAt: new Date().toISOString(),
       operatorUid: 'op-01',
       operatorName,
-      initialCash: Math.max(0, initialCash),
+      initialCash: safeInitial,
       totalCashIn: 0,
       totalCashOut: 0,
       totalQrIn: 0,
-      expectedCash: Math.max(0, initialCash),
+      expectedCash: safeInitial,
       status: 'open',
     }
 
@@ -630,16 +631,30 @@ export class DemoParcelController {
         reconciledCount++
 
         if (updatedShift) {
-          if (m.paymentMethod === 'cash') {
-            if (m.type === 'income') {
+          if (m.type === 'income') {
+            if (m.paymentMethod === 'cash') {
               updatedShift.totalCashIn += m.amount
               updatedShift.expectedCash += m.amount
-            } else if (m.type === 'expense' || m.type === 'reversal') {
+            } else if (m.paymentMethod === 'qr') {
+              updatedShift.totalQrIn += m.amount
+            }
+          } else if (m.type === 'expense') {
+            if (m.paymentMethod === 'cash') {
               updatedShift.totalCashOut += m.amount
               updatedShift.expectedCash -= m.amount
             }
-          } else if (m.paymentMethod === 'qr' && m.type === 'income') {
-            updatedShift.totalQrIn += m.amount
+          } else if (m.type === 'reversal') {
+            // Caso 2: Diferenciar anulación documental de devolución efectiva.
+            // Una anulación documental (documentary_void) o sin salida de dinero físico
+            // NUNCA debe convertirse en egreso físico ni descontar la caja.
+            if (m.reversalType === 'refund') {
+              if (m.isPhysicalCashOut || (m.paymentMethod === 'cash' && m.isPhysicalCashOut !== false)) {
+                updatedShift.totalCashOut += m.amount
+                updatedShift.expectedCash -= m.amount
+              }
+            } else {
+              // documentary_void: corrección documental sin salida física de gaveta
+            }
           }
         }
 
@@ -827,7 +842,12 @@ export class DemoParcelController {
     const updatedMovements = [...this.state.cashMovements]
     const updatedShift = this.state.activeShift ? { ...this.state.activeShift } : null
 
-    const isPhysicalCashOut = reversalType === 'refund' && (refundMethod === 'cash' || (refundMethod === 'none' && revertedPayment.paymentMethod === 'cash'))
+    // Caso 1: Registrar el medio real de devolución y no descontar incorrectamente la caja física
+    const effectivePaymentMethod = reversalType === 'refund'
+      ? (refundMethod && refundMethod !== 'none' ? refundMethod : revertedPayment.paymentMethod)
+      : revertedPayment.paymentMethod
+
+    const isPhysicalCashOut = reversalType === 'refund' && effectivePaymentMethod === 'cash'
 
     const mov: CashMovement = {
       id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -836,9 +856,9 @@ export class DemoParcelController {
       type: 'reversal',
       category: 'reversal',
       amount: revertedPayment.amount,
-      paymentMethod: isPhysicalCashOut ? 'cash' : revertedPayment.paymentMethod,
+      paymentMethod: effectivePaymentMethod,
       concept: reversalType === 'refund'
-        ? `Devolución efectiva de aporte recibo ${revertedPayment.receiptNumber} (${due.memberName}). Motivo: ${reason}`
+        ? `Devolución efectiva (${effectivePaymentMethod.toUpperCase()}) de aporte recibo ${revertedPayment.receiptNumber} (${due.memberName}). Motivo: ${reason}`
         : `Anulación de registro recibo ${revertedPayment.receiptNumber} (${due.memberName}). Motivo: ${reason}`,
       referenceId: due.id,
       operatorUid: updatedShift?.operatorUid || 'unassigned-shift',
