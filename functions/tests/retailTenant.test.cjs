@@ -74,7 +74,9 @@ async function main() {
   try {
     env = await initializeTestEnvironment({ projectId, firestore: { rules: fs.readFileSync('firebase/firestore.rules', 'utf8') } })
     const template = require('../generated/templates.js').getTemplate('gelateria_weight_cafe')
-    await db.doc(`tenants/${tenantId}`).set({ tenantId, name: 'QA Comercio', businessType: 'gelateria_weight_cafe', ownerUid, subscriptionStatus: 'trial', configuration: { features: template.defaults.features } })
+    await db.doc(`tenants/${tenantId}`).set({ tenantId, name: 'QA Comercio', businessType: 'gelateria_weight_cafe', ownerUid,
+      billingEnforcement: true, subscriptionStatus: 'active', billingAccessUntil: new Date(Date.now() + 30 * 86_400_000),
+      configuration: { features: template.defaults.features } })
     await db.doc(`tenants/${tenantId}/branches/main`).set({ tenantId, branchId: 'main', active: true })
     await db.doc(`tenants/${tenantId}/branches/other`).set({ tenantId, branchId: 'other', active: true })
     await Promise.all(template.roles.map(role => db.doc(`tenants/${tenantId}/roles/${role.id}`).set({ ...role, tenantId })))
@@ -168,6 +170,15 @@ async function main() {
     assert.equal(close.differenceMinor, 0)
     await mustDeny(cashierToken, { commandType: 'recordSale', operationId: `after-close-${suffix}`, payload: { items: [{ productId: weighted.productId, quantity: 1 }], method: 'cash', cashMinor: 100, qrMinor: 0, cashReceivedMinor: 100 } }, 'FAILED_PRECONDITION')
     pass('egreso superior al efectivo se deniega; cierre reconcilia y bloquea ventas posteriores')
+
+    await db.doc(`tenants/${tenantId}`).update({ subscriptionStatus: 'suspended' })
+    const salesBeforeSuspension = await db.collection(`tenants/${tenantId}/retailSales`).get()
+    const movementsBeforeSuspension = await db.collection(`tenants/${tenantId}/retailCashMovements`).get()
+    await mustDeny(cashierToken, { commandType: 'recordSale', operationId: `suspended-sale-${suffix}`, payload: { items: [{ productId: weighted.productId, quantity: 1 }], method: 'cash', cashMinor: 100, qrMinor: 0, cashReceivedMinor: 100 } })
+    await mustDeny(ownerToken, { commandType: 'recordCashMovement', operationId: `suspended-cash-${suffix}`, payload: { type: 'income', amountMinor: 100, reason: 'No debe registrarse' } })
+    assert.equal((await db.collection(`tenants/${tenantId}/retailSales`).get()).size, salesBeforeSuspension.size)
+    assert.equal((await db.collection(`tenants/${tenantId}/retailCashMovements`).get()).size, movementsBeforeSuspension.size)
+    pass('suscripción suspendida bloquea venta y caja Retail en servidor sin crear ventas ni movimientos')
 
     const unauthContext = env.unauthenticatedContext()
     const cashierContext = env.authenticatedContext(cashierUid)
