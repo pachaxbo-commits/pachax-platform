@@ -46,3 +46,12 @@ El contrato puede representar `adsRequired`, pero no existe contratación Free, 
 ## Release
 
 Esta rama es una PR independiente basada en `origin/main`. No se ha desplegado a Firebase Production, no se han publicado Rules/Functions/índices y no se ha modificado ningún tenant real. Free permanece inactivo; formulario público y altas autónomas siguen cerrados.
+# Preview Firebase isolation
+
+`pachax-app` currently has no staging Firebase project configured. Vercel Preview was verified to target the same Firebase Production configuration as Production, so automatic Preview deployments are disabled on the project until isolation is established. The project setting was verified through the Vercel API; Production deployment settings and variables were not changed.
+
+`vite.config.ts` now fails closed for `VERCEL_ENV=preview` when the Firebase project is `pachax-platform`, when local emulator/App Check debug modes are requested, or when `PACHAX_PREVIEW_FIREBASE_CONFIG_SHA256` does not match the staging configuration fingerprint. The fingerprint covers Firebase app fields, App Check site key, emulator routing settings, and `VITE_BOT_API_URL`; thus changing only `VITE_FIREBASE_PROJECT_ID` cannot pass the guard. Firebase Auth, Firestore, Storage and callable Functions use this same Firebase app configuration. The fingerprint is integrity metadata, not a credential.
+
+To enable safe Preview later, an owner must approve creation/configuration of a separate Firebase staging project and any associated billing. Configure Auth, Firestore, required Functions and Storage (only if needed) there, use staging App Check credentials, configure all `VITE_FIREBASE_*` and endpoint values only for Vercel Preview, compute the fingerprint from those exact values, then configure Vercel Preview protection before re-enabling Preview deployments. Never copy production configuration, secrets or data. Keep Preview deployments disabled until these steps are verified.
+
+The local isolated emulators remain the test environment and do not require this remote staging project.

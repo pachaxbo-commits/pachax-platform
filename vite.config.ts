@@ -1,11 +1,13 @@
 import { defineConfig, loadEnv } from 'vite'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { validateFirebaseEnvironment } from './src/config/firebaseEnvironment'
+import { assertPreviewFirebaseIsolation } from './scripts/preview-firebase-isolation.mjs'
 
-const studioDemoRoutingPlugin = {
+const studioDemoRoutingPlugin: Plugin = {
   name: 'studio-demo-routing',
-  configureServer(server: any) {
-    server.middlewares.use((req: any, _res: any, next: any) => {
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
       const url = req.url || ''
       if (url === '/studio' || url.startsWith('/studio?') || url.startsWith('/studio/')) {
         const q = url.indexOf('?')
@@ -23,7 +25,9 @@ const studioDemoRoutingPlugin = {
 }
 
 export default defineConfig(({ command, mode }) => {
-  validateFirebaseEnvironment({ ...loadEnv(mode, process.cwd(), 'VITE_'), ...process.env }, command === 'build')
+  const environment = { ...loadEnv(mode, process.cwd(), 'VITE_'), ...process.env }
+  validateFirebaseEnvironment(environment, command === 'build')
+  assertPreviewFirebaseIsolation(environment, process.env.VERCEL_ENV)
   return {
     cacheDir: 'node_modules/.vite-current',
     plugins: [react(), studioDemoRoutingPlugin],

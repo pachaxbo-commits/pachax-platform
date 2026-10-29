@@ -16,6 +16,7 @@
     "studio": "vite --open /studio",
     "dev:emulator": "vite --mode emulator",
     "build:functions-core": "node scripts/build-functions-core.mjs",
+    "test:preview-firebase-isolation": "node --test scripts/tests/preview-firebase-isolation.test.mjs",
     "build:rules": "node scripts/build-rules.mjs",
     "test:commercial-catalog-init": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-commercial-catalog-hotfix \"node functions/tests/publicCommercialCatalogInitialization.test.cjs\"",
     "test:commercial-catalog-hotfix": "npm run build:functions-core && firebase emulators:exec --only firestore --project demo-commercial-catalog-hotfix \"node functions/tests/publicCommercialCatalogInitialization.test.cjs\" && node --experimental-strip-types --test tests/singleFlight.test.ts && npm run test:public-commercial-closed",
