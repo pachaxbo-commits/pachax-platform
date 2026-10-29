@@ -7,6 +7,7 @@ const { catalogForTenant, distributionProfile } = require('./distributionCatalog
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
 const { billingAccessUntil: billingAccessUntilMillis } = require('./billingPolicy.cjs');
+const { initialUsage, normalizeCapabilitiesV1 } = require('./commercialCapabilities.cjs');
 
 async function ownerPlatformActor(db, request) {
   const actor = await platformActor(db, request, 'tenants.configure');
@@ -270,7 +271,10 @@ function tenantDataFor(input, tenantId, ownerUid, now, billingContract = null) {
     entitlements: {},
     planKey: billingContract?.terms?.plan?.planId || null,
     subscriptionStatus: billingContract ? 'pending' : 'trial',
-    ...(billingContract ? { billingEnforcement: true, billingContractId: billingContract.contractId } : {}),
+    ...(billingContract ? {
+      billingEnforcement: true, billingContractId: billingContract.contractId,
+      commercialCapabilities: normalizeCapabilitiesV1(billingContract.terms?.capabilitiesV1, template.businessType),
+    } : {}),
     schemaVersion: 1,
     templateVersion: template.version,
     provisioningOperationId: input.operationId,
@@ -329,6 +333,7 @@ async function createProvisioningRecords(db, actor, input, operation, reservatio
       createdBy: actor.uid,
     };
     tx.create(root, createdTenant);
+    if (billingContract?.exists === true) tx.create(root.collection('commercialUsage').doc('active'), initialUsage());
     tx.create(membershipRef, membership);
     tx.create(branchRef, { tenantId: operation.tenantId, id: 'main', name: 'Sucursal principal', active: true, createdAt: now });
     for (const role of input.template.roles) tx.create(root.collection('roles').doc(role.id), { ...role, tenantId: operation.tenantId, createdAt: now });

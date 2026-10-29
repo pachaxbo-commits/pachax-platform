@@ -733,6 +733,13 @@ service cloud.firestore {
           && tenant.get('billingAccessUntil', null) is timestamp
           && request.time < tenant.billingAccessUntil);
     }
+    function tPlanFeatureAllowed(tenantId, feature) {
+      let tenant = get(/databases/$(database)/documents/tenants/$(tenantId)).data;
+      return tenant.get('billingEnforcement', false) != true
+        || (tenant.get('commercialCapabilities', {}).get('version', 0) == 1
+          && feature == 'reports.basic'
+          && tenant.get('commercialCapabilities', {}).get('features', {}).get('reports', {}).get('basic', false) == true);
+    }
     function tIsActiveMember(tenantId) {
       return request.auth != null && !tPlatform()
         && exists(/databases/$(database)/documents/tenants/$(tenantId)/members/$(request.auth.uid))
@@ -747,7 +754,8 @@ service cloud.firestore {
         && (get(/databases/$(database)/documents/tenants/$(tenantId)/roles/$(tMemberData(tenantId).roleId)).data.permissions.hasAny([permission])
           || (permission == 'users.manage' && get(/databases/$(database)/documents/tenants/$(tenantId)).data.businessType == 'nightclub_lounge'
             && tMemberData(tenantId).get('nightclubPermissions', []).hasAny(['special.manageUsers'])))
-        && get(/databases/$(database)/documents/tenants/$(tenantId)).data.configuration.features.get(capability, false) == true;
+        && get(/databases/$(database)/documents/tenants/$(tenantId)).data.configuration.features.get(capability, false) == true
+        && (permission != 'reports.read' || tPlanFeatureAllowed(tenantId, 'reports.basic'));
     }
     function tBranch(tenantId, branchId) {
       return tIsActiveMember(tenantId) && branchId in tMemberData(tenantId).branchIds;
@@ -1071,6 +1079,12 @@ service cloud.firestore {
       return request.resource.data.tenantId == tenantId;
     }
 
+    // Enforced tenants use tenantGateway for quota-aware product writes;
+    // direct client writes remain available to legacy tenants only.
+    function tDistClientProductWriteAllowed(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)).data.get('billingEnforcement', false) != true;
+    }
+
     // Break-glass intake switch. Missing means enabled for compatibility;
     // only privileged server-side access may create this control document.
     function tDistAcceptsOperations(tenantId) {
@@ -1082,7 +1096,7 @@ service cloud.firestore {
     // administracion (los precios son configuracion, no operacion diaria).
     match /tenants/{tenantId}/distProducts/{productId} {
       allow read: if tDistWorker(tenantId);
-      allow create, update: if tDistAdmin(tenantId) && tDistTenantMatches(tenantId)
+      allow create, update: if tDistAdmin(tenantId) && tDistClientProductWriteAllowed(tenantId) && tDistTenantMatches(tenantId)
         && (resource == null
           ? request.resource.data.unitType in ['kg','unit','package']
           : request.resource.data.unitType == resource.data.unitType)
@@ -1212,7 +1226,7 @@ service cloud.firestore {
         && ((request.resource.data.type in ['sale','collection','expense','creditStatus'] && (tDistAdmin(tenantId) || tDistDistributor(tenantId)))
           || (request.resource.data.type in ['intake','transfer','dispatch','addition','closure'] && (tDistAdmin(tenantId)||tDistWarehouse(tenantId)))
           || (request.resource.data.type == 'closure' && tDistDistributor(tenantId))
-          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct','creditOverride'] && tDistAdmin(tenantId)));
+          || (request.resource.data.type in ['adjustment','claim','updateLot','reopen','deleteExpense','deleteProduct','saveProduct','creditOverride'] && tDistAdmin(tenantId)));
       allow update: if tIsActiveMember(tenantId) && resource.data.createdBy == request.auth.uid && resource.data.status == 'rejected'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged']) && request.resource.data.acknowledged == true;
       allow delete: if false;

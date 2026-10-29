@@ -132,7 +132,8 @@ export function ExtrasSection() {
         {config.extras.map((extra) => {
           const draft = drafts[extra.id] || extra
           const isPublished = extra.status === 'published'
-  const selectedTemplates: TemplateKey[] = Array.isArray(draft.applicableTemplates) ? draft.applicableTemplates : []
+          const capabilityAdjustments = draft.capabilityAdjustments || { activeUsers: 0, activeProducts: 0 }
+          const selectedTemplates: TemplateKey[] = Array.isArray(draft.applicableTemplates) ? draft.applicableTemplates : []
           return (
             <div key={extra.id} className={`bg-white rounded-2xl p-5 sm:p-6 border transition-all ${isPublished ? 'border-slate-200/90 shadow-2xs' : 'border-slate-200/60 bg-slate-50/60'}`}>
               <div className="flex items-center justify-between gap-3 mb-4">
@@ -189,6 +190,23 @@ export function ExtrasSection() {
                       }} disabled={!canManageCommercial} />{TEMPLATE_LABELS[id]}</label>
                     })}
                   </div>}
+                </fieldset>
+
+                <fieldset className="rounded-xl border border-slate-200 p-3">
+                  <legend className="px-1 text-[11px] font-bold text-slate-600">Ampliación técnica verificable</legend>
+                  <p className="mb-2 text-[11px] text-slate-500">Solo aumenta cupos contratados; no habilita funciones técnicas adicionales.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="text-[11px] font-semibold text-slate-600">Usuarios activos adicionales (máximo 100)
+                      <input type="number" min={0} max={100} value={capabilityAdjustments.activeUsers}
+                        onChange={(event) => setField(extra.id, 'capabilityAdjustments', { ...capabilityAdjustments, activeUsers: Number(event.target.value) })}
+                        disabled={!canManageCommercial} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100" />
+                    </label>
+                    <label className="text-[11px] font-semibold text-slate-600">Productos activos adicionales (máximo 200)
+                      <input type="number" min={0} max={200} value={capabilityAdjustments.activeProducts}
+                        onChange={(event) => setField(extra.id, 'capabilityAdjustments', { ...capabilityAdjustments, activeProducts: Number(event.target.value) })}
+                        disabled={!canManageCommercial} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100" />
+                    </label>
+                  </div>
                 </fieldset>
 
                 <div className="flex flex-col sm:flex-row sm:items-end gap-3">

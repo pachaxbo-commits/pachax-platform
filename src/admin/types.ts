@@ -44,6 +44,18 @@ export interface CommercialTemplateItem {
 
 export type PlanKind = 'free' | 'paid'
 
+export interface CommercialCapabilitiesV1 {
+  version: 1
+  businessType: string
+  limits: { activeUsers: number; activeProducts: number; activeBranches: number }
+  features: {
+    reports: { basic: boolean; detailed: boolean; export: boolean }
+    receipts: { digital: boolean }
+    printing: { manual: boolean; kitchenAutomatic: boolean }
+    adsRequired: boolean
+  }
+}
+
 export interface TemplateTierPlan {
   revision?: number
   id: string
@@ -63,6 +75,7 @@ export interface TemplateTierPlan {
   limitsLabel?: string
   includedFeatures: string[]
   technicalEntitlements: string[]
+  capabilitiesV1?: CommercialCapabilitiesV1
   ctaLabel: string
   status: 'published' | 'draft'
   order: number
@@ -78,6 +91,7 @@ export interface CommercialExtraService {
   pricingType: 'recurring' | 'one_time' | 'custom_quote'
   iconKey: 'megaphone' | 'palette' | 'headset' | 'zap' | 'code'
   applicableTemplates: TemplateKey[] | 'all'
+  capabilityAdjustments?: { activeUsers: number; activeProducts: number }
   status: 'published' | 'draft'
   order: number
 }

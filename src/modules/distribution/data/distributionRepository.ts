@@ -7,6 +7,7 @@ import {
   runTransaction,
   getDocs,
   getDocsFromServer,
+  getDocFromServer,
   documentId,
   limit,
   startAfter,
@@ -655,6 +656,11 @@ export async function saveProduct(product: Omit<DistProduct, 'tenantId' | 'creat
     return 'synced'
   }
   const context = await getContext()
+  const tenantSnapshot = await getDocFromServer(doc(context.db, 'tenants', context.tenantId))
+  if (tenantSnapshot.data()?.billingEnforcement === true) {
+    await submitOperation('saveProduct', { product: cleanProduct }, newOperationId('save-product'))
+    return 'synced'
+  }
   const batch = writeBatch(context.db)
   const now = new Date().toISOString()
   const fields: Record<string, unknown> = {

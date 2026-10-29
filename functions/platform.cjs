@@ -19,6 +19,7 @@ const { platformActor, cleanText, auditPlatform } = require('./platformAuthoriza
 const commercialOnboarding = require('./commercialOnboarding.cjs');
 const assistedTenantProvisioning = require('./assistedTenantProvisioning.cjs');
 const commercialBilling = require('./commercialBilling.cjs');
+const { normalizeCapabilitiesV1, normalizeCapabilityAdjustments } = require('./commercialCapabilities.cjs');
 
 const DIRECTORY_LIMIT = 50;
 // La identidad canónica técnica viene del registro público; no duplicar una lista
@@ -438,6 +439,9 @@ async function publishPlan(db, request) {
 
   if (status === 'published') {
     if (planData.priceApproval !== 'approved') throw new HttpsError('failed-precondition', 'La tarifa requiere aprobación explícita antes de publicarse.');
+    if (planKind === 'free') throw new HttpsError('failed-precondition', 'Plan Free permanece sin publicación hasta completar su flujo seguro, anuncios y controles antiabuso.');
+    const template = PUBLIC_TEMPLATES.find(item => item.id === templateId);
+    normalizeCapabilitiesV1(planData.capabilitiesV1, template?.businessType);
     if (Array.isArray(planData.technicalEntitlements) && planData.technicalEntitlements.length > 0) {
       throw new HttpsError('failed-precondition', 'Los entitlements técnicos todavía no están conectados a Billing Core y no se pueden publicar como capacidades activas.');
     }
@@ -515,7 +519,7 @@ async function savePlan(db, request) {
     'id', 'templateId', 'name', 'planKind', 'priceApproval', 'tierLevel', 'monthlyPriceUSD', 'annualPriceUSD',
     'currency', 'billingPeriod', 'badge', 'isPopular', 'adsRequired', 'clientProfile', 'limitsLabel',
     'includedFeatures', 'technicalEntitlements', 'ctaLabel', 'status', 'order', 'commercialVersion',
-    'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy', 'revision',
+    'capabilitiesV1', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy', 'revision',
   ]);
   if (Object.keys(plan).some(key => !allowedPlanFields.has(key))) {
     throw new HttpsError('invalid-argument', 'El plan incluye campos fuera del contrato comercial; los entitlements y la suscripción se administran aparte.');
@@ -558,6 +562,15 @@ async function savePlan(db, request) {
     throw new HttpsError('invalid-argument', 'Los entitlements técnicos del plan deben ser una lista válida.');
   }
   let tierLevel = plan.tierLevel;
+  const canonicalTemplate = PUBLIC_TEMPLATES.find(item => item.id === templateId);
+  let capabilitiesV1 = null;
+  if (plan.capabilitiesV1 !== undefined) {
+    if (!canonicalTemplate) throw new HttpsError('failed-precondition', 'La plantilla no tiene identidad técnica para capacidades V1.');
+    capabilitiesV1 = normalizeCapabilitiesV1(plan.capabilitiesV1, canonicalTemplate.businessType);
+    if (capabilitiesV1.features.adsRequired !== (planKind === 'free' ? true : adsRequired)) {
+      throw new HttpsError('invalid-argument', 'La publicidad del plan y el contrato de capacidades deben coincidir.');
+    }
+  }
 
   if (planKind === 'free') {
     if (monthlyPrice !== 0 || annualPrice !== 0) {
@@ -572,6 +585,8 @@ async function savePlan(db, request) {
   }
 
   if (status === 'published') {
+    if (planKind === 'free') throw new HttpsError('failed-precondition', 'El Plan Free permanece sin publicación hasta completar su flujo seguro, anuncios y controles antiabuso.');
+    if (!capabilitiesV1) throw new HttpsError('failed-precondition', 'Completa el contrato de capacidades V1 antes de publicar el plan.');
     if (!Array.isArray(plan.includedFeatures) || plan.includedFeatures.length === 0
       || plan.includedFeatures.some(feature => typeof feature !== 'string' || !feature.trim() || feature.length > 180)) {
       throw new HttpsError('failed-precondition', 'Completa características comerciales válidas antes de publicar el plan.');
@@ -622,6 +637,7 @@ async function savePlan(db, request) {
     adsRequired,
     priceApproval,
     technicalEntitlements: Array.isArray(plan.technicalEntitlements) ? plan.technicalEntitlements : [],
+    ...(capabilitiesV1 ? { capabilitiesV1 } : {}),
     commercialVersion: (Number(planSnap.data()?.commercialVersion) || 0) + 1,
     status,
     updatedAt: now,
@@ -878,10 +894,11 @@ async function saveExtra(db, request) {
     throw new HttpsError('invalid-argument', 'Datos de servicio extra inválidos.');
   }
   const extraId = cleanText(extra.id, 'ID de extra', 1, 100);
-  const allowedFields = new Set(['id', 'title', 'category', 'shortDescription', 'referencePriceLabel', 'pricingType', 'iconKey', 'applicableTemplates', 'status', 'order', 'revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy']);
+  const allowedFields = new Set(['id', 'title', 'category', 'shortDescription', 'referencePriceLabel', 'pricingType', 'iconKey', 'applicableTemplates', 'capabilityAdjustments', 'status', 'order', 'revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy']);
   if (Object.keys(extra).some(key => !allowedFields.has(key))) throw new HttpsError('invalid-argument', 'El extra contiene campos fuera del contrato editable.');
   if (extra.category !== undefined && !['custom', 'marketing', 'branding', 'support', 'automation', 'consulting'].includes(extra.category)) throw new HttpsError('invalid-argument', 'La categoría del extra no es válida.');
   if (extra.iconKey !== undefined && !['megaphone', 'palette', 'headset', 'zap', 'code'].includes(extra.iconKey)) throw new HttpsError('invalid-argument', 'El icono del extra no es válido.');
+  if (extra.capabilityAdjustments !== undefined) normalizeCapabilityAdjustments(extra.capabilityAdjustments);
   if (extra.order !== undefined && (!Number.isSafeInteger(Number(extra.order)) || Number(extra.order) < 1)) throw new HttpsError('invalid-argument', 'El orden del extra debe ser un entero positivo.');
   for (const [field, max] of Object.entries({ title: 120, shortDescription: 360, referencePriceLabel: 120 })) {
     if (extra[field] !== undefined && (typeof extra[field] !== 'string' || extra[field].length > max)) throw new HttpsError('invalid-argument', `El campo ${field} supera el formato permitido.`);
@@ -899,6 +916,11 @@ async function saveExtra(db, request) {
       || typeof extra.shortDescription !== 'string' || !extra.shortDescription.trim()
       || !['recurring', 'one_time', 'custom_quote'].includes(extra.pricingType))) {
     throw new HttpsError('failed-precondition', 'Completa los datos comerciales del extra antes de publicarlo.');
+  }
+  if (extra.status === 'published' && extra.capabilityAdjustments
+    && (extra.capabilityAdjustments.activeUsers > 0 || extra.capabilityAdjustments.activeProducts > 0)
+    && !actor.permissions.includes('plans.manage')) {
+    throw new HttpsError('permission-denied', 'Solo un operador con gestión de planes puede publicar ampliaciones técnicas.');
   }
   const extraRef = db.doc(`platformExtras/${extraId}`);
   const extraSnap = await extraRef.get();

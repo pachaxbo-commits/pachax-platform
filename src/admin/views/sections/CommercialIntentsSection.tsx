@@ -16,7 +16,7 @@ interface CommercialIntent {
   contactPhone?: string
   needs?: string
   status: string
-  planSnapshot?: { planId?: string; name?: string; monthlyPrice?: number; annualPrice?: number; currency?: string } | null
+  planSnapshot?: { planId?: string; name?: string; monthlyPrice?: number; annualPrice?: number; currency?: string; capabilitiesV1?: { limits: { activeUsers: number; activeProducts: number; activeBranches: number }; features: { reports: { basic: boolean } } } } | null
   proposal?: { implementationOneTime?: number; monthlyPrice?: number; annualPrice?: number; currency?: string; extraIds?: string[]; status?: string }
   quote?: { status?: string; version?: number; initialDueMinor?: number; recurringMinor?: number; currency?: string; billingCycle?: 'monthly' | 'annual' }
   acceptance?: { channel?: string; reference?: string }
@@ -43,6 +43,8 @@ export function CommercialIntentsSection() {
   const [extraIds, setExtraIds] = useState<string[]>([])
   const [extraAmounts, setExtraAmounts] = useState<Record<string, { oneTime: string; monthly: string; annual: string }>>({})
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
+  const [capabilityLimits, setCapabilityLimits] = useState({ activeUsers: 1, activeProducts: 10, activeBranches: 1 })
+  const [basicReports, setBasicReports] = useState(true)
   const [discount, setDiscount] = useState('0')
   const [discountReason, setDiscountReason] = useState('')
   const [acceptanceChannel, setAcceptanceChannel] = useState<'whatsapp' | 'email' | 'signed_document' | 'in_person'>('whatsapp')
@@ -96,6 +98,11 @@ export function CommercialIntentsSection() {
       await gateway('platformGateway', {
         action: 'saveCommercialQuote', intentId: selected.id, requestId,
         implementation, monthly, annual, currency, billingCycle, discount, discountReason,
+        ...(!selected.planSnapshot ? { capabilitiesV1: {
+          version: 1, businessType: selected.businessType, limits: capabilityLimits,
+          features: { reports: { basic: basicReports, detailed: false, export: false }, receipts: { digital: false },
+            printing: { manual: false, kitchenAutomatic: false }, adsRequired: false },
+        } } : {}),
         extras: extraIds.map(id => ({ id, ...(extraAmounts[id] || { oneTime: '0', monthly: '0', annual: '0' }) })),
       })
       setMessage('Cotización guardada como borrador. No activa contratación ni suscripción.')
@@ -236,6 +243,8 @@ export function CommercialIntentsSection() {
                       setDiscountReason('')
                       setAcceptanceReference('')
                       setExtraIds(intent.proposal?.extraIds || intent.requestedExtraSnapshots?.map(extra => extra.id) || [])
+                      setCapabilityLimits(intent.planSnapshot?.capabilitiesV1?.limits || { activeUsers: 1, activeProducts: 10, activeBranches: 1 })
+                      setBasicReports(intent.planSnapshot?.capabilitiesV1?.features.reports.basic ?? true)
                       setMessage('')
                       setError('')
                       setRequestId(crypto.randomUUID())
@@ -274,6 +283,18 @@ export function CommercialIntentsSection() {
               <label className="text-xs font-semibold text-slate-800">Descuento autorizado<input inputMode="decimal" value={discount} onChange={event => setDiscount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
               {Number(discount) > 0 && <label className="text-xs font-semibold text-slate-800 sm:col-span-2">Motivo del descuento<input minLength={8} maxLength={500} value={discountReason} onChange={event => setDiscountReason(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>}
             </div>
+            {!selected.planSnapshot && <fieldset className="mt-4 rounded-lg border border-slate-200 p-3">
+              <legend className="px-1 text-xs font-bold text-slate-800">Capacidades técnicas de la cotización a medida</legend>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {(['activeUsers', 'activeProducts', 'activeBranches'] as const).map((key) => <label key={key} className="text-[11px] font-semibold text-slate-700">{key === 'activeUsers' ? 'Usuarios activos' : key === 'activeProducts' ? 'Productos activos' : 'Sucursales'}
+                  <input type="number" min={1} max={key === 'activeUsers' ? 100 : key === 'activeProducts' ? 200 : 1} value={capabilityLimits[key]}
+                    onChange={(event) => setCapabilityLimits(current => ({ ...current, [key]: Number(event.target.value) }))}
+                    className="mt-1 w-full rounded border p-2" />
+                </label>)}
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={basicReports} onChange={event => setBasicReports(event.target.checked)} />Resumen operativo básico</label>
+              <p className="mt-2 text-[11px] text-slate-500">Históricos, exportaciones, recibos digitales, impresión y más de una sucursal aún no son capacidades técnicas disponibles.</p>
+            </fieldset>}
             {config.extras.filter((extra) => extra.status === 'published').length > 0 && <fieldset className="mt-4 space-y-2">
               <legend className="text-xs font-semibold text-slate-800">Extras propuestos</legend>
               {config.extras.filter((extra) => extra.status === 'published').map((extra) => <div key={extra.id} className="rounded border p-2 text-sm text-slate-800">

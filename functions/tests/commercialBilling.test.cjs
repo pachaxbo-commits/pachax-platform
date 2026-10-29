@@ -17,6 +17,11 @@ const tenants = require('../tenants.cjs');
 const { hasPermission, hasTenantBillingAccess, tenantActor } = require('../authorization.cjs');
 const { processCommand } = require('../operations.cjs');
 
+const distributionCapabilities = Object.freeze({ version: 1, businessType: 'route_distribution',
+  limits: { activeUsers: 3, activeProducts: 2, activeBranches: 1 },
+  features: { reports: { basic: true, detailed: false, export: false }, receipts: { digital: false },
+    printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } });
+
 const suffix = randomUUID().replace(/-/g, '');
 const app = initializeApp({ projectId }, `billing-core-${suffix}`);
 const db = getFirestore(app);
@@ -57,13 +62,21 @@ async function seedPlan(id, name, monthly, annual) {
   createdPaths.push(ref.path);
   await ref.set({ id, templateId: 'distribution', name, planKind: 'paid', status: 'published', priceApproval: 'approved',
     monthlyPriceUSD: monthly, annualPriceUSD: annual, currency: 'USD', commercialVersion: 1,
-    includedFeatures: ['Inventario y rutas'], technicalEntitlements: [], createdAt: Timestamp.now() });
+    includedFeatures: ['Inventario y rutas'], technicalEntitlements: [], capabilitiesV1: distributionCapabilities, createdAt: Timestamp.now() });
 }
 
 async function runDistributionAdjustment(tenantId, uid, label) {
   const ref = db.doc(`tenants/${tenantId}/distOperations/${label}-${opId()}`);
   await ref.set({ status: 'queued', tenantId, branchId: 'main', createdBy: uid, type: 'adjustment',
     payload: { warehouseId: 'central', note: '', line: { productId: 'billing-access-test', quantity: 1 } } });
+  await processCommand(db, ref);
+  return (await ref.get()).data();
+}
+
+async function runDistributionProductSave(tenantId, uid, productId, label, active = true) {
+  const ref = db.doc(`tenants/${tenantId}/distOperations/${label}-${opId()}`);
+  await ref.set({ status: 'queued', tenantId, branchId: 'main', createdBy: uid, type: 'saveProduct',
+    payload: { product: { id: productId, name: 'Producto de cuota QA', unitType: 'unit', referencePrice: 1, active } } });
   await processCommand(db, ref);
   return (await ref.get()).data();
 }
@@ -119,10 +132,14 @@ async function run() {
     }
     await seedPlan(planId, 'Plan Distribución QA', 20, 200);
     await seedPlan(nextPlanId, 'Plan Distribución QA Renovación', 30, 300);
+    const listedPlans = await platformCall(ownerUid, { action: 'listPublishedBillingPlans' });
+    assert.deepEqual(listedPlans.plans.find(plan => plan.id === planId).capabilitiesV1, distributionCapabilities);
     await db.doc(`platformExtras/${extraId}`).set({ id: extraId, title: 'Configuración QA', pricingType: 'one_time',
+      capabilityAdjustments: { activeUsers: 1, activeProducts: 1 },
       applicableTemplates: ['distribution'], status: 'published', commercialVersion: 1 });
     createdPaths.push(`platformExtras/${extraId}`);
     await db.doc(`platformExtras/${extraIdTwo}`).set({ id: extraIdTwo, title: 'Capacitación QA', pricingType: 'one_time',
+      capabilityAdjustments: { activeUsers: 2, activeProducts: 1 },
       applicableTemplates: ['distribution'], status: 'published', commercialVersion: 1 });
     createdPaths.push(`platformExtras/${extraIdTwo}`);
 
@@ -144,6 +161,7 @@ async function run() {
     assert.equal(intent.uid, null);
     assert.equal(intent.tenantId, null);
     assert.equal(intent.planSnapshot.planId, planId);
+    assert.deepEqual(intent.planSnapshot.capabilitiesV1, distributionCapabilities);
     assert.deepEqual(intent.requestedExtraSnapshots.map(item => item.id), [extraId]);
     await assert.rejects(platformCall(ownerUid, { ...intake, contactName: 'Datos distintos' }), error => error.code === 'already-exists');
     pass('registro manual de WhatsApp valida catálogo, captura plan/extras, es idempotente y no crea tenant');
@@ -171,6 +189,8 @@ async function run() {
     intent = (await intentRef.get()).data();
     assert.equal(intent.quote.recurringMinor, 2000);
     assert.equal(intent.quote.technicalEntitlements.length, 0);
+    assert.equal(intent.quote.capabilitiesV1.limits.activeUsers, 4);
+    assert.equal(intent.quote.capabilitiesV1.limits.activeProducts, 3);
     pass('cotización usa centavos enteros, conserva una instantánea y limita descuentos a Owner');
 
     await platformCall(ownerUid, { action: 'offerCommercialQuote', intentId: created.intentId, requestId: opId() });
@@ -242,6 +262,11 @@ async function run() {
     assert.equal(tenantSnap.data().billingEnforcement, true);
     assert.equal(tenantSnap.data().planKey, planId);
     assert.deepEqual(tenantSnap.data().entitlements, {});
+    assert.deepEqual(tenantSnap.data().commercialCapabilities, intent.quote.capabilitiesV1);
+    const initialCommercialUsage = (await tenantRef.collection('commercialUsage').doc('active').get()).data();
+    assert.equal(initialCommercialUsage.activeUsers, 1);
+    assert.equal(initialCommercialUsage.activeProducts, 0);
+    assert.equal(initialCommercialUsage.activeBranches, 1);
     assert.equal(memberSnap.data().status, 'active');
     assert.equal(linkSnap.data().status, 'active');
     assert.equal(subscriptionSnap.data().status, 'active');
@@ -262,6 +287,57 @@ async function run() {
     const signedInActor = await tenantActor(db, { auth: { uid: login.localId, token: {} }, data: { tenantId: provisionA.tenantId } }, 'settings.manage');
     assert.equal(signedInActor.uid, login.localId);
     pass('solo el pago inicial íntegro habilita tenant y suscripción; el propietario configura su acceso e inicia sesión en la empresa');
+
+    for (let index = 0; index < 3; index += 1) {
+      const member = await tenants.manageMember(db, auth, {
+        auth: { uid: provisionA.ownerUid, token: {} },
+        data: { tenantId: provisionA.tenantId, action: 'createMember', operationId: opId(), roleId: 'warehouse',
+          email: `cap-user-${index}-${suffix}@example.test`, displayName: `Almacén ${index}`, password: 'CapUserQa123!', branchIds: ['main'] },
+      });
+      createdAuthUids.push(member.uid);
+    }
+    const userUsageAtLimit = (await tenantRef.collection('commercialUsage').doc('active').get()).data();
+    assert.equal(userUsageAtLimit.activeUsers, 4);
+    assert.equal((await tenantRef.get()).data().userCount, 4);
+    assert.notEqual(createdAuthUids[1], provisionA.ownerUid, 'Quota test must modify a created member, never the tenant owner.');
+    assert.notEqual(createdAuthUids[1], ownerUid, 'Quota test must modify a created member, never the Platform operator.');
+    await tenants.manageMember(db, auth, { auth: { uid: provisionA.ownerUid, token: {} },
+      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: createdAuthUids[1], roleId: 'distributor' } });
+    assert.equal((await tenantRef.collection('commercialUsage').doc('active').get()).data().activeUsers, 4,
+      'Changing an active member role must not change the active-user quota.');
+    await tenants.manageMember(db, auth, { auth: { uid: provisionA.ownerUid, token: {} },
+      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: createdAuthUids[1], active: false } });
+    assert.equal((await tenantRef.collection('commercialUsage').doc('active').get()).data().activeUsers, 3);
+    await tenants.manageMember(db, auth, { auth: { uid: provisionA.ownerUid, token: {} },
+      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: createdAuthUids[1], active: true } });
+    assert.equal((await tenantRef.collection('commercialUsage').doc('active').get()).data().activeUsers, 4);
+    const rejectedEmail = `cap-user-over-${suffix}@example.test`;
+    await assert.rejects(tenants.manageMember(db, auth, {
+      auth: { uid: provisionA.ownerUid, token: {} },
+      data: { tenantId: provisionA.tenantId, action: 'createMember', operationId: opId(), roleId: 'warehouse',
+        email: rejectedEmail, displayName: 'Fuera de cupo', password: 'CapUserQa123!', branchIds: ['main'] },
+    }), error => error.code === 'resource-exhausted');
+    await assert.rejects(auth.getUserByEmail(rejectedEmail), error => error.code === 'auth/user-not-found');
+    assert.equal((await tenantRef.collection('commercialUsage').doc('active').get()).data().activeUsers, 4);
+    for (let index = 0; index < 3; index += 1) {
+      const savedProduct = await runDistributionProductSave(provisionA.tenantId, provisionA.ownerUid, `cap-product-${suffix}-${index}`, `cap-product-${index}`);
+      assert.equal(savedProduct.status, 'confirmed');
+    }
+    let productUsage = (await tenantRef.collection('commercialUsage').doc('active').get()).data();
+    assert.equal(productUsage.activeProducts, 3);
+    const rejectedProduct = await runDistributionProductSave(provisionA.tenantId, provisionA.ownerUid, `cap-product-extra-${suffix}`, 'cap-product-extra');
+    assert.equal(rejectedProduct.status, 'rejected');
+    assert.match(rejectedProduct.error, /límite de productos activos/i);
+    await runDistributionProductSave(provisionA.tenantId, provisionA.ownerUid, `cap-product-${suffix}-0`, 'cap-product-archive', false);
+    productUsage = (await tenantRef.collection('commercialUsage').doc('active').get()).data();
+    assert.equal(productUsage.activeProducts, 2, 'Archiving a product must free one slot while retaining its document.');
+    const replacementProduct = await runDistributionProductSave(provisionA.tenantId, provisionA.ownerUid, `cap-product-replacement-${suffix}`, 'cap-product-replacement');
+    assert.equal(replacementProduct.status, 'confirmed');
+    productUsage = (await tenantRef.collection('commercialUsage').doc('active').get()).data();
+    assert.equal(productUsage.activeProducts, 3, 'A replacement product may use the released slot.');
+    assert.equal((await tenantRef.collection('distProducts').doc(`cap-product-${suffix}-0`).get()).data().active, false,
+      'Archiving retains the historical product document.');
+    pass('cuotas de usuarios/productos se aplican en backend; cambios de rol conservan conteo, rechazo de cupo, archivo histórico y reemplazo funcionan');
 
     let tenant = tenantSnap.data();
     const member = memberSnap.data();
@@ -340,6 +416,7 @@ async function run() {
     const scheduled = (await db.doc(`platformSubscriptions/${contractResult.contractId}`).get()).data();
     assert.equal(scheduled.planKey, planId, 'the current plan remains effective until next renewal');
     assert.equal(scheduled.pendingPlanChange.planSnapshot.planId, nextPlanId);
+    assert.deepEqual(scheduled.pendingPlanChange.planSnapshot.capabilitiesV1.limits, { activeUsers: 4, activeProducts: 3, activeBranches: 1 });
     assert.equal((await db.doc(`platformContracts/${contractResult.contractId}`).get()).data().terms.plan.planId, planId, 'accepted terms remain immutable');
     await subscriptionRef.update({ status: 'active', currentPeriodEnd: Timestamp.fromMillis(Date.now() + 10 * 86_400_000), billingAccessUntil: Timestamp.fromMillis(Date.now() + 17 * 86_400_000) });
     const renewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: contractResult.contractId, requestId: opId(), dueAt: dateAfter(7) });
@@ -358,6 +435,7 @@ async function run() {
     await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: renewalPayment.paymentId, requestId: opId() });
     const updatedSubscription = (await db.doc(`platformSubscriptions/${contractResult.contractId}`).get()).data();
     assert.equal(updatedSubscription.planKey, nextPlanId);
+    assert.deepEqual(updatedSubscription.capabilitiesV1.limits, { activeUsers: 4, activeProducts: 3, activeBranches: 1 });
     assert.equal(updatedSubscription.pendingPlanChange, undefined);
     assert.equal((await tenantRef.get()).data().planKey, nextPlanId);
     assert.equal((await db.doc(`platformContracts/${contractResult.contractId}`).get()).data().terms.plan.planId, planId);
@@ -395,7 +473,8 @@ async function run() {
     const monthlyOnlyQuoteInput = {
       action: 'saveCommercialQuote', requestId: opId(), intentId: monthlyOnlyLead.intentId,
       implementation: '0', monthly: '30.00', annual: '', currency: 'BOB', billingCycle: 'monthly',
-      discount: '0', extras: [],
+      discount: '0', capabilitiesV1: distributionCapabilities,
+      extras: [{ id: extraId, oneTime: '0', monthly: '0', annual: '0' }, { id: extraIdTwo, oneTime: '0', monthly: '0', annual: '0' }],
     };
     const monthlyOnlyQuote = await platformCall(ownerUid, monthlyOnlyQuoteInput);
     const monthlyOnlyReplay = await platformCall(ownerUid, monthlyOnlyQuoteInput);
@@ -406,6 +485,9 @@ async function run() {
     assert.equal(monthlyQuote.annualMinor, 0);
     assert.equal(monthlyQuote.initialDueMinor, 3000);
     assert.equal(monthlyQuote.recurringMinor, 3000);
+    assert.equal(monthlyQuote.capabilitiesV1.limits.activeUsers, distributionCapabilities.limits.activeUsers + 3,
+      'Extras augment explicit capabilities when the quote has no plan snapshot.')
+    assert.equal(monthlyQuote.capabilitiesV1.limits.activeProducts, distributionCapabilities.limits.activeProducts + 2)
     await assert.rejects(platformCall(ownerUid, {
       ...monthlyOnlyQuoteInput, requestId: opId(), billingCycle: 'annual', annual: '0',
     }), error => error.code === 'failed-precondition');
@@ -421,6 +503,8 @@ async function run() {
     assert.equal(monthlyContract.terms.plan, null);
     assert.equal(monthlyContract.terms.billingCycle, 'monthly');
     assert.equal(monthlyContract.terms.annualMinor, 0);
+    assert.equal(monthlyContract.terms.capabilitiesV1.limits.activeUsers, distributionCapabilities.limits.activeUsers + 3)
+    assert.equal(monthlyContract.terms.capabilitiesV1.limits.activeProducts, distributionCapabilities.limits.activeProducts + 2)
     assert.equal(monthlyContract.terms.initialDueMinor, 3000);
     const monthlyPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
       chargeId: monthlyOnlyContract.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-MONTHLY-${suffix}` });
@@ -450,6 +534,27 @@ async function run() {
     const monthlyTenantActor = await tenantActor(db, { auth: { uid: monthlyLogin.localId, token: {} },
       data: { tenantId: monthlyProvision.tenantId } }, 'settings.manage');
     assert.equal(monthlyTenantActor.uid, monthlyProvision.ownerUid);
+    await db.doc(`platformPlans/${nextPlanId}`).update({ status: 'published', currency: 'BOB' })
+    const manualContractChangeId = opId()
+    const manualContractChange = await platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: manualContractChangeId,
+      contractId: monthlyOnlyContract.contractId, planId: nextPlanId, billingCycle: 'monthly' })
+    const manualContractChangeReplay = await platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: manualContractChangeId,
+      contractId: monthlyOnlyContract.contractId, planId: nextPlanId, billingCycle: 'monthly' })
+    assert.equal(manualContractChange.idempotent, false)
+    assert.equal(manualContractChangeReplay.idempotent, true)
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.businessType, 'route_distribution')
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.limits.activeUsers, 6,
+      'Contract extras are applied once to the destination plan.')
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.limits.activeProducts, 4)
+    const wrongBusinessPlanId = `billing-wrong-business-${suffix}`
+    createdPaths.push(`platformPlans/${wrongBusinessPlanId}`)
+    await db.doc(`platformPlans/${wrongBusinessPlanId}`).set({ id: wrongBusinessPlanId, templateId: 'retail', name: 'Plan Comercio QA',
+      planKind: 'paid', status: 'published', priceApproval: 'approved', monthlyPriceUSD: 20, annualPriceUSD: 200, currency: 'BOB',
+      commercialVersion: 1, includedFeatures: [], technicalEntitlements: [],
+      capabilitiesV1: { ...distributionCapabilities, businessType: 'gelateria_weight_cafe' } })
+    await assert.rejects(platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: opId(),
+      contractId: monthlyOnlyContract.contractId, planId: wrongBusinessPlanId, billingCycle: 'monthly' }),
+    error => error.code === 'failed-precondition')
     pass('sin plan de Distribución publicado: contacto WhatsApp, cotización mensual idempotente, aceptación, pago confirmado, alta asistida y acceso del propietario');
 
     const anonymous = rulesEnv.unauthenticatedContext().firestore();

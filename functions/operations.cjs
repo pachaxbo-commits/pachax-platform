@@ -1,4 +1,6 @@
 const { hasPermission, hasTenantBillingAccess, legacyMember, audit } = require('./authorization.cjs');
+const { adjustProductUsage } = require('./commercialCapabilities.cjs');
+const { HttpsError } = require('firebase-functions/v2/https');
 const scopeMetadata = root => ({ [root.parent.id === 'tenants' ? 'tenantId' : 'restaurantId']: root.id });
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const round = (n) => {
@@ -67,11 +69,12 @@ const location = (kind, id) =>
       : "central";
 const balanceId = (loc, pid) => `${loc}__${pid}`;
 class Operation {
-  constructor(tx, root, command, member, id) {
+  constructor(tx, root, command, member, id, tenant = null) {
     this.tx = tx;
     this.root = root;
     this.command = command;
     this.member = member;
+    this.tenant = tenant;
     this.id = id;
     this.actor = command.createdBy;
     this.now = new Date().toISOString();
@@ -996,6 +999,28 @@ async function creditOverride(o, p) {
   return ov;
 }
 
+async function saveProduct(o, payload) {
+  o.admin();
+  const product = payload?.product || payload;
+  check(product && typeof product.name === 'string' && product.name.trim(), 'Nombre de producto requerido.');
+  check(['kg', 'unit', 'package'].includes(product.unitType), 'Unidad de producto no válida.');
+  check(Number.isFinite(product.referencePrice) && product.referencePrice >= 0, 'Precio de referencia inválido.');
+  const productId = safeId(product.id || o.id);
+  const existing = await o.read('distProducts', productId);
+  check(!existing || existing.tenantId === o.root.id, 'Producto no autorizado.');
+  const next = {
+    ...(existing || {}), ...product, id: productId, tenantId: o.root.id,
+    name: product.name.trim(), active: product.active !== false,
+    createdAt: existing?.createdAt || product.createdAt || o.now,
+    updatedAt: o.now,
+  };
+  const wasActive = Boolean(existing && existing.active !== false && !existing.deleted);
+  const willBeActive = next.active !== false && !next.deleted;
+  await adjustProductUsage(o.tx, o.root, o.tenant, Number(willBeActive) - Number(wasActive));
+  o.put('distProducts', productId, next);
+  return { productId, active: next.active, status: 'saved' };
+}
+
 const handlers = {
   intake,
   transfer,
@@ -1004,6 +1029,7 @@ const handlers = {
   sale,
   collection,
   creditOverride,
+  saveProduct,
 };
 async function processCommand(db, ref) {
   return db.runTransaction(async (tx) => {
@@ -1021,9 +1047,11 @@ async function processCommand(db, ref) {
         : root.id === 'pachax' && membership.data().active === true), 'Acceso no autorizado.');
       check(handlers[command.type], "Operación no reconocida.");
       let member = membership.data();
+      let tenantData = null;
       if (tenantScoped) {
         const [tenant, platform, maintenance] = await Promise.all([tx.get(root), tx.get(db.doc('platformOperators/' + command.createdBy)), tx.get(root.collection('maintenanceState').doc('reset'))]);
-        const permission = ({ sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage', creditOverride: 'settings.manage' })[command.type];
+        tenantData = tenant.data();
+        const permission = ({ saveProduct: 'products.manage', sale: 'sales.create', collection: 'credits.collect', creditStatus: 'credits.read', expense: 'sales.create', deleteExpense: 'settings.manage', intake: 'inventory.manage', transfer: 'inventory.manage', dispatch: 'dispatch.create', addition: 'dispatch.create', closure: 'route.close', adjustment: 'inventory.manage', claim: 'sales.create', updateLot: 'inventory.manage', reopen: 'route.close', deleteProduct: 'products.manage', creditOverride: 'settings.manage' })[command.type];
         check(hasTenantBillingAccess(tenant.data()), 'La suscripción está vencida o no está activa. Contacta a PACHAX.');
         check(tenant.data()?.businessType === 'route_distribution' && permission && hasPermission(tenant.data(), member, permission), 'Sin permiso para esta operación.');
         check(command.tenantId === root.id, 'Empresa de la operación inválida.');
@@ -1031,7 +1059,7 @@ async function processCommand(db, ref) {
         check(member.branchIds?.includes(command.branchId || 'main'), 'Sucursal no autorizada.');
         member = legacyMember(member);
       }
-      const o = new Operation(tx, root, command, member, ref.id);
+      const o = new Operation(tx, root, command, member, ref.id, tenantData);
       const result = await handlers[command.type](o, command.payload);
       o.flush();
       if (tenantScoped) audit(db, tx, { uid: command.createdBy, tenantId: root.id, actorType: 'tenant' }, 'distribution.' + command.type, ref.id, null, { operationId: ref.id });
@@ -1041,10 +1069,13 @@ async function processCommand(db, ref) {
         processedAt: new Date().toISOString(),
       });
     } catch (error) {
+      const capabilityRejection = error instanceof HttpsError
+        && ['resource-exhausted', 'failed-precondition'].includes(error.code);
       if (
         !(error instanceof BusinessError) &&
         !(error instanceof TypeError) &&
-        !(error instanceof RangeError)
+        !(error instanceof RangeError) &&
+        !capabilityRejection
       )
         throw error;
       tx.update(ref, {
@@ -1052,6 +1083,8 @@ async function processCommand(db, ref) {
         error:
           error instanceof BusinessError
             ? error.message
+            : capabilityRejection
+              ? error.message
             : "Datos incompletos o inválidos en la operación.",
         processedAt: new Date().toISOString(),
       });
@@ -1155,6 +1188,7 @@ async function deleteProduct(o, p) {
     ),
     "El producto forma parte de un despacho abierto. Cierra la ruta antes de eliminarlo.",
   );
+  if (product.active !== false && !product.deleted) await adjustProductUsage(o.tx, o.root, o.tenant, -1);
   o.put("distProducts", product.id, {
     ...product,
     active: false,
