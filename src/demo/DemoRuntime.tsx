@@ -4,6 +4,7 @@ import { DistributionDemo } from './distribution/DistributionDemo'
 import { QuickRetailDemo } from './quick-retail/QuickRetailDemo'
 import { NightclubDemo } from './nightclub/NightclubDemo'
 import { ParcelDemo } from './parcel/ParcelDemo'
+import { clearParcelDemoStorage } from './parcel/demoParcelController'
 import type { DemoTemplateId, DemoMode } from './demoTypes'
 import type { StudioBranding } from '../studio/branding/brandingTypes'
 import { applyStudioThemeTokens } from '../studio/branding/brandingAdapter'
@@ -40,6 +41,7 @@ export function DemoRuntime({
   const [activeRole, setActiveRole] = useState<string>(
     simulatedRole || initialRole || 'admin'
   )
+  const [currentMode, setCurrentMode] = useState<DemoMode>(mode || 'team')
   const effectiveRole = simulatedRole || activeRole
   const [branding, setBranding] = useState<StudioBranding | null>(null)
 
@@ -53,21 +55,25 @@ export function DemoRuntime({
   const [resetKey, setResetKey] = useState(0)
 
   const templateRoles = (function() {
-    const businessTypeMap: Record<DemoTemplateId, BusinessType> = {
+    if (templateId === 'parcel') return []
+    const businessTypeMap: Record<Exclude<DemoTemplateId, 'parcel'>, BusinessType> = {
       restaurant: 'restaurant_pos',
       hamburger: 'hamburger_shop',
       distribution: 'route_distribution',
       retail: 'gelateria_weight_cafe',
       nightclub: 'nightclub_lounge',
-      parcel: 'route_distribution',
     }
-    const bt = businessTypeMap[templateId]
+    const bt = businessTypeMap[templateId as Exclude<DemoTemplateId, 'parcel'>]
     return BusinessTemplateRegistry[bt]?.roles || []
   })()
 
   const clearTemplateDemo = useCallback(() => {
     if (templateId === 'distribution') {
       clearDemoState('route_distribution')
+      return
+    }
+    if (templateId === 'parcel') {
+      clearParcelDemoStorage(isStudioEmbed ? 'studio' : 'demo')
       return
     }
     if (templateId !== 'restaurant' && templateId !== 'hamburger' && templateId !== 'nightclub') return
@@ -82,7 +88,7 @@ export function DemoRuntime({
         }
       }
     } catch { /* Private mode may disable storage. */ }
-  }, [templateId])
+  }, [templateId, isStudioEmbed])
 
   const switchDatasetMode = (newMode: DemoDatasetMode) => {
     clearTemplateDemo()
@@ -105,6 +111,11 @@ export function DemoRuntime({
 
       if (event.data?.type === 'PACHAX_STUDIO_SYNC') {
         const payload = event.data.payload || {}
+        if (payload.mode === 'team' || payload.mode === 'simulated_role') {
+          setCurrentMode(payload.mode)
+        } else if (typeof payload.isTeamMode === 'boolean') {
+          setCurrentMode(payload.isTeamMode ? 'team' : 'simulated_role')
+        }
         if (payload.role) {
           setActiveRole(payload.role)
         }
@@ -204,7 +215,7 @@ export function DemoRuntime({
         {templateId === 'hamburger' && (
           <RestaurantDemo
             key={`hamburger:${currentDatasetMode}:${resetKey}`}
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
@@ -218,7 +229,7 @@ export function DemoRuntime({
         )}
         {templateId === 'distribution' && (
           <DistributionDemo
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
@@ -229,11 +240,16 @@ export function DemoRuntime({
         )}
         {templateId === 'retail' && (
           <QuickRetailDemo
-            mode={mode}
+            key={`retail:${currentDatasetMode}:${resetKey}`}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
+            companyName={branding?.companyName}
+            logoUrl={branding?.logoUrl}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
+            isStudioEmbed={isStudioEmbed}
           />
         )}
         {templateId === 'nightclub' && (
@@ -251,6 +267,7 @@ export function DemoRuntime({
         {templateId === 'parcel' && (
           <ParcelDemo
             isStudioEmbed={isStudioEmbed}
+            isPublicDemo={isPublicDemo}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
             companyName={branding?.companyName}
@@ -422,7 +439,7 @@ export function DemoRuntime({
         {templateId === 'hamburger' && (
           <RestaurantDemo
             key={`hamburger:${currentDatasetMode}:${resetKey}`}
-            mode={mode}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             logoUrl={branding?.logoUrl}
@@ -447,11 +464,16 @@ export function DemoRuntime({
         )}
         {templateId === 'retail' && (
           <QuickRetailDemo
-            mode={mode}
+            key={`retail:${currentDatasetMode}:${resetKey}`}
+            mode={currentMode}
             simulatedRole={effectiveRole}
             onSelectRole={onSelectRole}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
+            companyName={branding?.companyName}
+            logoUrl={branding?.logoUrl}
+            themeColors={branding ? { primary: branding.primaryColor, accent: branding.accentColor } : undefined}
+            isStudioEmbed={isStudioEmbed}
           />
         )}
         {templateId === 'nightclub' && (
@@ -469,6 +491,7 @@ export function DemoRuntime({
         {templateId === 'parcel' && (
           <ParcelDemo
             isStudioEmbed={isStudioEmbed}
+            isPublicDemo={isPublicDemo}
             datasetMode={currentDatasetMode}
             resetKey={resetKey}
             companyName={branding?.companyName}

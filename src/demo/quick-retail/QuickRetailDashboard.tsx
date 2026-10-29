@@ -4,9 +4,11 @@ import type { CompletedRetailSale } from '../mocks/retailMock'
 export function QuickRetailDashboard({
   sales,
   onNavigate,
+  companyName,
 }: {
   sales: CompletedRetailSale[]
   onNavigate: (module: string) => void
+  companyName?: string
 }) {
   const totalSalesMinor = sales.reduce((sum, s) => sum + s.totalMinor, 0)
   const totalSalesBs = (totalSalesMinor / 100).toFixed(2)
@@ -39,7 +41,7 @@ export function QuickRetailDashboard({
           <span className="inline-block text-[11px] font-bold uppercase tracking-wider bg-teal-800/60 text-teal-300 px-2.5 py-0.5 rounded-full mb-2">
             Mostrador & Caja Activa
           </span>
-          <h1 className="text-2xl font-bold">Comercio / Venta Rápida</h1>
+          <h1 className="text-2xl font-bold">{companyName || 'Comercio / Venta Rápida'}</h1>
           <p className="text-slate-300 text-sm mt-1">
             Ventas combinadas por peso (gramos) y unidad para cafeterías, heladerías, panaderías y tiendas a granel.
           </p>

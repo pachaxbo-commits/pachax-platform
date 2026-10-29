@@ -42,28 +42,51 @@ import {
 
 export type DemoDatasetMode = 'full' | 'empty'
 
-const STORAGE_PREFIX = 'pachax:parcel-studio'
+const STUDIO_STORAGE_PREFIX = 'pachax:parcel-studio'
+const DEMO_STORAGE_PREFIX = 'pachax:parcel-demo'
 
-function getStorageKey(edition: ParcelEdition, mode: DemoDatasetMode): string {
-  return `${STORAGE_PREFIX}:${edition}:${mode}:v1`
+export function clearParcelDemoStorage(scope: 'studio' | 'demo' = 'demo'): void {
+  if (typeof window === 'undefined' || !window.sessionStorage) return
+  const prefix = scope === 'demo' ? DEMO_STORAGE_PREFIX : STUDIO_STORAGE_PREFIX
+  const keysToRemove: string[] = []
+  for (let i = 0; i < window.sessionStorage.length; i++) {
+    const key = window.sessionStorage.key(i)
+    if (key && key.startsWith(prefix)) {
+      keysToRemove.push(key)
+    }
+  }
+  for (const key of keysToRemove) {
+    window.sessionStorage.removeItem(key)
+  }
 }
 
 export class DemoParcelController {
   private state: ParcelAppState
   private edition: ParcelEdition
   private datasetMode: DemoDatasetMode
+  private storageScope: 'studio' | 'demo'
   private listeners: Set<(state: ParcelAppState) => void> = new Set()
 
-  constructor(edition: ParcelEdition = 'sindicato', datasetMode: DemoDatasetMode = 'full') {
+  constructor(
+    edition: ParcelEdition = 'sindicato',
+    datasetMode: DemoDatasetMode = 'full',
+    storageScope: 'studio' | 'demo' = 'studio'
+  ) {
     this.edition = edition
     this.datasetMode = datasetMode
+    this.storageScope = storageScope
     this.state = this.loadInitialState()
+  }
+
+  public getStorageKey(): string {
+    const prefix = this.storageScope === 'demo' ? DEMO_STORAGE_PREFIX : STUDIO_STORAGE_PREFIX
+    return `${prefix}:${this.edition}:${this.datasetMode}:v1`
   }
 
   private loadInitialState(): ParcelAppState {
     if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
-        const raw = window.sessionStorage.getItem(getStorageKey(this.edition, this.datasetMode))
+        const raw = window.sessionStorage.getItem(this.getStorageKey())
         if (raw) {
           const parsed = JSON.parse(raw) as ParcelAppState
           if (parsed && Array.isArray(parsed.shipments)) {
@@ -92,7 +115,7 @@ export class DemoParcelController {
     if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
         window.sessionStorage.setItem(
-          getStorageKey(this.edition, this.datasetMode),
+          this.getStorageKey(),
           JSON.stringify(this.state)
         )
       } catch {
