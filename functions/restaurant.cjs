@@ -1,6 +1,7 @@
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { tenantActor, hasPermission, id } = require('./authorization.cjs')
+const { adjustProductUsage } = require('./commercialCapabilities.cjs')
 
 const permissions = {
   openShift: 'cash.close',
@@ -261,7 +262,7 @@ async function executeRestaurantCommand(db, request) {
       throw new HttpsError('permission-denied', 'Sucursal no autorizada.')
     }
 
-    const result = await applyRestaurantCommand({ db, tx, root, actor, branchId, operationId, type, payload, now })
+    const result = await applyRestaurantCommand({ db, tx, root, tenant, actor, branchId, operationId, type, payload, now })
 
     tx.create(operationRef, {
       operationId,
@@ -290,7 +291,7 @@ async function executeRestaurantCommand(db, request) {
 }
 
 async function applyRestaurantCommand(context) {
-  const { db, tx, root, actor, branchId, operationId, type, payload, now } = context
+  const { db, tx, root, tenant, actor, branchId, operationId, type, payload, now } = context
   const stateRef = root.collection('restaurantOperationalState').doc(branchId)
 
   // 1. Iniciar Turno (Caja)
@@ -325,6 +326,7 @@ async function applyRestaurantCommand(context) {
     if (!p || typeof p.name !== 'string' || !p.name.trim()) throw new HttpsError('invalid-argument', 'Producto inválido.')
     const productId = id(p.id || `prod_${operationId}`)
     const productRef = root.collection('products').doc(productId)
+    const existingProduct = await tx.get(productRef)
     const validatedRecipe = await validateRecipe(tx, root, actor, productId, p.recipe)
     const productData = {
       id: productId,
@@ -348,6 +350,8 @@ async function applyRestaurantCommand(context) {
       updatedAt: now,
       createdAt: p.createdAt || now,
     }
+    const wasActive = existingProduct.exists && existingProduct.data().isActive !== false
+    await adjustProductUsage(tx, root, tenant.data(), Number(productData.isActive !== false) - Number(wasActive))
     tx.set(productRef, productData, { merge: true })
     return { productId, product: productData }
   }
@@ -356,10 +360,16 @@ async function applyRestaurantCommand(context) {
   if (type === 'saveProducts') {
     const list = Array.isArray(payload.products) ? payload.products : []
     if (!list.length) throw new HttpsError('invalid-argument', 'Lista de productos requerida.')
+    const pendingWrites = []
+    let productDelta = 0
+    const seenProductIds = new Set()
     for (const p of list) {
       if (!p || typeof p.name !== 'string' || !p.name.trim()) continue
       const productId = id(p.id)
+      if (seenProductIds.has(productId)) throw new HttpsError('invalid-argument', 'La lista contiene identificadores de producto duplicados.')
+      seenProductIds.add(productId)
       const productRef = root.collection('products').doc(productId)
+      const existingProduct = await tx.get(productRef)
       const validatedRecipe = await validateRecipe(tx, root, actor, productId, p.recipe, list)
       const productData = {
         id: productId,
@@ -382,8 +392,11 @@ async function applyRestaurantCommand(context) {
         ...(Array.isArray(p.options) ? { options: p.options.map(o => ({ id: id(o.id || o.label || o), label: text(o.label || o.name || o, 100) })) } : {}),
         updatedAt: now,
       }
-      tx.set(productRef, productData, { merge: true })
+      productDelta += Number(productData.isActive !== false) - Number(existingProduct.exists && existingProduct.data().isActive !== false)
+      pendingWrites.push([productRef, productData])
     }
+    await adjustProductUsage(tx, root, tenant.data(), productDelta)
+    for (const [productRef, productData] of pendingWrites) tx.set(productRef, productData, { merge: true })
     return { ok: true, count: list.length }
   }
 
@@ -482,6 +495,8 @@ async function applyRestaurantCommand(context) {
         throw new HttpsError('failed-precondition', `No se puede archivar ${snap.data().name} porque es insumo de la receta activa de ${prod.name}.`)
       }
     }
+
+    if (snap.data().isActive !== false) await adjustProductUsage(tx, root, tenant.data(), -1)
 
     tx.update(productRef, {
       isActive: false,

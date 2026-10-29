@@ -4,6 +4,7 @@ const { FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
 const { PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
 const { BILLING_GRACE_PERIOD_DAYS, billingAccessUntil: billingAccessUntilMillis } = require('./billingPolicy.cjs');
+const { normalizeCapabilitiesV1, normalizeCapabilityAdjustments, applyCapabilityAdjustments } = require('./commercialCapabilities.cjs');
 
 const BILLING_STATUSES = Object.freeze(['pending', 'active', 'overdue', 'suspended', 'cancelled']);
 const addGracePeriod = periodEnd => Timestamp.fromMillis(billingAccessUntilMillis(periodEnd.toMillis()));
@@ -98,6 +99,7 @@ async function createManualCommercialIntent(db, request) {
         monthlyPrice: Number(plan.monthlyPriceUSD), annualPrice: Number(plan.annualPriceUSD),
         includedFeatures: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.filter(x => typeof x === 'string').slice(0, 100) : [],
         technicalEntitlements: [],
+        capabilitiesV1: normalizeCapabilitiesV1(plan.capabilitiesV1, template.businessType),
       };
     }
     if (extraSnaps.some(snap => !snap.exists || snap.data().status !== 'published'
@@ -107,6 +109,7 @@ async function createManualCommercialIntent(db, request) {
     const requestedExtraSnapshots = extraSnaps.map((snap, index) => ({
       id: extraIds[index], title: cleanText(snap.data().title, 'Extra', 1, 120),
       pricingType: snap.data().pricingType, commercialVersion: Number(snap.data().commercialVersion) || 1,
+      capabilityAdjustments: normalizeCapabilityAdjustments(snap.data().capabilityAdjustments),
     }));
     const now = FieldValue.serverTimestamp();
     tx.create(intentRef, {
@@ -149,6 +152,10 @@ async function saveCommercialQuote(db, request) {
     annualMinor: moneyMinor(item?.annual ?? '0', 'Extra anual'),
   }));
   if (new Set(normalized.map(item => item.id)).size !== normalized.length) throw new HttpsError('invalid-argument', 'No repitas extras.');
+  const fingerprint = digest(JSON.stringify({
+    intentId, currency, cycle, implementationMinor, monthlyMinor, annualMinor, discountMinor, discountReason,
+    extras: normalized, capabilitiesV1: input.capabilitiesV1 || null,
+  }));
   const intentRef = db.doc(`platformCommercialIntents/${intentId}`);
   const operationRef = intentRef.collection('quoteOperations').doc(requestKey(actor, 'quote.save', operationId));
   return db.runTransaction(async tx => {
@@ -158,7 +165,6 @@ async function saveCommercialQuote(db, request) {
     if (!intentSnap.exists) throw new HttpsError('not-found', 'Solicitud comercial no encontrada.');
     const intent = intentSnap.data();
     if (intent.contractId || intent.acceptance) throw new HttpsError('failed-precondition', 'La solicitud ya fue aceptada o contratada; no se puede cambiar la cotización.');
-    const fingerprint = digest(JSON.stringify({ intentId, currency, cycle, implementationMinor, monthlyMinor, annualMinor, discountMinor, discountReason, extras: normalized }));
     if (operationSnap.exists) {
       if (operationSnap.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador de cotización ya se usó con otros datos.');
       return { success: true, quoteVersion: operationSnap.data().quoteVersion, idempotent: true };
@@ -170,10 +176,15 @@ async function saveCommercialQuote(db, request) {
     const extraLines = extraSnaps.map((snap, index) => ({
       id: normalized[index].id, title: cleanText(snap.data().title, 'Extra', 1, 120),
       pricingType: snap.data().pricingType,
+      capabilityAdjustments: normalizeCapabilityAdjustments(snap.data().capabilityAdjustments),
       oneTimeMinor: normalized[index].oneTimeMinor,
       monthlyMinor: normalized[index].monthlyMinor,
       annualMinor: normalized[index].annualMinor,
     }));
+    const capabilitiesV1 = intent.planSnapshot?.capabilitiesV1
+      ? extraLines.reduce((snapshot, line) => applyCapabilityAdjustments(snapshot, line.capabilityAdjustments), intent.planSnapshot.capabilitiesV1)
+      : (input.capabilitiesV1 ? normalizeCapabilitiesV1(input.capabilitiesV1, intent.businessType) : null);
+    if (!capabilitiesV1) throw new HttpsError('failed-precondition', 'Define y revisa las capacidades V1 de esta cotización antes de ofrecerla.');
     for (const line of extraLines) {
       if (!['recurring', 'one_time', 'custom_quote'].includes(line.pricingType)) throw new HttpsError('failed-precondition', 'Un extra tiene una modalidad de cobro no reconocida.');
       if (line.pricingType === 'recurring' && line.oneTimeMinor !== 0) throw new HttpsError('invalid-argument', 'Un extra recurrente no puede cotizarse como importe único.');
@@ -192,7 +203,7 @@ async function saveCommercialQuote(db, request) {
       version: quoteVersion, status: 'draft', currency, billingCycle: cycle,
       implementationMinor, monthlyMinor, annualMinor, discountMinor, discountReason,
       extras: extraLines, initialDueMinor, recurringMinor: recurring + recurringExtras,
-      sourcePlanSnapshot: intent.planSnapshot || null, technicalEntitlements: [],
+      sourcePlanSnapshot: intent.planSnapshot || null, capabilitiesV1, technicalEntitlements: [],
       preparedBy: actor.uid, preparedAt: FieldValue.serverTimestamp(),
     };
     tx.update(intentRef, { quote, proposal: { status: 'draft', commercialVersion: quoteVersion }, updatedAt: FieldValue.serverTimestamp() });
@@ -315,6 +326,7 @@ async function createCommercialContract(db, request) {
       version: intent.quote.version, templateId: intent.templateId, businessType: intent.businessType,
       companyName: intent.companyName, ownerEmail: intent.email, ownerName: intent.contactName,
       plan: intent.planSnapshot || null, extras: intent.quote.extras,
+      capabilitiesV1: normalizeCapabilitiesV1(intent.quote.capabilitiesV1, intent.businessType),
       currency: intent.quote.currency, billingCycle: intent.quote.billingCycle,
       implementationMinor: intent.quote.implementationMinor, monthlyMinor: intent.quote.monthlyMinor,
       annualMinor: intent.quote.annualMinor, discountMinor: intent.quote.discountMinor,
@@ -343,6 +355,7 @@ async function createCommercialContract(db, request) {
     tx.create(subscriptionRef, {
       subscriptionId: contractId, contractId, tenantId: null, status: 'pending',
       planKey: terms.plan?.planId || null, planSnapshot: terms.plan, templateId: terms.templateId,
+      capabilitiesV1: terms.capabilitiesV1,
       recurringMinor: terms.recurringMinor, billingCycle: terms.billingCycle, currency: terms.currency,
       currentPeriodStart: null, currentPeriodEnd: null, nextRenewalAt: null,
       createdAt: now, updatedAt: now,
@@ -457,6 +470,7 @@ async function confirmManualPayment(db, request) {
           pendingRenewalChargeId: FieldValue.delete(),
           ...(pendingPlanChange ? {
             planKey: pendingPlanChange.planSnapshot.planId,
+            commercialCapabilities: pendingPlanChange.planSnapshot.capabilitiesV1,
             planSnapshot: pendingPlanChange.planSnapshot,
             recurringMinor: pendingPlanChange.recurringMinor,
             billingCycle: pendingPlanChange.billingCycle,
@@ -467,7 +481,10 @@ async function confirmManualPayment(db, request) {
         });
         if (subscription.tenantId) tx.update(db.doc(`tenants/${subscription.tenantId}`), {
           subscriptionStatus: 'active', status: 'active', billingAccessUntil, updatedAt: now,
-          ...(pendingPlanChange ? { planKey: pendingPlanChange.planSnapshot.planId } : {}),
+          ...(pendingPlanChange ? {
+            planKey: pendingPlanChange.planSnapshot.planId,
+            commercialCapabilities: pendingPlanChange.planSnapshot.capabilitiesV1,
+          } : {}),
         });
       } else {
         // El ingreso se registra, pero el pago de una suscripción cancelada o suspendida
@@ -579,9 +596,12 @@ async function listPublishedBillingPlans(db, request) {
     try {
       const monthlyMinor = moneyMinor(Number(plan.monthlyPriceUSD).toFixed(2), 'Mensualidad', { allowZero: false });
       const annualMinor = moneyMinor(Number(plan.annualPriceUSD).toFixed(2), 'Anualidad', { allowZero: false });
+      const template = templateFor(plan.templateId);
+      const capabilitiesV1 = normalizeCapabilitiesV1(plan.capabilitiesV1, template.businessType);
       return [{ id: document.id, name: cleanText(plan.name, 'Plan', 1, 120), templateId: plan.templateId,
         version: Number(plan.commercialVersion) || 1, currency: currencyCode(plan.currency), monthlyMinor, annualMinor,
-        includedFeatures: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.filter(value => typeof value === 'string').slice(0, 50) : [] }];
+        includedFeatures: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.filter(value => typeof value === 'string').slice(0, 50) : [],
+        capabilitiesV1 }];
     } catch { return []; }
   }) };
 }
@@ -606,12 +626,21 @@ async function requestSubscriptionPlanChange(db, request) {
     const contract = contractSnap.data();
     const subscription = subscriptionSnap.data();
     const plan = planSnap.data();
+    const contractedCapabilities = contract.terms?.plan?.capabilitiesV1;
+    const contractedBusinessType = contractedCapabilities?.businessType;
+    if (typeof contractedBusinessType !== 'string' || !contractedBusinessType) {
+      throw new HttpsError('failed-precondition', 'El contrato no tiene una plantilla de capacidades verificable para programar el cambio de plan.');
+    }
     const monthlyMinor = moneyMinor(Number(plan.monthlyPriceUSD).toFixed(2), 'Mensualidad', { allowZero: false });
     const annualMinor = moneyMinor(Number(plan.annualPriceUSD).toFixed(2), 'Anualidad', { allowZero: false });
     const planSnapshot = {
       planId, name: cleanText(plan.name, 'Plan', 1, 120), version: Number(plan.commercialVersion) || 1,
       templateId: plan.templateId, currency: currencyCode(plan.currency), monthlyMinor, annualMinor,
       includedFeatures: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.filter(value => typeof value === 'string').slice(0, 50) : [],
+      capabilitiesV1: (contract.terms?.extras || []).reduce(
+        (current, extra) => applyCapabilityAdjustments(current, normalizeCapabilityAdjustments(extra.capabilityAdjustments)),
+        normalizeCapabilitiesV1(plan.capabilitiesV1, contractedBusinessType),
+      ),
       technicalEntitlements: [],
     };
     const extrasRecurring = (contract.terms?.extras || []).reduce((sum, extra) => sum + (cycle === 'annual' ? extra.annualMinor : extra.monthlyMinor), 0);

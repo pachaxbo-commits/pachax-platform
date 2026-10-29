@@ -1,6 +1,7 @@
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { authenticated, id, hasPermission } = require('./authorization.cjs')
+const { adjustProductUsage } = require('./commercialCapabilities.cjs')
 
 const MONEY_LIMIT = 9_000_000_000
 const validMinor = value => Number.isSafeInteger(value) && value >= 0 && value <= MONEY_LIMIT
@@ -115,7 +116,7 @@ async function mutate(db, request) {
     }
 
     const stateRef = root.collection('retailOperationalState').doc(branchId)
-    const result = await applyMutation({ tx, root, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef, permission: permission[0] })
+    const result = await applyMutation({ tx, root, tenant, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef, permission: permission[0] })
     tx.create(opRef, { operationId, tenantId, branchId, actorUid: uid, commandType, requestHash: hash, result, createdAt: now })
     tx.create(root.collection('auditLogs').doc(), {
       tenantId, branchId, actorUid: uid, actorType: 'tenant', action: `retail.${commandType}`,
@@ -126,7 +127,7 @@ async function mutate(db, request) {
   })
 }
 
-async function applyMutation({ tx, root, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef }) {
+async function applyMutation({ tx, root, tenant, tenantId, uid, branchId, operationId, commandType, payload, now, stateRef }) {
   const stateSnap = await tx.get(stateRef)
   const state = stateSnap.data() || {}
   const activeShiftId = state.activeShiftId || null
@@ -143,6 +144,8 @@ async function applyMutation({ tx, root, tenantId, uid, branchId, operationId, c
       product.createdAt = existing.data().createdAt
       product.createdBy = existing.data().createdBy
     }
+    const wasActive = existing.exists && existing.data().active !== false
+    await adjustProductUsage(tx, root, tenant, Number(product.active !== false) - Number(wasActive))
     tx.set(ref, product)
     return { productId, status: 'saved' }
   }

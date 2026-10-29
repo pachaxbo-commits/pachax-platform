@@ -5,6 +5,28 @@ import type { TemplateTierPlan } from '../../types'
 import type { TemplateKey } from '../../../public/config/pricingConfig'
 import { useAdminAuth } from '../../auth/adminAuthStore'
 
+function defaultCapabilities(templateId: TemplateKey, planKind: 'free' | 'paid') {
+  const businessTypeByTemplate: Record<TemplateKey, string> = {
+    restaurant: 'restaurant_pos', hamburger: 'hamburger_shop', distribution: 'route_distribution',
+    nightclub: 'nightclub_lounge', retail: 'gelateria_weight_cafe',
+  }
+  return {
+    version: 1 as const,
+    businessType: businessTypeByTemplate[templateId],
+    limits: { activeUsers: 1, activeProducts: 10, activeBranches: 1 },
+    features: {
+      reports: { basic: true, detailed: false, export: false },
+      receipts: { digital: false },
+      printing: { manual: false, kitchenAutomatic: false },
+      adsRequired: planKind === 'free',
+    },
+  }
+}
+
+function withCapabilityDefaults(plan: TemplateTierPlan): TemplateTierPlan {
+  return { ...plan, capabilitiesV1: plan.capabilitiesV1 || defaultCapabilities(plan.templateId, plan.planKind) }
+}
+
 export function PlansSection() {
   const { user } = useAdminAuth()
   const canApprovePrice = user?.role === 'platform_owner'
@@ -29,15 +51,15 @@ export function PlansSection() {
     ? config.plans.find((p) => p.id === editingPlanId)
     : plansForTemplate[0]
 
-  const [formData, setFormData] = useState<TemplateTierPlan | null>(activeEditingPlan || null)
+  const [formData, setFormData] = useState<TemplateTierPlan | null>(activeEditingPlan ? withCapabilityDefaults(activeEditingPlan) : null)
 
   useEffect(() => {
-    queueMicrotask(() => setFormData(activeEditingPlan ? JSON.parse(JSON.stringify(activeEditingPlan)) : null))
+    queueMicrotask(() => setFormData(activeEditingPlan ? JSON.parse(JSON.stringify(withCapabilityDefaults(activeEditingPlan))) : null))
   }, [activeEditingPlan])
 
   const handleSelectPlan = (plan: TemplateTierPlan) => {
     setEditingPlanId(plan.id)
-    setFormData(JSON.parse(JSON.stringify(plan)))
+    setFormData(JSON.parse(JSON.stringify(withCapabilityDefaults(plan))))
     setSaveFeedback(null)
     setSaveError(null)
   }
@@ -49,6 +71,10 @@ export function PlansSection() {
     if (!formData) return
     if (formData.status === 'published' && formData.priceApproval !== 'approved') {
       setSaveError('Antes de publicar, confirma que el precio y el alcance comercial fueron aprobados.')
+      return
+    }
+    if (formData.status === 'published' && formData.planKind === 'free') {
+      setSaveError('Plan Free sigue en preparación y no se puede publicar en esta versión.')
       return
     }
 
@@ -95,28 +121,22 @@ export function PlansSection() {
     const nextStatus = formData.status === 'published' ? 'draft' : 'published'
 
     if (nextStatus === 'published') {
+      if (formData.planKind === 'free') {
+        setSaveError('Plan Free sigue en preparación y no se puede publicar en esta versión.')
+        return
+      }
       if (formData.priceApproval !== 'approved') {
         setSaveError('Este borrador sigue como referencia. Confirma la aprobación del precio antes de publicarlo.')
         return
       }
-      if (formData.planKind === 'free') {
-        const freeCount = plansForTemplate.filter(
-          (p) => p.id !== formData.id && p.status === 'published' && p.planKind === 'free',
-        ).length
-        if (freeCount >= 1) {
-          setSaveError('Cada plantilla permite un máximo de 1 plan gratuito activo publicado simultáneamente en el catálogo. Despublica el actual antes de activar este.')
-          return
-        }
-      } else {
-        const paidCount = plansForTemplate.filter(
-          (p) => p.id !== formData.id && p.status === 'published' && p.planKind !== 'free',
-        ).length
-        if (paidCount >= 3) {
-          setSaveError('Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.')
-          return
-        }
-        if (!window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este plan debe mostrarse públicamente con los importes actuales?')) return
+      const paidCount = plansForTemplate.filter(
+        (p) => p.id !== formData.id && p.status === 'published' && p.planKind !== 'free',
+      ).length
+      if (paidCount >= 3) {
+        setSaveError('Cada plantilla permite un máximo de 3 planes de pago activos publicados simultáneamente en el catálogo. Despublica uno antes de activar este.')
+        return
       }
+      if (!window.confirm('Los precios de referencia pueden no ser oficiales. ¿Confirmas que este plan debe mostrarse públicamente con los importes actuales?')) return
     }
 
     setIsProcessing(true)
@@ -156,6 +176,7 @@ export function PlansSection() {
       limitsLabel: '1 estación · 1 caja',
       includedFeatures: ['Capacidad inicial 1', 'Capacidad inicial 2'],
       technicalEntitlements: [],
+      capabilitiesV1: defaultCapabilities(selectedTemplate, 'paid'),
       ctaLabel: 'Elegir Plan',
       status: 'draft',
       priceApproval: 'pending',
@@ -467,6 +488,11 @@ export function PlansSection() {
                               tierLevel: formData.tierLevel || 1,
                               adsRequired: false,
                             }),
+                        capabilitiesV1: {
+                          ...(formData.capabilitiesV1 || defaultCapabilities(selectedTemplate, newKind)),
+                          features: { ...(formData.capabilitiesV1 || defaultCapabilities(selectedTemplate, newKind)).features,
+                            adsRequired: newKind === 'free' },
+                        },
                       })
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900"
@@ -501,8 +527,32 @@ export function PlansSection() {
               </label>
 
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
-                <strong>Control técnico:</strong> los entitlements del plan no se activan con esta publicación. Billing Core aún no aplica límites ni permisos por plan; el servidor bloquea la publicación con entitlements técnicos hasta que exista ese control.
+                <strong>Capacidades Core V1:</strong> el servidor aplica límites de usuarios/productos y reportes básicos a nuevos contratos con Billing habilitado. Históricos, exportación, recibos digitales, impresión y más de una sucursal todavía no están habilitados.
               </div>
+
+              {formData.capabilitiesV1 && (
+                <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <legend className="px-1 text-xs font-bold uppercase tracking-wide text-slate-700">Capacidades técnicas contratadas</legend>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {([
+                      ['activeUsers', 'Usuarios activos', 100],
+                      ['activeProducts', 'Productos activos', 200],
+                      ['activeBranches', 'Sucursales', 1],
+                    ] as const).map(([key, label, max]) => (
+                      <label key={key} className="text-xs font-semibold text-slate-700">
+                        {label} (máximo verificable: {max})
+                        <input type="number" min={1} max={max} value={formData.capabilitiesV1!.limits[key]}
+                          onChange={(event) => setFormData({ ...formData, priceApproval: 'pending', capabilitiesV1: {
+                            ...formData.capabilitiesV1!, limits: { ...formData.capabilitiesV1!.limits, [key]: Number(event.target.value) },
+                          } })}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs font-semibold text-slate-700">✓ Resumen operativo básico incluido como capacidad base de V1.</p>
+                  <p className="text-[11px] text-slate-500">Reportes históricos/detallados, exportación, recibos digitales, impresión manual/automática y sucursales adicionales están bloqueados hasta integrar sus controles end-to-end. Las ampliaciones de extras solo aumentan los límites de usuarios y productos dentro del máximo técnico.</p>
+                </fieldset>
+              )}
 
               {formData.planKind === 'free' && (
                 <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 text-xs font-medium flex items-start gap-2.5">

@@ -1,6 +1,7 @@
 const { HttpsError } = require('firebase-functions/v2/https');
 const { getTemplate } = require('./generated/templates.js');
 const { canUseModule } = require('./generated/platform.js');
+const { hasPlanFeature } = require('./commercialCapabilities.cjs');
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 function id(value) {
   if (!validId(value)) throw new HttpsError('invalid-argument', 'Identificador inválido.');
@@ -24,6 +25,7 @@ function hasPermission(tenant, membership, permission) {
   if (tenant.businessType === 'nightclub_lounge' && permission === 'users.manage' && Array.isArray(membership.nightclubPermissions) && membership.nightclubPermissions.includes('special.manageUsers')) return tenant.configuration.features.users === true;
   const role = template.roles.find(item => item.id === membership.roleId);
   if (!role?.permissions.includes(permission)) return false;
+  if (permission === 'reports.read' && !hasPlanFeature(tenant, 'reports.basic')) return false;
   const capability = { sales: 'sales', orders: 'orders', inventory: 'inventory', products: 'inventory', customers: 'customers', credits: 'credits', reports: 'reports', users: 'users', settings: 'settings', support: 'settings', dispatch: 'dispatch', route: 'routes', cash: 'cash' }[permission.split('.')[0]];
   return template.capabilities.includes(capability) && tenant.configuration.features[capability] === true;
 }

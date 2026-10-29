@@ -76,7 +76,11 @@ async function main() {
     const template = require('../generated/templates.js').getTemplate('gelateria_weight_cafe')
     await db.doc(`tenants/${tenantId}`).set({ tenantId, name: 'QA Comercio', businessType: 'gelateria_weight_cafe', ownerUid,
       billingEnforcement: true, subscriptionStatus: 'active', billingAccessUntil: new Date(Date.now() + 30 * 86_400_000),
+      commercialCapabilities: { version: 1, businessType: 'gelateria_weight_cafe', limits: { activeUsers: 100, activeProducts: 200, activeBranches: 1 },
+        features: { reports: { basic: true, detailed: false, export: false }, receipts: { digital: false },
+          printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } },
       configuration: { features: template.defaults.features } })
+    await db.doc(`tenants/${tenantId}/commercialUsage/active`).set({ activeUsers: 1, activeProducts: 0, activeBranches: 1 })
     await db.doc(`tenants/${tenantId}/branches/main`).set({ tenantId, branchId: 'main', active: true })
     await db.doc(`tenants/${tenantId}/branches/other`).set({ tenantId, branchId: 'other', active: true })
     await Promise.all(template.roles.map(role => db.doc(`tenants/${tenantId}/roles/${role.id}`).set({ ...role, tenantId })))

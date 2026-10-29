@@ -301,6 +301,9 @@ try {
     id: `hamb_plan_${suffix}`, templateId: 'hamburger', name: 'Plan QA', planKind: 'paid',
     monthlyPriceUSD: 50, annualPriceUSD: 500, currency: 'USD', status: 'draft',
     priceApproval: 'pending', includedFeatures: ['Ventas'], technicalEntitlements: [],
+    capabilitiesV1: { version: 1, businessType: 'hamburger_shop', limits: { activeUsers: 2, activeProducts: 10, activeBranches: 1 },
+      features: { reports: { basic: true, detailed: false, export: false }, receipts: { digital: false },
+        printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } },
   }
   await callAdminAction('savePlan', ids.owner, { action: 'savePlan', plan: hamburgerPlan })
   assert.equal((await db.doc(`platformPlans/${hamburgerPlan.id}`).get()).data().templateId, 'hamburger')

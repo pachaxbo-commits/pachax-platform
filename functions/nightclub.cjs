@@ -1,6 +1,7 @@
 const { HttpsError } = require('firebase-functions/v2/https')
 const { createHash } = require('node:crypto')
 const { tenantActor, hasPermission } = require('./authorization.cjs')
+const { adjustProductUsage } = require('./commercialCapabilities.cjs')
 const { applyPaidRoundCommand } = require('./nightclubPaidRounds.cjs')
 const { applyNightclubMultiCashboxCommand, canUseCashbox } = require('./nightclubMultiCashbox.cjs')
 const { NIGHTCLUB_BASE_INFRASTRUCTURE, readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure, assertNightclubCashboxLinks, assertNoExistingNightclubInfrastructure } = require('./nightclubInfrastructure.cjs')
@@ -337,7 +338,7 @@ async function executeNightclubCommand(db, request) {
       throw new HttpsError('permission-denied', 'Solo Administración puede pagar comisiones.')
     }
 
-    const result = await applyCommand({ db, tx, root, actor, branchId, operationId, type, payload, now, member })
+    const result = await applyCommand({ db, tx, root, tenant, actor, branchId, operationId, type, payload, now, member })
     tx.create(operationRef, { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, requestHash, status: 'confirmed', createdAt: now, result })
     tx.create(root.collection('nightclubAudit').doc(), { operationId, tenantId: actor.tenantId, branchId, actorUid: actor.uid, type, resourceId: result.transferId || result.countId || result.accountId || result.roundId || result.shiftId || result.movementId || result.zoneId || result.tableId || result.productId || result.customerId || result.reservationId || result.promoterId || result.eventId || result.saleId || result.consumptionId || result.inventoryId || result.memberId || result.courtesyId || result.paymentId || result.incidentId || result.cashboxId || result.locationId || null, createdAt: now })
     return result
@@ -345,7 +346,7 @@ async function executeNightclubCommand(db, request) {
 }
 
 async function applyCommand(context) {
-  const { tx, root, actor, branchId, operationId, type, payload, now } = context
+  const { tx, root, tenant, actor, branchId, operationId, type, payload, now } = context
   if (type === 'initializeNightclubInfrastructure') {
     if (Object.keys(payload).length) throw new HttpsError('invalid-argument', 'La inicialización no acepta datos adicionales.')
     const snapshots = await readNightclubBaseInfrastructure(tx, root)
@@ -460,6 +461,7 @@ async function applyCommand(context) {
     const p = payload.product || payload
     const productId = id(p.id || `prod_${operationId}`)
     const productRef = root.collection('nightclubProducts').doc(productId)
+    const existingProduct = await tx.get(productRef)
     const data = {
       id: productId,
       tenantId: actor.tenantId,
@@ -477,6 +479,8 @@ async function applyCommand(context) {
       ...(p.commission ? { commission: p.commission } : {}),
       updatedAt: now,
     }
+    const wasActive = existingProduct.exists && existingProduct.data().active !== false
+    await adjustProductUsage(tx, root, tenant.data(), Number(data.active) - Number(wasActive))
     tx.set(productRef, data, { merge: true })
     return { productId, product: data }
   }
