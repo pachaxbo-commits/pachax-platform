@@ -1,6 +1,13 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { StudioBranding } from './brandingTypes'
-import { DEFAULT_RESTAURANT_BRANDING, DEFAULT_HAMBURGER_BRANDING, DEFAULT_DISTRIBUTION_BRANDING, DEFAULT_RETAIL_BRANDING, DEFAULT_NIGHTCLUB_BRANDING } from './brandingTypes'
+import {
+  DEFAULT_RESTAURANT_BRANDING,
+  DEFAULT_HAMBURGER_BRANDING,
+  DEFAULT_DISTRIBUTION_BRANDING,
+  DEFAULT_RETAIL_BRANDING,
+  DEFAULT_NIGHTCLUB_BRANDING,
+  DEFAULT_PARCEL_BRANDING,
+} from './brandingTypes'
 import type { DemoTemplateId } from '../../demo/demoTypes'
 
 interface BrandingContextValue {
@@ -20,6 +27,7 @@ export function getInitialBranding(template: DemoTemplateId): StudioBranding {
     distribution: DEFAULT_DISTRIBUTION_BRANDING,
     retail: DEFAULT_RETAIL_BRANDING,
     nightclub: DEFAULT_NIGHTCLUB_BRANDING,
+    parcel: DEFAULT_PARCEL_BRANDING,
   }[template]
 
   try {
@@ -63,6 +71,7 @@ export function BrandingProvider({
       distribution: DEFAULT_DISTRIBUTION_BRANDING,
       retail: DEFAULT_RETAIL_BRANDING,
       nightclub: DEFAULT_NIGHTCLUB_BRANDING,
+      parcel: DEFAULT_PARCEL_BRANDING,
     }[template]
     setBranding(defaults)
   }

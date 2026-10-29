@@ -18,6 +18,7 @@ import { BrandingDrawer } from './branding/BrandingDrawer'
 import './studioRestaurantPreview.css'
 import { getPublicTemplate } from '../core/publicTemplates'
 import { getTemplate } from '../core/templates'
+import { ParcelDemo } from '../demo/parcel/ParcelDemo'
 
 export type ViewportMode = 'responsive' | 'mobile_360' | 'mobile_390' | 'tablet_768' | 'laptop_1366'
 
@@ -54,9 +55,14 @@ export function StudioShell({
   const shellRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
-  const publicTemplate = getPublicTemplate(templateId)
+  const isParcel = templateId === 'parcel'
+  const publicTemplate = isParcel
+    ? { title: 'PACHAX Encomiendas', businessType: 'route_distribution' as const }
+    : getPublicTemplate(templateId)
   const templateRoles = getTemplate(publicTemplate.businessType).roles
-  const defaultCompany = { restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo' }[templateId]
+  const defaultCompany = isParcel
+    ? 'Trans-Bolivia Demo'
+    : ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo' }[templateId] || 'Trans-Bolivia Demo')
 
   // Enviar mensaje de sincronización seguro al iframe
   const sendSync = useCallback(() => {
@@ -213,7 +219,7 @@ export function StudioShell({
             <button
               type="button"
               onClick={() => { resetBranding(); setDatasetResetKey(key => key + 1) }}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
+              className="flex items-center gap-1.5 rounded-xl border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
               title="Restablece datos de operación e identidad del sandbox"
             >
               <RotateCcw className="h-3.5 w-3.5" /> Restablecer demo
@@ -326,12 +332,25 @@ export function StudioShell({
               : 'w-full h-full rounded-xl shadow-xs'
           }`}
         >
-          <iframe
-            ref={iframeRef}
-            src={iframeSrc}
-            title={`PACHAX Studio Preview - ${publicTemplate.title}`}
-            className="w-full h-full border-0 bg-white"
-          />
+          {isParcel ? (
+            <div className="w-full h-full overflow-auto bg-slate-100">
+              <ParcelDemo
+                key={`parcel:${datasetMode}:${datasetResetKey}`}
+                datasetMode={datasetMode}
+                resetKey={datasetResetKey}
+                isStudioEmbed={true}
+                companyName={branding.companyName || defaultCompany}
+                logoUrl={branding.logoUrl}
+              />
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              src={iframeSrc}
+              title={`PACHAX Studio Preview - ${publicTemplate.title}`}
+              className="w-full h-full border-0 bg-white"
+            />
+          )}
         </div>
       </div>
 
