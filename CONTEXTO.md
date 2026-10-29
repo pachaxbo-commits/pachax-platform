@@ -1712,3 +1712,12 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - `billingEnforcement != true` conserva expresamente el comportamiento legacy: no se cambian ni migran las siete empresas existentes.
 - Verificación focal de `test:billing-core`: 14 aserciones PASS, incluyendo acceso directo Firestore, `tenantActor`/ajuste de configuración y worker de Distribución; extras sin plan; y estados efectivos visibles para Admin. `build:functions-core`, `build:rules`, typecheck y `build:emulator` PASS. Build estándar no se ejecutó: faltan variables Firebase del entorno productivo; no se copiaron ni usaron secretos. ESLint focal se ejecutó sin reporte de errores. `git diff --check` pendiente al cerrar commit.
 - No se integró, publicó Preview ni desplegó. Candidato PR #7 aún requiere actualizar su rama remota y validar Preview; PR #8 debe incorporar este commit y repetir pruebas Retail/Comercio. No hubo escrituras fuera de `demo-pachax-billing-v1`.
+
+## Billing comercial — cotizaciones exclusivamente mensuales (29/10/2026)
+
+- En `functions/commercialBilling.cjs`, `saveCommercialQuote` permite que una cotización de ciclo mensual omita la anualidad o la deje vacía; el servidor la normaliza a 0 y exige únicamente un importe recurrente positivo para el ciclo seleccionado. El ciclo anual conserva validación positiva de anualidad. La idempotencia transaccional y los snapshots se mantienen.
+- `CommercialIntentsSection` ya no dice que Billing/activación estén deshabilitados: informa aceptación, pago manual verificado y alta asistida. La anualidad aclara que es opcional para ciclo mensual.
+- La prueba emulada `test:billing-core` cubre contacto WhatsApp sin plan, cotización mensual sin anualidad, rechazo del ciclo anual con precio cero, aceptación, contrato, pago manual confirmado, alta asistida y acceso Auth del propietario.
+- Cierre actual: interés público y registro autónomo continúan cerrados. Los niveles comerciales no conceden entitlements técnicos; los beneficios deben ofrecerse solo como términos comerciales, sin prometer límites o capacidades no aplicados por el backend.
+- Verificación Node 22: Billing Core 15/15 y alta asistida 13/13; typecheck, ESLint focal, build:functions-core, build:rules, build:emulator y diff-check PASS. Build estándar requiere variables Firebase, por eso se validó el build emulador aislado. Rules y Functions productivas sin cambios.
+- Candidata local basada en main 8835a755; pendiente PR/revisión. Sin push, merge ni despliegue de esta corrección.

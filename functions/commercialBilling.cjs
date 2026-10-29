@@ -133,7 +133,10 @@ async function saveCommercialQuote(db, request) {
   if (!['monthly', 'annual'].includes(cycle)) throw new HttpsError('invalid-argument', 'Selecciona ciclo mensual o anual.');
   const implementationMinor = moneyMinor(input.implementation, 'Implementación');
   const monthlyMinor = moneyMinor(input.monthly, 'Mensualidad');
-  const annualMinor = moneyMinor(input.annual, 'Anualidad');
+  const annualInput = cycle === 'monthly' && (input.annual == null || (typeof input.annual === 'string' && input.annual.trim() === ''))
+    ? '0'
+    : input.annual;
+  const annualMinor = moneyMinor(annualInput, 'Anualidad');
   const discountMinor = moneyMinor(input.discount ?? '0', 'Descuento');
   if (discountMinor && actor.operator.role !== 'platform_owner') throw new HttpsError('permission-denied', 'Solo Platform Owner puede autorizar descuentos comerciales.');
   const discountReason = discountMinor ? cleanText(input.discountReason, 'Motivo del descuento', 8, 500) : '';
@@ -180,7 +183,9 @@ async function saveCommercialQuote(db, request) {
     const recurringExtras = extraLines.reduce((sum, line) => sum + (cycle === 'annual' ? line.annualMinor : line.monthlyMinor), 0);
     const initialDueMinor = implementationMinor + recurring + recurringExtras + extraLines.reduce((sum, line) => sum + line.oneTimeMinor, 0) - discountMinor;
     if (!Number.isSafeInteger(initialDueMinor) || initialDueMinor < 0) throw new HttpsError('invalid-argument', 'El descuento supera el importe inicial de la cotización.');
-    if (monthlyMinor <= 0 || annualMinor <= 0) throw new HttpsError('failed-precondition', 'Una cotización comercial requiere mensualidad y anualidad mayores que cero.');
+    if (cycle === 'monthly' ? monthlyMinor <= 0 : annualMinor <= 0) {
+      throw new HttpsError('failed-precondition', `La cotización ${cycle === 'monthly' ? 'mensual' : 'anual'} requiere un importe recurrente mayor que cero.`);
+    }
     const quoteVersion = (Number(intent.quote?.version) || 0) + 1;
     if (intent.quote?.status === 'offered') throw new HttpsError('failed-precondition', 'Retira la oferta anterior antes de guardar una nueva versión.');
     const quote = {

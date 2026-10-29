@@ -370,6 +370,88 @@ async function run() {
     assert.equal(hasPermission(tenant, member, 'settings.manage'), false);
     pass('suspensión y autorización del servidor bloquean la operación tenant sin afectar tenants legacy');
 
+    await Promise.all([
+      db.doc(`platformPlans/${planId}`).update({ status: 'draft' }),
+      db.doc(`platformPlans/${nextPlanId}`).update({ status: 'draft' }),
+    ]);
+    const remainingPublishedPlans = await db.collection('platformPlans').where('status', '==', 'published').get();
+    assert.equal(remainingPublishedPlans.docs.some(item => item.data().templateId === 'distribution'), false);
+
+    const monthlyOnlyEmail = `billing-monthly-only-${suffix}@example.test`;
+    const monthlyOnlyIntake = {
+      action: 'createManualCommercialIntent', requestId: opId(), contactName: 'Contacto WhatsApp QA',
+      companyName: `Distribuidora mensual sin plan ${suffix}`, email: monthlyOnlyEmail,
+      contactPhone: '+591 70000001', templateId: 'distribution', planId: null, extraIds: [],
+      billingCycle: 'monthly', needs: 'Cotización mensual sin plan publicado.',
+    };
+    const monthlyOnlyLead = await platformCall(ownerUid, monthlyOnlyIntake);
+    const monthlyOnlyIntentRef = db.doc(`platformCommercialIntents/${monthlyOnlyLead.intentId}`);
+    createdPaths.push(monthlyOnlyIntentRef.path);
+    const monthlyOnlyIntent = (await monthlyOnlyIntentRef.get()).data();
+    assert.equal(monthlyOnlyIntent.source, 'admin_whatsapp');
+    assert.equal(monthlyOnlyIntent.planSnapshot, null);
+    assert.equal(monthlyOnlyIntent.tenantId, null);
+
+    const monthlyOnlyQuoteInput = {
+      action: 'saveCommercialQuote', requestId: opId(), intentId: monthlyOnlyLead.intentId,
+      implementation: '0', monthly: '30.00', annual: '', currency: 'BOB', billingCycle: 'monthly',
+      discount: '0', extras: [],
+    };
+    const monthlyOnlyQuote = await platformCall(ownerUid, monthlyOnlyQuoteInput);
+    const monthlyOnlyReplay = await platformCall(ownerUid, monthlyOnlyQuoteInput);
+    assert.equal(monthlyOnlyQuote.quoteVersion, monthlyOnlyReplay.quoteVersion);
+    assert.equal(monthlyOnlyReplay.idempotent, true);
+    let monthlyQuote = (await monthlyOnlyIntentRef.get()).data().quote;
+    assert.equal(monthlyQuote.monthlyMinor, 3000);
+    assert.equal(monthlyQuote.annualMinor, 0);
+    assert.equal(monthlyQuote.initialDueMinor, 3000);
+    assert.equal(monthlyQuote.recurringMinor, 3000);
+    await assert.rejects(platformCall(ownerUid, {
+      ...monthlyOnlyQuoteInput, requestId: opId(), billingCycle: 'annual', annual: '0',
+    }), error => error.code === 'failed-precondition');
+    assert.equal((await monthlyOnlyIntentRef.get()).data().quote.version, monthlyOnlyQuote.quoteVersion);
+    await platformCall(ownerUid, { action: 'offerCommercialQuote', intentId: monthlyOnlyLead.intentId, requestId: opId() });
+    await platformCall(ownerUid, { action: 'recordCommercialAcceptance', intentId: monthlyOnlyLead.intentId,
+      requestId: opId(), channel: 'whatsapp', reference: 'Aceptación mensual QA verificada.' });
+    const monthlyOnlyContract = await platformCall(ownerUid, { action: 'createCommercialContract', intentId: monthlyOnlyLead.intentId,
+      requestId: opId(), dueAt: dateAfter(7) });
+    createdPaths.push(`platformContracts/${monthlyOnlyContract.contractId}`, `platformBillingCharges/${monthlyOnlyContract.chargeId}`,
+      `platformSubscriptions/${monthlyOnlyContract.contractId}`);
+    const monthlyContract = (await db.doc(`platformContracts/${monthlyOnlyContract.contractId}`).get()).data();
+    assert.equal(monthlyContract.terms.plan, null);
+    assert.equal(monthlyContract.terms.billingCycle, 'monthly');
+    assert.equal(monthlyContract.terms.annualMinor, 0);
+    assert.equal(monthlyContract.terms.initialDueMinor, 3000);
+    const monthlyPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: monthlyOnlyContract.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-MONTHLY-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${monthlyPayment.paymentId}`);
+    const monthlyPaymentConfirmation = await platformCall(ownerUid, { action: 'confirmManualPayment', paymentId: monthlyPayment.paymentId, requestId: opId() });
+    assert.equal(monthlyPaymentConfirmation.status, 'confirmed');
+    const monthlyProvisionInput = await prepareAssistedInput(monthlyOnlyContract.contractId, monthlyOnlyIntake.companyName,
+      monthlyOnlyEmail, opId(), 'Propietario mensual QA');
+    const monthlyProvision = await assisted.createAssistedTenant(db, auth, request(ownerUid, monthlyProvisionInput));
+    createdAuthUids.push(monthlyProvision.ownerUid);
+    const monthlyTenant = (await db.doc(`tenants/${monthlyProvision.tenantId}`).get()).data();
+    assert.equal(monthlyTenant.businessType, 'route_distribution');
+    assert.equal(monthlyTenant.status, 'active');
+    assert.equal(monthlyTenant.subscriptionStatus, 'active');
+    assert.equal(monthlyTenant.planKey, null);
+    assert.deepEqual(monthlyTenant.entitlements, {});
+    const monthlySetupUrl = new URL(monthlyProvision.ownerAccess.setupLink);
+    const monthlyOobCode = monthlySetupUrl.searchParams.get('oobCode');
+    assert(monthlyOobCode);
+    const monthlyReset = await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=emulator`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ oobCode: monthlyOobCode, newPassword: 'MonthlyOwnerQa123!' }),
+    });
+    assert.equal(monthlyReset.ok, true);
+    const monthlyLogin = await signInOwner(monthlyOnlyEmail, 'MonthlyOwnerQa123!');
+    assert.equal(monthlyLogin.localId, monthlyProvision.ownerUid);
+    const monthlyTenantActor = await tenantActor(db, { auth: { uid: monthlyLogin.localId, token: {} },
+      data: { tenantId: monthlyProvision.tenantId } }, 'settings.manage');
+    assert.equal(monthlyTenantActor.uid, monthlyProvision.ownerUid);
+    pass('sin plan de Distribución publicado: contacto WhatsApp, cotización mensual idempotente, aceptación, pago confirmado, alta asistida y acceso del propietario');
+
     const anonymous = rulesEnv.unauthenticatedContext().firestore();
     await assertFails(getDoc(doc(anonymous, `platformContracts/${contractResult.contractId}`)));
     await assertFails(getDoc(doc(anonymous, `platformBillingCharges/${contractResult.chargeId}`)));
