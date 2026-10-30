@@ -13,6 +13,7 @@ import { exportBusinessReport } from '../../../core/reports/reportExport'
 import { getActiveTenant } from '../../../store/activeTenant'
 import { isDemoModeActive } from '../../../demo/core/demoContext'
 import { printBusinessReport } from '../../../core/reports/businessReportPrintService'
+import { reportSourceMayBeTruncated } from '../../../core/reports/reportCompleteness'
 
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -55,7 +56,9 @@ export function RestaurantReports({ orders, shift, stockMovements = [], tenantId
   ]
   const capability = canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')
   const detailed = canUseReportCapability(getActiveTenant()?.tenant, 'reports.detailed')
-  const historyIncomplete = selectedMovements.length >= 100
+  // Test the source snapshot before date filtering: an older period may have
+  // zero matching rows while the latest-100 listener has omitted older records.
+  const historyIncomplete = reportSourceMayBeTruncated(stockMovements.length, 100)
   const runExport = async (format: 'pdf' | 'excel') => {
     setExporting(true); setError('')
     try {

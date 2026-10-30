@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Tenant } from '../src/core/platform.ts'
 import { canUseReportCapability } from '../src/core/reports/reportCapabilities.ts'
+import { reportSourceMayBeTruncated } from '../src/core/reports/reportCompleteness.ts'
 import { isInReportPeriod, reportPeriodUtcRange } from '../src/core/reports/reportPeriod.ts'
 import { makeBusinessReport, toDigitalReportDocument } from '../src/core/reports/reportTypes.ts'
 
@@ -52,4 +53,10 @@ test('legacy, enforced, missing and mismatched report entitlements fail closed a
   assert.equal(canUseReportCapability(enforced, 'reports.export'), true)
   assert.equal(canUseReportCapability({ ...enforced, commercialCapabilities: undefined }, 'reports.basic'), false)
   assert.equal(canUseReportCapability({ ...enforced, commercialCapabilities: { ...enforced.commercialCapabilities!, businessType: 'route_distribution' } }, 'reports.basic'), false)
+})
+
+test('capped report source marks the whole source incomplete before period filtering', () => {
+  assert.equal(reportSourceMayBeTruncated(99, 100), false)
+  assert.equal(reportSourceMayBeTruncated(100, 100), true)
+  assert.equal(reportSourceMayBeTruncated(Number.NaN, 100), true)
 })
