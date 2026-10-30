@@ -14,12 +14,14 @@ const root = process.cwd()
 const require = createRequire(new URL('../functions/package.json', import.meta.url))
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
-const { getFirestore } = require('firebase-admin/firestore')
+const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const suffix = Date.now().toString(36)
 const operator = { uid: `admin-ui-owner-${suffix}`, email: `admin-ui-owner-${suffix}@example.test`, password: 'AdminEmulatorOnly2026!' }
+const tenantId = `admin-ui-tenant-date-${suffix}`
 const app = initializeApp({ projectId }, `admin-ui-browser-${suffix}`)
 const auth = getAuth(app)
 const db = getFirestore(app)
+const tenantRef = db.doc(`tenants/${tenantId}`)
 const refsToRestore = ['platformTemplates/restaurant', 'platformConfig/publicLanding', 'platformConfig/publicCommercialCatalogMeta', 'platformConfig/publicCommercialCatalog']
 const saved = new Map()
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -75,6 +77,18 @@ try {
   await auth.createUser({ uid: operator.uid, email: operator.email, password: operator.password })
   await auth.setCustomUserClaims(operator.uid, { platform: true, platformRole: 'platform_owner' })
   await db.doc(`platformOperators/${operator.uid}`).set({ uid: operator.uid, role: 'platform_owner', active: true, email: operator.email })
+  assert.equal((await tenantRef.get()).exists, false, 'Unique emulator-only tenant fixture must not already exist.')
+  await tenantRef.create({
+    tenantId,
+    name: 'QA Registro Timestamp',
+    nameKey: `qa registro timestamp ${suffix}`,
+    businessType: 'restaurant_pos',
+    status: 'active',
+    subscriptionStatus: 'trial',
+    userCount: 1,
+    branchCount: 1,
+    createdAt: Timestamp.fromDate(new Date('2024-02-03T12:00:00.000Z')),
+  })
 
   const vitePort = await listenEphemeralPort()
   const base = `http://127.0.0.1:${vitePort}`
@@ -131,6 +145,11 @@ try {
   assert(Number.isSafeInteger(savedTemplate.revision) && savedTemplate.revision > 0)
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Cambios guardados en Firestore'), 'Admin did not confirm successful save')
   console.log('PASS Chrome authenticated owner edits a template; canonical route, CTA and revision persist server-side')
+
+  await evaluate(`document.querySelector('[data-admin-tab="clients"]').click()`, true)
+  const tenantList = await waitFor(() => evaluate('document.body.innerText'), text => text.includes('QA Registro Timestamp'), 'Admin tenant list did not render the emulator fixture')
+  assert(tenantList.includes('2024-02-03'), 'Tenant list did not format the Firestore createdAt timestamp.')
+  console.log('PASS Chrome authenticated owner lists the fictitious emulator tenant and formats its Firestore createdAt timestamp')
 } finally {
   socket?.close()
   chromeProcess?.kill()
@@ -138,6 +157,7 @@ try {
   await sleep(300)
   if (browserProfile) { try { rmSync(browserProfile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) } catch { /* Chrome may still release its profile. */ } }
   for (const [path, value] of saved) await restore(path, value).catch(() => undefined)
+  await tenantRef.delete().catch(() => undefined)
   const audits = await db.collection('platformAuditLogs').where('operatorUid', '==', operator.uid).get().catch(() => null)
   if (audits) await Promise.all(audits.docs.map(item => item.ref.delete().catch(() => undefined)))
   await db.doc(`platformOperators/${operator.uid}`).delete().catch(() => undefined)
