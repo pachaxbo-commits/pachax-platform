@@ -11,6 +11,7 @@ const {
   normalizeCapabilityAdjustments,
   tenantCapabilities,
 } = require('../commercialCapabilities.cjs');
+const { authorizeReportCapability } = require('../authorization.cjs');
 
 const projectId = process.env.GCLOUD_PROJECT || '';
 if (!projectId.startsWith('demo-')) throw new Error('Capability tests require an isolated demo Firebase project.');
@@ -48,9 +49,10 @@ async function main() {
     assert.equal(documentCapabilities.features.receipts.digital, true);
     assert.equal(documentCapabilities.features.printing.manual, true);
     assert.equal(documentCapabilities.features.printing.kitchenAutomatic, false);
-    assert.throws(() => normalizeCapabilitiesV1({ ...validCapabilities, features: {
+    const exportCapabilities = normalizeCapabilitiesV1({ ...validCapabilities, features: {
       ...validCapabilities.features, reports: { ...validCapabilities.features.reports, export: true },
-    } }, businessType), /no tiene control técnico completo/);
+    } }, businessType);
+    assert.equal(exportCapabilities.features.reports.export, true, 'Reports Core V1 export capability is supported by a server check.');
     const adjusted = applyCapabilityAdjustments(validCapabilities, normalizeCapabilityAdjustments({ activeUsers: 1, activeProducts: 5 }));
     assert.equal(adjusted.limits.activeUsers, 4);
     assert.equal(adjusted.limits.activeProducts, 7);
@@ -82,8 +84,30 @@ async function main() {
 
     const documentTenantId = `document-caps-${randomUUID()}`;
     const documentRoot = db.doc(`tenants/${documentTenantId}`);
-    const documentTenant = { ...tenant, tenantId: documentTenantId, commercialCapabilities: documentCapabilities };
+    const documentTenant = { ...tenant, tenantId: documentTenantId, subscriptionStatus: 'active', billingAccessUntil: new Date(Date.now() + 60_000), commercialCapabilities: documentCapabilities };
     await documentRoot.set(documentTenant);
+    const reportMemberUid = `report-owner-${randomUUID()}`;
+    await documentRoot.collection('members').doc(reportMemberUid).set({ tenantId: documentTenantId, status: 'active', roleId: 'owner', branchIds: ['main'] });
+    await documentRoot.update({ configuration: { features: { reports: true } } });
+    const reportRequest = feature => ({ auth: { uid: reportMemberUid }, data: { tenantId: documentTenantId, branchId: 'main', feature } });
+    assert.deepEqual(await authorizeReportCapability(db, reportRequest('reports.basic')), { authorized: true });
+    await assert.rejects(authorizeReportCapability(db, reportRequest('reports.detailed')), error => error.code === 'permission-denied');
+    await assert.rejects(authorizeReportCapability(db, reportRequest('reports.export')), error => error.code === 'permission-denied');
+    assert.deepEqual(await authorizeReportCapability(db, reportRequest('printing.manual')), { authorized: true });
+    const noManualPrint = { ...documentCapabilities, features: { ...documentCapabilities.features, printing: { ...documentCapabilities.features.printing, manual: false } } };
+    await documentRoot.update({ commercialCapabilities: noManualPrint });
+    await assert.rejects(authorizeReportCapability(db, reportRequest('printing.manual')), error => error.code === 'permission-denied');
+    const reportEnabled = { ...documentCapabilities, features: { ...documentCapabilities.features, reports: { basic: true, detailed: true, export: true }, printing: { ...documentCapabilities.features.printing, manual: true } } };
+    await documentRoot.update({ commercialCapabilities: reportEnabled });
+    assert.deepEqual(await authorizeReportCapability(db, reportRequest('reports.detailed')), { authorized: true });
+    assert.deepEqual(await authorizeReportCapability(db, reportRequest('reports.export')), { authorized: true });
+    assert.deepEqual(await authorizeReportCapability(db, reportRequest('printing.manual')), { authorized: true });
+    await assert.rejects(authorizeReportCapability(db, { auth: { uid: reportMemberUid }, data: { tenantId: documentTenantId, branchId: 'other', feature: 'reports.export' } }), error => error.code === 'permission-denied');
+    await assert.rejects(authorizeReportCapability(db, { ...reportRequest('reports.export'), auth: null }), error => error.code === 'unauthenticated');
+    await documentRoot.collection('members').doc(reportMemberUid).update({ status: 'disabled' });
+    await assert.rejects(authorizeReportCapability(db, reportRequest('reports.export')), error => error.code === 'permission-denied');
+    await documentRoot.collection('members').doc(reportMemberUid).update({ status: 'active' });
+    console.log('PASS server report capability authorization, active member, role and plan gating');
     const documentUsageRef = documentRoot.collection('commercialUsage').doc('active');
     await documentUsageRef.set({ activeUsers: 1, activeProducts: 0, activeBranches: 1 });
     await db.runTransaction(tx => adjustProductUsage(tx, documentRoot, documentTenant, 1));

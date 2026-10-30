@@ -1,7 +1,8 @@
 const { HttpsError } = require('firebase-functions/v2/https')
+const { FieldPath } = require('firebase-admin/firestore')
 const { createHash } = require('node:crypto')
 const { authenticated, id, hasPermission } = require('./authorization.cjs')
-const { adjustProductUsage } = require('./commercialCapabilities.cjs')
+const { adjustProductUsage, hasPlanFeature } = require('./commercialCapabilities.cjs')
 
 const MONEY_LIMIT = 9_000_000_000
 const validMinor = value => Number.isSafeInteger(value) && value >= 0 && value <= MONEY_LIMIT
@@ -82,6 +83,46 @@ async function load(db, request) {
     recentSales: salesSnap ? salesSnap.docs.map(doc => doc.data()) : [],
     historyLimit: 50,
     historyComplete: false,
+  }
+}
+
+async function loadReportPage(db, request) {
+  const branchId = id(request.data?.branchId || 'main')
+  const actor = await retailActor(db, request, ['reports.read'], branchId)
+  const { tenant, root } = actor
+  const reportMode = request.data?.reportMode === 'detailed' ? 'detailed' : 'basic'
+  const requiredFeature = reportMode === 'detailed' ? 'reports.detailed' : 'reports.basic'
+  if (!hasPlanFeature(tenant, requiredFeature)) throw new HttpsError('failed-precondition', 'Este informe no está incluido en las capacidades activas de la empresa.')
+  const startAt = request.data?.startAt, endBefore = request.data?.endBefore
+  const validIso = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value))
+  if (!validIso(startAt) || !validIso(endBefore) || Date.parse(startAt) >= Date.parse(endBefore)) throw new HttpsError('invalid-argument', 'El rango del informe no es válido.')
+  if (Date.parse(endBefore) - Date.parse(startAt) > 366 * 24 * 60 * 60 * 1000) throw new HttpsError('failed-precondition', 'El rango de cada consulta no puede superar 366 días.')
+  const cursor = request.data?.cursor
+  if (cursor !== undefined && (!cursor || !validIso(cursor.createdAt) || typeof cursor.id !== 'string' || !cursor.id.trim() || cursor.id.length > 150)) {
+    throw new HttpsError('invalid-argument', 'El cursor de paginación no es válido.')
+  }
+  let query = root.collection('retailSales').where('branchId', '==', branchId)
+    .where('createdAt', '>=', startAt).where('createdAt', '<', endBefore)
+    .orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc')
+  if (cursor) query = query.startAfter(cursor.createdAt, cursor.id)
+  const snapshot = await query.limit(101).get()
+  const hasMore = snapshot.size > 100
+  const docs = snapshot.docs.slice(0, 100)
+  const last = docs.at(-1)
+  return {
+    rows: docs.map(doc => {
+      const sale = doc.data()
+      return {
+        id: doc.id, totalMinor: sale.totalMinor, cashMinor: sale.cashMinor,
+        qrMinor: sale.qrMinor, changeMinor: sale.changeMinor, method: sale.method,
+        createdAt: sale.createdAt, lines: reportMode === 'detailed' ? (sale.lines || []).map(line => ({
+          name: line.name, quantity: line.quantity, unit: line.unit, lineTotalMinor: line.lineTotalMinor,
+        })) : [],
+      }
+    }),
+    hasMore,
+    cursor: hasMore && last ? { createdAt: last.data().createdAt, id: last.id } : null,
+    pageSize: docs.length,
   }
 }
 
@@ -286,7 +327,8 @@ async function applyMutation({ tx, root, tenant, tenantId, uid, branchId, operat
 async function executeRetailCommand(db, request) {
   if (request.data?.action !== 'retailCommand') throw new HttpsError('invalid-argument', 'Acción de Comercio no reconocida.')
   if (request.data.commandType === 'load') return load(db, request)
+  if (request.data.commandType === 'loadReportPage') return loadReportPage(db, request)
   return mutate(db, request)
 }
 
-module.exports = { executeRetailCommand, load, mutate, applyMutation }
+module.exports = { executeRetailCommand, load, loadReportPage, mutate, applyMutation }

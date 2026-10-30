@@ -54,17 +54,12 @@ function normalizeCapabilitiesV1(raw, businessType) {
   if (receipts.digital && !documentSupport.receiptsDigital) throw new HttpsError('failed-precondition', 'Los recibos digitales no están disponibles para esta plantilla.');
   if (printing.manual && !documentSupport.printingManual) throw new HttpsError('failed-precondition', 'La impresión manual no está disponible para esta plantilla.');
   if (printing.kitchenAutomatic && !documentSupport.kitchenAutomatic) throw new HttpsError('failed-precondition', 'La impresión automática de cocina/barra no está disponible para esta plantilla.');
-  // Report exports remain unavailable until Reports Core. Receipt output and the shared
-  // PrintEngine are implemented and gated by this capability snapshot.
-  if (reports.detailed || reports.export) {
-    throw new HttpsError('failed-precondition', 'Una capacidad solicitada todavía no tiene control técnico completo y no se puede incluir en un plan.');
-  }
   return {
     version: CAPABILITIES_VERSION,
     businessType,
     limits,
     features: {
-      reports: { basic: reports.basic, detailed: false, export: false },
+      reports: { basic: reports.basic, detailed: reports.detailed, export: reports.export },
       receipts: { digital: receipts.digital },
       printing: { manual: printing.manual, kitchenAutomatic: printing.kitchenAutomatic },
       adsRequired,
@@ -104,6 +99,8 @@ function hasPlanFeature(tenant, feature) {
   let capabilities;
   try { capabilities = tenantCapabilities(tenant); } catch { return false; }
   if (feature === 'reports.basic') return capabilities.features.reports.basic;
+  if (feature === 'reports.detailed') return capabilities.features.reports.detailed;
+  if (feature === 'reports.export') return capabilities.features.reports.export;
   if (feature === 'receipts.digital') return capabilities.features.receipts.digital;
   if (feature === 'printing.manual') return capabilities.features.printing.manual;
   if (feature === 'printing.kitchenAutomatic') return capabilities.features.printing.kitchenAutomatic;

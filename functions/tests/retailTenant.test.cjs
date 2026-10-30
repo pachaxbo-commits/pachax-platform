@@ -221,6 +221,34 @@ async function main() {
     await mustDeny(cashierToken, { commandType: 'recordSale', operationId: `after-close-${suffix}`, payload: { items: [{ productId: weighted.productId, quantity: 1 }], method: 'cash', cashMinor: 100, qrMinor: 0, cashReceivedMinor: 100 } }, 'FAILED_PRECONDITION')
     pass('egreso superior al efectivo se deniega; cierre reconcilia y bloquea ventas posteriores')
 
+    const reportBatch = db.batch()
+    const reportStart = Date.parse('2026-10-01T12:00:00.000Z')
+    for (let index = 0; index < 205; index++) {
+      const ref = db.doc(`tenants/${tenantId}/retailSales/report-${suffix}-${String(index).padStart(3, '0')}`)
+      reportBatch.set(ref, { tenantId, branchId: 'main', totalMinor: 500, cashMinor: 500, qrMinor: 0, changeMinor: 0, method: 'cash', createdAt: new Date(reportStart + index * 1000).toISOString(), lines: [{ name: 'Artículo QA', quantity: 1, unit: 'unit', lineTotalMinor: 500 }] })
+    }
+    await reportBatch.commit()
+    const reportPeriod = { startAt: '2026-10-01T00:00:00.000Z', endBefore: '2026-10-02T00:00:00.000Z' }
+    await mustDeny(ownerToken, { commandType: 'loadReportPage', reportMode: 'detailed', ...reportPeriod }, 'FAILED_PRECONDITION')
+    const firstReportPage = await mustPass(ownerToken, { commandType: 'loadReportPage', reportMode: 'basic', ...reportPeriod })
+    const secondReportPage = await mustPass(ownerToken, { commandType: 'loadReportPage', reportMode: 'basic', ...reportPeriod, cursor: firstReportPage.cursor })
+    const thirdReportPage = await mustPass(ownerToken, { commandType: 'loadReportPage', reportMode: 'basic', ...reportPeriod, cursor: secondReportPage.cursor })
+    assert.equal(firstReportPage.rows.length, 100); assert.equal(firstReportPage.hasMore, true)
+    assert.equal(secondReportPage.rows.length, 100); assert.equal(secondReportPage.hasMore, true)
+    assert.equal(thirdReportPage.rows.length, 5); assert.equal(thirdReportPage.hasMore, false)
+    assert.equal(new Set([...firstReportPage.rows, ...secondReportPage.rows, ...thirdReportPage.rows].map(row => row.id)).size, 205)
+    assert.deepEqual(firstReportPage.rows[0].lines, [], 'Basic report does not expose detailed line items.')
+    pass('Retail reports paginate all 205 rows without duplicates; detailed mode is plan-gated and basic omits line data')
+    const exportDenied = await callAction(ownerToken, { action: 'authorizeReportCapability', branchId: 'main', feature: 'reports.export' })
+    assert.equal(exportDenied.response.ok, false); assert.equal(exportDenied.body.error?.status, 'PERMISSION_DENIED')
+    const tenantRef = db.doc(`tenants/${tenantId}`)
+    const reportCaps = (await tenantRef.get()).data().commercialCapabilities
+    await tenantRef.update({ commercialCapabilities: { ...reportCaps, features: { ...reportCaps.features, reports: { basic: true, detailed: true, export: true } } } })
+    assert.equal((await callAction(ownerToken, { action: 'authorizeReportCapability', branchId: 'main', feature: 'reports.export' })).response.ok, true)
+    assert.equal((await callAction(ownerToken, { action: 'authorizeReportCapability', branchId: 'other', feature: 'reports.export' })).response.ok, false)
+    await tenantRef.update({ commercialCapabilities: reportCaps })
+    pass('server export authorization honors subscription feature and rejects an unauthorized branch')
+
     await db.doc(`tenants/${tenantId}`).update({ subscriptionStatus: 'suspended' })
     const salesBeforeSuspension = await db.collection(`tenants/${tenantId}/retailSales`).get()
     const movementsBeforeSuspension = await db.collection(`tenants/${tenantId}/retailCashMovements`).get()

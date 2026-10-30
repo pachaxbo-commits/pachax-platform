@@ -16,7 +16,7 @@ const { executeRetailCommand } = require('./retailTenant.cjs');
 const { isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
 const { assertPublicTenantCreationClosed } = require('./publicTenantCreation.cjs');
 const { getTemplate } = require('./generated/templates.js');
-const { authenticated } = require('./authorization.cjs');
+const { authenticated, authorizeReportCapability } = require('./authorization.cjs');
 const options = { region: PACHAX_FUNCTIONS_REGION, invoker: 'public', maxInstances: 3 };
 const distributionEventOptions = {
   region: PACHAX_FUNCTIONS_REGION,
@@ -37,6 +37,7 @@ exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
     case 'retailCommand': return executeRetailCommand(db, request);
+    case 'authorizeReportCapability': return authorizeReportCapability(db, request);
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);
     case 'completeOnboarding': {

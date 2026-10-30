@@ -155,6 +155,12 @@ export interface PrintJobPayload {
   showManagedBy?: boolean
   copies: number
   createdIso: string
+  report?: {
+    title: string
+    description: string
+    headers: string[]
+    rows: string[][]
+  }
 }
 
 export interface PrintJobResolution {
