@@ -8,7 +8,6 @@ import { canUseReportCapability } from '../../../core/reports/reportCapabilities
 import { canUseDocumentCapability } from '../../../core/documents/documentCapabilities'
 import { reportPeriodUtcRange } from '../../../core/reports/reportPeriod'
 import { getActiveTenant } from '../../../store/activeTenant'
-import { isDemoModeActive } from '../../../demo/core/demoContext'
 import { printBusinessReport } from '../../../core/reports/businessReportPrintService'
 import type { NightclubDataset } from '../domain/nightclubAccounts'
 import { nightclubAccountLabel, nightclubCashSummary } from '../domain/nightclubAccounts'
@@ -17,7 +16,7 @@ import { summarizeNightclubReportPayments } from '../domain/nightclubReportPayme
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const dateKey = (value: number, timeZone: string) => new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(value)
 
-export function NightclubReports({ data, companyName, tenantId, branchId, identity, tenantMode = false }: { data: NightclubDataset; companyName: string; tenantId: string; branchId: string; identity: BusinessDocumentContext; tenantMode?: boolean }) {
+export function NightclubReports({ data, companyName, tenantId, branchId, identity, tenantMode = false, isolatedDemo = false }: { data: NightclubDataset; companyName: string; tenantId: string; branchId: string; identity: BusinessDocumentContext; tenantMode?: boolean; isolatedDemo?: boolean }) {
   const [range, setRange] = useState<'today' | '7' | '30' | 'all'>('all')
   const [exporting, setExporting] = useState(false)
   const [exportNotice, setExportNotice] = useState('')
@@ -78,7 +77,7 @@ export function NightclubReports({ data, companyName, tenantId, branchId, identi
     try {
       const active = getActiveTenant()
       if (active) await authorizeBusinessReportCapability(tenantId, branchId, 'reports.export')
-      else if (tenantMode || !isDemoModeActive()) throw new Error('No se pudo validar la empresa antes de exportar.')
+      else if (tenantMode || !isolatedDemo) throw new Error('No se pudo validar la empresa antes de exportar.')
       const report = makeBusinessReport({ tenantId, branchId, businessType: active?.tenant.businessType || 'nightclub_lounge', generatedAt: new Date().toISOString(), period: { startDate, endDate: today, timeZone }, identity, completeness: 'complete', recordCount: paymentSummary.events.length, warnings: ['Los cobros se agrupan por paidAt y las devoluciones por su fecha registrada. La hoja de Caja corresponde al turno actual, independiente del rango. El desglose de productos muestra unidades de las cuentas con cobros del período, sin atribuir importes parciales a productos.'], sheets })
       await exportBusinessReport(report, kind)
     } catch (cause) { setExportNotice(cause instanceof Error ? cause.message : 'No se pudo exportar el reporte.') }
@@ -92,7 +91,7 @@ export function NightclubReports({ data, companyName, tenantId, branchId, identi
     try {
       const active = getActiveTenant()
       if (active) await authorizeBusinessReportCapability(tenantId, branchId, 'printing.manual')
-      else if (tenantMode || !isDemoModeActive()) throw new Error('No se pudo validar la empresa antes de imprimir.')
+      else if (tenantMode || !isolatedDemo) throw new Error('No se pudo validar la empresa antes de imprimir.')
       const report = makeBusinessReport({ tenantId, branchId, businessType: active?.tenant.businessType || 'nightclub_lounge', generatedAt: new Date().toISOString(), period: { startDate, endDate: today, timeZone }, identity, completeness: 'complete', recordCount: paymentSummary.events.length, warnings: ['Impresión del resumen. Para todas las hojas, descarga PDF o Excel.'], sheets })
       setExportNotice(await printBusinessReport(report))
     } catch (cause) { setExportNotice(cause instanceof Error ? cause.message : 'No se pudo imprimir el resumen.') }

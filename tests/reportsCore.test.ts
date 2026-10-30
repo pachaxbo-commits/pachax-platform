@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import type { Tenant } from '../src/core/platform.ts'
 import { canUseReportCapability } from '../src/core/reports/reportCapabilities.ts'
+import { enterDemoMode, exitDemoMode } from '../src/demo/core/demoContext.ts'
 import { assertReportSourceComplete, reportPaginationIsComplete, reportSourceMayBeTruncated } from '../src/core/reports/reportCompleteness.ts'
 import { getBusinessReportPrintSheet } from '../src/core/reports/businessReportPrintService.ts'
 import { summarizeNightclubReportPayments } from '../src/modules/nightclub/domain/nightclubReportPayments.ts'
@@ -56,6 +57,24 @@ test('legacy, enforced, missing and mismatched report entitlements fail closed a
   assert.equal(canUseReportCapability(enforced, 'reports.export'), true)
   assert.equal(canUseReportCapability({ ...enforced, commercialCapabilities: undefined }, 'reports.basic'), false)
   assert.equal(canUseReportCapability({ ...enforced, commercialCapabilities: { ...enforced.commercialCapabilities!, businessType: 'route_distribution' } }, 'reports.basic'), false)
+})
+
+test('report access without a tenant stays closed outside an isolated demo and never overrides tenant entitlements', () => {
+  const restricted = {
+    tenantId: 'restricted', businessType: 'nightclub_lounge', billingEnforcement: true,
+    commercialCapabilities: { version: 1, businessType: 'nightclub_lounge', limits: { activeUsers: 1, activeProducts: 1, activeBranches: 1 }, features: { reports: { basic: false, detailed: false, export: false }, receipts: { digital: false }, printing: { manual: false, kitchenAutomatic: false }, adsRequired: false } },
+  } as Tenant
+
+  assert.equal(canUseReportCapability(null, 'reports.export'), false)
+  enterDemoMode('isolated-report-test')
+  try {
+    assert.equal(canUseReportCapability(null, 'reports.export'), true)
+    assert.equal(canUseReportCapability(restricted, 'reports.export'), false,
+      'A demo context never overrides an active tenant capability snapshot')
+  } finally {
+    exitDemoMode()
+  }
+  assert.equal(canUseReportCapability(null, 'reports.export'), false)
 })
 
 test('capped report source marks the whole source incomplete before period filtering', () => {
