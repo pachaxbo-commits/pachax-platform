@@ -100,4 +100,3 @@ export async function exportBusinessReport(report: BusinessReportV1, format: 'pd
   if (format === 'pdf') return exportReportPdf(report.sheets, context)
   return exportReportExcel(report.sheets, context)
 }
-
