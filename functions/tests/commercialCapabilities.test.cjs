@@ -80,6 +80,18 @@ async function main() {
     console.log('PASS version, template identity, unsupported feature rejection, extra limits and legacy compatibility');
     console.log('PASS document and printing capability matrix for all five templates');
 
+    const documentTenantId = `document-caps-${randomUUID()}`;
+    const documentRoot = db.doc(`tenants/${documentTenantId}`);
+    const documentTenant = { ...tenant, tenantId: documentTenantId, commercialCapabilities: documentCapabilities };
+    await documentRoot.set(documentTenant);
+    const documentUsageRef = documentRoot.collection('commercialUsage').doc('active');
+    await documentUsageRef.set({ activeUsers: 1, activeProducts: 0, activeBranches: 1 });
+    await db.runTransaction(tx => adjustProductUsage(tx, documentRoot, documentTenant, 1));
+    assert.equal((await documentUsageRef.get()).data().activeProducts, 1,
+      'Product quota mutations accept the same supported document capability snapshot');
+    await db.recursiveDelete(documentRoot);
+    console.log('PASS document capability snapshots remain compatible with product quota mutations');
+
     await root.set(tenant);
     const usageRef = root.collection('commercialUsage').doc('active');
     await usageRef.set({ activeUsers: 1, activeProducts: 0, activeBranches: 1 });

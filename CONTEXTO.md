@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+## Documentos/Impresión Core — revisión focal PR #13 (29/10/2026)
+
+- La prueba de Restaurante ahora valida el iframe canónico de Studio: `/demo?template=${templateId}&embed=studio`; Restaurante pasó **117/117**.
+- `DemoRuntime` activa un contexto documental local solo para embeds de Studio en el entrypoint aislado `/demo`, mediante una allowlist de Restaurante, Hamburger y Nightclub. La aplicación autenticada sin tenant sigue denegada, un tenant con enforcement no gana capacidades por entrar al contexto demo y Retail no activa el modo porque aún no ofrece adaptador documental en Studio. Prueba de comportamiento genera PDF para las tres demos y restaura el cierre al limpiar el contexto. La inspección visual del iframe quedó sin ejecutar: Computer Use bloqueó la sesión porque no pudo validar la URL actual de Chrome en Windows; no es un error observado de la aplicación.
+- Verificación Node 22: PrintEngine **18/18**; Documentos Core **10/10**; Restaurante unitario **117/117** y backend **57/57**; Retail emulador **13 assertions**; Nightclub **97/97** y 15 flujos backend; Distribución **59 unitarias** y **21 E2E**; capacidades comerciales y Rules PASS (matriz por plantilla, cuotas concurrentes, legacy, rechazo de escrituras directas). `typecheck`, `build:functions-core`, `build:emulator`, ESLint focal y `git diff --check` PASS.
+- La comparación ejecutada entre el helper de `origin/main` y el de PR #13 confirmó que el validador antiguo rechaza el snapshot que habilita recibos/impresión durante el ajuste transaccional de cuota de productos, mientras el nuevo lo acepta. Para evitar incompatibilidad de contrato, el release de capacidades documentales debe desplegar coordinadamente **`platformGateway`, `tenantGateway` y `processTenantOperation`**. No desplegados; PR #13 sigue sin merge.
+
 ## Documentos e Impresión Core V1 — correcciones focales para PR #13 (29/10/2026)
 
 - Trabajo en `codex/documents-printing-core-v1`, inicialmente desde PR #13 `1a03d9870cdb6fa5d9254c95388c1f83046b91bb`; se preservan los módulos de Encomiendas/Gemini. Las tres fallas de PrintEngine se reprodujeron igual en la base `main` de PR #13: dos tests de lease compartían el singleton y el test de logo asumía una salida ESC/POS que no forma parte del contrato de URL de logo. Suite corregida con motor/storage aislado por caso y aserciones del raster ESC/POS y logo en diálogo web: **18/18 PASS en Node 22.23.4**.

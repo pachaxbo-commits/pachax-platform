@@ -9,7 +9,7 @@ import { resolvePrintRequestScope } from '../src/services/printing/printEngineSe
 import { buildReceiptBytes } from '../src/services/printing/templates/receiptTemplate.ts'
 import { buildReceiptHtml } from '../src/adapters/printing/browserDialogPrinterAdapter.ts'
 import { defaultCapabilities } from '../src/admin/domain/planCapabilityDefaults.ts'
-import { enterDemoMode, exitDemoMode } from '../src/demo/core/demoContext.ts'
+import { enterDemoMode, enterStudioDemoMode, exitDemoMode, getActiveDemoTemplate } from '../src/demo/core/demoContext.ts'
 import type { Tenant } from '../src/core/platform.ts'
 
 const legacy = { tenantId: 'legacy', name: 'Comercio', businessType: 'gelateria_weight_cafe', ownerUid: 'owner',
@@ -39,6 +39,50 @@ test('isolated demos have local document capability without opening null tenant 
   assert.equal(canUseDocumentCapability(null, 'printing.manual'), true)
   exitDemoMode()
   assert.equal(canUseDocumentCapability(null, 'printing.manual'), false)
+})
+
+test('Studio embedded demos enable document generation only in their isolated iframe context', async () => {
+  const studioTemplates = [
+    ['restaurant', 'restaurant_pos'],
+    ['hamburger', 'hamburger_shop'],
+    ['nightclub', 'nightclub_lounge'],
+  ] as const
+  const context = resolveBusinessDocumentContext(undefined, undefined, { companyName: 'Empresa Demo' })
+  const receipt = { receiptNumber: 'STUDIO-1', dateIso: '2026-10-29T12:00:00.000Z', items: [], subtotal: 1, total: 1 }
+
+  for (const [templateId, businessType] of studioTemplates) {
+    assert.equal(canUseDocumentCapability(null, 'receipts.digital'), false,
+      `${templateId} fails closed outside its Studio iframe`)
+    const cleanup = enterStudioDemoMode(true, templateId)
+    try {
+      assert.equal(getActiveDemoTemplate(), businessType)
+      assert.equal(canUseDocumentCapability(null, 'receipts.digital'), true,
+        `${templateId} can render local demo documents in Studio`)
+      const pdfText = new TextDecoder().decode(await generateReceiptPdf(context, receipt))
+      assert.ok(pdfText.includes('STUDIO-1'), `${templateId} can generate its local Studio receipt PDF`)
+      const restrictedTenant = { ...legacy, billingEnforcement: true, commercialCapabilities: {
+        version: 1 as const, businessType: legacy.businessType,
+        limits: { activeUsers: 1, activeProducts: 10, activeBranches: 1 },
+        features: { reports: { basic: true, detailed: false, export: false },
+          receipts: { digital: false }, printing: { manual: false, kitchenAutomatic: false }, adsRequired: false },
+      } }
+      assert.equal(canUseDocumentCapability(restrictedTenant, 'receipts.digital'), false,
+        'Studio context does not override an active tenant entitlement')
+    } finally {
+      cleanup()
+    }
+    assert.equal(canUseDocumentCapability(null, 'receipts.digital'), false,
+      `${templateId} returns to fail-closed app behavior after Studio cleanup`)
+  }
+
+  const retailStudioCleanup = enterStudioDemoMode(true, 'retail')
+  assert.equal(getActiveDemoTemplate(), null, 'Retail Studio has no document adapter to activate')
+  retailStudioCleanup()
+
+  const publicRuntimeCleanup = enterStudioDemoMode(false, 'restaurant')
+  assert.equal(canUseDocumentCapability(null, 'receipts.digital'), false,
+    'A non-Studio runtime cannot enable the Studio exception')
+  publicRuntimeCleanup()
 })
 
 test('print engine binds requests to the active tenant and branch', () => {

@@ -1,5 +1,12 @@
 # Documentos e Impresión Core V1
 
+## Verificación focal de PR #13 — 29/10/2026
+
+- Actualizada la aserción de Restaurante para la ruta canónica de embed `/demo?template=${templateId}&embed=studio`; 117/117 pruebas Restaurant.
+- El efecto del `DemoRuntime` isolated embed activa temporalmente el contexto de documento demo para Restaurante, Hamburger y Nightclub. Una prueba ejercita la ruta común usada por Studio, genera un PDF por plantilla y confirma que (a) `tenant === null` continúa denegado fuera del embed, (b) un snapshot comercial con recibos deshabilitados continúa denegado aun dentro del contexto de demo, y (c) limpiar el embed cierra el acceso. Retail permanece fuera de la allowlist hasta disponer de adaptador de documentos. No se completó una inspección visual real de iframe: Computer Use terminó por no poder validar la URL de Chrome en Windows; queda pendiente confirmación visual manual y no se reporta como PASS.
+- Node 22.23.4: PrintEngine 18/18, Documentos Core 10/10, Restaurante 117/117 + backend 57/57, Retail emulado 13 assertions, Nightclub 97/97 + backend 15 flujos, Distribución 59 pruebas + 21 assertions E2E, capacidades comerciales/Rules PASS; typecheck, build Functions, `build:emulator` y ESLint focal PASS. El build emitió la advertencia existente de chunks mayores a 500 kB; no se amplió el alcance para optimización.
+- Compatibilidad de runtime demostrada comparando el validador de `origin/main` con el candidato: el anterior falla cerrado ante el snapshot de capacidades documentales al ajustar cuota de productos; el actual acepta ese mismo contrato. Matriz necesaria para publicar el contrato coherentemente: `platformGateway` (publicación/contratos/provisionamiento), `tenantGateway` (operaciones Restaurante/Hamburger/Retail/Nightclub y ajustes de producto) y `processTenantOperation` (operaciones Distribución y ajustes de producto). No desplegar antes de actualizar los tres. Rules/Storage no cambian por este bloque.
+
 Rama de revisión: `codex/documents-printing-core-v1`, basada en `main` `97cd6bf3fc60f4ea1d6cdc64c9241c53b317ac8d`. Este bloque no está integrado ni desplegado.
 
 ## Contrato compartido
