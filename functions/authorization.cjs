@@ -42,7 +42,7 @@ async function tenantActor(db, request, permission) {
 async function authorizeReportCapability(db, request) {
   const feature = request.data?.feature;
   const branchId = id(request.data?.branchId || 'main');
-  if (!['reports.basic', 'reports.detailed', 'reports.export'].includes(feature)) {
+  if (!['reports.basic', 'reports.detailed', 'reports.export', 'printing.manual'].includes(feature)) {
     throw new HttpsError('invalid-argument', 'La capacidad de reporte no es válida.');
   }
   const actor = await tenantActor(db, request, 'reports.read');

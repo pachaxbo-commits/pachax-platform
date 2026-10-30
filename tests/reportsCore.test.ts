@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import type { Tenant } from '../src/core/platform.ts'
 import { canUseReportCapability } from '../src/core/reports/reportCapabilities.ts'
-import { reportSourceMayBeTruncated } from '../src/core/reports/reportCompleteness.ts'
+import { assertReportSourceComplete, reportPaginationIsComplete, reportSourceMayBeTruncated } from '../src/core/reports/reportCompleteness.ts'
+import { getBusinessReportPrintSheet } from '../src/core/reports/businessReportPrintService.ts'
+import { summarizeNightclubReportPayments } from '../src/modules/nightclub/domain/nightclubReportPayments.ts'
 import { isInReportPeriod, reportPeriodUtcRange } from '../src/core/reports/reportPeriod.ts'
 import { makeBusinessReport, toDigitalReportDocument } from '../src/core/reports/reportTypes.ts'
 
@@ -59,4 +62,62 @@ test('capped report source marks the whole source incomplete before period filte
   assert.equal(reportSourceMayBeTruncated(99, 100), false)
   assert.equal(reportSourceMayBeTruncated(100, 100), true)
   assert.equal(reportSourceMayBeTruncated(Number.NaN, 100), true)
+  assert.throws(() => assertReportSourceComplete(100, 100, 'El historial de movimientos'), /no se puede presentar un total completo/)
+  // The raw source hit 100 even though only one record matched the selected period.
+  const selectedPeriodRows = 1
+  assert.equal(selectedPeriodRows < 100, true)
+  assert.throws(() => assertReportSourceComplete(100, 100), /límite/)
+  const restaurantSource = readFileSync(new URL('../src/modules/restaurant/components/RestaurantReports.tsx', import.meta.url), 'utf8')
+  const printAction = restaurantSource.slice(restaurantSource.indexOf('const runPrint'), restaurantSource.indexOf('return <div'))
+  assert.match(printAction, /assertReportSourceComplete\(stockMovements\.length, 100/)
+})
+
+test('Retail report completion accepts exactly 10,000 only when the server confirms the final page', () => {
+  assert.equal(reportPaginationIsComplete(9_999, 10_000, false), true)
+  assert.equal(reportPaginationIsComplete(10_000, 10_000, false), true)
+  assert.equal(reportPaginationIsComplete(10_000, 10_000, true), false)
+  assert.equal(reportPaginationIsComplete(10_001, 10_000, false), false)
+})
+
+test('report print service selects only the summary sheet and leaves full exports intact', () => {
+  const report = makeBusinessReport({
+    tenantId: 'tenant-1', branchId: 'branch-1', businessType: 'hamburger_shop', generatedAt: '2026-10-29T12:00:00.000Z',
+    period: { startDate: '2026-10-29', endDate: '2026-10-29', timeZone: 'America/La_Paz' }, identity,
+    completeness: 'complete', recordCount: 2, warnings: [], sheets: [
+      { name: 'Detalle', headers: ['Venta'], rows: [['A']] },
+      { name: 'Resumen', headers: ['Concepto'], rows: [['Total']] },
+    ],
+  })
+  assert.equal(getBusinessReportPrintSheet(report)?.name, 'Resumen')
+  assert.equal(report.sheets.length, 2, 'PDF and Excel source still contains all report sheets')
+})
+
+test('Nightclub report uses paidAt/refundedAt, separates partial payments and mixed methods, and never infers legacy dates', () => {
+  const oldOpenedAt = '2026-10-29T20:00:00-04:00'
+  const summary = summarizeNightclubReportPayments([
+    { id: 'old-account', openedAt: oldOpenedAt, openedBy: 'Apertura', status: 'closed', subtotal: 125, rounds: [], payments: [
+      { id: 'mixed', method: 'mixed', amount: 100, cashAmount: 40, qrAmount: 50, cardAmount: 10, received: 40, change: 0, paidAt: '2026-10-30T08:00:00Z', paidBy: 'Cajero', status: 'partially_refunded', refundedAmount: 10, refundedAt: '2026-10-30T09:00:00Z' },
+      { id: 'partial', method: 'cash', amount: 25, cashAmount: 25, qrAmount: 0, cardAmount: 0, received: 25, change: 0, paidAt: '2026-10-30T10:00:00Z', paidBy: 'Cajero', status: 'confirmed' },
+      { id: 'exchange-refund', method: 'cash', amount: 5, cashAmount: 5, qrAmount: 0, cardAmount: 0, received: 0, change: 0, paidAt: '2026-10-30T11:00:00Z', paidBy: 'Admin', status: 'confirmed', kind: 'exchange_refund' },
+      { id: 'pending-refund', method: 'qr', amount: 8, cashAmount: 0, qrAmount: 8, cardAmount: 0, received: 0, change: 0, paidAt: '2026-10-30T12:00:00Z', paidBy: 'Admin', status: 'confirmed', kind: 'pending_electronic_refund' },
+    ] },
+    { id: 'opened-today-paid-yesterday', openedAt: '2026-10-30T07:00:00Z', openedBy: 'Apertura', status: 'closed', subtotal: 50, rounds: [], payments: [
+      { id: 'yesterday', method: 'cash', amount: 50, cashAmount: 50, qrAmount: 0, cardAmount: 0, received: 50, change: 0, paidAt: '2026-10-29T20:00:00Z', paidBy: 'Cajero', status: 'confirmed' },
+    ] },
+  ] as never, Date.parse('2026-10-30T04:00:00Z'), Date.parse('2026-10-31T04:00:00Z'))
+  assert.equal(summary.incomplete, false)
+  assert.deepEqual(summary.accountIds, ['old-account'])
+  assert.equal(summary.grossCollections, 125)
+  assert.equal(summary.refunds, 15)
+  assert.equal(summary.netCollections, 110)
+  assert.equal(summary.cashCollections, 65)
+  assert.equal(summary.qrCollections, 50)
+  assert.equal(summary.cardCollections, 10)
+  assert.equal(summary.events.length, 4)
+
+  const missingDate = summarizeNightclubReportPayments([
+    { id: 'legacy', openedAt: oldOpenedAt, openedBy: 'Apertura', status: 'closed', subtotal: 50, rounds: [], payment: { method: 'cash', amount: 50, cashAmount: 50, qrAmount: 0, cardAmount: 0, received: 50, change: 0, paidAt: '', paidBy: 'Cajero' } },
+  ] as never, Date.parse('2026-10-30T04:00:00Z'), Date.parse('2026-10-31T04:00:00Z'))
+  assert.equal(missingDate.incomplete, true)
+  assert.equal(missingDate.netCollections, 0)
 })

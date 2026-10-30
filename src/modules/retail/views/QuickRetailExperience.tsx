@@ -12,6 +12,8 @@ import { exportBusinessReport } from '../../../core/reports/reportExport'
 import { makeBusinessReport } from '../../../core/reports/reportTypes'
 import type { ReportSheet } from '../../../core/reports/reportTypes'
 import { printBusinessReport } from '../../../core/reports/businessReportPrintService'
+import { reportPaginationIsComplete } from '../../../core/reports/reportCompleteness'
+import { canUseDocumentCapability } from '../../../core/documents/documentCapabilities'
 import { getActiveTenant } from '../../../store/activeTenant'
 
 type Section = 'pos' | 'products' | 'inventory' | 'cash' | 'reports' | 'users'
@@ -150,7 +152,7 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
       setReportSales(current => reset ? page.rows : [...current, ...page.rows])
       setReportCursor(page.cursor); setReportHasMore(page.hasMore)
       setReportPageCount(current => reset ? 1 : current + 1)
-      setReportComplete(!page.hasMore && (reset ? page.rows.length : reportSales.length + page.rows.length) < 10_000)
+      setReportComplete(reportPaginationIsComplete(reset ? page.rows.length : reportSales.length + page.rows.length, 10_000, page.hasMore))
       setReportLoadedPeriod(reportPeriod)
     } catch (cause) {
       setReportSales([]); setReportCursor(null); setReportComplete(false); setReportHasMore(false); setReportLoadedPeriod('')
@@ -194,10 +196,11 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
     if (!reportComplete || reportLoadedPeriod !== reportPeriod || reportHasMore) { setError('Carga todas las páginas del periodo antes de imprimir.'); return }
     if (reportSheets.reduce((sum, sheet) => sum + sheet.rows.length, 0) > 500) { setError('El reporte supera 500 filas para impresión; descarga el PDF o Excel completo.'); return }
     setSaving(true); setError('')
-    try { await authorizeReportAction(tenantId, branchId, 'reports.export'); setNotice(await printBusinessReport(buildRetailReport())) }
+    try { await authorizeReportAction(tenantId, branchId, 'printing.manual'); setNotice(await printBusinessReport(buildRetailReport())) }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo imprimir el reporte.') }
     finally { setSaving(false) }
   }
+  const canPrintReport = canUseDocumentCapability(getActiveTenant()?.tenant, 'printing.manual')
 
   useEffect(() => {
     if (!roleAllows(role, 'users')) return
@@ -437,8 +440,9 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
             {reportComplete && <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => void exportReport('pdf')} disabled={saving || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} className="min-h-10 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Descargar PDF</button>
               <button type="button" onClick={() => void exportReport('excel')} disabled={saving || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} className="min-h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50">Descargar Excel</button>
-              <button type="button" onClick={() => void printReport()} disabled={saving || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export') || reportSheets.reduce((sum, sheet) => sum + sheet.rows.length, 0) > 500} className="min-h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50">Imprimir</button>
+              <button type="button" onClick={() => void printReport()} disabled={saving || !canPrintReport || reportSheets.reduce((sum, sheet) => sum + sheet.rows.length, 0) > 500} className="min-h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50">Imprimir resumen</button>
               {!canUseReportCapability(getActiveTenant()?.tenant, 'reports.export') && <p className="self-center text-xs text-slate-600">La exportación no está incluida en las capacidades actuales.</p>}
+              {!canPrintReport && <p className="self-center text-xs text-slate-600">La impresión manual no está incluida en las capacidades actuales.</p>}
             </div>}
           </>}
         </section>}

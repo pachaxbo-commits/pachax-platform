@@ -1,6 +1,6 @@
 import type { BusinessReportV1 } from './reportTypes.ts'
 import { toDigitalReportDocument } from './reportTypes.ts'
-import { canUseReportCapability } from './reportCapabilities.ts'
+import { canUseDocumentCapability } from '../documents/documentCapabilities.ts'
 import { getActiveTenant } from '../../store/activeTenant.ts'
 import { isDemoModeActive } from '../../demo/core/demoContext.ts'
 import { PrintEngineService } from '../../services/printing/printEngineService.ts'
@@ -21,6 +21,10 @@ function defaultPrinter(tenantId: string, branchId: string): PrinterProfile {
   }
 }
 
+export function getBusinessReportPrintSheet(report: BusinessReportV1) {
+  return report.sheets.find(item => item.name.trim().toLocaleLowerCase() === 'resumen') || report.sheets[0]
+}
+
 export async function printBusinessReport(report: BusinessReportV1): Promise<string> {
   if (report.completeness !== 'complete') throw new Error('Completa el historial del periodo antes de imprimir el reporte.')
   const active = getActiveTenant()
@@ -28,7 +32,7 @@ export async function printBusinessReport(report: BusinessReportV1): Promise<str
   if (active && (active.tenantId !== report.tenantId || active.branchId !== report.branchId || active.tenant.businessType !== report.businessType)) {
     throw new Error('El reporte no coincide con la empresa, sucursal o plantilla activa.')
   }
-  if (!canUseReportCapability(active?.tenant, 'reports.export')) throw new Error('La exportación de reportes no está incluida en las capacidades de esta empresa.')
+  if (!canUseDocumentCapability(active?.tenant, 'printing.manual')) throw new Error('La impresión manual no está incluida en las capacidades de esta empresa.')
   const document = toDigitalReportDocument(report)
   const rowCount = document.payload.sheets.reduce((total, sheet) => total + sheet.rows.length, 0)
   if (rowCount > 500) throw new Error('El reporte supera 500 filas para impresión. Descarga el PDF o Excel completo.')
@@ -36,7 +40,7 @@ export async function printBusinessReport(report: BusinessReportV1): Promise<str
   const printer = getActiveReceiptPrinter(document.tenantId, document.branchId) || defaultPrinter(document.tenantId, document.branchId)
   const engine = PrintEngineService.getInstance()
   if (printer.connectionType === 'browser_dialog') engine.registerPrinterProfile(printer)
-  const sheet = document.payload.sheets[0]
+  const sheet = getBusinessReportPrintSheet(document.payload)
   const job = await engine.submitPrintRequest({
     targetType: 'cash_report', tenantId: document.tenantId, branchId: document.branchId,
     printerProfileId: printer.id,
@@ -48,8 +52,8 @@ export async function printBusinessReport(report: BusinessReportV1): Promise<str
       headerDetails: document.identity.formattedHeaderLines, displayNumber: document.sourceId,
       items: [], subtotal: 0, discountTotal: 0, taxTotal: 0, deliveryFee: 0, grandTotal: 0,
       isCopy: false, copies: 1, createdIso: document.createdAt,
-      report: { title: sheet.name, description: `${document.payload.period.startDate} – ${document.payload.period.endDate} · ${document.payload.period.timeZone}`, headers: sheet.headers, rows: sheet.rows.map(row => row.map(value => value === null ? '' : String(value))) },
+      report: { title: `Resumen del informe · ${sheet.name}`, description: `${document.payload.period.startDate} – ${document.payload.period.endDate} · ${document.payload.period.timeZone} · Para todas las hojas, descarga el PDF o Excel.`, headers: sheet.headers, rows: sheet.rows.map(row => row.map(value => value === null ? '' : String(value))) },
     },
   })
-  return job.status === 'transmitted' || job.status === 'confirmed' ? 'Se abrió el diálogo o dispositivo de impresión.' : `Reporte preparado. Estado de impresión: ${job.status}.`
+  return job.status === 'transmitted' || job.status === 'confirmed' ? 'Se abrió la impresión del resumen. Descarga PDF o Excel para obtener todas las hojas.' : `Resumen preparado. Estado de impresión: ${job.status}. Descarga PDF o Excel para obtener todas las hojas.`
 }

@@ -26,6 +26,7 @@ import { makeBusinessReport } from '../../../core/reports/reportTypes'
 import { exportBusinessReport } from '../../../core/reports/reportExport'
 import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
 import { printBusinessReport } from '../../../core/reports/businessReportPrintService'
+import { canUseDocumentCapability } from '../../../core/documents/documentCapabilities'
 
 type ReportTab = 'resumen' | 'ventas' | 'productos' | 'creditos' | 'cobros' | 'gastos' | 'arqueos'
 
@@ -104,7 +105,7 @@ export function ReportsView({ session, data, documentContext: viewIdentity }: Di
     try {
       if (data.operations.some(operation => operation.status === 'queued')) throw new Error('Espera la confirmación de las operaciones pendientes antes de imprimir.')
       const active = getActiveTenant()
-      if (active) await authorizeBusinessReportCapability(session.tenantId, active.branchId, 'reports.export')
+      if (active) await authorizeBusinessReportCapability(session.tenantId, active.branchId, 'printing.manual')
       else if (!isDemoModeActive()) throw new Error('La empresa activa debe cargarse antes de imprimir.')
       const allSheets = reportSheets(data, session.dayKeys, routeFilter, sellerFilter)
       const sheets = detailedReportsEnabled ? allSheets : allSheets.slice(0, 1)
@@ -144,7 +145,7 @@ export function ReportsView({ session, data, documentContext: viewIdentity }: Di
     <Screen title="Reportes" subtitle={describeRange(session.dayKeys)}>
       <div className="grid w-full min-w-0 gap-3">
         <div className="flex flex-wrap gap-2" data-tutorial-target="reports-export-actions">{(['Excel','PDF'] as const).map(kind=><button key={kind} disabled={exporting || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold disabled:opacity-50" onClick={async()=>{setExporting(true);setExportError('');try{if(data.operations.some(o=>o.status==='queued'))throw new Error('Espera la confirmación de las operaciones pendientes antes de exportar.');const active = getActiveTenant();if(active)await authorizeBusinessReportCapability(session.tenantId,active.branchId,'reports.export');else if(!isDemoModeActive())throw new Error('La empresa activa debe cargarse antes de exportar.');const allSheets=reportSheets(data,session.dayKeys,routeFilter,sellerFilter);const sheets=detailedReportsEnabled?allSheets:allSheets.slice(0,1);const tz=active?.tenant.configuration?.timezone || 'America/La_Paz';const dates=session.dayKeys.length ? [...session.dayKeys].sort() : [new Date().toISOString().slice(0,10)];const report=makeBusinessReport({tenantId:session.tenantId,branchId:active?.branchId || 'main',businessType:active?.tenant.businessType || 'route_distribution',generatedAt:new Date().toISOString(),period:{startDate:dates[0],endDate:dates[dates.length-1],timeZone:tz},identity:viewIdentity || buildBusinessDocumentContext(undefined,{companyName:session.restaurantName,branchName:'Casa Matriz'}),completeness:'complete',recordCount:sales.length+collections.length+expenses.length+closures.length,warnings:['Los cálculos y hojas existentes de Distribución se conservan sin cambios.'],sheets});await exportBusinessReport(report,kind==='Excel'?'excel':'pdf')}catch(e){setExportError((e as Error).message)}finally{setExporting(false)}}}>{exporting?'Preparando...':kind==='Excel'?'Descargar Excel':'PDF para imprimir / compartir'}</button>)}</div>
-        <button type="button" disabled={exporting || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} onClick={() => void printReport()} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold disabled:opacity-50">Imprimir</button>
+        <button type="button" disabled={exporting || !canUseDocumentCapability(getActiveTenant()?.tenant, 'printing.manual')} onClick={() => void printReport()} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold disabled:opacity-50">Imprimir resumen</button>
         {exportError&&<p role="alert">{exportError}</p>}
         <SectionCard title="Costos y resultado del periodo"><div className="grid gap-2 text-xs">{reportSheets(data,session.dayKeys,routeFilter,sellerFilter)[0].rows.map((row,i)=><p key={i} className="flex justify-between gap-3"><span>{row[0]}</span><strong>{typeof row[1]==='number'?formatBs(row[1]):row[1]===null?'Sin costo completo':row[1]}</strong></p>)}</div></SectionCard>
         <RangePicker

@@ -510,7 +510,7 @@ export function PlansSection() {
               </label>
 
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
-                <strong>Capacidades técnicas:</strong> el servidor valida límites y acceso a reportes por plantilla. Los informes detallados y exportaciones solo se incluyen al seleccionarlos y aprobar explícitamente el plan. Recibos e impresión usan el contexto de empresa/sucursal y los adaptadores compartidos; el diálogo web depende del navegador y los dispositivos físicos requieren validación en el equipo del cliente.
+                  <strong>Capacidades técnicas:</strong> el servidor valida límites y acceso a reportes por plantilla. PDF y Excel descargables requieren `reports.export`; imprimir resumen mediante el motor requiere `printing.manual`. Ninguna capacidad promete impresión silenciosa ni compatibilidad física universal; los dispositivos requieren validación en el equipo del cliente.
               </div>
 
               {formData.capabilitiesV1 && (
@@ -536,7 +536,7 @@ export function PlansSection() {
                   <div className="grid gap-2 sm:grid-cols-2">
                     {([
                       ['detailed', 'Reportes detallados', 'Habilita vistas históricas por periodo y desglose disponibles para esta plantilla.'],
-                      ['export', 'Exportar e imprimir reportes', 'Habilita PDF, Excel e impresión del informe completo.'],
+                      ['export', 'Exportar informes (PDF y Excel)', 'Habilita la descarga completa de informes en PDF y Excel. La impresión manual se controla por separado.'],
                     ] as const).map(([key, label, description]) => <label key={key} className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
                       <input type="checkbox" checked={formData.capabilitiesV1!.features.reports[key]} disabled={!canApprovePrice}
                         onChange={(event) => setFormData({ ...formData, priceApproval: 'pending', capabilitiesV1: {

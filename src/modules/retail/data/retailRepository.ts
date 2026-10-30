@@ -123,7 +123,7 @@ export async function loadRetailReportPage(
   })
 }
 
-export function authorizeReportAction(tenantId: string, branchId: string, feature: 'reports.basic' | 'reports.detailed' | 'reports.export') {
+export function authorizeReportAction(tenantId: string, branchId: string, feature: 'reports.basic' | 'reports.detailed' | 'reports.export' | 'printing.manual') {
   return gateway<{ authorized: true }>('tenantGateway', { action: 'authorizeReportCapability', tenantId, branchId, feature })
 }
 

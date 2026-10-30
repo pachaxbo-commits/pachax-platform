@@ -93,10 +93,15 @@ async function main() {
     assert.deepEqual(await authorizeReportCapability(db, reportRequest('reports.basic')), { authorized: true });
     await assert.rejects(authorizeReportCapability(db, reportRequest('reports.detailed')), error => error.code === 'permission-denied');
     await assert.rejects(authorizeReportCapability(db, reportRequest('reports.export')), error => error.code === 'permission-denied');
-    const reportEnabled = { ...documentCapabilities, features: { ...documentCapabilities.features, reports: { basic: true, detailed: true, export: true } } };
+    assert.deepEqual(await authorizeReportCapability(db, reportRequest('printing.manual')), { authorized: true });
+    const noManualPrint = { ...documentCapabilities, features: { ...documentCapabilities.features, printing: { ...documentCapabilities.features.printing, manual: false } } };
+    await documentRoot.update({ commercialCapabilities: noManualPrint });
+    await assert.rejects(authorizeReportCapability(db, reportRequest('printing.manual')), error => error.code === 'permission-denied');
+    const reportEnabled = { ...documentCapabilities, features: { ...documentCapabilities.features, reports: { basic: true, detailed: true, export: true }, printing: { ...documentCapabilities.features.printing, manual: true } } };
     await documentRoot.update({ commercialCapabilities: reportEnabled });
     assert.deepEqual(await authorizeReportCapability(db, reportRequest('reports.detailed')), { authorized: true });
     assert.deepEqual(await authorizeReportCapability(db, reportRequest('reports.export')), { authorized: true });
+    assert.deepEqual(await authorizeReportCapability(db, reportRequest('printing.manual')), { authorized: true });
     await assert.rejects(authorizeReportCapability(db, { auth: { uid: reportMemberUid }, data: { tenantId: documentTenantId, branchId: 'other', feature: 'reports.export' } }), error => error.code === 'permission-denied');
     await assert.rejects(authorizeReportCapability(db, { ...reportRequest('reports.export'), auth: null }), error => error.code === 'unauthenticated');
     await documentRoot.collection('members').doc(reportMemberUid).update({ status: 'disabled' });
