@@ -15,6 +15,7 @@ import {
   Key,
 } from 'lucide-react'
 import { gateway } from '../../../services/gateway'
+import { formatTenantDate } from '../../tenantDate'
 
 export interface RealTenantRecord {
   tenantId: string
@@ -421,7 +422,7 @@ export function ClientsSection() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px]">
-                      {tenant.createdAt ? tenant.createdAt.slice(0, 10) : 'No disponible'}
+                      {formatTenantDate(tenant.createdAt)}
                     </td>
                     <td className="py-3.5 px-4 text-slate-700 font-mono text-center">
                       {tenant.userCount != null ? tenant.userCount : 'No disponible'}
