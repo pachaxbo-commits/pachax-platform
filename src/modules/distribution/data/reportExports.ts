@@ -13,15 +13,14 @@ import {
   reportRecordName,
   reportUnitLabel,
 } from "../domain/reportLabels";
-import { saveReport } from "./reportFiles";
+import { exportReportExcel, exportReportPdf } from "../../../core/reports/reportExport.ts";
+import type { ReportSheet } from "../../../core/reports/reportTypes.ts";
+import { buildBusinessDocumentContext } from "../../../core/businessIdentity.ts";
+import type { BusinessDocumentContext } from "../../../core/businessIdentity.ts";
 import { analyzeCustomerStatement } from "../domain/customerStatement.ts";
 import { assertCompleteStatementHistory } from "./statementPaging.ts";
 type Cell = string | number | null;
-export interface ReportSheet {
-  name: string;
-  headers: string[];
-  rows: Cell[][];
-}
+export type { ReportSheet } from "../../../core/reports/reportTypes.ts";
 export function reportSheets(
   data: DistributionData,
   days: string[],
@@ -369,110 +368,16 @@ export function reportSheets(
     },
   ];
 }
-export async function exportExcel(sheets: ReportSheet[], description: string) {
-  const { Workbook } = await import("exceljs");
-  const book = new Workbook();
-  book.creator = "PACHAX";
-  for (const sheet of sheets) {
-    const ws = book.addWorksheet(sheet.name);
-    ws.mergeCells(1, 1, 1, sheet.headers.length);
-    ws.getCell(1, 1).value = `PACHAX · ${sheet.name}`;
-    ws.getCell(1, 1).font = { bold: true, size: 14 };
-    ws.mergeCells(2, 1, 2, sheet.headers.length);
-    ws.getCell(2, 1).value = description;
-    ws.getCell(2, 1).alignment = { wrapText: true };
-    ws.getRow(2).height = 30;
-    ws.getRow(4).values = sheet.headers;
-    ws.getRow(4).eachCell((c) => {
-      c.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      c.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FF1F2937" },
-      };
-    });
-    ws.addRows(sheet.rows);
-    ws.columns.forEach((c, i) => {
-      c.width =
-        sheet.headers[i].includes("Producto") ||
-        sheet.headers[i].includes("Motivo")
-          ? 36
-          : 23;
-    });
-    ws.views = [{ state: "frozen", ySplit: 4 }];
-    ws.autoFilter = {
-      from: { row: 4, column: 1 },
-      to: { row: Math.max(4, ws.rowCount), column: sheet.headers.length },
-    };
-    for (let r = 5; r <= ws.rowCount; r++) {
-      ws.getRow(r).alignment = { vertical: "top", wrapText: true };
-      ws.getRow(r).eachCell((c, col) => {
-        if (typeof c.value === "number")
-          c.numFmt = sheet.headers[col - 1].includes("Bs")
-            ? "#,##0.00"
-            : "0.##";
-      });
-    }
-  }
-  const buffer = await book.xlsx.writeBuffer();
-  await saveReport(
-    new Uint8Array(buffer),
-    "Pachax-reportes.xlsx",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  );
+export async function exportExcel(sheets: ReportSheet[], description: string, identity?: BusinessDocumentContext) {
+  return exportReportExcel(sheets, { identity: identity || buildBusinessDocumentContext(undefined, { companyName: 'PACHAX', branchName: 'Sucursal principal' }), description });
 }
 export async function exportPdf(
   sheets: ReportSheet[],
   description: string,
   filename = "Pachax-reportes.pdf",
+  identity?: BusinessDocumentContext,
 ) {
-  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
-    import("jspdf"),
-    import("jspdf-autotable"),
-  ]);
-  const pdf = new jsPDF({ orientation: "landscape" });
-  const header = () => {
-    pdf.setTextColor(145, 20, 30);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(15);
-    pdf.text("PACHAX", 14, 15);
-    pdf.setTextColor(30, 40, 50);
-    pdf.setFontSize(9);
-    pdf.setFont("helvetica", "normal");
-    pdf.text(description, 14, 22, { maxWidth: 268 });
-  };
-  sheets.forEach((s, i) => {
-    if (i) pdf.addPage();
-    header();
-    pdf.setFontSize(11);
-    pdf.text(s.name, 14, 35);
-    autoTable(pdf, {
-      head: [s.headers],
-      body: s.rows.map((r) =>
-        r.map((v, j) =>
-          v === null
-            ? s.headers[j].includes("Costo")
-              ? "Sin costo registrado"
-              : ""
-            : String(v),
-        ),
-      ),
-      startY: 40,
-      margin: { top: 32, bottom: 16 },
-      styles: { fontSize: 7, cellPadding: 2, overflow: "linebreak" },
-      headStyles: { fillColor: [31, 41, 55] },
-      didDrawPage: () => {
-        header();
-        pdf.setFontSize(8);
-        pdf.text(`Página ${pdf.getNumberOfPages()}`, 270, 200);
-      },
-    });
-  });
-  await saveReport(
-    new Uint8Array(pdf.output("arraybuffer")),
-    filename,
-    "application/pdf",
-  );
+  return exportReportPdf(sheets, { identity: identity || buildBusinessDocumentContext(undefined, { companyName: 'PACHAX', branchName: 'Sucursal principal' }), description, filename });
 }
 export async function exportCustomerStatement(
   customer: DistCustomer,

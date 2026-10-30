@@ -50,6 +50,13 @@ export interface RetailTenantState {
   historyComplete: boolean
 }
 
+export interface RetailReportPage {
+  rows: RetailTenantSale[]
+  hasMore: boolean
+  cursor: { createdAt: string; id: string } | null
+  pageSize: number
+}
+
 export type RetailCommandResult = Record<string, unknown>
 
 export interface RetailTenantMember {
@@ -101,6 +108,23 @@ export async function loadRetailState(tenantId: string, branchId: string): Promi
   return gateway<RetailTenantState>('tenantGateway', {
     action: 'retailCommand', commandType: 'load', tenantId, branchId,
   })
+}
+
+export async function loadRetailReportPage(
+  tenantId: string,
+  branchId: string,
+  period: { startAt: string; endBefore: string },
+  reportMode: 'basic' | 'detailed',
+  cursor?: { createdAt: string; id: string } | null,
+): Promise<RetailReportPage> {
+  return gateway<RetailReportPage>('tenantGateway', {
+    action: 'retailCommand', commandType: 'loadReportPage', reportMode,
+    tenantId, branchId, ...period, ...(cursor ? { cursor } : {}),
+  })
+}
+
+export function authorizeReportAction(tenantId: string, branchId: string, feature: 'reports.basic' | 'reports.detailed' | 'reports.export') {
+  return gateway<{ authorized: true }>('tenantGateway', { action: 'authorizeReportCapability', tenantId, branchId, feature })
 }
 
 export async function runRetailCommand<T extends RetailCommandResult>(

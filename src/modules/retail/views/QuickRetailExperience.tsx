@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Boxes, ChartNoAxesCombined, LoaderCircle, PackagePlus, RefreshCw, ShoppingCart, Users, Wallet } from 'lucide-react'
-import { createRetailMember, loadRetailState, runRetailCommand, subscribeRetailMembers, updateRetailMember, type RetailTenantMember, type RetailTenantProduct, type RetailTenantSale, type RetailTenantState } from '../data/retailRepository'
+import { authorizeReportAction, createRetailMember, loadRetailReportPage, loadRetailState, runRetailCommand, subscribeRetailMembers, updateRetailMember, type RetailReportPage, type RetailTenantMember, type RetailTenantProduct, type RetailTenantSale, type RetailTenantState } from '../data/retailRepository'
 import type { BusinessIdentity } from '../../../core/businessIdentity'
 import { resolveBusinessDocumentContext } from '../../../core/documents/businessDocumentContext'
 import { type CanonicalReceiptData } from '../../../core/receiptService'
 import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
 import { printBusinessReceipt } from '../../../services/printing/businessDocumentPrintService'
+import { localDateKey, reportPeriodUtcRange } from '../../../core/reports/reportPeriod'
+import { canUseReportCapability } from '../../../core/reports/reportCapabilities'
+import { exportBusinessReport } from '../../../core/reports/reportExport'
+import { makeBusinessReport } from '../../../core/reports/reportTypes'
+import type { ReportSheet } from '../../../core/reports/reportTypes'
+import { printBusinessReport } from '../../../core/reports/businessReportPrintService'
+import { getActiveTenant } from '../../../store/activeTenant'
 
 type Section = 'pos' | 'products' | 'inventory' | 'cash' | 'reports' | 'users'
 type CartLine = { productId: string; quantity: number }
@@ -80,6 +87,17 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
   const [openingFloat, setOpeningFloat] = useState('')
   const [movement, setMovement] = useState({ type: 'expense' as 'income' | 'expense', amount: '', reason: '' })
   const [countedCash, setCountedCash] = useState('')
+  const timeZone = getActiveTenant()?.tenant.configuration?.timezone || 'America/La_Paz'
+  const [reportStartDate, setReportStartDate] = useState(() => localDateKey(new Date(), timeZone))
+  const [reportEndDate, setReportEndDate] = useState(() => localDateKey(new Date(), timeZone))
+  const [reportSales, setReportSales] = useState<RetailTenantSale[]>([])
+  const [reportCursor, setReportCursor] = useState<RetailReportPage['cursor']>(null)
+  const [reportHasMore, setReportHasMore] = useState(false)
+  const [reportComplete, setReportComplete] = useState(false)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportPageCount, setReportPageCount] = useState(0)
+  const [reportLoadedPeriod, setReportLoadedPeriod] = useState('')
+  const reportPeriod = `${reportStartDate}/${reportEndDate}/${timeZone}`
   const documentContext = useMemo(() => resolveBusinessDocumentContext(businessIdentity, { name: branchName }, { companyName, logoUrl }), [businessIdentity, branchName, companyName, logoUrl])
   const receiptData: CanonicalReceiptData | null = useMemo(() => lastReceipt ? {
     receiptNumber: lastReceipt.saleId.slice(-8).toUpperCase(),
@@ -118,6 +136,68 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [tenantId, branchId])
+
+  const loadReportPage = async (reset: boolean) => {
+    if (reportLoading) return
+    setReportLoading(true); setError('')
+    if (reset) { setReportSales([]); setReportCursor(null); setReportHasMore(false); setReportComplete(false); setReportPageCount(0); setReportLoadedPeriod('') }
+    try {
+      const range = reportPeriodUtcRange({ startDate: reportStartDate, endDate: reportEndDate, timeZone })
+      const reportMode = canUseReportCapability(getActiveTenant()?.tenant, 'reports.detailed') ? 'detailed' : 'basic'
+      const page = await loadRetailReportPage(tenantId, branchId, {
+        startAt: range.startInclusive.toISOString(), endBefore: range.endExclusive.toISOString(),
+      }, reportMode, reset ? null : reportCursor)
+      setReportSales(current => reset ? page.rows : [...current, ...page.rows])
+      setReportCursor(page.cursor); setReportHasMore(page.hasMore)
+      setReportPageCount(current => reset ? 1 : current + 1)
+      setReportComplete(!page.hasMore && (reset ? page.rows.length : reportSales.length + page.rows.length) < 10_000)
+      setReportLoadedPeriod(reportPeriod)
+    } catch (cause) {
+      setReportSales([]); setReportCursor(null); setReportComplete(false); setReportHasMore(false); setReportLoadedPeriod('')
+      setError(cause instanceof Error ? cause.message : 'No se pudo cargar el historial completo de ventas.')
+    } finally { setReportLoading(false) }
+  }
+
+  const reportSheets = useMemo<ReportSheet[]>(() => {
+    const productTotals = new Map<string, { quantity: number; totalMinor: number }>()
+    for (const sale of reportSales) for (const line of sale.lines) {
+      const current = productTotals.get(line.name) || { quantity: 0, totalMinor: 0 }
+      productTotals.set(line.name, { quantity: current.quantity + line.quantity, totalMinor: current.totalMinor + line.lineTotalMinor })
+    }
+    const sheets: ReportSheet[] = [
+      { name: 'Resumen', headers: ['Concepto', 'Valor'], rows: [
+        ['Ventas cobradas (Bs)', reportSales.reduce((total, sale) => total + sale.totalMinor, 0) / 100],
+        ['Ventas en efectivo (Bs)', reportSales.reduce((total, sale) => total + sale.cashMinor, 0) / 100],
+        ['Ventas QR (Bs)', reportSales.reduce((total, sale) => total + sale.qrMinor, 0) / 100],
+        ['Tickets', reportSales.length],
+      ] },
+      { name: 'Ventas', headers: ['Fecha y hora', 'Venta', 'Método', 'Total (Bs)', 'Cambio (Bs)'], rows: reportSales.map(sale => [new Date(sale.createdAt).toLocaleString('es-BO', { timeZone }), sale.id, sale.method.toUpperCase(), sale.totalMinor / 100, sale.changeMinor / 100]) },
+    ]
+    if (canUseReportCapability(getActiveTenant()?.tenant, 'reports.detailed')) sheets.push({
+      name: 'Productos vendidos', headers: ['Producto', 'Cantidad', 'Unidad', 'Importe (Bs)'],
+      rows: [...productTotals].map(([name, totals]) => [name, totals.quantity, 'Según unidad del producto', totals.totalMinor / 100]),
+    })
+    return sheets
+  }, [reportSales, timeZone])
+
+  const buildRetailReport = () => makeBusinessReport({ tenantId, branchId, businessType: getActiveTenant()?.tenant.businessType || 'gelateria_weight_cafe', generatedAt: new Date().toISOString(), period: { startDate: reportStartDate, endDate: reportEndDate, timeZone }, identity: documentContext, completeness: 'complete', recordCount: reportSales.length, warnings: [], sheets: reportSheets })
+  const exportReport = async (format: 'excel' | 'pdf') => {
+    if (!reportComplete || reportLoadedPeriod !== reportPeriod || reportHasMore) { setError('Carga todas las páginas del periodo antes de exportar el reporte.'); return }
+    setSaving(true); setError('')
+    try {
+      await authorizeReportAction(tenantId, branchId, 'reports.export')
+      await exportBusinessReport(buildRetailReport(), format)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo exportar el reporte.') }
+    finally { setSaving(false) }
+  }
+  const printReport = async () => {
+    if (!reportComplete || reportLoadedPeriod !== reportPeriod || reportHasMore) { setError('Carga todas las páginas del periodo antes de imprimir.'); return }
+    if (reportSheets.reduce((sum, sheet) => sum + sheet.rows.length, 0) > 500) { setError('El reporte supera 500 filas para impresión; descarga el PDF o Excel completo.'); return }
+    setSaving(true); setError('')
+    try { await authorizeReportAction(tenantId, branchId, 'reports.export'); setNotice(await printBusinessReport(buildRetailReport())) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo imprimir el reporte.') }
+    finally { setSaving(false) }
+  }
 
   useEffect(() => {
     if (!roleAllows(role, 'users')) return
@@ -334,7 +414,34 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
         </section>}
         {activeSection === 'inventory' && <section className="grid gap-4 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.4fr)]"><form onSubmit={event => void submitStock(event)} className="space-y-3 rounded-2xl border bg-white p-4 sm:p-5"><h2 className="text-lg font-bold">Ajuste de existencias</h2><label className="block text-sm">Producto<select required value={stockForm.productId} onChange={event => setStockForm({ ...stockForm, productId: event.target.value })} className="mt-1 min-h-10 w-full rounded border bg-white px-3"><option value="">Seleccionar</option>{state.products.map(product => <option key={product.id} value={product.id}>{product.name} · {product.stockUnit}</option>)}</select></label><label className="block text-sm">Movimiento<select value={stockForm.direction} onChange={event => setStockForm({ ...stockForm, direction: event.target.value as 'in' | 'out' })} className="mt-1 min-h-10 w-full rounded border bg-white px-3"><option value="in">Entrada</option><option value="out">Salida</option></select></label><label className="block text-sm">Cantidad entera<input required type="number" min="1" step="1" value={stockForm.quantity} onChange={event => setStockForm({ ...stockForm, quantity: event.target.value })} className="mt-1 min-h-10 w-full rounded border px-3" /></label><label className="block text-sm">Motivo<input required maxLength={160} value={stockForm.reason} onChange={event => setStockForm({ ...stockForm, reason: event.target.value })} className="mt-1 min-h-10 w-full rounded border px-3" /></label><button disabled={saving} className="min-h-11 w-full rounded-lg bg-slate-900 text-sm font-bold text-white disabled:opacity-50">Registrar movimiento auditado</button></form><div className="rounded-2xl border bg-white p-4 sm:p-5"><h2 className="text-lg font-bold">Existencias actuales</h2><ul className="mt-3 divide-y">{state.products.map(product => <li key={product.id} className="flex justify-between gap-3 py-3"><span>{product.name}<small className="block text-slate-500">{product.sku || product.category}</small></span><strong>{product.stockBase} {product.stockUnit}</strong></li>)}</ul></div></section>}
         {activeSection === 'cash' && <section className="grid gap-4 lg:grid-cols-2"><div className="space-y-4 rounded-2xl border bg-white p-4 sm:p-5"><h2 className="text-lg font-bold">Caja del turno</h2>{state.activeShift ? <><dl className="grid gap-2 text-sm sm:grid-cols-2"><dt>Fondo inicial</dt><dd className="font-semibold">{money(state.activeShift.openingFloatMinor)}</dd><dt>Ventas en efectivo</dt><dd className="font-semibold">{money(state.activeShift.cashSalesMinor)}</dd><dt>Entradas manuales</dt><dd className="font-semibold">{money(state.activeShift.cashInMinor)}</dd><dt>Salidas manuales</dt><dd className="font-semibold">{money(state.activeShift.cashOutMinor)}</dd><dt>Ventas</dt><dd className="font-semibold">{state.activeShift.salesCount}</dd></dl><form onSubmit={event => void submitCashMovement(event)} className="space-y-2 border-t pt-3"><h3 className="font-bold">Movimiento de caja</h3><label className="block text-sm">Tipo<select value={movement.type} onChange={event => setMovement({ ...movement, type: event.target.value as 'income' | 'expense' })} className="mt-1 min-h-10 w-full rounded border bg-white px-3"><option value="income">Entrada</option><option value="expense">Salida</option></select></label><label className="block text-sm">Importe en Bs<input required inputMode="decimal" value={movement.amount} onChange={event => setMovement({ ...movement, amount: event.target.value })} className="mt-1 min-h-10 w-full rounded border px-3" /></label><label className="block text-sm">Motivo<input required maxLength={160} value={movement.reason} onChange={event => setMovement({ ...movement, reason: event.target.value })} className="mt-1 min-h-10 w-full rounded border px-3" /></label><button disabled={saving} className="min-h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50">Guardar movimiento</button></form><form onSubmit={event => { event.preventDefault(); const countedCashMinor = toMinor(countedCash); if (countedCashMinor === null) { setError('Importe contado inválido.'); return } void command('close', 'closeShift', { countedCashMinor }).then(result => { if (result) setCountedCash('') }) }} className="space-y-2 border-t pt-3"><h3 className="font-bold">Cerrar turno</h3><label className="block text-sm">Efectivo contado en Bs<input required inputMode="decimal" value={countedCash} onChange={event => setCountedCash(event.target.value)} className="mt-1 min-h-10 w-full rounded border px-3" /></label><button disabled={saving} className="min-h-10 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white disabled:opacity-50">Guardar cierre</button></form></> : <form onSubmit={event => { event.preventDefault(); const openingFloatMinor = toMinor(openingFloat); if (openingFloatMinor === null) { setError('Fondo inicial inválido.'); return } void command('open', 'openShift', { openingFloatMinor }).then(result => { if (result) setOpeningFloat('') }) }} className="space-y-3"><p className="text-sm text-slate-600">No hay turno abierto. La apertura registra el fondo real indicado por el responsable.</p><label className="block text-sm">Fondo inicial en Bs<input required inputMode="decimal" value={openingFloat} onChange={event => setOpeningFloat(event.target.value)} className="mt-1 min-h-10 w-full rounded border px-3" /></label><button disabled={saving} className="min-h-11 w-full rounded-lg bg-slate-900 text-sm font-bold text-white disabled:opacity-50">Abrir turno</button></form>}</div><div className="rounded-2xl border bg-white p-4 sm:p-5"><h2 className="text-lg font-bold">Conciliación</h2>{state.activeShift && <p className="mt-2 text-sm text-slate-600">El efectivo esperado se calcula en el servidor desde el fondo, las ventas en efectivo y los movimientos confirmados. Egresos mayores al efectivo disponible se rechazan.</p>}<p className="mt-3 text-xs text-slate-500">Los pagos QR se registran como método no efectivo; no se conecta un QR bancario.</p></div></section>}
-        {activeSection === 'reports' && <section className="space-y-3 rounded-2xl border bg-white p-4 sm:p-5"><h2 className="text-lg font-bold">Ventas recientes</h2><p className="text-sm text-slate-600">Se muestran hasta las últimas {state.historyLimit} ventas de la sucursal. Este listado no representa el histórico completo.</p>{state.recentSales.length ? <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead><tr className="border-b text-xs text-slate-500"><th className="p-2">Fecha</th><th className="p-2">Venta</th><th className="p-2">Método</th><th className="p-2">Total</th><th className="p-2">Cambio</th></tr></thead><tbody>{state.recentSales.map((sale: RetailTenantSale) => <tr key={sale.id} className="border-b"><td className="p-2">{new Date(sale.createdAt).toLocaleString('es-BO')}</td><td className="p-2">{sale.id}</td><td className="p-2">{sale.method}</td><td className="p-2 font-semibold">{money(sale.totalMinor)}</td><td className="p-2">{money(sale.changeMinor)}</td></tr>)}</tbody></table></div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Todavía no hay ventas registradas.</p>}</section>}
+        {activeSection === 'reports' && <section className="space-y-4 rounded-2xl border bg-white p-4 sm:p-5">
+          <header><h2 className="text-lg font-bold">Ventas, productos y caja</h2><p className="text-sm text-slate-600">Consulta inclusiva por fechas en la zona horaria de la empresa. Los resultados se validan en el servidor por rol, sucursal y capacidades.</p></header>
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <label className="block text-sm">Desde<input type="date" value={reportStartDate} onChange={event => setReportStartDate(event.target.value)} className="mt-1 min-h-10 w-full rounded border px-3" /></label>
+            <label className="block text-sm">Hasta<input type="date" value={reportEndDate} onChange={event => setReportEndDate(event.target.value)} className="mt-1 min-h-10 w-full rounded border px-3" /></label>
+            <button type="button" onClick={() => void loadReportPage(true)} disabled={reportLoading || saving} className="min-h-10 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-50">{reportLoading ? 'Cargando…' : 'Consultar periodo'}</button>
+          </div>
+          {reportLoadedPeriod === reportPeriod && <>
+            <div className={`rounded-lg border p-3 text-sm ${reportComplete ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-950'}`} role="status">
+              {reportComplete ? `Historial completo: ${reportSales.length} venta(s).` : reportHasMore ? `Historial parcial: ${reportSales.length} venta(s) cargadas; aún hay páginas pendientes. Los totales no son definitivos.` : `La consulta no está completa; no se habilitan totales ni exportaciones.`}
+            </div>
+            {reportComplete && <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-600">Ventas cobradas</span><strong className="block text-lg">{money(reportSales.reduce((total, sale) => total + sale.totalMinor, 0))}</strong></div>
+              <div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-600">Efectivo</span><strong className="block text-lg">{money(reportSales.reduce((total, sale) => total + sale.cashMinor, 0))}</strong></div>
+              <div className="rounded-xl bg-slate-50 p-3"><span className="text-xs text-slate-600">QR</span><strong className="block text-lg">{money(reportSales.reduce((total, sale) => total + sale.qrMinor, 0))}</strong></div>
+            </div>}
+            {reportSales.length > 0 && <div className="overflow-x-auto"><table className="w-full min-w-[600px] text-left text-sm"><thead><tr className="border-b text-xs text-slate-500"><th className="p-2">Fecha</th><th className="p-2">Venta</th><th className="p-2">Método</th><th className="p-2">Total</th><th className="p-2">Cambio</th></tr></thead><tbody>{reportSales.map(sale => <tr key={sale.id} className="border-b"><td className="p-2">{new Date(sale.createdAt).toLocaleString('es-BO', { timeZone })}</td><td className="p-2">{sale.id}</td><td className="p-2">{sale.method.toUpperCase()}</td><td className="p-2 font-semibold">{money(sale.totalMinor)}</td><td className="p-2">{money(sale.changeMinor)}</td></tr>)}</tbody></table></div>}
+            {reportHasMore && reportPageCount < 100 && <button type="button" onClick={() => void loadReportPage(false)} disabled={reportLoading || saving} className="min-h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50">{reportLoading ? 'Cargando…' : 'Cargar siguiente página'}</button>}
+            {reportHasMore && reportPageCount >= 100 && <p className="text-sm text-amber-900">El periodo supera el límite seguro de 10.000 ventas. Reduce las fechas para obtener un reporte completo.</p>}
+            {canUseReportCapability(getActiveTenant()?.tenant, 'reports.detailed') && reportComplete && <section className="rounded-xl border p-3"><h3 className="font-bold">Productos más vendidos</h3><ul className="mt-2 divide-y">{reportSheets.find(sheet => sheet.name === 'Productos vendidos')?.rows.map((row, index) => <li key={index} className="flex justify-between gap-3 py-2 text-sm"><span>{row[0]} · {row[1]} {row[2]}</span><strong>{money(Number(row[3]) * 100)}</strong></li>)}</ul>{reportSheets.find(sheet => sheet.name === 'Productos vendidos')?.rows.length === 0 && <p className="mt-2 text-sm text-slate-600">Sin productos vendidos en el periodo.</p>}</section>}
+            {reportComplete && <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => void exportReport('pdf')} disabled={saving || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} className="min-h-10 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Descargar PDF</button>
+              <button type="button" onClick={() => void exportReport('excel')} disabled={saving || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} className="min-h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50">Descargar Excel</button>
+              <button type="button" onClick={() => void printReport()} disabled={saving || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export') || reportSheets.reduce((sum, sheet) => sum + sheet.rows.length, 0) > 500} className="min-h-10 rounded-lg border px-4 text-sm font-semibold disabled:opacity-50">Imprimir</button>
+              {!canUseReportCapability(getActiveTenant()?.tenant, 'reports.export') && <p className="self-center text-xs text-slate-600">La exportación no está incluida en las capacidades actuales.</p>}
+            </div>}
+          </>}
+        </section>}
         {activeSection === 'users' && <section className="grid gap-4 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.4fr)]">
           <form onSubmit={event => void submitMember(event)} className="space-y-3 rounded-2xl border bg-white p-4 sm:p-5">
             <h2 className="text-lg font-bold">Agregar usuario</h2>

@@ -229,6 +229,16 @@ export function buildGenericPrintHtml(title: string, text: string, paperWidth: '
 </html>`
 }
 
+export function buildBusinessReportHtml(payload: PrintJobPayload): string {
+  const escape = escapeHtml
+  const report = payload.report
+  if (!report) return buildGenericPrintHtml(payload.restaurantName || 'Reporte', 'El reporte no contiene filas para imprimir.')
+  const table = `<table><thead><tr>${report.headers.map(cell => `<th>${escape(cell)}</th>`).join('')}</tr></thead><tbody>${report.rows.map(row => `<tr>${row.map(cell => `<td>${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${escape(report.title)}</title><style>
+    @page{size:auto;margin:12mm}body{font:12px Arial,sans-serif;color:#111;margin:0}header{display:flex;gap:16px;align-items:center;border-bottom:2px solid #334155;padding-bottom:10px;margin-bottom:14px}header img{max-width:90px;max-height:48px;object-fit:contain}h1{font-size:18px;margin:0 0 5px}p{margin:0;color:#475569;font-size:10px}table{border-collapse:collapse;width:100%;font-size:9px}th,td{border:1px solid #cbd5e1;padding:5px;text-align:left;vertical-align:top}th{background:#e2e8f0;font-weight:bold}tr{break-inside:avoid}@media print{thead{display:table-header-group}}
+  </style></head><body><header>${payload.logoUrl ? `<img src="${escape(payload.logoUrl)}" alt="Logo de la empresa">` : ''}<div><h1>${escape(payload.restaurantName)}</h1><p>${escape(payload.branchName)} · ${escape(report.title)}</p>${(payload.headerDetails || []).map(line => `<p>${escape(line)}</p>`).join('')}<p>${escape(report.description)}</p></div></header>${table}</body></html>`
+}
+
 export class BrowserDialogPrinterAdapter implements PrinterAdapter {
   connectionType: PrinterConnectionType = 'browser_dialog'
 
@@ -264,6 +274,8 @@ export class BrowserDialogPrinterAdapter implements PrinterAdapter {
         html = buildKitchenTicketHtml(jobPayload, paperWidth, targetType === 'bar_ticket' ? 'BARRA' : 'COCINA')
       } else if (targetType === 'receipt') {
         html = buildReceiptHtml(jobPayload, paperWidth)
+      } else if (targetType === 'cash_report') {
+        html = buildBusinessReportHtml(jobPayload)
       } else if (targetType === 'test') {
         const testText = [
           '*** TICKET DE PRUEBA ***',

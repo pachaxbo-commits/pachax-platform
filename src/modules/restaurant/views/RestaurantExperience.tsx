@@ -1209,7 +1209,7 @@ export function RestaurantExperience({
               onDeleteMember={onDeleteMember}
             />
           )}
-          {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} />}
+          {activeModule === 'reports' && <RestaurantReports orders={orders} shift={shift} stockMovements={stockMovements} tenantId={session.tenantId} branchId={branchId} identity={documentContext} />}
           {activeModule === 'settings' && (
             <RestaurantSettings
               key={`${themeColors.primary}:${themeColors.accent}`}

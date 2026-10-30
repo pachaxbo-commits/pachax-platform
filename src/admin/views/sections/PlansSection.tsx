@@ -510,7 +510,7 @@ export function PlansSection() {
               </label>
 
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-950">
-                <strong>Capacidades Core V1:</strong> el servidor aplica límites de usuarios/productos y reportes básicos a nuevos contratos con Billing habilitado. Recibos e impresión usan el contexto de empresa/sucursal y los adaptadores compartidos. El diálogo web depende del navegador y los dispositivos físicos requieren validación en el equipo del cliente. Los reportes descargables y las sucursales adicionales siguen bloqueados.
+                <strong>Capacidades técnicas:</strong> el servidor valida límites y acceso a reportes por plantilla. Los informes detallados y exportaciones solo se incluyen al seleccionarlos y aprobar explícitamente el plan. Recibos e impresión usan el contexto de empresa/sucursal y los adaptadores compartidos; el diálogo web depende del navegador y los dispositivos físicos requieren validación en el equipo del cliente.
               </div>
 
               {formData.capabilitiesV1 && (
@@ -532,7 +532,20 @@ export function PlansSection() {
                       </label>
                     ))}
                   </div>
-                  <p className="text-xs font-semibold text-slate-700">✓ Resumen operativo básico incluido como capacidad base de V1.</p>
+                  <p className="text-xs font-semibold text-slate-700">✓ Resumen operativo básico incluido como capacidad base.</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      ['detailed', 'Reportes detallados', 'Habilita vistas históricas por periodo y desglose disponibles para esta plantilla.'],
+                      ['export', 'Exportar e imprimir reportes', 'Habilita PDF, Excel e impresión del informe completo.'],
+                    ] as const).map(([key, label, description]) => <label key={key} className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
+                      <input type="checkbox" checked={formData.capabilitiesV1!.features.reports[key]} disabled={!canApprovePrice}
+                        onChange={(event) => setFormData({ ...formData, priceApproval: 'pending', capabilitiesV1: {
+                          ...formData.capabilitiesV1!, features: { ...formData.capabilitiesV1!.features,
+                            reports: { ...formData.capabilitiesV1!.features.reports, [key]: event.target.checked } },
+                        } })} />
+                      <span><strong>{label}</strong><br /><span className="text-slate-500">{description}</span></span>
+                    </label>)}
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {([
                       ['receipts.digital', 'Recibo digital / PDF'],
@@ -561,7 +574,7 @@ export function PlansSection() {
                       </label>
                     })}
                   </div>
-                  <p className="text-[11px] text-slate-500">Reportes históricos/detallados, exportación y sucursales adicionales siguen bloqueados. Las ampliaciones de extras solo aumentan límites de usuarios y productos dentro del máximo técnico. La impresión no promete compatibilidad universal ni impresión silenciosa.</p>
+                  <p className="text-[11px] text-slate-500">Las capacidades comerciales no conceden permisos de rol; cada informe también exige acceso de reportes y sucursal autorizada. Extras solo amplían límites de usuarios/productos dentro del máximo técnico. La impresión no promete compatibilidad universal ni impresión silenciosa.</p>
                 </fieldset>
               )}
 

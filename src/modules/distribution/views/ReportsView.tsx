@@ -1,5 +1,5 @@
-import { exportExcel, exportPdf, reportSheets } from '../data/reportExports'
-import { reportCreditLabel, reportPaymentLabel, reportPersonName, reportRecordName } from '../domain/reportLabels'
+import { reportSheets } from '../data/reportExports'
+import { reportCreditLabel, reportPaymentLabel } from '../domain/reportLabels'
 import { useMemo, useState } from 'react'
 import { Screen, ResponsiveTable, EmptyBlock, type ResponsiveColumn } from '../../../components/ui/Screen'
 import { Segmented, Field } from '../../../components/ui/Form'
@@ -18,6 +18,14 @@ import { RangePicker } from './RangePicker'
 import { describeRange } from './sharedFormatters'
 import type { DistributionViewProps } from './DistributionApp'
 import type { DistCollection, DistExpense, DistSale } from '../types'
+import { authorizeBusinessReportCapability } from '../../../core/reports/reportAuthorization'
+import { canUseReportCapability } from '../../../core/reports/reportCapabilities'
+import { getActiveTenant } from '../../../store/activeTenant'
+import { isDemoModeActive } from '../../../demo/core/demoContext'
+import { makeBusinessReport } from '../../../core/reports/reportTypes'
+import { exportBusinessReport } from '../../../core/reports/reportExport'
+import { buildBusinessDocumentContext } from '../../../core/businessIdentity'
+import { printBusinessReport } from '../../../core/reports/businessReportPrintService'
 
 type ReportTab = 'resumen' | 'ventas' | 'productos' | 'creditos' | 'cobros' | 'gastos' | 'arqueos'
 
@@ -37,13 +45,16 @@ const TABS: { value: ReportTab; label: string }[] = [
  * "Resumen" responde la pregunta que la duena hace primero: cuanto vendio cada
  * persona y cuanto efectivo deberia entregar. Las demas pestanas son el detalle.
  */
-export function ReportsView({ session, data }: DistributionViewProps) {
+export function ReportsView({ session, data, documentContext: viewIdentity }: DistributionViewProps) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
   const [tab, setTab] = useState<ReportTab>('resumen')
   const [routeFilter, setRouteFilter] = useState('')
   const [sellerFilter, setSellerFilter] = useState('')
   const [isSellerOpen, setIsSellerOpen] = useState(false)
+  const detailedReportsEnabled = canUseReportCapability(getActiveTenant()?.tenant, 'reports.detailed')
+  const effectiveTab = detailedReportsEnabled ? tab : 'resumen'
+  const visibleTabs = detailedReportsEnabled ? TABS : TABS.filter(item => item.value === 'resumen')
 
   const sales = useMemo(
     () =>
@@ -88,6 +99,24 @@ export function ReportsView({ session, data }: DistributionViewProps) {
       .sort((a, b) => b.amount - a.amount)
   }, [sales])
 
+  const printReport = async () => {
+    setExporting(true); setExportError('')
+    try {
+      if (data.operations.some(operation => operation.status === 'queued')) throw new Error('Espera la confirmación de las operaciones pendientes antes de imprimir.')
+      const active = getActiveTenant()
+      if (active) await authorizeBusinessReportCapability(session.tenantId, active.branchId, 'reports.export')
+      else if (!isDemoModeActive()) throw new Error('La empresa activa debe cargarse antes de imprimir.')
+      const allSheets = reportSheets(data, session.dayKeys, routeFilter, sellerFilter)
+      const sheets = detailedReportsEnabled ? allSheets : allSheets.slice(0, 1)
+      if (sheets.reduce((total, sheet) => total + sheet.rows.length, 0) > 500) throw new Error('El informe supera 500 filas para impresión; descarga el PDF o Excel completo.')
+      const dates = session.dayKeys.length ? [...session.dayKeys].sort() : [new Date().toISOString().slice(0, 10)]
+      const timeZone = active?.tenant.configuration?.timezone || 'America/La_Paz'
+      const report = makeBusinessReport({ tenantId: session.tenantId, branchId: active?.branchId || 'main', businessType: active?.tenant.businessType || 'route_distribution', generatedAt: new Date().toISOString(), period: { startDate: dates[0], endDate: dates[dates.length - 1], timeZone }, identity: viewIdentity || buildBusinessDocumentContext(undefined, { companyName: session.restaurantName, branchName: 'Casa Matriz' }), completeness: 'complete', recordCount: sales.length + collections.length + expenses.length + closures.length, warnings: ['Se conservan las fórmulas existentes de Distribución.'], sheets })
+      setExportError(await printBusinessReport(report))
+    } catch (cause) { setExportError(cause instanceof Error ? cause.message : 'No se pudo imprimir el reporte.') }
+    finally { setExporting(false) }
+  }
+
   const saleColumns: ResponsiveColumn<DistSale>[] = [
     { key: 'hora', header: 'Hora', render: (row) => new Date(row.createdAt).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }) },
     { key: 'vendedor', header: 'Vendedor', render: (row) => row.sellerName },
@@ -114,7 +143,8 @@ export function ReportsView({ session, data }: DistributionViewProps) {
   return (
     <Screen title="Reportes" subtitle={describeRange(session.dayKeys)}>
       <div className="grid w-full min-w-0 gap-3">
-        <div className="flex flex-wrap gap-2" data-tutorial-target="reports-export-actions">{(['Excel','PDF'] as const).map(kind=><button key={kind} disabled={exporting} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold" onClick={async()=>{setExporting(true);setExportError('');try{if(data.operations.some(o=>o.status==='queued'))throw new Error('Espera la confirmación de las operaciones pendientes antes de exportar.');const sheets=reportSheets(data,session.dayKeys,routeFilter,sellerFilter);const routeName=routeFilter?reportRecordName(data.routes.find(route=>route.id===routeFilter)?.name,'Ruta seleccionada'):'Todas las rutas';const sellerName=sellerFilter?reportPersonName(allSellers.find(seller=>seller.sellerUid===sellerFilter)?.sellerName):'Todos los vendedores';const description=`${describeRange(session.dayKeys)} · ruta: ${routeName} · vendedor: ${sellerName} · inventario: existencias actuales`;if(kind==='Excel')await exportExcel(sheets,description);else await exportPdf(sheets,description)}catch(e){setExportError((e as Error).message)}finally{setExporting(false)}}}>{exporting?'Preparando...':kind==='Excel'?'Descargar Excel':'PDF para imprimir / compartir'}</button>)}</div>
+        <div className="flex flex-wrap gap-2" data-tutorial-target="reports-export-actions">{(['Excel','PDF'] as const).map(kind=><button key={kind} disabled={exporting || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold disabled:opacity-50" onClick={async()=>{setExporting(true);setExportError('');try{if(data.operations.some(o=>o.status==='queued'))throw new Error('Espera la confirmación de las operaciones pendientes antes de exportar.');const active = getActiveTenant();if(active)await authorizeBusinessReportCapability(session.tenantId,active.branchId,'reports.export');else if(!isDemoModeActive())throw new Error('La empresa activa debe cargarse antes de exportar.');const allSheets=reportSheets(data,session.dayKeys,routeFilter,sellerFilter);const sheets=detailedReportsEnabled?allSheets:allSheets.slice(0,1);const tz=active?.tenant.configuration?.timezone || 'America/La_Paz';const dates=session.dayKeys.length ? [...session.dayKeys].sort() : [new Date().toISOString().slice(0,10)];const report=makeBusinessReport({tenantId:session.tenantId,branchId:active?.branchId || 'main',businessType:active?.tenant.businessType || 'route_distribution',generatedAt:new Date().toISOString(),period:{startDate:dates[0],endDate:dates[dates.length-1],timeZone:tz},identity:viewIdentity || buildBusinessDocumentContext(undefined,{companyName:session.restaurantName,branchName:'Casa Matriz'}),completeness:'complete',recordCount:sales.length+collections.length+expenses.length+closures.length,warnings:['Los cálculos y hojas existentes de Distribución se conservan sin cambios.'],sheets});await exportBusinessReport(report,kind==='Excel'?'excel':'pdf')}catch(e){setExportError((e as Error).message)}finally{setExporting(false)}}}>{exporting?'Preparando...':kind==='Excel'?'Descargar Excel':'PDF para imprimir / compartir'}</button>)}</div>
+        <button type="button" disabled={exporting || !canUseReportCapability(getActiveTenant()?.tenant, 'reports.export')} onClick={() => void printReport()} className="rounded-xl border bg-white px-4 py-3 text-sm font-bold disabled:opacity-50">Imprimir</button>
         {exportError&&<p role="alert">{exportError}</p>}
         <SectionCard title="Costos y resultado del periodo"><div className="grid gap-2 text-xs">{reportSheets(data,session.dayKeys,routeFilter,sellerFilter)[0].rows.map((row,i)=><p key={i} className="flex justify-between gap-3"><span>{row[0]}</span><strong>{typeof row[1]==='number'?formatBs(row[1]):row[1]===null?'Sin costo completo':row[1]}</strong></p>)}</div></SectionCard>
         <RangePicker
@@ -143,10 +173,11 @@ export function ReportsView({ session, data }: DistributionViewProps) {
           varias filas en pantallas angostas. Forzar min-w-max las estiraba y
           generaba desplazamiento horizontal.
         */}
-        <Segmented value={tab} onChange={setTab} options={TABS} />
+        <Segmented value={effectiveTab} onChange={setTab} options={visibleTabs} />
+        {!detailedReportsEnabled && <p className="text-xs text-slate-500">Los desgloses históricos no están incluidos en las capacidades actuales.</p>}
 
         {/* --- Resumen por vendedor --- */}
-        {tab === 'resumen' &&
+        {effectiveTab === 'resumen' &&
           (sellers.length === 0 ? (
             <EmptyBlock title="Sin movimiento en el periodo" description="Cambia las fechas o el filtro de ruta." />
           ) : (
@@ -176,7 +207,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
           ))}
 
         {/* --- Detalle --- */}
-        {tab === 'ventas' &&
+        {effectiveTab === 'ventas' &&
           (sales.length === 0 ? (
             <EmptyBlock title="Sin ventas en el periodo" />
           ) : (
@@ -193,7 +224,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
             </>
           ))}
 
-        {tab === 'productos' &&
+        {effectiveTab === 'productos' &&
           (productRows.length === 0 ? (
             <EmptyBlock title="Sin productos vendidos" />
           ) : (
@@ -208,7 +239,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
             />
           ))}
 
-        {tab === 'creditos' &&
+        {effectiveTab === 'creditos' &&
           (data.receivables.length === 0 ? (
             <EmptyBlock title="Sin creditos" />
           ) : (
@@ -232,7 +263,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
             </>
           ))}
 
-        {tab === 'cobros' &&
+        {effectiveTab === 'cobros' &&
           (collections.length === 0 ? (
             <EmptyBlock title="Sin cobros en el periodo" />
           ) : (
@@ -244,7 +275,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
             />
           ))}
 
-        {tab === 'gastos' &&
+        {effectiveTab === 'gastos' &&
           (expenses.length === 0 ? (
             <EmptyBlock title="Sin gastos en el periodo" />
           ) : (
@@ -256,7 +287,7 @@ export function ReportsView({ session, data }: DistributionViewProps) {
             />
           ))}
 
-        {tab === 'arqueos' &&
+        {effectiveTab === 'arqueos' &&
           (closures.length === 0 ? (
             <EmptyBlock title="Sin arqueos guardados" description="Aparecen cuando se cierra una ruta." />
           ) : (

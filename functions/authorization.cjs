@@ -39,6 +39,21 @@ async function tenantActor(db, request, permission) {
   if (!tenant || !membership || !hasPermission(tenant, membership, permission)) throw new HttpsError('permission-denied', 'No tienes permiso en esta empresa.');
   return { uid, tenantId, root, tenant, membership, actorType: 'tenant' };
 }
+async function authorizeReportCapability(db, request) {
+  const feature = request.data?.feature;
+  const branchId = id(request.data?.branchId || 'main');
+  if (!['reports.basic', 'reports.detailed', 'reports.export'].includes(feature)) {
+    throw new HttpsError('invalid-argument', 'La capacidad de reporte no es válida.');
+  }
+  const actor = await tenantActor(db, request, 'reports.read');
+  if (!Array.isArray(actor.membership.branchIds) || !actor.membership.branchIds.includes(branchId)) {
+    throw new HttpsError('permission-denied', 'No tienes permiso para consultar reportes en esta sucursal.');
+  }
+  if (!hasPlanFeature(actor.tenant, feature)) {
+    throw new HttpsError('permission-denied', 'La capacidad de reporte no está incluida en el plan vigente.');
+  }
+  return { authorized: true };
+}
 function audit(db, tx, actor, action, resourceId, before = null, after = null, reason = null) {
   // Callers supply allowlisted business fields; recursively strip credentials as a second guard.
   const sanitize = value => {
@@ -53,4 +68,4 @@ function audit(db, tx, actor, action, resourceId, before = null, after = null, r
 function legacyMember(member) {
   return { ...member, role: member.roleId === 'owner' ? 'admin' : member.roleId, active: member.status === 'active', routeId: member.routeIds?.[0] || '', warehouseId: member.warehouseId || 'central' };
 }
-module.exports = { id, authenticated, tenantActor, hasPermission, hasTenantBillingAccess, audit, legacyMember, canUseModule };
+module.exports = { id, authenticated, tenantActor, hasPermission, hasTenantBillingAccess, authorizeReportCapability, audit, legacyMember, canUseModule };

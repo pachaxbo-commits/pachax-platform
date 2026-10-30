@@ -15,6 +15,7 @@ const forbiddenModulePatterns = [
 const virtualPrinterModuleId = '\0pachax-demo-only-printer-bootstrap'
 const virtualBotApiModuleId = '\0pachax-demo-only-bot-api'
 const virtualEscposModuleId = '\0pachax-demo-only-escpos'
+const virtualReportAuthorizationModuleId = '\0pachax-demo-only-report-authorization'
 
 const demoIsolationBuildGuard = {
   name: 'demo-only-build-guard',
@@ -22,6 +23,9 @@ const demoIsolationBuildGuard = {
   resolveId(source: string) {
     if (/(?:^|\/)services\/printing\/printerBootstrap(?:\.ts)?$/.test(source)) {
       return virtualPrinterModuleId
+    }
+    if (/(?:^|\/)core\/reports\/reportAuthorization(?:\.ts)?$/.test(source)) {
+      return virtualReportAuthorizationModuleId
     }
     if (/(?:^|\/)lib\/botApi(?:\.ts)?$/.test(source)) {
       return virtualBotApiModuleId
@@ -62,6 +66,9 @@ const demoIsolationBuildGuard = {
       export const esAndroid = () => false;
       export const modoImpresion = () => 'browser';
       export const guardarModoImpresion = () => {};
+    `
+    if (id === virtualReportAuthorizationModuleId) return `
+      export const authorizeBusinessReportCapability = async () => ({ authorized: true, demo: true });
     `
     if (id !== virtualPrinterModuleId) return null
     return `
