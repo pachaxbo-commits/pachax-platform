@@ -142,6 +142,7 @@ export interface PrintJobPayload {
   deliveryFee: number
   grandTotal: number
   paymentMethod?: string
+  documentStatus?: 'prebill_pending' | 'payment_confirmed'
   /** Desglose visible para pagos mixtos o ventas con credito. */
   paymentDetails?: string[]
   cashReceived?: number
@@ -243,6 +244,8 @@ export interface SubmitPrintRequestInput {
   idempotencyKey?: string
   payload: PrintJobPayload
   copies?: number
+  /** Defaults to manual; background kitchen dispatch must opt in explicitly. */
+  executionMode?: 'manual' | 'automatic'
 }
 
 export interface RequestReprintInput {

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { enterDemoMode, exitDemoMode } from '../core/demoContext'
 import { demoPermissionSet, guardNightclubDemoController } from './nightclubDemoAccess'
 import type { DemoDatasetMode } from '../datasets/types'
 import { createNightclubDataset, createPristineNightclubDataset } from '../datasets/nightclub/nightclubDatasets'
@@ -7,6 +8,11 @@ import { useNightclubController } from '../../modules/nightclub/views/useNightcl
 import type { StudioBranding } from '../../studio/branding/brandingTypes'
 
 export function NightclubDemo({ datasetMode = 'full', resetKey = 0, simulatedRole = 'admin', logoUrl, companyName, studioBranding, isStudio = false }: { datasetMode?: DemoDatasetMode; resetKey?: number; simulatedRole?: string; logoUrl?: string; companyName?: string; studioBranding?: StudioBranding | null; isStudio?: boolean }) {
+  useEffect(() => {
+    if (isStudio) return
+    enterDemoMode('nightclub_lounge')
+    return () => exitDemoMode()
+  }, [isStudio])
   const [selectedUserId, setSelectedUserId] = useState('')
   const [selectedName, setSelectedName] = useState('Equipo Demo')
   const controller = useNightclubController(() => isStudio && datasetMode === 'empty' ? createPristineNightclubDataset() : createNightclubDataset(datasetMode), selectedName, isStudio ? 'pachax:nightclub-studio:operations:v3' : 'pachax:nightclub-demo:operations:v3', datasetMode, resetKey, isStudio ? simulatedRole : 'admin')

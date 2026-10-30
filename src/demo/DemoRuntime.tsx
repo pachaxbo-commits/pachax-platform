@@ -12,7 +12,7 @@ import { Sparkles, ArrowLeft, Check, X, RotateCcw, UserCheck } from 'lucide-reac
 import type { DemoDatasetMode } from './datasets/types'
 import { BusinessTemplateRegistry } from '../core/templates.ts'
 import type { BusinessType } from '../core/platform.ts'
-import { clearDemoState } from './core/demoContext'
+import { clearDemoState, enterStudioDemoMode } from './core/demoContext'
 
 export function DemoRuntime({
   templateId,
@@ -53,6 +53,8 @@ export function DemoRuntime({
     return initialDatasetMode || 'full'
   })
   const [resetKey, setResetKey] = useState(0)
+
+  useEffect(() => enterStudioDemoMode(isStudioEmbed, templateId), [isStudioEmbed, templateId])
 
   const templateRoles = (function() {
     if (templateId === 'parcel') return []

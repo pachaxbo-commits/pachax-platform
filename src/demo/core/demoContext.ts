@@ -107,6 +107,12 @@ export function clearDemoState(businessType: string): void {
 let activeDemoMode = false
 let activeDemoTemplate: string | null = null
 
+const STUDIO_DEMO_TEMPLATES: Record<string, string> = {
+  restaurant: 'restaurant_pos',
+  hamburger: 'hamburger_shop',
+  nightclub: 'nightclub_lounge',
+}
+
 export function isDemoModeActive(): boolean {
   return activeDemoMode
 }
@@ -123,4 +129,18 @@ export function enterDemoMode(templateId: string): void {
 export function exitDemoMode(): void {
   activeDemoMode = false
   activeDemoTemplate = null
+}
+
+/**
+ * Studio previews run in the isolated /demo iframe, never in the authenticated
+ * tenant application. Only that explicit embed may enable local demo documents.
+ */
+export function enterStudioDemoMode(isStudioEmbed: boolean, templateId: string): () => void {
+  const businessType = isStudioEmbed ? STUDIO_DEMO_TEMPLATES[templateId] : undefined
+  if (!businessType) return () => undefined
+
+  enterDemoMode(businessType)
+  return () => {
+    if (activeDemoTemplate === businessType) exitDemoMode()
+  }
 }

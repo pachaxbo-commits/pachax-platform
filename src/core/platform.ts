@@ -47,6 +47,19 @@ export interface Tenant {
   businessIdentity?: BusinessIdentity
   configuration: BusinessTemplate['defaults']
   entitlements: Partial<Record<Capability, boolean>>
+  /** Immutable capability snapshot written by Billing Core when enforcement is active. */
+  billingEnforcement?: boolean
+  commercialCapabilities?: {
+    version: 1
+    businessType: string
+    limits: { activeUsers: number; activeProducts: number; activeBranches: number }
+    features: {
+      reports: { basic: boolean; detailed: boolean; export: boolean }
+      receipts: { digital: boolean }
+      printing: { manual: boolean; kitchenAutomatic: boolean }
+      adsRequired: boolean
+    }
+  }
   planKey: string | null
   subscriptionStatus: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled'
   schemaVersion: number

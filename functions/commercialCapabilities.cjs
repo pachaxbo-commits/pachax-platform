@@ -5,6 +5,13 @@ const CAPABILITIES_VERSION = 1;
 const MAX_ACTIVE_USERS = 100;
 const MAX_ACTIVE_PRODUCTS = 200;
 const MAX_ACTIVE_BRANCHES = 1;
+const DOCUMENT_FEATURES_BY_TEMPLATE = Object.freeze({
+  restaurant_pos: { receiptsDigital: true, printingManual: true, kitchenAutomatic: true },
+  hamburger_shop: { receiptsDigital: true, printingManual: true, kitchenAutomatic: true },
+  route_distribution: { receiptsDigital: true, printingManual: true, kitchenAutomatic: false },
+  gelateria_weight_cafe: { receiptsDigital: true, printingManual: true, kitchenAutomatic: false },
+  nightclub_lounge: { receiptsDigital: true, printingManual: true, kitchenAutomatic: true },
+});
 
 function integer(value, label, min, max) {
   if (!Number.isSafeInteger(value) || value < min || value > max) {
@@ -42,9 +49,14 @@ function normalizeCapabilitiesV1(raw, businessType) {
   // for every template. V1 therefore keeps the basic summary as a baseline instead
   // of selling a restriction that cannot be enforced consistently everywhere.
   if (reports.basic !== true) throw new HttpsError('failed-precondition', 'Los reportes básicos son una capacidad base de V1; su exclusión requiere integrar Reports Core.');
-  // These capabilities have no end-to-end entitlement adapter yet. Keeping them false
-  // prevents a commercial plan from promising behavior the backend cannot enforce.
-  if (reports.detailed || reports.export || receipts.digital || printing.manual || printing.kitchenAutomatic) {
+  const documentSupport = DOCUMENT_FEATURES_BY_TEMPLATE[businessType];
+  if (!documentSupport) throw new HttpsError('invalid-argument', 'La plantilla no tiene un contrato documental compatible.');
+  if (receipts.digital && !documentSupport.receiptsDigital) throw new HttpsError('failed-precondition', 'Los recibos digitales no están disponibles para esta plantilla.');
+  if (printing.manual && !documentSupport.printingManual) throw new HttpsError('failed-precondition', 'La impresión manual no está disponible para esta plantilla.');
+  if (printing.kitchenAutomatic && !documentSupport.kitchenAutomatic) throw new HttpsError('failed-precondition', 'La impresión automática de cocina/barra no está disponible para esta plantilla.');
+  // Report exports remain unavailable until Reports Core. Receipt output and the shared
+  // PrintEngine are implemented and gated by this capability snapshot.
+  if (reports.detailed || reports.export) {
     throw new HttpsError('failed-precondition', 'Una capacidad solicitada todavía no tiene control técnico completo y no se puede incluir en un plan.');
   }
   return {
@@ -53,8 +65,8 @@ function normalizeCapabilitiesV1(raw, businessType) {
     limits,
     features: {
       reports: { basic: reports.basic, detailed: false, export: false },
-      receipts: { digital: false },
-      printing: { manual: false, kitchenAutomatic: false },
+      receipts: { digital: receipts.digital },
+      printing: { manual: printing.manual, kitchenAutomatic: printing.kitchenAutomatic },
       adsRequired,
     },
   };
@@ -92,6 +104,9 @@ function hasPlanFeature(tenant, feature) {
   let capabilities;
   try { capabilities = tenantCapabilities(tenant); } catch { return false; }
   if (feature === 'reports.basic') return capabilities.features.reports.basic;
+  if (feature === 'receipts.digital') return capabilities.features.receipts.digital;
+  if (feature === 'printing.manual') return capabilities.features.printing.manual;
+  if (feature === 'printing.kitchenAutomatic') return capabilities.features.printing.kitchenAutomatic;
   return false;
 }
 
@@ -126,6 +141,7 @@ function initialUsage() {
 
 module.exports = {
   CAPABILITIES_VERSION, MAX_ACTIVE_USERS, MAX_ACTIVE_PRODUCTS, MAX_ACTIVE_BRANCHES,
+  DOCUMENT_FEATURES_BY_TEMPLATE,
   normalizeCapabilitiesV1, normalizeCapabilityAdjustments, applyCapabilityAdjustments,
   tenantCapabilities, hasPlanFeature, adjustUsage, adjustProductUsage, initialUsage,
 };

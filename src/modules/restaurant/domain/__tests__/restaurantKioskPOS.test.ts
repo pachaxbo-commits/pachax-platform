@@ -218,7 +218,7 @@ test('15. Studio y Producción usan la vista canónica de Restaurante', () => {
   const studioSource = fs.readFileSync('src/studio/StudioShell.tsx', 'utf8')
   assert.match(
     studioSource,
-    /\/demo\/\$\{templateId\}\?embed=studio/,
+    /\/demo\?template=\$\{templateId\}&embed=studio/,
     'StudioShell debe embeber la experiencia canónica demo mediante el iframe canonical embed'
   )
   const appSource = fs.readFileSync('src/modules/restaurant/views/RestaurantApp.tsx', 'utf8')

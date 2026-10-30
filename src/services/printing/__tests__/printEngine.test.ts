@@ -1,15 +1,26 @@
-import { PrintEngineService } from '../printEngineService'
+import { classifyPrintJobOutcome, PrintEngineService } from '../printEngineService'
 import { DiagnosticPrinterAdapter } from '../diagnosticPrinterAdapter'
 import { IndexedDbPrintJobStorage } from '../printJobStorage'
 import { buildReceiptBytes } from '../templates/receiptTemplate'
 import { buildKitchenTicketBytes } from '../templates/kitchenTicketTemplate'
 import { transliterateText } from '../escPosFormatter'
-import type { PrinterProfile, PrintJobPayload } from '../../../types/printing'
+import { EscPosBuilder } from '../escPosFormatter'
+import { buildReceiptHtml } from '../../../adapters/printing/browserDialogPrinterAdapter'
+import { enterDemoMode, exitDemoMode } from '../../../demo/core/demoContext'
+import type { PrintJobStorage, PrinterProfile, PrintJobPayload } from '../../../types/printing'
 
 export async function runPrintEngineTestSuite(): Promise<{ passed: number; failed: number; results: string[] }> {
+  enterDemoMode('print-engine-test')
   const results: string[] = []
   let passed = 0
   let failed = 0
+
+  // Tests use the storage instance declared for each case instead of the
+  // production singleton, whose storage is intentionally fixed on first use.
+  const createIsolatedEngine = (storage?: PrintJobStorage) => {
+    const TestEngine = PrintEngineService as unknown as new (jobStorage?: PrintJobStorage) => PrintEngineService
+    return new TestEngine(storage)
+  }
 
   function assert(condition: boolean, testName: string) {
     if (condition) {
@@ -85,7 +96,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
 
   // --- Test 1: Idempotency deduplication ---
   try {
-    const engine = PrintEngineService.getInstance(new IndexedDbPrintJobStorage())
+    const engine = createIsolatedEngine(new IndexedDbPrintJobStorage())
     engine.registerPrinterProfile(samplePrinter)
 
     const key = `test-idempotency-${Date.now()}`
@@ -100,7 +111,8 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 2: Safe retry on pre-transmit error ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
+    engine.registerPrinterProfile(samplePrinter)
     const mockAdapter = new DiagnosticPrinterAdapter('error_pre_transmit')
     engine.registerAdapter(mockAdapter)
 
@@ -113,7 +125,8 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 3: Intra-transmit error transitions to unknown ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
+    engine.registerPrinterProfile(samplePrinter)
     const mockAdapter = new DiagnosticPrinterAdapter('error_during_transmit')
     engine.registerAdapter(mockAdapter)
 
@@ -126,7 +139,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 4: Unknown job is never auto-reprinted ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
     const key = `unknown-auto-${Date.now()}`
     const job = await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
 
@@ -140,7 +153,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 5: Failover only occurs on safeToRetry errors ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
     engine.registerPrinterProfile(samplePrinter)
     engine.registerPrinterProfile(backupPrinter)
 
@@ -158,7 +171,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 6: Lease prevents another instance from processing the same job ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine1 = PrintEngineService.getInstance(storage)
+    const engine1 = createIsolatedEngine(storage)
     const key = `lease-lock-${Date.now()}`
     const job = await engine1.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
 
@@ -175,7 +188,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 7: Lease is renewed while job is active ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
     const key = `lease-renew-${Date.now()}`
     const job = await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
 
@@ -194,7 +207,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 8: Queue recovers pending jobs after restart ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
     const key = `recovery-${Date.now()}`
     await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
 
@@ -207,9 +220,13 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 9: Authorized reprint creates copy job ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
+    engine.registerPrinterProfile(samplePrinter)
+    const adapter = new DiagnosticPrinterAdapter('success_transmitted')
+    engine.registerAdapter(adapter)
     const key = `orig-reprint-${Date.now()}`
-    const original = await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
+    const queuedOriginal = await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
+    const original = await engine.queueManager.processJob(queuedOriginal.id, adapter, samplePrinter)
 
     const copyJob = await engine.requestReprint(
       { originalJobId: original.id, requestedByUid: 'user-caja-01', reason: 'Papel atascado', terminalId: engine.queueManager.terminalId },
@@ -225,7 +242,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   try {
     const mutablePayload: PrintJobPayload = { ...samplePayload, items: [{ ...samplePayload.items[0] }] }
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
 
     const job = await engine.queueManager.submitJob({ targetType: 'receipt', payload: mutablePayload, idempotencyKey: `mut-${Date.now()}` }, samplePrinter)
     mutablePayload.items[0].name = 'PRODUCTO MUTADO DESPUES DE ENCOLAR'
@@ -239,7 +256,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 11: Backup printer is NOT used after transmission starts ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
     const key = `no-backup-mid-${Date.now()}`
     const job = await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter, backupPrinter)
 
@@ -254,7 +271,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 12: Cleanup purges raw bytes while retaining payload ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
     const key = `purge-bytes-${Date.now()}`
     const job = await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
 
@@ -269,7 +286,7 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
   // --- Test 13: Terminal ownership filtering ---
   try {
     const storage = new IndexedDbPrintJobStorage()
-    const engine = PrintEngineService.getInstance(storage)
+    const engine = createIsolatedEngine(storage)
     const key = `term-filter-${Date.now()}`
     await engine.queueManager.submitJob({ targetType: 'receipt', payload: samplePayload, idempotencyKey: key }, samplePrinter)
 
@@ -313,17 +330,33 @@ export async function runPrintEngineTestSuite(): Promise<{ passed: number; faile
     assert(false, `Prueba 16 Fallo: ${e.message}`)
   }
 
-  // --- Test 17: Logo monocromo oficial de PACHAX ---
+  // --- Test 17: Raster ESC/POS contract and browser receipt branding ---
   try {
-    const pachaxPayload = { ...samplePayload, restaurantName: 'PACHAX' }
-    const bytes = Array.from(buildReceiptBytes(pachaxPayload, '80mm', true))
-    const hasRasterLogo = bytes.some((_, index) =>
-      [0x1d, 0x76, 0x30, 0x00].every((byte, offset) => bytes[index + offset] === byte),
+    const raster = Array.from(new EscPosBuilder().rasterImage(8, 2, new Uint8Array([0xff, 0x81])).build())
+    const rasterCommand = raster.some((_, index) =>
+      [0x1d, 0x76, 0x30, 0x00, 0x01, 0x00, 0x02, 0x00, 0xff, 0x81].every((byte, offset) => raster[index + offset] === byte),
     )
-    assert(hasRasterLogo, 'Prueba 17: El ticket de PACHAX incluye el logo monocromo ESC/POS')
+    let invalidRasterRejected = false
+    try { new EscPosBuilder().rasterImage(9, 2, new Uint8Array([0xff, 0x81])) } catch { invalidRasterRejected = true }
+    const html = buildReceiptHtml({ ...samplePayload, restaurantName: 'Mercado Uno', logoUrl: '/logo-mercado.png' })
+    assert(rasterCommand && invalidRasterRejected && html.includes('src="/logo-mercado.png"') && html.includes('Mercado Uno'),
+      'Prueba 17: ESC/POS valida raster y el recibo web usa la marca de la empresa')
   } catch (e: any) {
     assert(false, `Prueba 17 Fallo: ${e.message}`)
   }
 
+  try {
+    const outcome = classifyPrintJobOutcome({
+      ...({} as import('../../../types/printing').PrintJob),
+      status: 'transmitted',
+      connectionType: 'browser_dialog',
+    })
+    assert(!outcome.isSuccess && outcome.message.includes('impresión física no está confirmada'),
+      'Prueba 18: Abrir el diálogo web no se presenta como impresión física completada')
+  } catch (e: unknown) {
+    assert(false, `Prueba 18 Fallo: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
+  exitDemoMode()
   return { passed, failed, results }
 }

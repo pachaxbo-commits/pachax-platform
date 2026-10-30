@@ -331,6 +331,8 @@ function App() {
             userName={auth.userDisplayName ?? auth.userEmail ?? 'Usuario'}
             role={activeTenant?.role || auth.member.role}
             companyName={activeTenant?.tenant.name || auth.account.name}
+            businessIdentity={activeTenant?.tenant.businessIdentity}
+            logoUrl={activeTenant?.tenant.businessIdentity?.logoUrl || activeTenant?.branding?.logoUrl || auth.account.branding?.logoUrl}
           />
         </div>
       </div>

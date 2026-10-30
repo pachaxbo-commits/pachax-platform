@@ -172,6 +172,8 @@ export function buildReceiptHtml(payload: PrintJobPayload, paperWidth: '58mm' | 
   ${payload.branchPhone ? `<div class="text-center" style="font-size: 10px;">Tel: ${escapeHtml(payload.branchPhone)}</div>` : ''}
   <div class="separator"></div>
   ${payload.displayNumber ? `<div><span class="bold">TICKET:</span> ${escapeHtml(payload.displayNumber)}</div>` : ''}
+  ${payload.documentStatus === 'prebill_pending' ? '<div class="text-center bold">PRECUENTA — PENDIENTE DE PAGO</div>' : ''}
+  ${payload.documentStatus === 'payment_confirmed' ? '<div class="text-center bold">PAGO CONFIRMADO</div>' : ''}
   <div><span class="bold">FECHA:</span> ${escapeHtml(timeStr)}</div>
   ${payload.tableInfo ? `<div><span class="bold">MESA:</span> ${escapeHtml(payload.tableInfo)}</div>` : ''}
   ${payload.customerName ? `<div><span class="bold">CLIENTE:</span> ${escapeHtml(payload.customerName)}</div>` : ''}
