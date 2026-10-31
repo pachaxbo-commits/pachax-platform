@@ -1,7 +1,7 @@
 // DISTRIBUTION RELEASE GATE - REAL BROWSER UI VALIDATION SUITE
 // Runs strictly against local Firebase Emulators + local Vite server.
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { createServer } from 'node:net'
@@ -37,6 +37,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const results = []
 let totalChecks = 0
+let gateError = null
+let runCompleted = false
+const cleanupErrors = []
+const browserProcesses = []
 function record(checkName, passed, evidence, blocker = false) {
   totalChecks++
   let status = 'FAIL'
@@ -50,6 +54,43 @@ function record(checkName, passed, evidence, blocker = false) {
   if (status !== 'PASS' && status !== 'PENDING MANUAL') {
     assert(false, `FAILED UI Gate: ${checkName} - ${evidence}`)
   }
+}
+
+function waitForChildExit(child, timeoutMs = 4000) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+  if (process.platform === 'win32' && !isWindowsProcessRunning(child.pid)) return Promise.resolve(true)
+  return Promise.race([
+    new Promise((resolveExit) => child.once('exit', () => resolveExit(true))),
+    (async () => {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        await sleep(200)
+        if (child.exitCode !== null || child.signalCode !== null) return true
+        if (process.platform === 'win32' && !isWindowsProcessRunning(child.pid)) return true
+      }
+      return false
+    })(),
+  ])
+}
+
+function isWindowsProcessRunning(pid) {
+  if (process.platform !== 'win32' || !Number.isInteger(pid)) return false
+  const result = spawnSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true })
+  if (result.error || result.status !== 0) return true
+  return result.stdout.includes(String(pid))
+}
+
+async function stopChild(child, label) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return
+  if (process.platform === 'win32' && !isWindowsProcessRunning(child.pid)) return
+  child.kill()
+  if (await waitForChildExit(child, 1500)) return
+  if (process.platform === 'win32' && Number.isInteger(child.pid)) {
+    const result = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { encoding: 'utf8', windowsHide: true })
+    if (result.error || result.status !== 0) throw new Error(`${label} no terminó; taskkill no pudo cerrar el proceso.`)
+    if (await waitForChildExit(child, 2500)) return
+  }
+  throw new Error(`${label} no terminó dentro del límite de limpieza.`)
 }
 
 console.log('--- 1. INICIANDO SERVIDOR VITE EN MODO EMULATOR ---')
@@ -71,7 +112,7 @@ for (let i = 0; i < 40; i++) {
   } catch {}
 }
 if (!viteReady) {
-  vite.kill()
+  await stopChild(vite, 'Vite')
   throw new Error(`El servidor Vite en ${baseUrl} no inició a tiempo.`)
 }
 console.log(`Vite listo en ${baseUrl}. Pre-calentando módulos de Vite...`)
@@ -110,6 +151,7 @@ async function createBrowserSession(sessionName) {
     `--user-data-dir=${profileDir}`,
     `${baseUrl}/`,
   ], { stdio: 'ignore' })
+  browserProcesses.push({ browser, sessionName })
 
   let tab
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -148,10 +190,25 @@ async function createBrowserSession(sessionName) {
     }
   }
 
-  const send = (method, params = {}) => new Promise((done, fail) => {
+  const send = (method, params = {}, timeoutMs = 5000) => new Promise((done, fail) => {
     const id = seq++
-    pending.set(id, { done, fail })
-    socket.send(JSON.stringify({ id, method, params }))
+    const timeout = setTimeout(() => {
+      pending.delete(id)
+      fail(new Error(`CDP timeout en ${method} (${sessionName}).`))
+    }, timeoutMs)
+    pending.set(id, {
+      done: (value) => { clearTimeout(timeout); done(value) },
+      fail: (error) => { clearTimeout(timeout); fail(error) },
+    })
+    try { socket.send(JSON.stringify({ id, method, params })) }
+    catch (error) { clearTimeout(timeout); pending.delete(id); fail(error) }
+  })
+
+  socket.addEventListener('close', () => {
+    for (const [id, request] of pending) {
+      pending.delete(id)
+      request.fail(new Error(`CDP cerró la conexión (${sessionName}).`))
+    }
   })
 
   await send('Page.enable')
@@ -194,7 +251,9 @@ async function createBrowserSession(sessionName) {
   }
 
   const navigate = async (url) => {
-    await send('Page.navigate', { url })
+    // Navigations that trigger a cold Vite transform can exceed the normal
+    // CDP command budget. Keep it bounded while allowing that first compile.
+    await send('Page.navigate', { url }, 30000)
     await sleep(600)
   }
 
@@ -203,10 +262,15 @@ async function createBrowserSession(sessionName) {
     await sleep(800)
   }
 
-  const close = async () => {
-    try { await Promise.race([send('Browser.close'), sleep(300)]) } catch {}
-    try { socket.close() } catch {}
-    try { browser.kill() } catch {}
+  let closePromise
+  const close = () => {
+    if (closePromise) return closePromise
+    closePromise = (async () => {
+      try { await send('Browser.close', {}, 1500) } catch {}
+      try { socket.close() } catch {}
+      await stopChild(browser, `Chrome (${sessionName})`)
+    })()
+    return closePromise
   }
 
   return { sessionName, send, evaluate, waitFor, navigate, reload, close, consoleLogs }
@@ -1113,24 +1177,10 @@ try {
 
   record('Auditoría de consola limpia sin errores no controlados', errorLogs.length === 0, `Errores críticos: ${errorLogs.length}`)
 
-  console.log('\n===============================================================')
-  console.log(`DISTRIBUTION UI RELEASE GATE COMPLETED: ${totalChecks} CHECKS PASSED`)
-  console.log('===============================================================')
-
-  mkdirSync('docs/qa-pachax', { recursive: true })
-  writeFileSync('docs/qa-pachax/ui-release-gate-result.json', JSON.stringify({
-    timestamp: new Date().toISOString(),
-    totalChecks,
-    passed: true,
-    results,
-  }, null, 2))
-
-  await sessionOwner.close()
-  await sessionSupport.close()
-  await sessionWarehouse.close()
-  await sessionDistributor.close()
+  runCompleted = true
 
 } catch (err) {
+  gateError = err
   console.error('\nUI RELEASE GATE ENCOUNTERED AN ERROR:')
   console.error(err)
   try {
@@ -1146,22 +1196,43 @@ try {
   } catch (diagErr) {
     console.log('Error dumping diag:', diagErr.message)
   }
-  mkdirSync('docs/qa-pachax', { recursive: true })
-  writeFileSync('docs/qa-pachax/ui-release-gate-result.json', JSON.stringify({
-    timestamp: new Date().toISOString(),
-    totalChecks,
-    passed: false,
-    error: err.message,
-    results,
-  }, null, 2))
   process.exitCode = 1
 } finally {
-  for (const session of [sessionOwner, sessionSupport, sessionWarehouse, sessionDistributor]) {
-    if (session) await session.close().catch(() => undefined)
+  const sessions = [sessionOwner, sessionSupport, sessionWarehouse, sessionDistributor].filter(Boolean)
+  const closedSessions = await Promise.allSettled(sessions.map((session) => session.close()))
+  for (const result of closedSessions) {
+    if (result.status === 'rejected') cleanupErrors.push(result.reason instanceof Error ? result.reason.message : String(result.reason))
   }
-  await deleteApp(adminApp).catch(() => undefined)
-  vite.kill()
+  const stoppedBrowsers = await Promise.allSettled(browserProcesses.map(({ browser, sessionName }) => stopChild(browser, `Chrome (${sessionName})`)))
+  for (const result of stoppedBrowsers) {
+    if (result.status === 'rejected') cleanupErrors.push(result.reason instanceof Error ? result.reason.message : String(result.reason))
+  }
+  try { await db.terminate() }
+  catch (error) { cleanupErrors.push(`Firestore Admin: ${error instanceof Error ? error.message : String(error)}`) }
+  try { await deleteApp(adminApp) }
+  catch (error) { cleanupErrors.push(`Firebase Admin: ${error instanceof Error ? error.message : String(error)}`) }
+  try { await stopChild(vite, 'Vite') }
+  catch (error) { cleanupErrors.push(error instanceof Error ? error.message : String(error)) }
   for (const prof of createdProfiles) {
     try { rmSync(prof, { recursive: true, force: true }) } catch {}
   }
 }
+
+const passedChecks = results.filter((result) => result.status === 'PASS').length
+const pendingManualChecks = results.filter((result) => result.status === 'PENDING MANUAL').length
+const failedChecks = results.filter((result) => result.status === 'FAIL').length
+const finalized = runCompleted && gateError === null && cleanupErrors.length === 0 && failedChecks === 0
+mkdirSync('docs/qa-pachax', { recursive: true })
+writeFileSync('docs/qa-pachax/ui-release-gate-result.json', JSON.stringify({
+  timestamp: new Date().toISOString(),
+  totalChecks,
+  passCount: passedChecks,
+  pendingManualCount: pendingManualChecks,
+  failCount: failedChecks,
+  finalized,
+  error: gateError?.message,
+  cleanupErrors,
+  results,
+}, null, 2))
+console.log(`DISTRIBUTION UI RELEASE GATE FINAL: ${passedChecks} PASS, ${pendingManualChecks} PENDING MANUAL, ${failedChecks} FAIL; cleanup ${cleanupErrors.length === 0 ? 'PASS' : 'FAIL'}`)
+if (!finalized) process.exitCode = 1
