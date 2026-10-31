@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from 'firebase/firestore'
+import { doc, getDoc, getDocs, collection, setDoc, deleteDoc, query, where } from 'firebase/firestore'
 
 const projectId = 'demo-pachax-platform'
 if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== projectId) throw new Error('Proyecto no autorizado para QA.')
@@ -21,6 +21,7 @@ const ids = {
   distribution: '',
   gelateria: '',
   nightclub: '',
+  hamburger: '',
   ownerA: `qa-owner-a-${suffix}`,
   ownerB: `qa-owner-b-${suffix}`,
   ownerC: `qa-owner-c-${suffix}`,
@@ -71,12 +72,25 @@ try {
   assert(membershipsA.response.ok)
   const membershipRows = membershipsA.body.result?.data || membershipsA.body.result
   assert.deepEqual(membershipRows.map(item => item.tenant.tenantId), [ids.restaurant]); pass('callable real devuelve solo memberships del usuario autenticado')
+  ids.hamburger = (await createTenant(admin, adminAuth, { auth: { uid: ids.ownerA, token: {} }, data: { action: 'createTenant', operationId: `op-hamburger-${suffix}`, name: 'Hamburger QA', businessType: 'hamburger_shop' } })).tenantId
   const crossCallable = await tenantGateway(tokenA, { action: 'updateSettings', tenantId: ids.distribution, name: 'Ataque callable' })
   assert(!crossCallable.response.ok && crossCallable.body.error.status === 'PERMISSION_DENIED'); pass('callable real rechaza mutación cruzada A hacia B')
+  const identitySave = await tenantGateway(tokenA, { action: 'updateSettings', tenantId: ids.restaurant, businessIdentity: { tradeName: 'Restaurante QA Identidad', receiptFooter: 'Gracias' } })
+  assert(identitySave.response.ok)
+  assert.equal((await admin.doc(`tenants/${ids.restaurant}`).get()).data().businessIdentity.tradeName, 'Restaurante QA Identidad')
+  pass('owner persiste identidad comercial mediante updateSettings autorizado')
   const createdCashier = await tenantGateway(tokenA, { action: 'createMember', tenantId: ids.restaurant, operationId: `cashier-${suffix}`, email: `cashier-${suffix}@example.test`, password: 'Cashier123!', displayName: 'Caja QA', roleId: 'cashier', branchIds: ['main'], routeIds: [] })
   assert(createdCashier.response.ok)
   ids.cashierA = (createdCashier.body.result?.data || createdCashier.body.result).uid
   assert.equal((await admin.doc(`tenants/${ids.restaurant}/members/${ids.cashierA}`).get()).data().roleId, 'cashier'); pass('owner crea usuario interno y membership solo mediante Function')
+  const settingsCashierUid = `qa-settings-cashier-${suffix}`
+  const settingsCashierEmail = `${settingsCashierUid}@example.test`
+  await adminAuth.createUser({ uid: settingsCashierUid, email: settingsCashierEmail, password: 'EmulatorCashier123!' })
+  await admin.doc(`tenants/${ids.restaurant}/members/${settingsCashierUid}`).set(member(settingsCashierUid, ids.restaurant, 'cashier'))
+  const cashierToken = await signIn(settingsCashierUid, settingsCashierEmail, 'EmulatorCashier123!')
+  const cashierIdentityAttempt = await tenantGateway(cashierToken, { action: 'updateSettings', tenantId: ids.restaurant, businessIdentity: { tradeName: 'No autorizado' } })
+  assert(!cashierIdentityAttempt.response.ok && cashierIdentityAttempt.body.error.status === 'PERMISSION_DENIED')
+  pass('cajero no modifica la identidad empresarial sin settings.manage')
   const dist = admin.doc(`tenants/${ids.distribution}`)
   await dist.collection('members').doc(ids.sellerB).set(member(ids.sellerB, ids.distribution, 'distributor', 'active', ['north']))
   await admin.doc(`tenants/${ids.restaurant}/members/${ids.waiterA}`).set(member(ids.waiterA, ids.restaurant, 'waiter'))
@@ -210,16 +224,41 @@ try {
   const waiter = env.authenticatedContext(ids.waiterA).firestore()
   await admin.doc(`tenants/${ids.restaurant}/restaurantCustomers/cust_test`).set({ id: 'cust_test', name: 'Cliente Privado' })
   await admin.doc(`tenants/${ids.restaurant}/restaurantShifts/shift_test`).set({ id: 'shift_test', branchId: 'main', status: 'open', openingFloat: 100 })
-  await admin.doc(`tenants/${ids.restaurant}/restaurantCashMovements/mov_test`).set({ id: 'mov_test', branchId: 'main', amount: 50 })
+  await admin.doc(`tenants/${ids.restaurant}/restaurantCashMovements/mov_test`).set({ id: 'mov_test', branchId: 'main', shiftId: 'shift_test', amount: 50 })
+  await admin.doc(`tenants/${ids.restaurant}/restaurantCashMovements/mov_other_branch`).set({ id: 'mov_other_branch', branchId: 'other', shiftId: 'shift_test', amount: 25 })
 
   await assertFails(getDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantCustomers', 'cust_test'))); pass('mesero sin customers.read no lee clientes CRM de restaurante')
   await assertFails(getDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantShifts', 'shift_test'))); pass('mesero sin cash.close no lee arqueos ni turnos financieros')
   await assertFails(getDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantCashMovements', 'mov_test'))); pass('mesero sin cash.close no lee movimientos de caja')
   await assertSucceeds(getDoc(doc(restaurantOwner, 'tenants', ids.restaurant, 'restaurantCustomers', 'cust_test'))); pass('owner lee clientes CRM de restaurante con settings/customers')
   await assertSucceeds(getDoc(doc(restaurantOwner, 'tenants', ids.restaurant, 'restaurantShifts', 'shift_test'))); pass('owner lee turnos financieros con settings/cash')
+  const ownBranchCash = await assertSucceeds(getDocs(query(
+    collection(restaurantOwner, 'tenants', ids.restaurant, 'restaurantCashMovements'),
+    where('branchId', '==', 'main'), where('shiftId', '==', 'shift_test'),
+  )))
+  assert.deepEqual(ownBranchCash.docs.map(item => item.id), ['mov_test'])
+  pass('listener de caja puede consultar turno y sucursal propia respetando Rules')
+  await admin.doc(`tenants/${ids.hamburger}/restaurantCashMovements/hamburger_mov_test`).set({ id: 'hamburger_mov_test', branchId: 'main', shiftId: 'hamburger_shift_test', amount: 17 })
+  const hamburgerOwner = env.authenticatedContext(ids.ownerA).firestore()
+  const hamburgerCash = await assertSucceeds(getDocs(query(
+    collection(hamburgerOwner, 'tenants', ids.hamburger, 'restaurantCashMovements'),
+    where('branchId', '==', 'main'), where('shiftId', '==', 'hamburger_shift_test'),
+  )))
+  assert.deepEqual(hamburgerCash.docs.map(item => item.id), ['hamburger_mov_test'])
+  pass('consulta autenticada de movimientos de caja Hamburger filtra sucursal y turno')
+  await assertFails(getDocs(query(
+    collection(restaurantOwner, 'tenants', ids.restaurant, 'restaurantCashMovements'),
+    where('branchId', '==', 'other'), where('shiftId', '==', 'shift_test'),
+  )))
+  pass('listener de caja no consulta movimientos de otra sucursal')
+  await assertFails(getDocs(query(
+    collection(restaurantOwner, 'tenants', ids.nightclub, 'restaurantCashMovements'),
+    where('branchId', '==', 'main'), where('shiftId', '==', 'shift_test'),
+  )))
+  pass('listener de caja no consulta movimientos de otro tenant')
   await assertFails(setDoc(doc(waiter, 'tenants', ids.restaurant, 'restaurantCustomers', 'forged'), { name: 'Falso' })); pass('cliente no escribe clientes directamente')
 
-  assert.equal(checks, 72)
+  assert.equal(checks, 78)
   fs.mkdirSync('docs/qa-pachax', { recursive: true })
   fs.writeFileSync('docs/qa-pachax/multi-tenant-isolation-result.json', JSON.stringify({ passed: true, checks, projectId, at: new Date().toISOString() }, null, 2))
   console.log(`${checks} comprobaciones multiempresa aprobadas`)

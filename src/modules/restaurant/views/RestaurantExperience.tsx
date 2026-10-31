@@ -237,7 +237,7 @@ const MODULE_DEFINITIONS: Array<{
   { id: 'history', label: 'Historial', icon: History, roles: ['owner', 'admin', 'cashier'] },
   { id: 'users', label: 'Usuarios', icon: UserCheck, roles: ['owner', 'admin'] },
   { id: 'settings', label: 'Configuración', icon: Settings, roles: ['owner', 'admin'] },
-  { id: 'printers', label: 'Impresoras', icon: Printer, roles: ['owner', 'admin', 'cashier'] },
+  { id: 'printers', label: 'Impresoras', icon: Printer, roles: ['owner', 'admin'] },
 ]
 
 const PRIMARY_MODULE_IDS: RestaurantModuleId[] = [
@@ -556,7 +556,7 @@ export function RestaurantExperience({
           case 'settings':
             return session.can!('settings.manage')
           case 'printers':
-            return session.can!('settings.manage') || session.can!('orders.manage') || session.can!('cash.close')
+            return session.can!('settings.manage')
           default:
             return false
         }
@@ -1223,6 +1223,7 @@ export function RestaurantExperience({
               businessIdentity={businessIdentity}
               onSaveBusinessIdentity={onSaveBusinessIdentity}
               onUploadLogo={onUploadLogo}
+              onOpenPrinters={() => selectModule('printers')}
               canManage={['owner', 'admin'].includes(session.role)}
             />
           )}

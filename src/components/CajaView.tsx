@@ -2280,7 +2280,7 @@ export function CajaView({
                 type="button"
                 data-tour="pos-submit"
                 className="w-full h-12 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] font-extrabold text-sm flex items-center justify-center gap-2 shadow-md shadow-[var(--primary)]/20 transition active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
-                disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && !counterServiceMode && restaurantTables.length > 0 && !tableId) || (fulfillmentType === 'table' && counterServiceMode && restaurantTables.length > 0 && !tableId && !tableInfo.trim()) || submitOrderRef.current}
+                disabled={operationsDisabled || cartItems.length === 0 || isSubmitting || !isPaymentValid || !isDeliveryInfoValid || (fulfillmentType === 'table' && !counterServiceMode && restaurantTables.length > 0 && !tableId) || (fulfillmentType === 'table' && counterServiceMode && !tableId && !tableInfo.trim()) || submitOrderRef.current}
                 onClick={async () => {
                   if (operationsDisabled || submitOrderRef.current) {
                     setOperationMessage('Debes iniciar un turno antes de realizar operaciones.')
