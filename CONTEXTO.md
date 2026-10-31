@@ -1,5 +1,14 @@
 # Continuidad del proyecto PACHAX
 
+## QA del primer piloto asistido de Distribución — checkpoint local (30/10/2026)
+
+- Worktree aislado `C:\PACHAX-worktrees\first-client-qa-20261030`, rama `codex/first-client-qa-20261030`, basado exactamente en `origin/main` `e7f7197e7c16369c3e67360c406b526bf73c7403`. `cambios-dario` y los siete tenants de Production no se modificaron.
+- Los seis fallos heredados de PDF/recibos e aislamiento de impresoras eran fixtures sin tenant activo, membresía/capacidad documental; impresiones cruzadas se rechazaban antes de llegar a la validación específica de empresa/sucursal. Fixtures ficticios activan tenant/membresía/capacidades documentales explícitas y limpian el contexto en `finally`; se prueban también denegaciones por tenant ausente o capacidad no contratada y motivos precisos de aislamiento.
+- `build:functions-core`, typecheck `tsc -b` y `test:platform` bajo Node 22.23.4 pasan; suite completa **289/289**. Platform Security en Emulator con secreto local ficticio: **77 verificaciones PASS**; el archivo temporal de secreto fue eliminado y no se llamó Secret Manager productivo.
+- Runner autenticado de Distribución actualizado para crear un contrato QA ficticio en el Emulator y completar el alta asistida desde la interfaz Platform Owner (sin `/register`); el propietario establece acceso desde UI. Recorrido en Chrome contra Auth/Firestore/Functions Emulator: **33/33 PASS**, incluye inventario/carga, despacho, venta, cobro de cartera, retorno y recepción, cierre, recibo PDF/compartir, y consulta de la venta desde Reportes → Productos. 390×844 y 1440×900 sin desbordamiento. Hardware ESC/POS/Bluetooth queda pendiente de equipo físico.
+- Verificación read-only de Admin Production quedó incompleta: el resumen autenticado mostró 7 empresas activas; apertura de Clientes/Tenants agotó el intento de navegador. No se escribieron datos ni se eludió Authentication. Revisión manual pendiente en `/admin` → “Clientes / Tenants” para confirmar las siete filas y fechas.
+- Cambios de este checkpoint son solo tests/fixtures, runner de QA y contexto; no hay cambios funcionales del producto. Sin push, PR, Preview, merge ni despliegue. Próxima revisión debe decidir si publicar una PR de estas pruebas después de confirmar el estado seguro de Preview.
+
 ## Reports Core V1 — release y QA inicial posterior (30/10/2026)
 
 - PR #14 (`8884ccd1a9249e0dcfe309b8d08079dcfed046b4`) quedó integrada en `main` mediante merge commit `9c4809c42b1112c96c2f134679d09c18412716ff`. Vercel `pachax-app` Production quedó READY en ese SHA. Functions coordinadas y READY: `platformGateway` `platformgateway-00011-qop`, `tenantGateway` `tenantgateway-00013-kiq`, `processTenantOperation` `processtenantoperation-00006-huc`; sin cambios de Rules, índices, Storage o IAM. Se registraron cero entradas ERROR de Cloud Run para esos servicios en los 20 minutos posteriores. No se escribieron datos productivos.

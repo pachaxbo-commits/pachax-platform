@@ -7,12 +7,13 @@ import { resolve, join } from 'node:path'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
+import { randomUUID } from 'node:crypto'
 
 const req = createRequire(new URL('../functions/package.json', import.meta.url))
 process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8185'
 process.env.FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9195'
 
-const { initializeApp } = req('firebase-admin/app')
+const { initializeApp, deleteApp } = req('firebase-admin/app')
 const { getFirestore } = req('firebase-admin/firestore')
 const { getAuth } = req('firebase-admin/auth')
 
@@ -203,6 +204,7 @@ async function createBrowserSession(sessionName) {
   }
 
   const close = async () => {
+    try { await Promise.race([send('Browser.close'), sleep(300)]) } catch {}
     try { socket.close() } catch {}
     try { browser.kill() } catch {}
   }
@@ -213,106 +215,76 @@ async function createBrowserSession(sessionName) {
 let sessionOwner, sessionSupport, sessionWarehouse, sessionDistributor
 try {
   // =========================================================================
-  // 2. ONBOARDING UI
+  // 2. ALTA ASISTIDA UI (el registro público permanece cerrado)
   // =========================================================================
-  console.log('\n--- 2. ONBOARDING UI DESDE NAVEGADOR LIMPIO (/register) ---')
-  sessionOwner = await createBrowserSession('owner')
-  await sessionOwner.navigate(`${baseUrl}/register`)
-
-  // Step 1: Cuenta
-  await sessionOwner.waitFor(() => document.querySelector('input[type="email"]') !== null, 'Formulario de registro cargado', 30000)
+  console.log('\n--- 2. ALTA ASISTIDA DESDE ADMIN UI CON CONTRATO FICTICIO ---')
   const ownerEmail = `owner-ui-${suffix}@example.test`
+  const ownerPassword = 'OwnerEmulatorOnly2026!'
+  const companyName = `Distribuidora UI Gate ${suffix}`
+  const contractId = `qa-contract-${suffix}`
+  const initialChargeId = `qa-charge-${suffix}`
+  const operationId = randomUUID()
+  const operatorUid = `platform-owner-ui-${suffix}`
+  const operatorEmail = `platform-owner-ui-${suffix}@example.test`
+  const operatorPassword = 'PlatformEmulatorOnly2026!'
+  await adminAuth.createUser({ uid: operatorUid, email: operatorEmail, password: operatorPassword, displayName: 'Platform Owner QA' })
+  await adminAuth.setCustomUserClaims(operatorUid, { platform: true, platformRole: 'platform_owner' })
+  await db.doc(`platformOperators/${operatorUid}`).set({ uid: operatorUid, role: 'platform_owner', active: true, email: operatorEmail })
+  const capabilitiesV1 = { version: 1, businessType: 'route_distribution', limits: { activeUsers: 10, activeProducts: 100, activeBranches: 1 }, features: { reports: { basic: true, detailed: true, export: true }, receipts: { digital: true }, printing: { manual: true, kitchenAutomatic: false }, adsRequired: false } }
+  await db.doc(`platformContracts/${contractId}`).create({ contractId, status: 'ready_for_activation', businessType: 'route_distribution', customer: { companyName, email: ownerEmail, contactName: 'Propietaria QA' }, terms: { companyName, templateId: 'distribution', billingCycle: 'monthly', currency: 'BOB', initialDueMinor: 1200, recurringMinor: 1200, plan: null, capabilitiesV1 }, initialChargeId, createdAt: new Date() })
+  await db.doc(`platformBillingCharges/${initialChargeId}`).create({ chargeId: initialChargeId, contractId, kind: 'initial', currency: 'BOB', amountMinor: 1200, paidMinor: 1200, pendingMinor: 0, status: 'paid', createdAt: new Date() })
+  await db.doc(`platformSubscriptions/${contractId}`).create({ contractId, status: 'pending', tenantId: null, createdAt: new Date() })
+  sessionOwner = await createBrowserSession('owner')
+  await sessionOwner.navigate(`${baseUrl}/admin/login`)
+  await sessionOwner.waitFor(() => document.querySelector('[data-admin-login-submit]') !== null, 'Formulario Platform Admin cargado', 30000)
   await sessionOwner.evaluate(`(() => {
-    const inputs = document.querySelectorAll('input');
-    const nameInput = [...inputs].find(i => i.placeholder && i.placeholder.includes('Soliz'));
-    const emailInput = document.querySelector('input[type="email"]');
-    const passInput = document.querySelector('input[type="password"]');
-    if (nameInput) __setVal(nameInput, 'Dueño Aurora UI');
-    if (emailInput) __setVal(emailInput, '${ownerEmail}');
-    if (passInput) __setVal(passInput, 'Password123!');
-    const form = document.querySelector('form');
-    if (form) form.requestSubmit();
+    const set=(selector,value)=>{const el=document.querySelector(selector);if(!el)throw new Error('Missing '+selector);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
+    set('input[autocomplete="username"]','${operatorEmail}');set('[data-admin-login-password]','${operatorPassword}');document.querySelector('[data-admin-login-submit]').click();
   })()`)
-
-  // Step 2: Empresa
-  await sessionOwner.waitFor(() => {
-    const inputs = document.querySelectorAll('input[type="text"]')
-    return [...inputs].some(i => i.placeholder && i.placeholder.includes('Distribuidora'))
-  }, 'Paso 2 de registro (Empresa)', 30000)
-
+  await sessionOwner.waitFor(() => document.querySelector('[data-admin-tab="commercial-billing"]') !== null, 'Platform Owner autenticado en Admin', 40000)
+  await sessionOwner.evaluate(`document.querySelector('[data-admin-tab="commercial-billing"]').click()`, true)
+  await sessionOwner.waitFor(() => [...document.querySelectorAll('button')].some(button=>button.textContent.includes('Crear empresa pagada y preparar acceso')), 'Contrato pagado ficticio visible', 30000)
+  await sessionOwner.evaluate(`([...document.querySelectorAll('button')].find(button=>button.textContent.includes('Crear empresa pagada y preparar acceso'))).click()`, true)
+  await sessionOwner.waitFor(() => document.body.innerText.includes('Alta asistida de empresa'), 'Alta asistida abierta desde Facturación', 30000)
+  await sessionOwner.waitFor(() => [...document.querySelectorAll('select')].some(item=>item.labels?.[0]?.textContent.includes('Plantilla disponible')&&[...item.options].some(option=>option.value==='route_distribution')), 'Selector de plantillas cargado', 30000)
   await sessionOwner.evaluate(`(() => {
-    const inputs = document.querySelectorAll('input[type="text"]');
-    const compInput = [...inputs].find(i => i.placeholder && i.placeholder.includes('Distribuidora'));
-    if (compInput) __setVal(compInput, 'Distribuidora UI Gate');
-    const form = document.querySelector('form');
-    if (form) form.requestSubmit();
-  })()`)
-
-  // Step 3: Plantilla (Seleccionar Distribución)
-  await sessionOwner.waitFor(() => {
-    return document.body.innerText.includes('Paso 3 de 5')
-  }, 'Paso 3 de registro (Plantillas)', 30000)
-
-  await sessionOwner.evaluate(`(() => {
-    const cards = [...document.querySelectorAll('h4, div')].filter(d => d.innerText && d.innerText.toLowerCase().includes('distribución') && d.innerText.toLowerCase().includes('despachos'));
-    const clickableCard = cards.find(d => d.getAttribute('class')?.includes('cursor-pointer') || d.closest('.cursor-pointer'));
-    if (clickableCard) {
-      (clickableCard.closest('.cursor-pointer') || clickableCard).click();
-    }
-    const form = document.querySelector('form');
-    if (form) form.requestSubmit();
-  })()`)
-
-  // Step 4: Personalización (Colores)
-  await sessionOwner.waitFor(() => {
-    return document.body.innerText.includes('Paso 4 de 5')
-  }, 'Paso 4 de registro (Personalización)', 30000)
-
-  await sessionOwner.evaluate(`(() => {
-    const form = document.querySelector('form');
-    if (form) form.requestSubmit();
-  })()`)
-
-  // Step 5: Confirmación y Envío
-  await sessionOwner.waitFor(() => {
-    return document.body.innerText.includes('Paso 5 de 5')
-  }, 'Paso 5 de registro (Confirmación)', 30000)
-
-  await sessionOwner.evaluate(`(() => {
-    const submitBtn = [...document.querySelectorAll('button')].find(b => b.innerText && b.innerText.includes('Crear mi empresa'));
-    if (submitBtn) submitBtn.click();
-    else throw new Error('Botón Crear mi empresa no encontrado en Paso 5');
-  })()`)
-
-  // Esperar a que completeOnboarding termine y redirija a la landing (pathname === '/') con botón "Ir a mi empresa"
-  await sessionOwner.waitFor(() => {
-    return window.location.pathname === '/' && document.body.innerText.includes('Ir a mi empresa');
-  }, 'Redirección a landing con "Ir a mi empresa" tras onboarding', 40000)
-
-  // Pulsar "Ir a mi empresa" para ingresar a la interfaz operativa de Distribution
-  await sessionOwner.evaluate(`(() => {
-    const btn = [...document.querySelectorAll('button')].find(b => b.innerText && b.innerText.includes('Ir a mi empresa'));
-    if (btn) btn.click();
-    else throw new Error('Botón "Ir a mi empresa" no encontrado en landing');
-  })()`)
-
-  // Esperar a que cargue DistributionShell
-  await sessionOwner.waitFor(() => {
-    return window.location.pathname.startsWith('/login') && document.body.innerText.includes('Distribuidora UI Gate') && (document.body.innerText.includes('Inicio') || document.body.innerText.includes('Vender'))
-  }, 'Entrada a DistributionShell tras onboarding', 40000)
-
-  record('Onboarding UI completo vía /register redirige a Distribution', true, 'Onboarding confirmado en DistributionShell')
+    const labels=[...document.querySelectorAll('label')];
+    const owner=labels.find(label=>label.textContent.includes('Nombre del propietario'))?.querySelector('input');if(!owner)throw new Error('Owner name input missing');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(owner,'Propietaria QA');owner.dispatchEvent(new Event('input',{bubbles:true}));owner.dispatchEvent(new Event('change',{bubbles:true}));
+    const confirmation=document.querySelector('input[type="checkbox"]');if(!confirmation)throw new Error('Owner email confirmation missing');confirmation.click();
+    const submit=[...document.querySelectorAll('button[type="submit"]')].find(button=>button.textContent.includes('Crear empresa y preparar acceso'));if(!submit||submit.disabled)throw new Error('Assisted create button disabled');submit.click();
+  })()`, true)
+  await sessionOwner.waitFor(() => document.body.innerText.includes('Empresa creada y acceso preparado'), 'Tenant creado desde la UI de Alta asistida', 45000)
+  const setupLink = await sessionOwner.evaluate(`document.querySelector('textarea[aria-label="Enlace de configuración de contraseña de un solo uso"]')?.value || ''`)
+  assert(setupLink, 'La UI de alta asistida no devolvió enlace temporal para el propietario QA')
+  const setupCode = new URL(setupLink).searchParams.get('oobCode')
+  assert(setupCode, 'El enlace local debe incluir código de configuración de Auth Emulator')
+  const resetPassword = await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=emulator`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oobCode: setupCode, newPassword: ownerPassword }) })
+  assert.equal(resetPassword.ok, true, 'Auth Emulator debe aceptar el enlace de acceso temporal')
+  record('Alta asistida de Distribución completada desde Admin con datos ficticios', true, 'El tenant se creó por la acción visible de Platform Owner')
+  await sessionOwner.evaluate(`(() => {const button=[...document.querySelectorAll('button')].find(item=>item.textContent.trim()==='Salir');if(!button)throw new Error('Platform Owner logout button missing');button.click()})()`, true)
+  await sessionOwner.waitFor(() => document.querySelector('[data-admin-login-submit]') !== null, 'Platform Owner cerró sesión antes del acceso tenant', 30000)
+  await sessionOwner.navigate(`${baseUrl}/login`)
+  await sessionOwner.waitFor(() => document.querySelector('#login-email') !== null, 'Formulario de login de empresa', 30000)
+  await sessionOwner.evaluate(`(() => {__setVal(document.querySelector('#login-email'),'${ownerEmail}');__setVal(document.querySelector('#login-password'),'${ownerPassword}');document.querySelector('.login-submit').click()})()`, true)
+  await sessionOwner.waitFor(() => document.body.innerText.includes('Propietario · owner-ui-') && (document.body.innerText.includes('Inicio') || document.body.innerText.includes('Vender')), 'Propietaria autenticada entra a Distribution', 40000)
+  record('Propietaria completa la configuración de acceso e ingresa desde login', true, 'Login real contra Auth Emulator y UI tenant')
+  await sessionOwner.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  const mobileLayout = await sessionOwner.evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,overflow:document.documentElement.scrollWidth-innerWidth,loaded:document.body.innerText.includes('${companyName}')})`)
+  record('Distribution tenant funciona en móvil 390×844 sin desbordamiento horizontal', mobileLayout.loaded && mobileLayout.overflow < 12, JSON.stringify(mobileLayout))
+  await sessionOwner.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false })
+  const desktopLayout = await sessionOwner.evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,overflow:document.documentElement.scrollWidth-innerWidth,loaded:document.body.innerText.includes('${companyName}')})`)
+  record('Distribution tenant funciona en escritorio 1440×900 sin desbordamiento horizontal', desktopLayout.loaded && desktopLayout.overflow < 12, JSON.stringify(desktopLayout))
 
   // REFRESH: Validar persistencia de sesión
   await sessionOwner.reload()
   await sleep(1500)
   await sessionOwner.waitFor(() => {
-    return document.body.innerText.includes('Distribuidora UI Gate') && (document.body.innerText.includes('Inicio') || document.body.innerText.includes('Vender'))
+    return document.body.innerText.includes('Propietario · owner-ui-') && (document.body.innerText.includes('Inicio') || document.body.innerText.includes('Vender'))
   }, 'Persistencia de sesión tras reload', 40000)
   record('Sesión y tenant de Distribution persisten tras refresh', true, 'Reload exitoso en DistributionShell')
 
   // Obtener tenantId real del tenant creado
-  const tenantsSnap = await db.collection('tenants').where('name', '==', 'Distribuidora UI Gate').limit(1).get()
+  const tenantsSnap = await db.collection('tenants').where('name', '==', companyName).limit(1).get()
   assert(!tenantsSnap.empty, 'El tenant no fue creado en Firestore')
   const tenantId = tenantsSnap.docs[0].id
   console.log(`Tenant creado en UI: ${tenantId}`)
@@ -378,7 +350,7 @@ try {
     await db.collection('users').doc(u).collection('tenantLinks').doc(tenantId).set({
       tenantId,
       role: r,
-      name: 'Distribuidora UI Gate',
+      name: companyName,
       businessType: 'route_distribution',
       joinedAt: new Date().toISOString(),
     })
@@ -1092,15 +1064,43 @@ try {
   }, 'Persistencia de estado cerrado tras refresh', 30000)
   record('Estado de despacho cerrado persiste tras refresh', true, 'Inmutabilidad confirmada')
 
+  // 12. REPORTES UI (OWNER): comprobar que la venta/empaque del piloto
+  // permanece consultable desde la pantalla real de reportes.
+  console.log('\n--- 12. REPORTES UI (OWNER) ---')
+  await sessionOwner.evaluate(`(() => {
+    const reportsBtn = [...document.querySelectorAll('button, a')].find(b => (b.innerText || '').trim().toLowerCase() === 'reportes');
+    if (reportsBtn) reportsBtn.click();
+  })()`)
+  await sessionOwner.waitFor(() => {
+    const text = document.body.innerText.toLowerCase();
+    return text.includes('costos y resultado del periodo') || text.includes('resumen de ventas') || text.includes('reporte de ventas');
+  }, 'Vista Reportes del propietario', 30000)
+  await sessionOwner.evaluate(`(() => {
+    const productsTab = [...document.querySelectorAll('button')].find(b => (b.innerText || '').trim().toLowerCase() === 'productos');
+    if (productsTab) productsTab.click();
+  })()`)
+  await sessionOwner.waitFor(() => document.body.innerText.toLowerCase().includes('carne de res'), 'Producto vendido en el detalle de reportes', 30000)
+  const reportVisible = await sessionOwner.evaluate(`(() => {
+    const text = document.body.innerText.toLowerCase();
+    return {
+      reportTitle: text.includes('reportes'),
+      salesPersisted: text.includes('carne de res'),
+      reportControls: text.includes('pdf') || text.includes('excel'),
+    };
+  })()`)
+  record('Propietario abre Reportes → Productos y encuentra la venta persistida',
+    reportVisible.reportTitle && reportVisible.salesPersisted,
+    `Título=${reportVisible.reportTitle}; producto=${reportVisible.salesPersisted}; exportaciones=${reportVisible.reportControls}`)
+
   // =========================================================================
-  // 12. HARDWARE EXTERNO
+  // 13. HARDWARE EXTERNO
   // =========================================================================
   console.log('\n--- 12. HARDWARE EXTERNO ---')
   record('Impresión software (browser_dialog / PDF canónico)', true, 'Adaptador browser_dialog y exportación PDF validados')
   record('Impresora física térmica ESC/POS / Bluetooth', false, 'Hardware físico no conectado al ejecutor automático', 'PENDING MANUAL')
 
   // =========================================================================
-  // 13. CONSOLE & AUDITORÍA DE ERRORES
+  // 14. CONSOLE & AUDITORÍA DE ERRORES
   // =========================================================================
   console.log('\n--- 13. AUDITORÍA DE CONSOLA Y RED ---')
   const allLogs = [
@@ -1154,8 +1154,12 @@ try {
     error: err.message,
     results,
   }, null, 2))
-  process.exit(1)
+  process.exitCode = 1
 } finally {
+  for (const session of [sessionOwner, sessionSupport, sessionWarehouse, sessionDistributor]) {
+    if (session) await session.close().catch(() => undefined)
+  }
+  await deleteApp(adminApp).catch(() => undefined)
   vite.kill()
   for (const prof of createdProfiles) {
     try { rmSync(prof, { recursive: true, force: true }) } catch {}
