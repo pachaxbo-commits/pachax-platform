@@ -376,6 +376,64 @@ test('Expreso Punata adapter maps state to Codex canonical BusinessReportV1 cont
   assert.equal(digitalDoc.payload.businessType, 'parcel_punata_sindicato')
 })
 
+test('Expreso Punata adapter strictly applies temporal filters and respects Codex completeness gate', () => {
+  const full = createFullExpresoPunataDataset()
+
+  // 1. Report for October 2026 includes October transactions
+  const octReport = toExpresoPunataBusinessReport(full, {
+    startDate: '2026-10-01',
+    endDate: '2026-10-31',
+    timeZone: 'America/La_Paz',
+  })
+  assert.ok(octReport.sheets.find(s => s.name === 'Encomiendas')!.rows.length > 0)
+  assert.ok(octReport.sheets.find(s => s.name === 'Gastos Sindicales')!.rows.length > 0)
+
+  // 2. Report for November 2026 has zero October operational transactions
+  const novReport = toExpresoPunataBusinessReport(full, {
+    startDate: '2026-11-01',
+    endDate: '2026-11-30',
+    timeZone: 'America/La_Paz',
+  })
+  const novParcels = novReport.sheets.find(s => s.name === 'Encomiendas')!.rows
+  const novExpenses = novReport.sheets.find(s => s.name === 'Gastos Sindicales')!.rows
+  assert.equal(novParcels.length, 0, 'No debe listar encomiendas de octubre en el reporte de noviembre')
+  assert.equal(novExpenses.length, 0, 'No debe listar gastos de octubre en el reporte de noviembre')
+
+  // 3. Completeness fails closed when there are pending unconciliated movements
+  const stateWithPending: typeof full = {
+    ...full,
+    cashMovements: [
+      ...full.cashMovements,
+      {
+        id: 'mov-unconciliated',
+        shiftId: 'pending_reconciliation',
+        timestamp: '2026-10-31T11:00:00Z',
+        type: 'income',
+        category: 'shipping_origin',
+        amount: 25,
+        paymentMethod: 'cash',
+        concept: 'Cobro de prueba pendiente',
+        operatorUid: 'op-1',
+        operatorName: 'Operador',
+      },
+    ],
+  }
+  const partialReport = toExpresoPunataBusinessReport(stateWithPending, {
+    startDate: '2026-10-01',
+    endDate: '2026-10-31',
+    timeZone: 'America/La_Paz',
+  })
+  assert.equal(partialReport.completeness, 'partial')
+  assert.ok(partialReport.warnings.length > 0)
+  assert.match(partialReport.warnings[0], /pendientes de asignación y conciliación/)
+
+  // 4. Exporting a partial report is strictly blocked by Codex toDigitalReportDocument
+  assert.throws(
+    () => toExpresoPunataDigitalReport(stateWithPending),
+    /Completa todas las páginas del reporte antes de exportarlo o imprimirlo/
+  )
+})
+
 test('Zero public catalog leakage: Expreso Punata is strictly an internal client demo in Studio', () => {
   // Check PUBLIC_TEMPLATES has not been polluted
   const publicIds = PUBLIC_TEMPLATES.map(t => t.id)

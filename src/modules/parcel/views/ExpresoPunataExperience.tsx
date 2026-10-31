@@ -78,10 +78,38 @@ export function ExpresoPunataExperience({
   const readyForPickupCount = state.shipments.filter(s => s.status === 'ready_for_pickup').length
   const pendingDispatchCount = state.shipments.filter(s => s.status === 'received' || s.status === 'pending_dispatch').length
 
-  // Métricas rápidas de cabecera
+  const now = new Date()
+  const boliviaPeriod = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/La_Paz',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(now)
+
+  const boliviaDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/La_Paz',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+
+  // Métricas rápidas de cabecera calculadas dinámicamente en zona horaria Bolivia
   const activeMembersCount = state.members.filter(m => m.status === 'active').length
-  const totalPaidDuesAmount = state.dues.reduce((acc, d) => acc + d.paidAmount, 0)
-  const overdueDuesCount = state.dues.filter(d => d.status === 'overdue' || (d.status === 'pending' && d.period < '2026-10')).length
+
+  // Recaudación estricta de cuotas del período mensual actual
+  const currentMonthPaidDuesAmount = state.dues.reduce((acc, due) => {
+    const validPaymentsInMonth = due.payments
+      .filter(p => !p.isReversed && p.date.slice(0, 7) === boliviaPeriod)
+      .reduce((sum, p) => sum + p.amount, 0)
+    
+    if (validPaymentsInMonth > 0) return acc + validPaymentsInMonth
+    if (due.period === boliviaPeriod) return acc + due.paidAmount
+    return acc
+  }, 0)
+
+  // Cuotas vencidas o con mora respecto al período/fecha actual en Bolivia
+  const overdueDuesCount = state.dues.filter(d => 
+    d.status === 'overdue' || (d.status === 'pending' && (d.period < boliviaPeriod || (d.dueDate && d.dueDate < boliviaDate)))
+  ).length
 
   const handleCreateShipment = (data: Parameters<typeof controller.registerShipment>[0]) => {
     const created = controller.registerShipment(data)
@@ -255,8 +283,8 @@ export function ExpresoPunataExperience({
 
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
             <span className="text-slate-500 block font-semibold text-[11px]">Recaudación de Cuotas</span>
-            <span className="text-xl font-black text-emerald-700">Bs. {totalPaidDuesAmount.toFixed(2)}</span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">Aportes registrados del mes</span>
+            <span className="text-xl font-black text-emerald-700">Bs. {currentMonthPaidDuesAmount.toFixed(2)}</span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">Aportes del periodo {boliviaPeriod}</span>
           </div>
 
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">

@@ -176,6 +176,37 @@ try {
     console.log(`  ✔ Pestaña "${tab}" cargada sin excepciones`)
   }
 
+  // Test 3.5: Operaciones interactivas (Nueva Encomienda, Despacho, Aportes)
+  console.log('\n--- PASO 3.5: Verificando modales operativos ---')
+  // Volver a la pestaña de Encomiendas para probar el modal de creación
+  await evalPage(`(() => {
+    const btn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Tablero de Encomiendas'))
+    if (btn) btn.click()
+  })()`)
+  await sleep(400)
+
+  // Abrir modal de Nueva Encomienda
+  await evalPage(`(() => {
+    const btn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Nueva Encomienda'))
+    if (btn) btn.click()
+  })()`)
+  await sleep(600)
+
+  const isModalOpen = await evalPage(`(() => {
+    const h2 = [...document.querySelectorAll('h2')].find(h => h.innerText.includes('Nueva Encomienda'))
+    const hasForm = !!document.querySelector('form')
+    return !!h2 && hasForm
+  })()`)
+  assert.ok(isModalOpen, 'El modal de Nueva Encomienda debe abrirse y mostrar su formulario')
+  console.log('  ✔ Modal Nueva Encomienda: formulario interactivo de recepción desplegado correctamente')
+
+  // Cerrar modal Nueva Encomienda con botón Cancelar o X
+  await evalPage(`(() => {
+    const closeBtn = [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'Cancelar' || b.querySelector('svg.lucide-x'))
+    if (closeBtn) closeBtn.click()
+  })()`)
+  await sleep(500)
+
   // Test 4: Modal de cambio de dataset (Full -> Empty) con confirmación
   console.log('\n--- PASO 4: Probando cambio de dataset con modal de confirmación ---')
   // Click on "Vacío" dataset button in Studio header

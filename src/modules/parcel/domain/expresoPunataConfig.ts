@@ -16,14 +16,14 @@ export const EXPRESO_PUNATA_COMPANY: DocumentCompanyContext & {
 } = {
   name: 'S.M.T. EXPRESO PUNATA',
   tradeName: 'S.M.T. EXPRESO PUNATA',
-  legalName: 'Sindicato Mixto de Transporte Expreso Punata',
+  legalName: 'Sindicato Mixto de Transporte Expreso Punata (Denominación referencial)',
   acronym: 'S.M.T.',
   slogan: 'Servicio Ejecutivo — "Somos los Pioneros"',
   serviceHours: 'Atención 24 Horas',
-  phone: '4-4571234 / 71798765',
+  phone: '4-4571234 / 71798765 (Teléfonos simulados para demo)',
   address: 'Av. Heroínas del Coronel esq. Sucre (Parada Punata)',
   city: 'Punata, Cochabamba - Bolivia',
-  taxId: '1098472023', // Demo / Pendiente de confirmación legal definitiva
+  taxId: 'NIT: Simulado para demo (Pendiente de confirmación)',
   logoUrl: EXPRESO_PUNATA_LOGO_DATA_URL,
   commercialServices: [
     'Envío de Encomiendas & Paquetería 24 Horas',
@@ -34,7 +34,7 @@ export const EXPRESO_PUNATA_COMPANY: DocumentCompanyContext & {
     'Turismo a Delegaciones & Viajes Especiales',
     'Contratos Interdepartamentales de Pasajeros & Carga',
   ],
-  registrationNote: 'Año de fundación en letrero como referencia visual (pendiente de acta legal definitiva).',
+  registrationNote: 'Datos de contacto, NIT, tarifas y cuotas sindicales configurados como parámetros de demostración editables desde la pestaña Configuración.',
 }
 
 /**

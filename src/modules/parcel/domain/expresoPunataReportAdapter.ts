@@ -6,6 +6,7 @@ import {
   type ReportSheet,
 } from '../../../core/reports/reportTypes.ts'
 import { buildBusinessDocumentContext } from '../../../core/businessIdentity.ts'
+import { isInReportPeriod } from '../../../core/reports/reportPeriod.ts'
 import { EXPRESO_PUNATA_COMPANY } from './expresoPunataConfig.ts'
 import { calculateFinancialSummary } from './parcelEngine.ts'
 
@@ -18,6 +19,7 @@ export interface ExpresoPunataReportPeriod {
 /**
  * Adapts Expreso Punata's operational state to the platform's canonical BusinessReportV1.
  * Fully compliant with Codex's Reports Core V1 (PR #14).
+ * Strictly applies temporal filtering and audit completeness checks.
  */
 export function toExpresoPunataBusinessReport(
   state: ParcelAppState,
@@ -56,12 +58,40 @@ export function toExpresoPunataBusinessReport(
     companyName: tradeName,
   })
 
-  // 1. Resumen Financiero
+  // 1. Filtrado temporal estricto mediante el contrato canónico de periodos
+  const filteredShipments = (state.shipments || []).filter(s =>
+    isInReportPeriod(s.createdAt, period)
+  )
+
+  const filteredDues = (state.dues || []).filter(d => {
+    if (d.period >= period.startDate.slice(0, 7) && d.period <= period.endDate.slice(0, 7)) {
+      return true
+    }
+    return d.payments.some(p => !p.isReversed && isInReportPeriod(p.date, period))
+  })
+
+  const filteredExpenses = (state.unionExpenses || []).filter(e =>
+    isInReportPeriod(e.date, period)
+  )
+
+  const filteredMovements = (state.cashMovements || []).filter(m =>
+    isInReportPeriod(m.timestamp, period)
+  )
+
+  const filteredWorkerPayments = (state.workerPayments || []).filter(w =>
+    isInReportPeriod(w.date, period)
+  )
+
+  // 2. Resumen Financiero con los datos filtrados por período
   const financialSummary = calculateFinancialSummary({
-    movements: state.cashMovements || [],
-    workerPayments: state.workerPayments || [],
-    unionExpenses: state.unionExpenses || [],
+    movements: filteredMovements,
+    workerPayments: filteredWorkerPayments,
+    unionExpenses: filteredExpenses,
     initialCash: state.activeShift ? state.activeShift.initialCash : 0,
+    dateRange: {
+      startDate: period.startDate,
+      endDate: period.endDate,
+    },
   })
   const currentCash = state.activeShift
 
@@ -69,10 +99,14 @@ export function toExpresoPunataBusinessReport(
     ['Total Ingresos Encomiendas Origen', financialSummary.byCategory.shippingOriginIncome],
     ['Total Ingresos Encomiendas Destino (COD)', financialSummary.byCategory.shippingDestIncome],
     ['Total Ingresos Aportes Sindicales', financialSummary.byCategory.unionDuesIncome],
+    ['Total Otros Ingresos Extraordinarios', financialSummary.byCategory.otherIncome],
+    ['Ingresos Totales Reconocidos', financialSummary.totalIncomeAllMethods],
     ['Total Gastos Operativos Sindicales', financialSummary.expenses.standaloneUnionExpenses],
     ['Total Liquidaciones a Choferes y Personal', financialSummary.expenses.totalWorkerPayments],
     ['Total Gastos Operativos Totales', financialSummary.expenses.totalOperationalExpenses],
     ['Resultado Operativo Neto del Período', financialSummary.netOperatingBalance],
+    ['Efectivo Cobrado en Mano', financialSummary.totalCashIn],
+    ['Efectivo Egresado de Caja', financialSummary.totalCashOut],
     ['Saldo Efectivo en Caja Activa', currentCash?.expectedCash ?? financialSummary.expectedCashInDrawer],
     ['Estado de Caja de Turno', currentCash?.status === 'open' ? 'ABIERTA' : 'CERRADA'],
   ]
@@ -83,9 +117,8 @@ export function toExpresoPunataBusinessReport(
     rows: summaryRows,
   }
 
-  // 2. Sheet: Encomiendas
-  const shipments = state.shipments || []
-  const parcelRows: (string | number | null)[][] = shipments.map(s => [
+  // 3. Sheet: Encomiendas
+  const parcelRows: (string | number | null)[][] = filteredShipments.map(s => [
     s.trackingCode,
     s.createdAt.slice(0, 16).replace('T', ' '),
     s.sender.name,
@@ -113,9 +146,8 @@ export function toExpresoPunataBusinessReport(
     rows: parcelRows,
   }
 
-  // 3. Sheet: Aportes Sindicales
-  const dues = state.dues || []
-  const dueRows: (string | number | null)[][] = dues.map(d => [
+  // 4. Sheet: Aportes Sindicales
+  const dueRows: (string | number | null)[][] = filteredDues.map(d => [
     d.payments[0]?.receiptNumber || d.id,
     d.memberName,
     d.memberNumber,
@@ -141,9 +173,8 @@ export function toExpresoPunataBusinessReport(
     rows: dueRows,
   }
 
-  // 4. Sheet: Gastos Sindicales
-  const unionExpenses = state.unionExpenses || []
-  const expenseRows: (string | number | null)[][] = unionExpenses.map(e => [
+  // 5. Sheet: Gastos Sindicales
+  const expenseRows: (string | number | null)[][] = filteredExpenses.map(e => [
     e.receiptNumber || e.invoiceOrVoucherNumber || e.id,
     e.category.toUpperCase(),
     e.description,
@@ -167,7 +198,7 @@ export function toExpresoPunataBusinessReport(
     rows: expenseRows,
   }
 
-  // 5. Sheet: Padrón de Socios
+  // 6. Sheet: Padrón de Socios
   const members = state.members || []
   const socioRows: (string | number | null)[][] = members.map(m => [
     m.memberNumber,
@@ -193,6 +224,19 @@ export function toExpresoPunataBusinessReport(
     rows: socioRows,
   }
 
+  // 7. Auditoría de integridad de datos y advertencias
+  const warnings: string[] = []
+  const pendingMovements = (state.cashMovements || []).filter(m => m.shiftId === 'pending_reconciliation')
+  if (pendingMovements.length > 0) {
+    warnings.push(`Existen ${pendingMovements.length} movimientos de caja pendientes de asignación y conciliación a un turno activo.`)
+  }
+  if (state.activeShift && typeof state.activeShift.difference === 'number' && state.activeShift.difference !== 0) {
+    warnings.push(`El turno de caja activo registra una discrepancia física no resuelta de Bs. ${state.activeShift.difference.toFixed(2)}.`)
+  }
+
+  // Si hay advertencias de integridad o datos pendientes, se marca como parcial
+  const completeness = warnings.length > 0 ? 'partial' : 'complete'
+
   const recordCount =
     summaryRows.length +
     parcelRows.length +
@@ -207,9 +251,9 @@ export function toExpresoPunataBusinessReport(
     generatedAt: now.toISOString(),
     period,
     identity,
-    completeness: 'complete',
+    completeness,
     recordCount,
-    warnings: [],
+    warnings,
     sheets: [
       summarySheet,
       parcelsSheet,
@@ -222,6 +266,7 @@ export function toExpresoPunataBusinessReport(
 
 /**
  * Returns a digital report document ready for printing or export.
+ * Throws if the report completeness is partial.
  */
 export function toExpresoPunataDigitalReport(
   state: ParcelAppState,
