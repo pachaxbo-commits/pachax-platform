@@ -2,13 +2,18 @@
   "format": 1,
   "buildCommand": "npm run build:demos-only",
   "outputDirectory": "dist-demo-isolated",
-  "totalFiles": 95,
-  "totalBytes": 23399897,
+  "totalFiles": 96,
+  "totalBytes": 23453499,
   "files": [
     {
       "path": "aviso-privacidad-solicitud-comercial.html",
       "bytes": 4998,
       "sha256": "96f341d6d205bd5b7209c8d8cdcd011a38f143a8c3401b38ddb0c5fda5d234bc"
+    },
+    {
+      "path": "brand/expreso-punata-logo.jpg",
+      "bytes": 52525,
+      "sha256": "f92626322643428a35fb7ca1ffd834c7a34de0fe27b409735e3aceb0620350da"
     },
     {
       "path": "brand/pachax-app-icon.png",
@@ -266,19 +271,19 @@
       "sha256": "e17cabe5e25f3c66777c529f01df0ae562f11671a8506eb583d8799eaceeb149"
     },
     {
-      "path": "demo-assets/datasets-7ZtomQvx.js",
+      "path": "demo-assets/datasets-BfTKHPa7.js",
       "bytes": 21718,
-      "sha256": "06aaf2ee096107600e07348ca45715a27a4db13739c0b0d04b4a5164b64d8886"
+      "sha256": "67eb697bc3245687453f56be7d1d135f9da20bcd2778ab363d2a70925308c6d8"
     },
     {
-      "path": "demo-assets/demo-69I-4lXC.js",
+      "path": "demo-assets/demo-BVYyJdza.js",
       "bytes": 208063,
-      "sha256": "6ed5e227164c71ebd32dec1c718075b6c8332452faf13ee008bb4f9c1655df73"
+      "sha256": "977ae01aa102acc32a11c8e6e8dbe8e45bddf1655dabade7b451a53b47a854d8"
     },
     {
-      "path": "demo-assets/demo-BcgjL0xS.css",
-      "bytes": 139119,
-      "sha256": "d0677944d4c5da4141ec3fad80e86fb1ddbf5f79b00acc580f44a0f0168c5995"
+      "path": "demo-assets/demo-CzCvQgdj.css",
+      "bytes": 141747,
+      "sha256": "506b8c7ea5785059aee01a0ddd657d46e2a92666f42cfee06fc4565f8d397a78"
     },
     {
       "path": "demo-assets/dist-BcvA-GRa.js",
@@ -286,14 +291,14 @@
       "sha256": "f4d084abb55d5e2f8b9f0a0f604c11caab2b9d3e9eac9854addf254df5903b65"
     },
     {
-      "path": "demo-assets/esm-BlkMYnNo.js",
-      "bytes": 1389,
-      "sha256": "dbd51febbca4833c3c9f1138b53f2d72c051c348187995e601eea9a2e082636d"
+      "path": "demo-assets/esm-BDL1Y2j8.js",
+      "bytes": 345,
+      "sha256": "686ae2e36394441d254054d0e4b816410f4e3b28adfec40c3f731771188fabe4"
     },
     {
-      "path": "demo-assets/esm-D5owrMuh.js",
-      "bytes": 345,
-      "sha256": "ad2db014c047920b71c1ced3234627b220df5d1b7a668f262ee40ccd3c102b30"
+      "path": "demo-assets/esm-BexwmYQQ.js",
+      "bytes": 1389,
+      "sha256": "750b3b49ff17ae6f54382da7b1eb640df317150780afff90feb5c6d6f9f8a656"
     },
     {
       "path": "demo-assets/exceljs.min-DXOFVt0i.js",
@@ -311,9 +316,9 @@
       "sha256": "158c0db513d2607dfb1b57cb748ba34631b0a70cc960cb40aa32b5ec3dc1d626"
     },
     {
-      "path": "demo-assets/jspdf.es.min-D6mTz3Su.js",
+      "path": "demo-assets/jspdf.es.min-C5dWTMNq.js",
       "bytes": 399686,
-      "sha256": "32d0368cf95020f7d0e805c5dd39aad4a61f2f75d2c12540a6c0ccba5ec8e51f"
+      "sha256": "d5c30a5021063bb9975c8cbb296175c1afb5fc3d78f520345567c57fb2ee222d"
     },
     {
       "path": "demo-assets/jspdf.plugin.autotable-GudEMuKW.js",
@@ -321,24 +326,24 @@
       "sha256": "232c52af10f3d697fc05863e20f3b0ea55291d566e7a4d5ae6f9f4783a1225cb"
     },
     {
-      "path": "demo-assets/purify.es-ClkDTL63.js",
-      "bytes": 29086,
-      "sha256": "b242a72dc734e1e0001337c1ab362ad94fd3a5e2f94fe5bb89f09dc98bcb903a"
+      "path": "demo-assets/purify.es-CJ-rlsNn.js",
+      "bytes": 26921,
+      "sha256": "edf235b10be724f7897f3220cde61e3b28f76491c6f085830a0b4a132ed9068d"
     },
     {
-      "path": "demo-assets/QuickRetailDemo-D-kXa17y.js",
+      "path": "demo-assets/QuickRetailDemo-HsoAMKmf.js",
       "bytes": 47708,
-      "sha256": "b74f16a911590a1d4a36bb244a64b75af15847e5eb7afad0ad84feaea411c0dc"
-    },
-    {
-      "path": "demo-assets/RestaurantDemo-BiwOcBnx.js",
-      "bytes": 585586,
-      "sha256": "917fba5fa0eb97fb8909b6823112e3e9b761dd74dbf84b0b0eced28824879bc4"
+      "sha256": "9f538dc852e79f1b7ba3ede3fb5b02cda2223cf36521f39669064e5333f1604e"
     },
     {
       "path": "demo-assets/RestaurantDemo-BLO4p97i.css",
       "bytes": 16666,
       "sha256": "9b714f73af6d40396970e6e48f76a7bed914f61ab8a73da3669a9bd975e53711"
+    },
+    {
+      "path": "demo-assets/RestaurantDemo-CFlJxXQb.js",
+      "bytes": 586200,
+      "sha256": "a09d7eb582c4364857be07a743aed578dbcc932b6fedea1f95be5297594d6354"
     },
     {
       "path": "demo-assets/typeof-B5XbjTb1.js",
@@ -351,19 +356,19 @@
       "sha256": "289f83e5a73a4355a6b27d021ba666e210c1fea436247d90431a8e487732b841"
     },
     {
-      "path": "demo-assets/web-BnpQPJIt.js",
-      "bytes": 8492,
-      "sha256": "d01790ff07258c29f53e5dd510b2c564b6a28e8d1f23b37994e3d15ccf16b76b"
-    },
-    {
       "path": "demo-assets/web-CTN4TO-D.js",
       "bytes": 843,
       "sha256": "78e59e7e9126afc07a60c408b11f4bd89a511e54d6442c381355f02fe4c55bba"
     },
     {
+      "path": "demo-assets/web-Ctnkp8zc.js",
+      "bytes": 8492,
+      "sha256": "81462e10670868307844758f8b2a94b537d7cce3359428fe72fcb418c04845fa"
+    },
+    {
       "path": "demo-isolated.html",
       "bytes": 941,
-      "sha256": "5e8cb1e48e9c0ef0a1b2049a4d40af70fd41cad42c677ad7052db2de738477fb"
+      "sha256": "0fe803d87835398837e95fec07929628ba58f8ec806fc70d7c72b26c8f7f9743"
     },
     {
       "path": "demo-isolation-network-guard.js",

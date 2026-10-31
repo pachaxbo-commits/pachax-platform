@@ -24,6 +24,7 @@ interface ParcelDispatchManifestModalProps {
     vehiclePlate?: string
     parcelIds: string[]
   }) => DispatchManifest
+  companyInfo?: import("../types").DocumentCompanyContext
 }
 
 export function ParcelDispatchManifestModal({
@@ -33,6 +34,7 @@ export function ParcelDispatchManifestModal({
   currentBranchId,
   availableShipments,
   onSubmit,
+  companyInfo,
 }: ParcelDispatchManifestModalProps) {
   const defaultDest = branches.find(b => b.id !== currentBranchId) || branches[1]
   const [destinationId, setDestinationId] = useState(defaultDest?.id || '')
@@ -92,7 +94,7 @@ export function ParcelDispatchManifestModal({
 
   const handleDownloadManifestPdf = async () => {
     if (!createdManifest) return
-    const { url, filename } = await generateManifestPdf(createdManifest, availableShipments)
+    const { url, filename } = await generateManifestPdf(createdManifest, availableShipments, companyInfo)
     const a = document.createElement('a')
     a.href = url
     a.download = filename

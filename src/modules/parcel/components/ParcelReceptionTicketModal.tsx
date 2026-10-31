@@ -16,6 +16,7 @@ interface ParcelReceptionTicketModalProps {
   isOpen: boolean
   onClose: () => void
   isReprint?: boolean
+  companyInfo?: import("../types").DocumentCompanyContext
 }
 
 export function ParcelReceptionTicketModal({
@@ -23,6 +24,7 @@ export function ParcelReceptionTicketModal({
   isOpen,
   onClose,
   isReprint = false,
+  companyInfo,
 }: ParcelReceptionTicketModalProps) {
   const [activeFormat, setActiveFormat] = useState<'80mm' | 'a4'>('80mm')
   const [isGenerating, setIsGenerating] = useState(false)
@@ -32,6 +34,7 @@ export function ParcelReceptionTicketModal({
     setIsGenerating(true)
     try {
       const result = await generateShipmentReceptionPdf(shipment, {
+        company,
         format,
         isCopy: isReprint,
         copyLabel: isReprint ? 'REIMPRESIÓN / COPIA' : 'ORIGINAL CLIENTE',
@@ -57,7 +60,7 @@ export function ParcelReceptionTicketModal({
 
   if (!isOpen || !shipment) return null
 
-  const company = DEFAULT_PARCEL_COMPANY
+  const company = companyInfo || DEFAULT_PARCEL_COMPANY
   const timingLabel = shipment.paymentTiming === 'origin_paid' ? 'PAGADO EN ORIGEN' : 'COBRO EN DESTINO (COD)'
 
   return (
@@ -135,6 +138,13 @@ export function ParcelReceptionTicketModal({
             /* Simulación de Ticket Térmico de 80mm */
             <div className="w-[320px] bg-white border border-slate-300 rounded-xl p-5 shadow-sm font-mono text-[11px] text-slate-900 space-y-3 leading-tight select-all">
               <div className="text-center space-y-1">
+                {company.logoUrl && (
+                  <img
+                    src={company.logoUrl}
+                    alt={company.name}
+                    className="h-10 mx-auto object-contain mb-1"
+                  />
+                )}
                 <div className="font-bold text-xs uppercase tracking-wide">{company.name}</div>
                 <div className="text-[10px] text-slate-600">{company.legalName}</div>
                 <div className="text-[10px] text-slate-600">{company.city} · Telf: {company.phone}</div>
@@ -188,10 +198,19 @@ export function ParcelReceptionTicketModal({
             /* Simulación de A4 */
             <div className="w-full max-w-xl bg-white border border-slate-300 rounded-xl p-6 shadow-sm font-sans text-xs text-slate-900 space-y-4">
               <div className="flex items-start justify-between border-b pb-3">
-                <div>
-                  <h3 className="font-black text-sm text-slate-900">{company.name}</h3>
-                  <p className="text-[11px] text-slate-600">{company.legalName} · NIT: {company.taxId}</p>
-                  <p className="text-[10px] text-slate-500">{company.city} · Telf: {company.phone}</p>
+                <div className="flex items-center gap-3">
+                  {company.logoUrl && (
+                    <img
+                      src={company.logoUrl}
+                      alt={company.name}
+                      className="h-12 w-12 object-contain rounded-lg border border-slate-200 p-0.5 bg-white"
+                    />
+                  )}
+                  <div>
+                    <h3 className="font-black text-sm text-slate-900">{company.name}</h3>
+                    <p className="text-[11px] text-slate-600">{company.legalName} · NIT: {company.taxId}</p>
+                    <p className="text-[10px] text-slate-500">{company.city} · Telf: {company.phone}</p>
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-black text-teal-800">GUÍA: {shipment.trackingCode}</div>

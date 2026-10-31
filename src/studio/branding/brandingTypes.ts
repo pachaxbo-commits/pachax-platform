@@ -69,3 +69,13 @@ export const DEFAULT_PARCEL_BRANDING: StudioBranding = {
   surfaceColor: '#FFFFFF',
   styleTheme: 'clean',
 }
+
+export const DEFAULT_EXPRESO_PUNATA_BRANDING: StudioBranding = {
+  companyName: 'S.M.T. Expreso Punata',
+  primaryColor: '#064e3b',
+  sidebarColor: '#F8FAFC',
+  accentColor: '#facc15',
+  backgroundColor: '#F8FAFC',
+  surfaceColor: '#FFFFFF',
+  styleTheme: 'clean',
+}

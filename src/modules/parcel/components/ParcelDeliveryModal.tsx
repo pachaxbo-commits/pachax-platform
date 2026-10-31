@@ -28,6 +28,7 @@ interface ParcelDeliveryModalProps {
     paymentMethod?: 'cash' | 'qr' | 'transfer'
     signatureCaptured?: string
   }) => ParcelShipment
+  companyInfo?: import("../types").DocumentCompanyContext
 }
 
 export function ParcelDeliveryModal({
@@ -36,6 +37,7 @@ export function ParcelDeliveryModal({
   readyShipments,
   preselectedShipment,
   onDeliver,
+  companyInfo,
 }: ParcelDeliveryModalProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedShipment, setSelectedShipment] = useState<ParcelShipment | null>(
@@ -190,7 +192,7 @@ export function ParcelDeliveryModal({
 
   const handleDownloadDeliveryPdf = async () => {
     if (!deliveredResult || !deliveredResult.delivery) return
-    const { url, filename } = await generateDeliveryReceiptPdf(deliveredResult, deliveredResult.delivery)
+    const { url, filename } = await generateDeliveryReceiptPdf(deliveredResult, deliveredResult.delivery, companyInfo)
     const a = document.createElement('a')
     a.href = url
     a.download = filename

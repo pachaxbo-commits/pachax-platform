@@ -40,6 +40,12 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
       badges: ['Perfil Estándar', 'Edición Sindicato', 'Guías & Manifiestos', 'Arqueo Caja'],
       internalNote: 'Validación interna para sindicatos de transporte y empresas de encomiendas.',
     },
+    'expreso-punata': {
+      company: 'S.M.T. Expreso Punata',
+      icon: Truck,
+      badges: ['DEMO INTERNA DEL CLIENTE', 'Servicio Ejecutivo', 'Socios & Cuotas', 'Atención 24h'],
+      internalNote: 'Edición especial personalizada para S.M.T. Expreso Punata (Cochabamba - Valle Alto).',
+    },
   } as const
 
   const publicTemplatesList = PUBLIC_TEMPLATES.map(template => ({
@@ -59,6 +65,15 @@ export function StudioHome({ onSelectTemplate }: { onSelectTemplate: (templateId
       ...presentation.parcel,
       badges: ['Estándar / Sindicato', 'Guías & Manifiestos', 'Socios & Cuotas', 'Arqueo Caja'],
       internalNote: 'Validación interna para sindicatos de transporte y agencias de encomiendas.',
+    },
+    {
+      id: 'expreso-punata' as DemoTemplateId,
+      title: 'S.M.T. Expreso Punata',
+      description: 'Edición Especial Sindicato personalizada: encomiendas interdepartamentales, administración de socios, aportes mensuales, choferes y balance gremial con identidad oficial.',
+      isInternal: true,
+      ...presentation['expreso-punata'],
+      badges: ['DEMO INTERNA DEL CLIENTE', 'Servicio Ejecutivo', 'Socios & Aportes', 'Atención 24h'],
+      internalNote: 'Demostración interna exclusiva del cliente para revisión directa.',
     },
   ]
 

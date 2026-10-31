@@ -87,6 +87,14 @@ export async function generateShipmentReceptionPdf(
     })
 
     let y = 8
+    if (company.logoUrl) {
+      try {
+        doc.addImage(company.logoUrl, 'JPEG', 28, y, 24, 16)
+        y += 18
+      } catch {
+        // Fallback si la imagen no puede rasterizarse
+      }
+    }
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(10)
     doc.text(company.name, 40, y, { align: 'center', maxWidth: 74 })
@@ -200,14 +208,24 @@ export async function generateShipmentReceptionPdf(
   doc.setFillColor(30, 41, 59)
   doc.rect(0, 0, 210, 25, 'F')
 
+  let headerTextX = 14
+  if (company.logoUrl) {
+    try {
+      doc.addImage(company.logoUrl, 'JPEG', 12, 3, 22, 19)
+      headerTextX = 38
+    } catch {
+      // Fallback si la imagen no puede procesarse
+    }
+  }
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
   doc.setTextColor(255, 255, 255)
-  doc.text(company.name, 14, 12)
+  doc.text(company.name, headerTextX, 12)
 
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.text(`${company.legalName || ''} · NIT: ${company.taxId || ''} · Telf: ${company.phone || ''}`, 14, 18)
+  doc.text(`${company.legalName || ''} · NIT: ${company.taxId || ''} · Telf: ${company.phone || ''}`, headerTextX, 18)
 
   doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
@@ -346,21 +364,32 @@ export async function generateShipmentReceptionPdf(
 export async function generateDeliveryReceiptPdf(
   shipment: ParcelShipment,
   delivery: ParcelDeliveryRecord,
-  company = DEFAULT_PARCEL_COMPANY
+  companyInput: DocumentCompanyContext | Partial<BusinessIdentity> | Partial<BusinessDocumentContext> = DEFAULT_PARCEL_COMPANY
 ): Promise<{ blob: Blob; url: string; filename: string }> {
   const { jsPDF } = await import('jspdf')
   const { default: autoTable } = await import('jspdf-autotable')
 
+  const company = toDocumentCompanyContext(companyInput)
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
   // Encabezado
   doc.setFillColor(15, 118, 110) // Verde teal
   doc.rect(0, 0, 210, 25, 'F')
 
+  let headerTextX = 14
+  if (company.logoUrl) {
+    try {
+      doc.addImage(company.logoUrl, 'JPEG', 12, 3, 22, 19)
+      headerTextX = 38
+    } catch {
+      // Fallback
+    }
+  }
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
   doc.setTextColor(255, 255, 255)
-  doc.text(company.name, 14, 12)
+  doc.text(company.name, headerTextX, 12)
 
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
@@ -433,20 +462,29 @@ export async function generateDeliveryReceiptPdf(
 export async function generateUnionDueReceiptPdf(
   due: UnionMonthlyDue,
   payment: UnionDuePayment,
-  company = DEFAULT_PARCEL_COMPANY
+  companyInput: DocumentCompanyContext | Partial<BusinessIdentity> | Partial<BusinessDocumentContext> = DEFAULT_PARCEL_COMPANY
 ): Promise<{ blob: Blob; url: string; filename: string }> {
   const { jsPDF } = await import('jspdf')
   const { default: autoTable } = await import('jspdf-autotable')
 
+  const company = toDocumentCompanyContext(companyInput)
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [140, 210] }) // Media carta
 
   doc.setFillColor(30, 41, 59)
   doc.rect(0, 0, 140, 20, 'F')
 
+  if (company.logoUrl) {
+    try {
+      doc.addImage(company.logoUrl, 'JPEG', 6, 2, 18, 16)
+    } catch {
+      // Fallback
+    }
+  }
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
+  doc.setFontSize(10.5)
   doc.setTextColor(255, 255, 255)
-  doc.text(company.legalName || company.name, 70, 9, { align: 'center', maxWidth: 130 })
+  doc.text(company.legalName || company.name, 76, 9, { align: 'center', maxWidth: 115 })
 
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
@@ -498,20 +536,31 @@ export async function generateUnionDueReceiptPdf(
 export async function generateManifestPdf(
   manifest: DispatchManifest,
   shipments: ParcelShipment[],
-  company = DEFAULT_PARCEL_COMPANY
+  companyInput: DocumentCompanyContext | Partial<BusinessIdentity> | Partial<BusinessDocumentContext> = DEFAULT_PARCEL_COMPANY
 ): Promise<{ blob: Blob; url: string; filename: string }> {
   const { jsPDF } = await import('jspdf')
   const { default: autoTable } = await import('jspdf-autotable')
 
+  const company = toDocumentCompanyContext(companyInput)
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
 
   doc.setFillColor(30, 41, 59)
   doc.rect(0, 0, 297, 22, 'F')
 
+  let headerTextX = 14
+  if (company.logoUrl) {
+    try {
+      doc.addImage(company.logoUrl, 'JPEG', 12, 2, 20, 18)
+      headerTextX = 36
+    } catch {
+      // Fallback
+    }
+  }
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.setTextColor(255, 255, 255)
-  doc.text(company.name, 14, 11)
+  doc.text(company.name, headerTextX, 11)
 
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
@@ -600,14 +649,24 @@ export async function generateOperationalReportPdf(params: {
   doc.setFillColor(30, 41, 59)
   doc.rect(0, 0, 297, 22, 'F')
 
+  let headerTextX = 14
+  if (company.logoUrl) {
+    try {
+      doc.addImage(company.logoUrl, 'JPEG', 12, 2, 20, 18)
+      headerTextX = 36
+    } catch {
+      // Fallback
+    }
+  }
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.setTextColor(255, 255, 255)
-  doc.text(company.name, 14, 11)
+  doc.text(company.name, headerTextX, 11)
 
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.text(`${params.title.toUpperCase()} · ${params.subtitle}`, 14, 17)
+  doc.text(`${params.title.toUpperCase()} · ${params.subtitle}`, headerTextX, 17)
 
   doc.setFontSize(8)
   doc.text(`Generado: ${new Date().toLocaleString('es-BO')}`, 283, 14, { align: 'right' })
