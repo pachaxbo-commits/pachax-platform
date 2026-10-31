@@ -17,6 +17,7 @@ import { BusinessTemplateRegistry } from '../src/core/templates.ts'
 import { buildReceiptHtml } from '../src/adapters/printing/browserDialogPrinterAdapter.ts'
 import { buildReceiptBytes } from '../src/services/printing/templates/receiptTemplate.ts'
 import type { PrintJobPayload } from '../src/types/printing.ts'
+import { activateDocumentTestTenant, resetDocumentTestTenant } from './helpers/activeTenantFixtures.ts'
 
 test('normalizeBusinessIdentity: assigns canonical defaults and maps tenant branding gracefully', () => {
   const empty = normalizeBusinessIdentity({})
@@ -209,6 +210,8 @@ test('orderToReceiptData and buildReceiptPlainText: produce accurate canonical r
 })
 
 test('generateReceiptPdf: generates non-empty PDF bytes and survives missing logo', async () => {
+  activateDocumentTestTenant('qa-restaurant-receipt', 'restaurant_pos', 'branch-main', { digitalReceipts: true })
+  try {
   const docContext = buildBusinessDocumentContext({
     tradeName: 'Restaurante Sin Logo',
     logoUrl: undefined,
@@ -232,6 +235,22 @@ test('generateReceiptPdf: generates non-empty PDF bytes and survives missing log
   assert.ok(pdfBytes.length > 500)
   const header = String.fromCharCode(...pdfBytes.slice(0, 4))
   assert.equal(header, '%PDF')
+  } finally {
+    resetDocumentTestTenant()
+  }
+})
+
+test('generateReceiptPdf: denies missing tenant and missing receipts.digital capability', async () => {
+  const docContext = buildBusinessDocumentContext({ tradeName: 'QA sin permisos' })
+  const receipt: CanonicalReceiptData = { receiptNumber: 'DENY', dateIso: new Date(0).toISOString(), items: [], subtotal: 0, total: 0 }
+  resetDocumentTestTenant()
+  await assert.rejects(generateReceiptPdf(docContext, receipt), /no está incluida/)
+  activateDocumentTestTenant('qa-restaurant-no-receipt', 'restaurant_pos')
+  try {
+    await assert.rejects(generateReceiptPdf(docContext, receipt), /no está incluida/)
+  } finally {
+    resetDocumentTestTenant()
+  }
 })
 
 test('Public Role Simulation: uses BusinessTemplateRegistry without state destruction', () => {

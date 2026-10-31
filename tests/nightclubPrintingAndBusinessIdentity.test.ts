@@ -36,6 +36,7 @@ import {
   shareReceipt,
 } from '../src/core/receiptService.ts'
 import type { PrinterProfile, PrintJob } from '../src/types/printing.ts'
+import { activateDocumentTestTenant, resetDocumentTestTenant } from './helpers/activeTenantFixtures.ts'
 
 // Polyfill in-memory localStorage for Node test runner
 const memoryStorage = new Map<string, string>()
@@ -177,8 +178,10 @@ test('3. Printer from Tenant A does not resolve for Tenant B', async () => {
   assert.notEqual(resolvedForB.primary.id, 'pr-bar-tenant-a')
 
   // Attempting to submit a print for Tenant B with Tenant A's printerProfileId must throw
-  await assert.rejects(
-    async () => {
+  activateDocumentTestTenant('tenant_beta', 'nightclub_lounge', 'main', { manualPrinting: true })
+  try {
+    await assert.rejects(
+      async () => {
       await engine.submitPrintRequest({
         targetType: 'bar_ticket',
         printerProfileId: 'pr-bar-tenant-a',
@@ -196,9 +199,12 @@ test('3. Printer from Tenant A does not resolve for Tenant B', async () => {
           taxTotal: 0,
         },
       })
-    },
-    /no pertenece a la empresa tenant_beta/
-  )
+      },
+      /no pertenece a la empresa tenant_beta/
+    )
+  } finally {
+    resetDocumentTestTenant()
+  }
 })
 
 // 4. Printer from Branch A does not resolve for Branch B
@@ -245,8 +251,10 @@ test('4. Printer from Branch A does not resolve for Branch B', async () => {
   assert.notEqual(resolved.primary.id, 'pr-bar-branch-vip')
 
   // Submitting for branch_terraza with printer from branch_vip must throw
-  await assert.rejects(
-    async () => {
+  activateDocumentTestTenant('tenant_gamma', 'nightclub_lounge', 'branch_terraza', { manualPrinting: true })
+  try {
+    await assert.rejects(
+      async () => {
       await engine.submitPrintRequest({
         targetType: 'bar_ticket',
         printerProfileId: 'pr-bar-branch-vip',
@@ -264,9 +272,12 @@ test('4. Printer from Branch A does not resolve for Branch B', async () => {
           taxTotal: 0,
         },
       })
-    },
-    /no pertenece a la sucursal branch_terraza/
-  )
+      },
+      /no pertenece a la sucursal branch_terraza/
+    )
+  } finally {
+    resetDocumentTestTenant()
+  }
 })
 
 // 5. Saving a printer shows "Impresora vinculada correctamente" and persists profile
@@ -648,6 +659,8 @@ test('13. Breakdown of Cash 40 + QR 22 is displayed correctly', () => {
 
 // 14. PDF generation succeeds
 test('14. PDF generation succeeds (generateReceiptPdf returns valid document)', async () => {
+  activateDocumentTestTenant('qa-nightclub-pdf', 'nightclub_lounge', 'branch-main', { digitalReceipts: true })
+  try {
   const dataset = createDummyNightclubDataset()
   const account: NightclubAccount = {
     id: 'acc-pdf-14',
@@ -684,10 +697,15 @@ test('14. PDF generation succeeds (generateReceiptPdf returns valid document)', 
   assert.ok(pdfBytes.length > 500)
   const header = String.fromCharCode(...pdfBytes.slice(0, 4))
   assert.equal(header, '%PDF')
+  } finally {
+    resetDocumentTestTenant()
+  }
 })
 
 // 15. Share fallback functions properly
 test('15. Share fallback functions properly (uses Web Share when supported)', async () => {
+  activateDocumentTestTenant('qa-nightclub-share', 'nightclub_lounge', 'branch-main', { digitalReceipts: true })
+  try {
   const dataset = createDummyNightclubDataset()
   const account: NightclubAccount = {
     id: 'acc-share-15',
@@ -722,6 +740,24 @@ test('15. Share fallback functions properly (uses Web Share when supported)', as
   assert.equal(shareResult.success, true)
   assert.equal(shareResult.method, 'web_share_file')
   assert.ok(sharedFiles.length > 0)
+  } finally {
+    resetDocumentTestTenant()
+  }
+})
+
+test('Receipt PDF and share reject missing tenant or receipts.digital capability', async () => {
+  const context = buildBusinessDocumentContext({ tradeName: 'Nightclub QA' })
+  const receipt = nightclubAccountToReceiptData({ id: 'qa-deny', tableNameSnapshot: 'Mesa QA', status: 'closed', openedAt: new Date(0).toISOString(), openedBy: 'QA', rounds: [], subtotal: 0 }, createDummyNightclubDataset())
+  resetDocumentTestTenant()
+  await assert.rejects(generateReceiptPdf(context, receipt), /no está incluida/)
+  await assert.rejects(shareReceipt(context, receipt), /no está incluida/)
+  activateDocumentTestTenant('qa-nightclub-no-receipt', 'nightclub_lounge')
+  try {
+    await assert.rejects(generateReceiptPdf(context, receipt), /no está incluida/)
+    await assert.rejects(shareReceipt(context, receipt), /no está incluida/)
+  } finally {
+    resetDocumentTestTenant()
+  }
 })
 
 // 16. Reprint is marked "*** REIMPRESIÓN / COPIA ***"

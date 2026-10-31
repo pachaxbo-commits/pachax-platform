@@ -25,6 +25,7 @@ import { classifyPrintJobOutcome } from '../src/services/printing/printEngineSer
 import type { DistSale, DistCollection, DistCollectionAllocation } from '../src/modules/distribution/types.ts'
 import type { DistributionOperationalSettings } from '../src/modules/distribution/data/supportMaintenance.ts'
 import type { PrintJobPayload } from '../src/types/printing.ts'
+import { activateDocumentTestTenant, resetDocumentTestTenant } from './helpers/activeTenantFixtures.ts'
 
 // Polyfill in-memory localStorage for Node test runner
 const memoryStorage = new Map<string, string>()
@@ -428,6 +429,8 @@ test('D3 TEST 46: Honestidad en resultados de impresión (classifyPrintJobOutcom
 })
 
 test('D3 TEST 47: Generación de texto plano y PDF canónico para recibos de distribución', async () => {
+  activateDocumentTestTenant('qa-distribution-receipt', 'route_distribution', 'branch-main', { digitalReceipts: true })
+  try {
   const docContext = buildBusinessDocumentContext({
     tradeName: 'Distribuidora Cochabamba',
     taxId: '5432167890',
@@ -490,6 +493,22 @@ test('D3 TEST 47: Generación de texto plano y PDF canónico para recibos de dis
   const pdfBytes = await generateReceiptPdf(docContext, receiptData)
   assert.ok(pdfBytes instanceof Uint8Array)
   assert.ok(pdfBytes.length > 500, 'El PDF debe contener bytes válidos')
+  } finally {
+    resetDocumentTestTenant()
+  }
+})
+
+test('D3 TEST 47b: PDF de Distribución rechaza tenant ausente o capacidad no contratada', async () => {
+  const context = buildBusinessDocumentContext({ tradeName: 'Distribuidora QA' })
+  const receipt = distSaleToReceiptData({ id: 'qa-deny', createdAt: new Date(0).toISOString(), dayKey: '1970-01-01', operationId: 'qa-deny', sourceLocation: 'central', routeId: '', routeName: '', sellerUid: '', sellerName: '', lines: [], total: 0, paymentKind: 'cash', cashAmount: 0, qrAmount: 0, creditAmount: 0 })
+  resetDocumentTestTenant()
+  await assert.rejects(generateReceiptPdf(context, receipt), /no está incluida/)
+  activateDocumentTestTenant('qa-distribution-no-receipt', 'route_distribution')
+  try {
+    await assert.rejects(generateReceiptPdf(context, receipt), /no está incluida/)
+  } finally {
+    resetDocumentTestTenant()
+  }
 })
 
 test('D3 TEST 48: Comprobación de estado pendingConfirmation e indicador de copia', () => {
