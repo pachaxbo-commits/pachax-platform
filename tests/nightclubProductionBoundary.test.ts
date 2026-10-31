@@ -43,3 +43,11 @@ test('production Nightclub uses canonical experience without demo fixtures or lo
   assert.match(source, /useTenantNightclubController/)
   assert.match(source, /permission/i, 'NightclubApp must manage subscriptions with permissions')
 })
+
+test('Nightclub reports receive isolated-demo mode only from the explicit experience mode', () => {
+  const source = readFileSync(join(process.cwd(), 'src/modules/nightclub/views/NightclubExperience.tsx'), 'utf8')
+  assert.match(source, /<NightclubReports\b[^>]*tenantMode=\{props\.mode === 'tenant'\}[^>]*isolatedDemo=\{props\.mode === 'demo' \|\| props\.mode === 'studio'\}/)
+  const reports = readFileSync(join(process.cwd(), 'src/modules/nightclub/views/NightclubReports.tsx'), 'utf8')
+  assert.match(reports, /isolatedDemo = false/)
+  assert.match(reports, /tenantMode \|\| !isolatedDemo/)
+})

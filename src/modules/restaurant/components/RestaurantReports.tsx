@@ -11,7 +11,6 @@ import { authorizeBusinessReportCapability } from '../../../core/reports/reportA
 import { makeBusinessReport, type ReportSheet } from '../../../core/reports/reportTypes'
 import { exportBusinessReport } from '../../../core/reports/reportExport'
 import { getActiveTenant } from '../../../store/activeTenant'
-import { isDemoModeActive } from '../../../demo/core/demoContext'
 import { printBusinessReport } from '../../../core/reports/businessReportPrintService'
 import { reportSourceMayBeTruncated } from '../../../core/reports/reportCompleteness'
 import { assertReportSourceComplete } from '../../../core/reports/reportCompleteness'
@@ -19,9 +18,9 @@ import { canUseDocumentCapability } from '../../../core/documents/documentCapabi
 
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-export function RestaurantReports({ orders, shift, stockMovements = [], tenantId, branchId, identity }: {
+export function RestaurantReports({ orders, shift, stockMovements = [], tenantId, branchId, identity, isolatedDemo = false }: {
   orders: Order[]; shift: RestaurantShift | null; stockMovements?: InventoryMovement[]
-  tenantId: string; branchId: string; identity: BusinessDocumentContext
+  tenantId: string; branchId: string; identity: BusinessDocumentContext; isolatedDemo?: boolean
 }) {
   const timeZone = getActiveTenant()?.tenant.configuration?.timezone || 'America/La_Paz'
   const [startDate, setStartDate] = useState(() => localDateKey(new Date(), timeZone))
@@ -69,7 +68,7 @@ export function RestaurantReports({ orders, shift, stockMovements = [], tenantId
       assertReportSourceComplete(stockMovements.length, 100, 'El historial de movimientos')
       const active = getActiveTenant()
       if (active) await authorizeBusinessReportCapability(tenantId, branchId, 'reports.export')
-      else if (!isDemoModeActive()) throw new Error('La empresa activa debe cargarse antes de exportar.')
+      else if (!isolatedDemo) throw new Error('La empresa activa debe cargarse antes de exportar.')
       const report = makeBusinessReport({ tenantId, branchId, businessType: active?.tenant.businessType || 'restaurant_pos', generatedAt: new Date().toISOString(), period, identity, completeness: 'complete', recordCount: sales.length + selectedMovements.length, warnings: shift ? [`El reporte incluye todas las ventas pagadas del rango, no solo el turno activo (${shift.openedAt.slice(0, 10)}).`] : [], sheets: detailed ? sheets : [sheets[0]] })
       await exportBusinessReport(report, format)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo preparar el reporte.') }
@@ -82,7 +81,7 @@ export function RestaurantReports({ orders, shift, stockMovements = [], tenantId
       assertReportSourceComplete(stockMovements.length, 100, 'El historial de movimientos')
       const active = getActiveTenant()
       if (active) await authorizeBusinessReportCapability(tenantId, branchId, 'printing.manual')
-      else if (!isDemoModeActive()) throw new Error('La empresa activa debe cargarse antes de imprimir.')
+      else if (!isolatedDemo) throw new Error('La empresa activa debe cargarse antes de imprimir.')
       const report = makeBusinessReport({ tenantId, branchId, businessType: active?.tenant.businessType || 'restaurant_pos', generatedAt: new Date().toISOString(), period, identity, completeness: 'complete', recordCount: sales.length + selectedMovements.length, warnings: [], sheets: detailed ? sheets : [sheets[0]] })
       setError(await printBusinessReport(report))
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo imprimir el reporte.') }

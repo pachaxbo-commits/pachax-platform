@@ -47,3 +47,11 @@ test('canonical restaurant components are stateless and free of demo storage or 
   const appSource = readFileSync(join(process.cwd(), 'src/modules/restaurant/views/RestaurantApp.tsx'), 'utf8')
   assert.match(appSource, /permission/i, 'RestaurantApp must manage subscriptions with permissions')
 })
+
+test('RestaurantExperience passes only its explicit isolated-demo mode to reports', () => {
+  const source = readFileSync(join(process.cwd(), 'src/modules/restaurant/views/RestaurantExperience.tsx'), 'utf8')
+  assert.match(source, /<RestaurantReports\b[^>]*isolatedDemo=\{isDemo\}/)
+  const reports = readFileSync(join(process.cwd(), 'src/modules/restaurant/components/RestaurantReports.tsx'), 'utf8')
+  assert.match(reports, /isolatedDemo = false/)
+  assert.match(reports, /else if \(!isolatedDemo\)/)
+})
