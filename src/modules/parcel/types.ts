@@ -6,11 +6,18 @@
 
 export interface DocumentCompanyContext {
   name: string
+  tradeName?: string
   legalName?: string
   phone?: string
   address?: string
   city?: string
   taxId?: string
+  logoUrl?: string
+  acronym?: string
+  slogan?: string
+  serviceHours?: string
+  registrationNote?: string
+  commercialServices?: string[]
 }
 
 export interface ParcelTariffConfig {

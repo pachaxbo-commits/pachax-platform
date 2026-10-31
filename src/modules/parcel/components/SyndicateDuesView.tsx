@@ -45,6 +45,7 @@ interface SyndicateDuesViewProps {
     reversalType: 'documentary_void' | 'refund'
     refundMethod: 'none' | 'cash' | 'transfer'
   }) => void
+  companyInfo?: import("../types").DocumentCompanyContext
 }
 
 export function SyndicateDuesView({
@@ -53,6 +54,7 @@ export function SyndicateDuesView({
   onGeneratePeriod,
   onPayDue,
   onRevertPayment,
+  companyInfo,
 }: SyndicateDuesViewProps) {
   const currentYear = new Date().getFullYear()
 
@@ -200,7 +202,7 @@ export function SyndicateDuesView({
   }
 
   const handleDownloadReceiptPdf = async (due: UnionMonthlyDue, payment: UnionDuePayment) => {
-    const { url, filename } = await generateUnionDueReceiptPdf(due, payment)
+    const { url, filename } = await generateUnionDueReceiptPdf(due, payment, companyInfo)
     const a = document.createElement('a')
     a.href = url
     a.download = filename

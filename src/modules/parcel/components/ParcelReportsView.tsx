@@ -108,6 +108,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
       ])
       const total = shipmentsFiltered.reduce((acc, s) => acc + s.finalAmount, 0)
       return generateOperationalReportPdf({
+        company: state.companyInfo,
         title: 'Reporte Operativo de Encomiendas',
         subtitle: `${dateSubtitle} · Filtro: ${statusFilter === 'all' ? 'Todas' : statusFilter.toUpperCase()}`,
         headers: ['Guía', 'Fecha', 'Origen', 'Destino', 'Remitente', 'Destinatario', 'Contenido', 'Estado', 'Cobro', 'Monto'],
@@ -132,6 +133,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
         m.status.toUpperCase(),
       ])
       return generateOperationalReportPdf({
+        company: state.companyInfo,
         title: 'Reporte de Manifiestos de Despacho',
         subtitle: dateSubtitle,
         headers: ['N° Manifiesto', 'Fecha', 'Destino', 'Conductor / Chofer', 'Placa', 'Guías', 'Bultos', 'Peso', 'Estado'],
@@ -151,6 +153,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
         `Bs. ${m.amount.toFixed(2)}`,
       ])
       return generateOperationalReportPdf({
+        company: state.companyInfo,
         title: 'Reporte de Movimientos de Caja',
         subtitle: dateSubtitle,
         headers: ['Hora', 'Tipo', 'Categoría', 'Concepto', 'Método', 'Operador', 'Importe'],
@@ -175,6 +178,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
         m.status.toUpperCase(),
       ])
       return generateOperationalReportPdf({
+        company: state.companyInfo,
         title: 'Directorio Oficial de Socios Afiliados',
         subtitle: `Total afiliados registrados: ${membersFiltered.length}`,
         headers: ['N° Socio', 'Nombre Completo', 'CI', 'Teléfono', 'Categoría', 'Placa', 'Cuota Pactada', 'Estado'],
@@ -203,6 +207,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
       }, 0)
       const totalDeb = duesFiltered.reduce((acc, d) => acc + d.balance, 0)
       return generateOperationalReportPdf({
+        company: state.companyInfo,
         title: 'Reporte de Cuotas y Mensualidades Sindicales',
         subtitle: `${dateSubtitle} · Recaudación efectiva por fechas de pago vs Saldo deudor`,
         headers: ['Período', 'N° Socio', 'Nombre del Socio', 'Obligación', 'Recaudado Efectivo', 'Saldo Deudor', 'Estado'],
@@ -226,6 +231,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
       ])
       const total = workerPaymentsFiltered.reduce((acc, p) => acc + p.amount, 0)
       return generateOperationalReportPdf({
+        company: state.companyInfo,
         title: 'Reporte de Pagos al Personal y Choferes',
         subtitle: dateSubtitle,
         headers: ['Fecha', 'Comprobante', 'Trabajador', 'Tipo', 'Glosa / Concepto', 'Método', 'Importe'],
@@ -246,6 +252,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
       ])
       const total = expensesFiltered.reduce((acc, e) => acc + e.amount, 0)
       return generateOperationalReportPdf({
+        company: state.companyInfo,
         title: 'Reporte de Gastos Operativos del Sindicato',
         subtitle: dateSubtitle,
         headers: ['Fecha', 'Comprobante', 'Categoría', 'Descripción', 'Método', 'N° Factura', 'Importe'],

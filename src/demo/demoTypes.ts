@@ -1,7 +1,7 @@
 import type { StudioBranding } from '../studio/branding/brandingTypes'
 import type { PublicTemplateId } from '../core/publicTemplates'
 
-export type DemoTemplateId = PublicTemplateId | 'parcel'
+export type DemoTemplateId = PublicTemplateId | 'parcel' | 'expreso-punata'
 
 export type DemoMode = 'team' | 'simulated_role'
 

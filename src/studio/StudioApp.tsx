@@ -11,14 +11,14 @@ export function StudioApp({ syncUrl = true }: { syncUrl?: boolean }) {
     if (!syncUrl) return null
     const params = new URLSearchParams(window.location.search)
     const candidate = params.get('template')
-    if (candidate === 'parcel') return 'parcel'
+    if (candidate === 'parcel' || candidate === 'expreso-punata') return candidate
     return PUBLIC_TEMPLATES.find(item => item.id === candidate)?.id ?? null
   })
 
   const [simulatedRole, setSimulatedRole] = useState<string>(() => {
     if (!syncUrl) return 'admin'
     const templateParam = new URLSearchParams(window.location.search).get('template')
-    if (templateParam === 'parcel') return 'admin'
+    if (templateParam === 'parcel' || templateParam === 'expreso-punata') return 'admin'
     const selected = PUBLIC_TEMPLATES.find(item => item.id === templateParam)
     const candidate = new URLSearchParams(window.location.search).get('role')
     return selected?.businessType && getTemplate(selected.businessType).roles.some(role => role.id === candidate) ? candidate! : 'admin'

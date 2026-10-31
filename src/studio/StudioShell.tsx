@@ -19,6 +19,7 @@ import './studioRestaurantPreview.css'
 import { getPublicTemplate } from '../core/publicTemplates'
 import { getTemplate } from '../core/templates'
 import { ParcelDemo } from '../demo/parcel/ParcelDemo'
+import { ExpresoPunataDemo } from '../demo/parcel/ExpresoPunataDemo'
 
 export type ViewportMode = 'responsive' | 'mobile_360' | 'mobile_390' | 'tablet_768' | 'laptop_1366'
 
@@ -56,17 +57,20 @@ export function StudioShell({
   const previewRef = useRef<HTMLDivElement>(null)
 
   const isParcel = templateId === 'parcel'
-  const templateTitle = isParcel
-    ? 'PACHAX Encomiendas'
-    : getPublicTemplate(templateId).title
-  const templateRoles = isParcel
+  const isExpresoPunata = templateId === 'expreso-punata'
+  const templateTitle = isExpresoPunata
+    ? 'S.M.T. Expreso Punata'
+    : isParcel
+      ? 'PACHAX Encomiendas'
+      : getPublicTemplate(templateId).title
+  const templateRoles = (isParcel || isExpresoPunata)
     ? [
         { id: 'operator', name: 'Operador de Agencia' },
         { id: 'driver', name: 'Conductor' },
         { id: 'admin', name: 'Administrador / Directiva' },
       ]
     : getTemplate(getPublicTemplate(templateId).businessType).roles
-  const defaultCompany = ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo', parcel: 'Trans-Bolivia Demo' }[templateId] || 'Trans-Bolivia Demo')
+  const defaultCompany = ({ restaurant: 'Bistró Demo', hamburger: 'Servicio Rápido Demo', distribution: 'Distribuidora Demo', retail: 'Amapola Demo', nightclub: 'Nocturna Demo', parcel: 'Trans-Bolivia Demo', 'expreso-punata': 'S.M.T. Expreso Punata' }[templateId] || 'Trans-Bolivia Demo')
 
   // Enviar mensaje de sincronización seguro al iframe
   const sendSync = useCallback(() => {
@@ -158,7 +162,7 @@ export function StudioShell({
 
           {/* Centro: Selector de Modo (Equipo vs Simular Rol) y Selector de Dataset (Vacío vs Completo) */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            {!isParcel && (
+            {!isParcel && (!isExpresoPunata && (
               <>
                 <div className="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
                   <button
@@ -200,7 +204,7 @@ export function StudioShell({
                   </select>
                 )}
               </>
-            )}
+            ))}
 
             {/* Selector de Dataset: Vacío vs Completo */}
             <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
@@ -351,6 +355,14 @@ export function StudioShell({
                 isStudioEmbed={true}
                 companyName={branding.companyName || defaultCompany}
                 logoUrl={branding.logoUrl}
+              />
+            </div>
+          ) : isExpresoPunata ? (
+            <div className="w-full h-full overflow-auto bg-slate-100">
+              <ExpresoPunataDemo
+                key={`expreso-punata:${datasetMode}:${datasetResetKey}`}
+                datasetMode={datasetMode}
+                resetKey={datasetResetKey}
               />
             </div>
           ) : (

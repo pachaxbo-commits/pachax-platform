@@ -4,6 +4,7 @@ import { DistributionDemo } from './distribution/DistributionDemo'
 import { QuickRetailDemo } from './quick-retail/QuickRetailDemo'
 import { NightclubDemo } from './nightclub/NightclubDemo'
 import { ParcelDemo } from './parcel/ParcelDemo'
+import { ExpresoPunataDemo } from './parcel/ExpresoPunataDemo'
 import { clearParcelDemoStorage } from './parcel/demoParcelController'
 import type { DemoTemplateId, DemoMode } from './demoTypes'
 import type { StudioBranding } from '../studio/branding/brandingTypes'
@@ -57,15 +58,15 @@ export function DemoRuntime({
   useEffect(() => enterStudioDemoMode(isStudioEmbed, templateId), [isStudioEmbed, templateId])
 
   const templateRoles = (function() {
-    if (templateId === 'parcel') return []
-    const businessTypeMap: Record<Exclude<DemoTemplateId, 'parcel'>, BusinessType> = {
+    if (templateId === 'parcel' || templateId === 'expreso-punata') return []
+    const businessTypeMap: Record<Exclude<DemoTemplateId, 'parcel' | 'expreso-punata'>, BusinessType> = {
       restaurant: 'restaurant_pos',
       hamburger: 'hamburger_shop',
       distribution: 'route_distribution',
       retail: 'gelateria_weight_cafe',
       nightclub: 'nightclub_lounge',
     }
-    const bt = businessTypeMap[templateId as Exclude<DemoTemplateId, 'parcel'>]
+    const bt = businessTypeMap[templateId as Exclude<DemoTemplateId, 'parcel' | 'expreso-punata'>]
     return BusinessTemplateRegistry[bt]?.roles || []
   })()
 
@@ -76,6 +77,10 @@ export function DemoRuntime({
     }
     if (templateId === 'parcel') {
       clearParcelDemoStorage(isStudioEmbed ? 'studio' : 'demo')
+      return
+    }
+    if (templateId === 'expreso-punata') {
+      clearParcelDemoStorage('expreso-punata')
       return
     }
     if (templateId !== 'restaurant' && templateId !== 'hamburger' && templateId !== 'nightclub') return
@@ -180,6 +185,11 @@ export function DemoRuntime({
       company: branding?.companyName || 'Trans-Bolivia Demo',
       desc: 'Transporte de encomiendas y sindicato.',
     },
+    'expreso-punata': {
+      name: 'S.M.T. Expreso Punata',
+      company: branding?.companyName || 'S.M.T. Expreso Punata',
+      desc: 'Transporte de encomiendas y sindicato.',
+    },
   }[templateId]
 
   const handleContactSubmit = (e: React.FormEvent) => {
@@ -274,6 +284,12 @@ export function DemoRuntime({
             resetKey={resetKey}
             companyName={branding?.companyName}
             logoUrl={branding?.logoUrl}
+          />
+        )}
+        {templateId === 'expreso-punata' && (
+          <ExpresoPunataDemo
+            datasetMode={currentDatasetMode}
+            resetKey={resetKey}
           />
         )}
       </div>

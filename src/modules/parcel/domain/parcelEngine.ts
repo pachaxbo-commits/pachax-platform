@@ -17,8 +17,8 @@ import type {
   ParcelTariffConfig,
 } from '../types.ts'
 
-export function generateTrackingCode(existingCodes: string[], year = new Date().getFullYear()): string {
-  const prefix = `ENC-${year}-`
+export function generateTrackingCode(existingCodes: string[], year = new Date().getFullYear(), codePrefix = 'ENC'): string {
+  const prefix = `${codePrefix}-${year}-`
   let maxSeq = 0
   for (const code of existingCodes) {
     if (code.startsWith(prefix)) {
@@ -29,8 +29,8 @@ export function generateTrackingCode(existingCodes: string[], year = new Date().
   return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`
 }
 
-export function generateManifestNumber(existingManifests: string[], year = new Date().getFullYear()): string {
-  const prefix = `MAN-${year}-`
+export function generateManifestNumber(existingManifests: string[], year = new Date().getFullYear(), codePrefix = 'MAN'): string {
+  const prefix = `${codePrefix}-${year}-`
   let maxSeq = 0
   for (const code of existingManifests) {
     if (code.startsWith(prefix)) {
