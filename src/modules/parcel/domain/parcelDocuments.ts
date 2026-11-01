@@ -225,7 +225,8 @@ export async function generateShipmentReceptionPdf(
 
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.text(`${company.legalName || ''} · NIT: ${company.taxId || ''} · Telf: ${company.phone || ''}`, headerTextX, 18)
+  const fiscalIdText = company.taxId ? (company.taxId.includes('DEMO') || company.taxId.includes('FICTICIO') ? 'DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL' : `NIT: ${company.taxId}`) : ''
+  doc.text(`${company.legalName || ''} · ${fiscalIdText} · Telf: ${company.phone || ''}`, headerTextX, 18)
 
   doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')

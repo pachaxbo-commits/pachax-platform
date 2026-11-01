@@ -358,7 +358,7 @@ export function NewParcelModal({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Teléfono / WhatsApp *</label>
                   <input
@@ -423,7 +423,7 @@ export function NewParcelModal({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">Teléfono de Contacto *</label>
                   <input
@@ -622,7 +622,7 @@ export function NewParcelModal({
             </div>
 
             {/* Recuadro de Total */}
-            <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-xl flex items-center justify-between">
+            <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <span className="text-xs font-semibold text-teal-800">Total a liquidar:</span>
                 <span className="text-xs text-teal-700 ml-2">

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Package,
   Truck,
@@ -24,6 +24,7 @@ import type {
 import { DemoParcelController } from '../../../demo/parcel/demoParcelController'
 import { EXPRESO_PUNATA_LOGO_PATH } from '../assets/expresoPunataLogo'
 import { EXPRESO_PUNATA_COMPANY } from '../domain/expresoPunataConfig'
+import { calculateDuesCollectionForPeriod } from '../domain/parcelEngine'
 import { NewParcelModal } from '../components/NewParcelModal'
 import { ParcelReceptionTicketModal } from '../components/ParcelReceptionTicketModal'
 import { ParcelDispatchManifestModal } from '../components/ParcelDispatchManifestModal'
@@ -95,16 +96,20 @@ export function ExpresoPunataExperience({
   // Métricas rápidas de cabecera calculadas dinámicamente en zona horaria Bolivia
   const activeMembersCount = state.members.filter(m => m.status === 'active').length
 
-  // Recaudación estricta de cuotas del período mensual actual
-  const currentMonthPaidDuesAmount = state.dues.reduce((acc, due) => {
-    const validPaymentsInMonth = due.payments
-      .filter(p => !p.isReversed && p.date.slice(0, 7) === boliviaPeriod)
-      .reduce((sum, p) => sum + p.amount, 0)
-    
-    if (validPaymentsInMonth > 0) return acc + validPaymentsInMonth
-    if (due.period === boliviaPeriod) return acc + due.paidAmount
-    return acc
-  }, 0)
+  // Recaudación estricta de cuotas del período mensual actual basada en pagos reales
+  const currentMonthPaidDuesAmount = calculateDuesCollectionForPeriod(state.dues, boliviaPeriod)
+
+  // Desplazamiento táctil fluido para la barra horizontal de módulos
+  const tabsContainerRef = useRef<HTMLDivElement>(null)
+  const activeTabRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest',
+    })
+  }, [activeTab])
 
   // Cuotas vencidas o con mora respecto al período/fecha actual en Bolivia
   const overdueDuesCount = state.dues.filter(d => 
@@ -133,48 +138,48 @@ export function ExpresoPunataExperience({
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-800 font-sans flex flex-col">
       {/* Top Bar Institucional Expreso Punata (Verde Oscuro y Amarillo Intenso) */}
-      <header className="bg-[#064e3b] text-white px-3 sm:px-6 py-3 border-b-2 border-yellow-400 shadow-md">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <header className="bg-[#064e3b] text-white px-3 sm:px-6 py-2.5 sm:py-3 border-b-2 border-yellow-400 shadow-md">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           {/* Logo Oficial y Datos de Empresa */}
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-white p-1 border-2 border-yellow-400 shadow-sm flex items-center justify-center shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-white p-1 border-2 border-yellow-400 shadow-sm flex items-center justify-center shrink-0">
               <img
                 src={EXPRESO_PUNATA_LOGO_PATH}
                 alt="S.M.T. Expreso Punata"
                 className="w-full h-full object-contain"
               />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-black text-base sm:text-lg tracking-tight text-white">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="font-black text-sm sm:text-base lg:text-lg tracking-tight text-white truncate max-w-[200px] sm:max-w-none">
                   {company.name}
                 </span>
-                <span className="text-[11px] font-black bg-yellow-400 text-slate-950 px-2 py-0.5 rounded-md shadow-xs">
+                <span className="text-[10px] sm:text-[11px] font-black bg-yellow-400 text-slate-950 px-1.5 sm:px-2 py-0.5 rounded-md shadow-xs shrink-0">
                   S.M.T.
                 </span>
-                <span className="text-[10px] font-bold bg-emerald-900/90 text-yellow-300 border border-yellow-400/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="text-[10px] font-bold bg-emerald-900/90 text-yellow-300 border border-yellow-400/40 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <Clock className="w-3 h-3 text-yellow-400" />
                   Atención 24 Horas
                 </span>
-                <span className="text-[10px] font-bold bg-amber-500/20 text-amber-200 border border-amber-400/30 px-2 py-0.5 rounded-full">
+                <span className="text-[9px] sm:text-[10px] font-bold bg-amber-500/20 text-amber-200 border border-amber-400/30 px-2 py-0.5 rounded-full shrink-0">
                   DEMO INTERNA DEL CLIENTE
                 </span>
               </div>
-              <div className="flex items-center gap-3 text-xs text-emerald-100 mt-0.5">
-                <div className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-yellow-400" />
-                  <span className="font-semibold">Agencia activa: </span>
+              <div className="flex items-center gap-2 sm:gap-3 text-xs text-emerald-100 mt-1">
+                <div className="flex items-center gap-1 min-w-0">
+                  <MapPin className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                  <span className="font-semibold shrink-0">Agencia activa: </span>
                   <select
                     value={state.currentBranchId}
                     onChange={e => controller.switchBranch(e.target.value)}
-                    className="bg-emerald-900/90 border border-emerald-700 text-yellow-300 font-bold rounded-lg px-2 py-0.5 text-xs cursor-pointer focus:ring-1 focus:ring-yellow-400"
+                    className="bg-emerald-900/90 border border-emerald-700 text-yellow-300 font-bold rounded-lg px-2 py-0.5 text-xs cursor-pointer focus:ring-1 focus:ring-yellow-400 truncate max-w-[140px] sm:max-w-none"
                   >
                     {state.branches.map(b => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
                   </select>
                 </div>
-                <span className="hidden md:inline text-emerald-300 text-[11px]">
+                <span className="hidden md:inline text-emerald-300 text-[11px] truncate">
                   {company.slogan || 'Servicio Ejecutivo — "Somos los Pioneros"'}
                 </span>
               </div>
@@ -182,14 +187,14 @@ export function ExpresoPunataExperience({
           </div>
 
           {/* Control de Caja y Arqueo de Turno */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end sm:justify-start gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setIsCashModalOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-700 text-xs font-bold text-white flex items-center gap-2 transition shadow-xs cursor-pointer"
+              className="w-full sm:w-auto px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-700 text-xs font-bold text-white flex items-center justify-center gap-2 transition shadow-xs cursor-pointer"
               title="Abrir o cerrar turno de caja y conciliar movimientos"
             >
-              <Wallet className="w-4 h-4 text-yellow-400" />
+              <Wallet className="w-4 h-4 text-yellow-400 shrink-0" />
               <span>
                 Caja Ventanilla: {state.activeShift ? `Bs. ${state.activeShift.expectedCash.toFixed(2)}` : 'Cerrada'}
               </span>
@@ -209,14 +214,14 @@ export function ExpresoPunataExperience({
       {/* Contenido Principal */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 space-y-5">
         {/* Barra de Acciones Operativas Rápidas (Botones Claros de Mostrador) */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
           <button
             type="button"
             onClick={() => setIsNewParcelOpen(true)}
-            className="p-4 bg-emerald-700 hover:bg-emerald-600 text-white rounded-2xl shadow-sm hover:shadow-md transition text-left flex items-center gap-3.5 group cursor-pointer border border-emerald-600"
+            className="p-3.5 sm:p-4 bg-emerald-700 hover:bg-emerald-600 text-white rounded-2xl shadow-sm hover:shadow-md transition text-left flex items-center gap-3.5 group cursor-pointer border border-emerald-600 min-h-[64px]"
           >
-            <div className="w-12 h-12 rounded-xl bg-yellow-400 text-slate-950 flex items-center justify-center shrink-0 font-bold shadow-xs">
-              <Plus className="w-6 h-6" />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-yellow-400 text-slate-950 flex items-center justify-center shrink-0 font-bold shadow-xs">
+              <Plus className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
               <div className="font-black text-sm sm:text-base tracking-tight leading-tight">Nueva Encomienda</div>
@@ -227,10 +232,10 @@ export function ExpresoPunataExperience({
           <button
             type="button"
             onClick={() => setIsDispatchModalOpen(true)}
-            className="p-4 bg-white hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-2xl shadow-xs transition text-left flex items-center gap-3.5 group cursor-pointer"
+            className="p-3.5 sm:p-4 bg-white hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-2xl shadow-xs transition text-left flex items-center gap-3.5 group cursor-pointer min-h-[64px]"
           >
-            <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-900 flex items-center justify-center shrink-0 group-hover:bg-[#064e3b] group-hover:text-yellow-400 transition">
-              <Truck className="w-6 h-6" />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-emerald-100 text-emerald-900 flex items-center justify-center shrink-0 group-hover:bg-[#064e3b] group-hover:text-yellow-400 transition">
+              <Truck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
               <div className="font-black text-sm sm:text-base text-slate-900 tracking-tight leading-tight">Despachar Manifiesto</div>
@@ -241,10 +246,10 @@ export function ExpresoPunataExperience({
           <button
             type="button"
             onClick={() => handleOpenDelivery()}
-            className="p-4 bg-white hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-2xl shadow-xs transition text-left flex items-center gap-3.5 group cursor-pointer"
+            className="p-3.5 sm:p-4 bg-white hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-2xl shadow-xs transition text-left flex items-center gap-3.5 group cursor-pointer min-h-[64px]"
           >
-            <div className="w-12 h-12 rounded-xl bg-yellow-100 text-yellow-900 flex items-center justify-center shrink-0 group-hover:bg-yellow-400 group-hover:text-slate-950 transition">
-              <FileCheck className="w-6 h-6" />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-yellow-100 text-yellow-900 flex items-center justify-center shrink-0 group-hover:bg-yellow-400 group-hover:text-slate-950 transition">
+              <FileCheck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
               <div className="font-black text-sm sm:text-base text-slate-900 tracking-tight leading-tight">Entregar Encomienda</div>
@@ -255,10 +260,10 @@ export function ExpresoPunataExperience({
           <button
             type="button"
             onClick={() => setActiveTab('dues')}
-            className="p-4 bg-white hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-2xl shadow-xs transition text-left flex items-center gap-3.5 group cursor-pointer"
+            className="p-3.5 sm:p-4 bg-white hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-2xl shadow-xs transition text-left flex items-center gap-3.5 group cursor-pointer min-h-[64px]"
           >
-            <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center shrink-0 group-hover:bg-slate-900 group-hover:text-white transition">
-              <CreditCard className="w-6 h-6" />
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center shrink-0 group-hover:bg-slate-900 group-hover:text-white transition">
+              <CreditCard className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
               <div className="font-black text-sm sm:text-base text-slate-900 tracking-tight leading-tight">Aportes Sindicales</div>
@@ -268,137 +273,156 @@ export function ExpresoPunataExperience({
         </div>
 
         {/* Tarjetas de Resumen Operativo & Sindical */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <span className="text-slate-500 block font-semibold text-[11px]">Encomiendas Registradas</span>
-            <span className="text-xl font-black text-slate-900">{state.shipments.length}</span>
-            <span className="text-[10px] text-emerald-700 block mt-0.5">En agencias y rutas de Punata</span>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
+          <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-slate-500 block font-semibold text-[10px] sm:text-[11px] truncate">Encomiendas Registradas</span>
+            <span className="text-lg sm:text-xl font-black text-slate-900">{state.shipments.length}</span>
+            <span className="text-[9px] sm:text-[10px] text-emerald-700 block mt-0.5 truncate">En agencias y rutas</span>
           </div>
 
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <span className="text-slate-500 block font-semibold text-[11px]">Listas para Entrega</span>
-            <span className="text-xl font-black text-amber-600">{readyForPickupCount}</span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">Pendientes de retiro en agencia</span>
+          <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-slate-500 block font-semibold text-[10px] sm:text-[11px] truncate">Listas para Entrega</span>
+            <span className="text-lg sm:text-xl font-black text-amber-600">{readyForPickupCount}</span>
+            <span className="text-[9px] sm:text-[10px] text-slate-500 block mt-0.5 truncate">Pendientes de retiro</span>
           </div>
 
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <span className="text-slate-500 block font-semibold text-[11px]">Recaudación de Cuotas</span>
-            <span className="text-xl font-black text-emerald-700">Bs. {currentMonthPaidDuesAmount.toFixed(2)}</span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">Aportes del periodo {boliviaPeriod}</span>
+          <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-slate-500 block font-semibold text-[10px] sm:text-[11px] truncate">Recaudación Cuotas</span>
+            <span className="text-lg sm:text-xl font-black text-emerald-700">Bs. {currentMonthPaidDuesAmount.toFixed(2)}</span>
+            <span className="text-[9px] sm:text-[10px] text-slate-500 block mt-0.5 truncate">Periodo {boliviaPeriod}</span>
           </div>
 
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <span className="text-slate-500 block font-semibold text-[11px]">Cuotas con Mora / Vencidas</span>
-            <span className="text-xl font-black text-rose-600">{overdueDuesCount}</span>
-            <span className="text-[10px] text-rose-600 block mt-0.5">Con recargo del 10% calculado</span>
+          <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-slate-500 block font-semibold text-[10px] sm:text-[11px] truncate">Cuotas con Mora</span>
+            <span className="text-lg sm:text-xl font-black text-rose-600">{overdueDuesCount}</span>
+            <span className="text-[9px] sm:text-[10px] text-rose-600 block mt-0.5 truncate">Con recargo del 10%</span>
           </div>
         </div>
 
-        {/* Pestañas de Navegación del Sistema */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200 font-bold text-xs">
-          <button
-            type="button"
-            onClick={() => setActiveTab('shipments')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'shipments'
-                ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
-                : 'text-slate-600 hover:bg-slate-200/60'
-            }`}
+        {/* Pestañas de Navegación del Sistema (Desplazamiento táctil horizontal fluido con auto-scroll activo) */}
+        <div className="relative w-full">
+          <div
+            ref={tabsContainerRef}
+            className="flex items-center gap-1.5 overflow-x-auto scroll-smooth pb-1.5 border-b border-slate-200 font-bold text-xs no-scrollbar overscroll-x-contain"
+            style={{
+              WebkitOverflowScrolling: 'touch',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+            }}
           >
-            <Package className="w-4 h-4" />
-            <span>Tablero de Encomiendas</span>
-          </button>
+            <button
+              ref={activeTab === 'shipments' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('shipments')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'shipments'
+                  ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <Package className="w-4 h-4" />
+              <span>Tablero de Encomiendas</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('manifests')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'manifests'
-                ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
-                : 'text-slate-600 hover:bg-slate-200/60'
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            <span>Despachos y Manifiestos</span>
-          </button>
+            <button
+              ref={activeTab === 'manifests' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('manifests')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'manifests'
+                  ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <Truck className="w-4 h-4" />
+              <span>Despachos y Manifiestos</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('members')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'members'
-                ? 'bg-yellow-400 text-slate-950 shadow-xs'
-                : 'text-emerald-900 hover:bg-emerald-100/70'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Padrón de Socios</span>
-          </button>
+            <button
+              ref={activeTab === 'members' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('members')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'members'
+                  ? 'bg-yellow-400 text-slate-950 shadow-xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/70'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Padrón de Socios</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('dues')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'dues'
-                ? 'bg-yellow-400 text-slate-950 shadow-xs'
-                : 'text-emerald-900 hover:bg-emerald-100/70'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Mensualidades & Cuotas</span>
-          </button>
+            <button
+              ref={activeTab === 'dues' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('dues')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'dues'
+                  ? 'bg-yellow-400 text-slate-950 shadow-xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/70'
+              }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>Mensualidades & Cuotas</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('workers')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'workers'
-                ? 'bg-yellow-400 text-slate-950 shadow-xs'
-                : 'text-emerald-900 hover:bg-emerald-100/70'
-            }`}
-          >
-            <Briefcase className="w-4 h-4" />
-            <span>Choferes & Trabajadores</span>
-          </button>
+            <button
+              ref={activeTab === 'workers' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('workers')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'workers'
+                  ? 'bg-yellow-400 text-slate-950 shadow-xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/70'
+              }`}
+            >
+              <Briefcase className="w-4 h-4" />
+              <span>Choferes & Trabajadores</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('expenses')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'expenses'
-                ? 'bg-yellow-400 text-slate-950 shadow-xs'
-                : 'text-emerald-900 hover:bg-emerald-100/70'
-            }`}
-          >
-            <Receipt className="w-4 h-4" />
-            <span>Gastos del Sindicato</span>
-          </button>
+            <button
+              ref={activeTab === 'expenses' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('expenses')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'expenses'
+                  ? 'bg-yellow-400 text-slate-950 shadow-xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/70'
+              }`}
+            >
+              <Receipt className="w-4 h-4" />
+              <span>Gastos del Sindicato</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('reports')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'reports'
-                ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
-                : 'text-slate-600 hover:bg-slate-200/60'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span>Reportes & Finanzas</span>
-          </button>
+            <button
+              ref={activeTab === 'reports' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('reports')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'reports'
+                  ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Reportes & Finanzas</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('config')}
-            className={`px-4 py-2.5 rounded-xl transition shrink-0 flex items-center gap-2 cursor-pointer ${
-              activeTab === 'config'
-                ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
-                : 'text-slate-600 hover:bg-slate-200/60'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>Configuración Expreso Punata</span>
-          </button>
+            <button
+              ref={activeTab === 'config' ? activeTabRef : null}
+              type="button"
+              onClick={() => setActiveTab('config')}
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl transition shrink-0 whitespace-nowrap min-w-max flex items-center gap-2 cursor-pointer ${
+                activeTab === 'config'
+                  ? 'bg-[#064e3b] text-yellow-300 shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Configuración Expreso Punata</span>
+            </button>
+          </div>
+          <div className="pointer-events-none absolute right-0 top-0 bottom-1.5 w-6 sm:w-8 bg-gradient-to-l from-slate-100 to-transparent sm:hidden" />
         </div>
 
         {/* VISTAS DE LAS PESTAÑAS */}
@@ -407,22 +431,22 @@ export function ExpresoPunataExperience({
         {activeTab === 'shipments' && (
           <div className="space-y-4">
             {/* Filtros y Buscador */}
-            <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    placeholder="Buscar por código de guía, destinatario, remitente, teléfono..."
+                    placeholder="Buscar por guía, destinatario, remitente, teléfono..."
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 font-medium focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
               </div>
 
               {/* Selector de Estado */}
-              <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-semibold">
+              <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-semibold py-1 no-scrollbar overscroll-x-contain">
                 {[
                   { id: 'all', label: 'Todas' },
                   { id: 'received', label: 'En Mostrador' },
@@ -435,7 +459,7 @@ export function ExpresoPunataExperience({
                     key={st.id}
                     type="button"
                     onClick={() => setStatusFilter(st.id)}
-                    className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-xl transition shrink-0 whitespace-nowrap cursor-pointer ${
                       statusFilter === st.id
                         ? 'bg-emerald-800 text-yellow-300 font-bold shadow-xs'
                         : 'text-slate-600 hover:bg-slate-100'
@@ -447,8 +471,127 @@ export function ExpresoPunataExperience({
               </div>
             </div>
 
-            {/* Listado de Encomiendas */}
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+            {/* Vista Móvil: Tarjetas de encomiendas optimizadas para celulares */}
+            <div className="md:hidden space-y-2.5">
+              {filteredShipments.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-xs">
+                  No se encontraron encomiendas registradas con los filtros seleccionados.
+                </div>
+              ) : (
+                filteredShipments.map(s => {
+                  const isCOD = s.paymentTiming === 'destination_cod'
+                  const isReady = s.status === 'ready_for_pickup'
+
+                  return (
+                    <div key={s.id} className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-black text-xs text-emerald-950 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/80">
+                          {s.trackingCode}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                              s.status === 'delivered'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : s.status === 'ready_for_pickup'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : s.status === 'in_transit'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {s.status === 'ready_for_pickup'
+                              ? 'EN AGENCIA'
+                              : s.status === 'in_transit'
+                                ? 'EN RUTA'
+                                : s.status === 'dispatched'
+                                  ? 'DESPACHADA'
+                                  : s.status === 'received'
+                                    ? 'EN MOSTRADOR'
+                                    : s.status === 'delivered'
+                                      ? 'ENTREGADA'
+                                      : s.status}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(s.createdAt).toLocaleDateString('es-BO')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-semibold">Ruta:</span>
+                          <span className="font-bold text-slate-900">{s.originCity} → {s.destinationCity}</span>
+                          {s.deliveryType === 'home' && (
+                            <span className="text-[10px] text-amber-700 font-semibold block">A Domicilio</span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-400 block font-semibold">Cobro:</span>
+                          <span className="font-black text-slate-900">Bs. {s.finalAmount.toFixed(2)}</span>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full inline-block ${
+                              isCOD
+                                ? s.paymentStatus === 'paid'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {isCOD ? (s.paymentStatus === 'paid' ? 'COD PAGADO' : 'COD PENDIENTE') : 'ORIGEN'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-semibold">Remitente:</span>
+                          <div className="font-bold text-slate-900 truncate">{s.sender.name}</div>
+                          <div className="text-[10px] text-slate-500">{s.sender.phone}</div>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-semibold">Destinatario:</span>
+                          <div className="font-bold text-slate-900 truncate">{s.recipient.name}</div>
+                          <div className="text-[10px] text-slate-500">{s.recipient.phone}</div>
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-slate-500 border-t border-slate-100 pt-1.5 flex items-center justify-between">
+                        <span className="truncate max-w-[200px]" title={s.declaredSummary}>
+                          {s.declaredSummary}
+                        </span>
+                        <span className="font-semibold text-slate-700 shrink-0">
+                          {s.packageCount} bulto(s) · {s.totalWeightKg} kg
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                        {isReady && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDelivery(s)}
+                            className="flex-1 py-2 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-bold text-xs rounded-xl transition shadow-xs flex items-center justify-center cursor-pointer"
+                          >
+                            Entregar al Cliente
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPrintTicket(s)}
+                          className="py-2 px-3 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>Imprimir Guía</span>
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Vista Desktop: Tabla con scroll horizontal */}
+            <div className="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] font-black tracking-wider border-b border-slate-200">
@@ -589,7 +732,7 @@ export function ExpresoPunataExperience({
         {/* 2. DESPACHOS Y MANIFIESTOS */}
         {activeTab === 'manifests' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
               <div>
                 <h3 className="font-black text-sm text-slate-900">Manifiestos de Despacho Interdepartamental</h3>
                 <p className="text-xs text-slate-500">
@@ -599,7 +742,7 @@ export function ExpresoPunataExperience({
               <button
                 type="button"
                 onClick={() => setIsDispatchModalOpen(true)}
-                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-xs"
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
               >
                 <Plus className="w-4 h-4" />
                 <span>Nuevo Despacho</span>
@@ -636,7 +779,7 @@ export function ExpresoPunataExperience({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs pt-2 border-t border-slate-100">
                     <span className="text-slate-600">
                       <strong>{m.parcelIds.length}</strong> guías · <strong>{m.totalPackages}</strong> bultos ({m.totalWeightKg} kg)
                     </span>
@@ -652,7 +795,7 @@ export function ExpresoPunataExperience({
                           })
                         })
                       }}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 font-bold text-slate-700 text-xs flex items-center gap-1.5 transition cursor-pointer"
+                      className="w-full sm:w-auto px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 font-bold text-slate-700 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                     >
                       <Printer className="w-3.5 h-3.5" />
                       <span>Imprimir A4</span>

@@ -21,6 +21,7 @@ import {
   generateManifestNumber,
   generateMonthlyDuesForPeriod,
   applyDuePayment,
+  calculateDuesCollectionForPeriod,
 } from '../src/modules/parcel/domain/parcelEngine.ts'
 import {
   generateShipmentReceptionPdf,
@@ -440,4 +441,125 @@ test('Zero public catalog leakage: Expreso Punata is strictly an internal client
   assert.ok(!publicIds.includes('parcel' as any))
   assert.ok(!publicIds.includes('expreso-punata' as any))
   assert.equal(publicIds.length, 5, 'PUBLIC_TEMPLATES must keep exactly the 5 canonical public templates')
+})
+
+test('calculateDuesCollectionForPeriod distinguishes payment date vs obligation period and excludes reversals', () => {
+  const sampleDues: import('../src/modules/parcel/types.ts').UnionMonthlyDue[] = [
+    // Cuota de Septiembre 2026 pagada tarde en Octubre 2026
+    {
+      id: 'due-sep',
+      memberId: 'mem-1',
+      memberNumber: 'SOC-001',
+      memberName: 'Socio Mora Regularizada',
+      period: '2026-09',
+      periodLabel: 'Septiembre 2026',
+      amount: 120,
+      dueDate: '2026-09-30',
+      status: 'paid',
+      paidAmount: 120,
+      balance: 0,
+      payments: [
+        {
+          id: 'pay-sep-paid-in-oct',
+          receiptNumber: 'REC-001',
+          date: '2026-10-05T10:00:00Z',
+          amount: 120,
+          paymentMethod: 'cash',
+          cashierName: 'Cajero',
+        },
+      ],
+    },
+    // Cuota de Octubre 2026 con pago parcial en Octubre
+    {
+      id: 'due-oct-partial',
+      memberId: 'mem-2',
+      memberNumber: 'SOC-002',
+      memberName: 'Socio Pago Parcial',
+      period: '2026-10',
+      periodLabel: 'Octubre 2026',
+      amount: 120,
+      dueDate: '2026-10-31',
+      status: 'partial',
+      paidAmount: 70,
+      balance: 50,
+      payments: [
+        {
+          id: 'pay-oct-partial',
+          receiptNumber: 'REC-002',
+          date: '2026-10-15T12:00:00Z',
+          amount: 70,
+          paymentMethod: 'qr',
+          cashierName: 'Cajero',
+        },
+      ],
+    },
+    // Cuota de Octubre 2026 pagada anticipadamente en Septiembre 2026
+    {
+      id: 'due-oct-paid-in-sep',
+      memberId: 'mem-3',
+      memberNumber: 'SOC-003',
+      memberName: 'Socio Pago Anticipado',
+      period: '2026-10',
+      periodLabel: 'Octubre 2026',
+      amount: 120,
+      dueDate: '2026-10-31',
+      status: 'paid',
+      paidAmount: 120,
+      balance: 0,
+      payments: [
+        {
+          id: 'pay-oct-early',
+          receiptNumber: 'REC-003',
+          date: '2026-09-28T16:00:00Z',
+          amount: 120,
+          paymentMethod: 'transfer',
+          cashierName: 'Cajero',
+        },
+      ],
+    },
+    // Cuota con pago revertido/anulado en Octubre (no debe computarse)
+    {
+      id: 'due-oct-reversed',
+      memberId: 'mem-4',
+      memberNumber: 'SOC-004',
+      memberName: 'Socio Pago Revertido',
+      period: '2026-10',
+      periodLabel: 'Octubre 2026',
+      amount: 120,
+      dueDate: '2026-10-31',
+      status: 'pending',
+      paidAmount: 0,
+      balance: 120,
+      payments: [
+        {
+          id: 'pay-oct-rev',
+          receiptNumber: 'REC-004',
+          date: '2026-10-18T14:00:00Z',
+          amount: 120,
+          paymentMethod: 'cash',
+          cashierName: 'Cajero',
+          isReversed: true,
+          reversalType: 'refund',
+        },
+      ],
+    },
+  ]
+
+  // En Octubre 2026:
+  // - REC-001 (Bs. 120): pagado en Octubre aunque la cuota era de Septiembre -> CUENTA
+  // - REC-002 (Bs. 70): pagado en Octubre -> CUENTA
+  // - REC-003 (Bs. 120): cuota de Octubre pero pagada en Septiembre -> NO cuenta en Octubre
+  // - REC-004 (Bs. 120): pagado en Octubre pero revertido -> NO cuenta
+  // Total Octubre esperado = 120 + 70 = 190
+  const octCollection = calculateDuesCollectionForPeriod(sampleDues, '2026-10')
+  assert.equal(octCollection, 190)
+
+  // En Septiembre 2026:
+  // - Solo REC-003 (Bs. 120) se cobró efectivamente en Septiembre
+  const sepCollection = calculateDuesCollectionForPeriod(sampleDues, '2026-09')
+  assert.equal(sepCollection, 120)
+})
+
+test('Fictitious fiscal ID transparency is enforced across company config and documents', () => {
+  assert.equal(EXPRESO_PUNATA_COMPANY.taxId, 'DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL')
 })

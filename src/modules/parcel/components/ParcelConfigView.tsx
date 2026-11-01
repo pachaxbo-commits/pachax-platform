@@ -373,8 +373,11 @@ export function ParcelConfigView({
                   value={taxId}
                   onChange={e => setTaxId(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-medium text-slate-900"
-                  placeholder="Ej. 1029384021"
+                  placeholder="Ej. DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL"
                 />
+                <span className="text-[10px] text-amber-700 block font-medium">
+                  En modo demostración o si aún no está formalizado, ingrese "DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL".
+                </span>
               </div>
 
               <div className="space-y-1">

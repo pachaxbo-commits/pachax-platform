@@ -108,34 +108,66 @@ export function SyndicateExpensesView({
             No hay gastos registrados en este turno.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase">
-                  <th className="py-2.5 px-4">Fecha</th>
-                  <th className="py-2.5 px-3">N° Recibo</th>
-                  <th className="py-2.5 px-3">Rubro / Categoría</th>
-                  <th className="py-2.5 px-4">Descripción</th>
-                  <th className="py-2.5 px-3">Factura / Recibo</th>
-                  <th className="py-2.5 px-3">Método</th>
-                  <th className="py-2.5 px-4 text-right">Monto (Bs.)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {expenses.map(e => (
-                  <tr key={e.id} className="hover:bg-slate-50/70">
-                    <td className="py-2.5 px-4 text-slate-600">{new Date(e.date).toLocaleDateString('es-BO')}</td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-slate-800">{e.receiptNumber}</td>
-                    <td className="py-2.5 px-3 font-bold text-amber-900">{categoryLabels[e.category] || e.category}</td>
-                    <td className="py-2.5 px-4 text-slate-900">{e.description}</td>
-                    <td className="py-2.5 px-3 font-mono text-slate-500">{e.invoiceOrVoucherNumber || '-'}</td>
-                    <td className="py-2.5 px-3 font-semibold text-slate-700">{e.paymentMethod.toUpperCase()}</td>
-                    <td className="py-2.5 px-4 text-right font-black text-slate-950">Bs. {e.amount.toFixed(2)}</td>
+          <>
+            {/* Vista Móvil: Tarjetas de Gastos para celulares */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {expenses.map(e => (
+                <div key={e.id} className="p-3.5 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[10px]">
+                      {e.receiptNumber}
+                    </span>
+                    <span className="font-black text-slate-950 text-sm">
+                      Bs. {e.amount.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                      {categoryLabels[e.category] || e.category}
+                    </span>
+                    <p className="font-semibold text-slate-900 mt-1">{e.description}</p>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                    <span>{new Date(e.date).toLocaleDateString('es-BO')}</span>
+                    <span className="font-mono text-slate-600">Doc: {e.invoiceOrVoucherNumber || 'S/N'}</span>
+                    <span className="font-bold text-slate-700 uppercase">{e.paymentMethod}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Vista Desktop: Tabla con scroll horizontal */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50/50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase">
+                    <th className="py-2.5 px-4">Fecha</th>
+                    <th className="py-2.5 px-3">N° Recibo</th>
+                    <th className="py-2.5 px-3">Rubro / Categoría</th>
+                    <th className="py-2.5 px-4">Descripción</th>
+                    <th className="py-2.5 px-3">Factura / Recibo</th>
+                    <th className="py-2.5 px-3">Método</th>
+                    <th className="py-2.5 px-4 text-right">Monto (Bs.)</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {expenses.map(e => (
+                    <tr key={e.id} className="hover:bg-slate-50/70">
+                      <td className="py-2.5 px-4 text-slate-600">{new Date(e.date).toLocaleDateString('es-BO')}</td>
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-800">{e.receiptNumber}</td>
+                      <td className="py-2.5 px-3 font-bold text-amber-900">{categoryLabels[e.category] || e.category}</td>
+                      <td className="py-2.5 px-4 text-slate-900">{e.description}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-500">{e.invoiceOrVoucherNumber || '-'}</td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-700">{e.paymentMethod.toUpperCase()}</td>
+                      <td className="py-2.5 px-4 text-right font-black text-slate-950">Bs. {e.amount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

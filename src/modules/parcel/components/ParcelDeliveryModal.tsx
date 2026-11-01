@@ -268,11 +268,11 @@ export function ParcelDeliveryModal({
               </div>
             </div>
 
-            <div className="flex items-center justify-center gap-3 pt-3">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-3">
               <button
                 type="button"
                 onClick={handleDownloadDeliveryPdf}
-                className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-2 shadow-xs transition"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
               >
                 <FileDown className="w-4 h-4" />
                 <span>Descargar Acta de Entrega (PDF)</span>
@@ -280,7 +280,7 @@ export function ParcelDeliveryModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2.5 rounded-xl border border-slate-300 font-bold text-xs text-slate-700 hover:bg-slate-100 transition"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 font-bold text-xs text-slate-700 hover:bg-slate-100 transition cursor-pointer"
               >
                 Cerrar Ventana
               </button>
