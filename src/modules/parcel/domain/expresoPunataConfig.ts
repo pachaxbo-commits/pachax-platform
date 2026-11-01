@@ -23,7 +23,7 @@ export const EXPRESO_PUNATA_COMPANY: DocumentCompanyContext & {
   phone: '4-4571234 / 71798765 (Teléfonos simulados para demo)',
   address: 'Av. Heroínas del Coronel esq. Sucre (Parada Punata)',
   city: 'Punata, Cochabamba - Bolivia',
-  taxId: 'NIT: Simulado para demo (Pendiente de confirmación)',
+  taxId: 'DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL',
   logoUrl: EXPRESO_PUNATA_LOGO_DATA_URL,
   commercialServices: [
     'Envío de Encomiendas & Paquetería 24 Horas',
@@ -34,7 +34,7 @@ export const EXPRESO_PUNATA_COMPANY: DocumentCompanyContext & {
     'Turismo a Delegaciones & Viajes Especiales',
     'Contratos Interdepartamentales de Pasajeros & Carga',
   ],
-  registrationNote: 'Datos de contacto, NIT, tarifas y cuotas sindicales configurados como parámetros de demostración editables desde la pestaña Configuración.',
+  registrationNote: 'Datos de contacto, NIT (ficticio para demostración, sin validez fiscal), tarifas y cuotas sindicales configurados como parámetros de demostración editables desde la pestaña Configuración.',
 }
 
 /**

@@ -5,6 +5,8 @@ import {
   Printer,
   Calendar,
   X,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react'
 import type {
   ParcelAppState,
@@ -86,6 +88,16 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
     setStartDate('')
     setEndDate('')
   }
+
+  // Validación de Integridad de Reportes (Reports Core V1 Integrity Gate)
+  const pendingMovementsCount = (state.cashMovements || []).filter(
+    m => m.shiftId === 'pending_reconciliation' && !m.isCancelled
+  ).length
+  const shiftDifference = state.activeShift && typeof state.activeShift.difference === 'number'
+    ? state.activeShift.difference
+    : 0
+  const hasShiftDiscrepancy = shiftDifference !== 0
+  const hasIntegrityIssues = pendingMovementsCount > 0 || hasShiftDiscrepancy
 
   // Generador unificado de datos para PDF e Impresión aislada
   const buildCurrentReportPdf = async () => {
@@ -287,6 +299,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
   }
 
   const handleExportPdf = async () => {
+    if (hasIntegrityIssues) return
     setIsExporting(true)
     try {
       const doc = await buildCurrentReportPdf()
@@ -300,6 +313,7 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
 
   // Imprime ÚNICAMENTE el reporte seleccionado mediante iframe aislado
   const handlePrint = async () => {
+    if (hasIntegrityIssues) return
     setIsExporting(true)
     try {
       const doc = await buildCurrentReportPdf()
@@ -389,8 +403,9 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
           <button
             type="button"
             onClick={handleExportPdf}
-            disabled={isExporting}
-            className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 font-bold text-white text-xs flex items-center gap-2 shadow-xs transition disabled:opacity-50"
+            disabled={isExporting || hasIntegrityIssues}
+            className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 font-bold text-white text-xs flex items-center gap-2 shadow-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title={hasIntegrityIssues ? 'Exportación bloqueada: resuelva las conciliaciones pendientes para emitir el reporte definitivo.' : 'Descargar reporte oficial en PDF'}
           >
             <FileDown className="w-4 h-4" />
             <span>{isExporting ? 'Procesando…' : 'Descargar PDF'}</span>
@@ -398,15 +413,49 @@ export function ParcelReportsView({ state }: ParcelReportsViewProps) {
           <button
             type="button"
             onClick={handlePrint}
-            disabled={isExporting}
-            className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 font-bold text-white text-xs flex items-center gap-1.5 shadow-xs transition disabled:opacity-50"
-            title="Imprimir únicamente el reporte seleccionado"
+            disabled={isExporting || hasIntegrityIssues}
+            className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 font-bold text-white text-xs flex items-center gap-1.5 shadow-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title={hasIntegrityIssues ? 'Impresión bloqueada: resuelva las conciliaciones pendientes para emitir el reporte definitivo.' : 'Imprimir únicamente el reporte seleccionado'}
           >
             <Printer className="w-4 h-4 text-teal-400" />
             <span className="hidden sm:inline">Imprimir Reporte</span>
           </button>
         </div>
       </div>
+
+      {/* Banner de Auditoría e Integridad de Datos (Reports Core Gate) */}
+      {hasIntegrityIssues ? (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl text-xs space-y-1.5 shadow-xs">
+          <div className="flex items-center gap-2 font-black text-amber-950 text-sm">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>AUDITORÍA: Reporte en Estado Preliminar (Bloqueado para Emisión Definitiva)</span>
+          </div>
+          <p className="text-amber-800 text-[11px] leading-relaxed">
+            De acuerdo con el estándar de integridad de PACHAX Reports Core, la emisión oficial definitiva y descarga de reportes está bloqueada mientras existan operaciones no conciliadas o diferencias en caja:
+          </p>
+          <ul className="list-disc list-inside text-[11px] text-amber-900 font-semibold space-y-0.5">
+            {pendingMovementsCount > 0 && (
+              <li>Existen <strong>{pendingMovementsCount}</strong> movimiento(s) de caja pendientes de asignación y conciliación a un turno activo.</li>
+            )}
+            {hasShiftDiscrepancy && (
+              <li>El turno de caja activo registra una discrepancia física no resuelta de <strong>Bs. {shiftDifference.toFixed(2)}</strong>.</li>
+            )}
+          </ul>
+          <p className="text-[10px] text-amber-700 italic">
+            Resuelva las conciliaciones pendientes o regularice el turno en ventanilla para certificar la integridad y habilitar la exportación del reporte oficial.
+          </p>
+        </div>
+      ) : (
+        <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-2xl text-xs flex items-center justify-between gap-2 shadow-xs">
+          <div className="flex items-center gap-2 text-emerald-900 font-bold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Integridad Verificada: Movimientos de caja conciliados sin discrepancias. Reporte listo para emisión oficial.</span>
+          </div>
+          <span className="text-[10px] font-black bg-emerald-200/80 text-emerald-900 px-2.5 py-0.5 rounded-full uppercase tracking-wider shrink-0">
+            Estado: Íntegro
+          </span>
+        </div>
+      )}
 
       {/* Selector de tipo de reporte */}
       <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 text-xs font-bold">

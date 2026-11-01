@@ -208,7 +208,14 @@ export function ParcelReceptionTicketModal({
                   )}
                   <div>
                     <h3 className="font-black text-sm text-slate-900">{company.name}</h3>
-                    <p className="text-[11px] text-slate-600">{company.legalName} · NIT: {company.taxId}</p>
+                    <p className="text-[11px] text-slate-600">
+                      {company.legalName}
+                      {company.taxId && (
+                        <span className={company.taxId.includes('DEMO') || company.taxId.includes('FICTICIO') ? 'text-amber-700 font-semibold ml-1.5' : 'ml-1.5'}>
+                          · {company.taxId.includes('DEMO') || company.taxId.includes('FICTICIO') ? 'DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL' : `NIT: ${company.taxId}`}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[10px] text-slate-500">{company.city} · Telf: {company.phone}</p>
                   </div>
                 </div>

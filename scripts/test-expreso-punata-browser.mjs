@@ -236,12 +236,18 @@ try {
   })()`)
   await sleep(1000)
 
-  // Verify responsive viewports
-  console.log('\n--- PASO 5: Verificando adaptabilidad responsive ---')
+  // Verify responsive viewports across 9 devices
+  console.log('\n--- PASO 5: Verificando adaptabilidad responsive en 9 resoluciones ---')
   const viewports = [
-    { w: 390, h: 844, name: 'Móvil (390x844)' },
-    { w: 768, h: 1024, name: 'Tablet (768x1024)' },
-    { w: 1366, h: 768, name: 'Laptop (1366x768)' },
+    { w: 320, h: 568, name: 'Móvil Pequeño / iPhone SE 1st (320x568)' },
+    { w: 360, h: 800, name: 'Móvil Android Estándar (360x800)' },
+    { w: 375, h: 812, name: 'Móvil iPhone X/Mini (375x812)' },
+    { w: 390, h: 844, name: 'Móvil iPhone 12/13/14 (390x844)' },
+    { w: 412, h: 915, name: 'Móvil Pixel / Galaxy (412x915)' },
+    { w: 430, h: 932, name: 'Móvil iPhone Pro Max (430x932)' },
+    { w: 768, h: 1024, name: 'Tablet iPad (768x1024)' },
+    { w: 1366, h: 768, name: 'Laptop HD (1366x768)' },
+    { w: 1440, h: 900, name: 'Desktop Widescreen (1440x900)' },
   ]
 
   for (const vp of viewports) {
@@ -249,17 +255,67 @@ try {
       width: vp.w,
       height: vp.h,
       deviceScaleFactor: 1,
-      mobile: vp.w < 500,
+      mobile: vp.w < 700,
     })
-    await sleep(300)
+    await sleep(250)
     const metrics = await evalPage(`({
       bodyLength: document.body.innerText.length,
       scrollWidth: document.documentElement.scrollWidth,
-      innerWidth: window.innerWidth
+      innerWidth: window.innerWidth,
+      hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1
     })`)
     assert.ok(metrics.bodyLength > 50, `Contenido presente en ${vp.name}`)
-    console.log(`  ✔ ${vp.name}: renderizado sin anomalías`)
+    assert.ok(!metrics.hasHorizontalOverflow, `No debe haber desborde horizontal en ${vp.name} (scrollWidth=${metrics.scrollWidth}, innerWidth=${metrics.innerWidth})`)
+    console.log(`  ✔ ${vp.name}: sin desborde horizontal (scrollWidth=${metrics.scrollWidth}, innerWidth=${metrics.innerWidth})`)
   }
+
+  // Test horizontal navigation touch-scroll on mobile (360x800)
+  console.log('\n--- PASO 6: Verificando desplazamiento táctil horizontal en barra de pestañas ---')
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: 360,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: true,
+  })
+  await sleep(300)
+
+  // Switch to last tab (Configuración) and verify tabs container auto-scrolls
+  await evalPage(`(() => {
+    const configBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Configuración Expreso Punata'))
+    if (configBtn) configBtn.click()
+  })()`)
+  await sleep(600)
+
+  const tabScrollMetrics = await evalPage(`(() => {
+    const container = document.querySelector('div.overflow-x-auto.scroll-smooth') || document.querySelector('div.overflow-x-auto')
+    return {
+      scrollLeft: container ? container.scrollLeft : 0,
+      scrollWidth: container ? container.scrollWidth : 0,
+      clientWidth: container ? container.clientWidth : 0,
+      canScroll: container ? container.scrollWidth > container.clientWidth : false
+    }
+  })()`)
+  assert.ok(tabScrollMetrics.canScroll, 'El contenedor de pestañas debe tener desbordamiento deslizable horizontalmente')
+  assert.ok(tabScrollMetrics.scrollLeft > 0, `El scrollLeft debe haber aumentado al activar la última pestaña (scrollLeft=${tabScrollMetrics.scrollLeft})`)
+  console.log(`  ✔ Barra de navegación: desplazamiento táctil horizontal confirmado (scrollWidth=${tabScrollMetrics.scrollWidth}, clientWidth=${tabScrollMetrics.clientWidth}, scrollLeft=${tabScrollMetrics.scrollLeft})`)
+
+  // Check Reportes view Integrity Gate
+  console.log('\n--- PASO 7: Verificando Report Integrity Gate en vista de Reportes ---')
+  await evalPage(`(() => {
+    const reportsBtn = [...document.querySelectorAll('button')].find(b => b.innerText.includes('Reportes & Finanzas'))
+    if (reportsBtn) reportsBtn.click()
+  })()`)
+  await sleep(600)
+
+  const reportViewCheck = await evalPage(`(() => {
+    const text = document.body.innerText
+    const hasAuditBanner = text.includes('Integridad Verificada') || text.includes('AUDITORÍA: Reporte en Estado Preliminar')
+    const hasDownloadBtn = [...document.querySelectorAll('button')].some(b => b.innerText.includes('Descargar PDF'))
+    return { hasAuditBanner, hasDownloadBtn }
+  })()`)
+  assert.ok(reportViewCheck.hasAuditBanner, 'Debe mostrar el banner de auditoría e integridad de Reportes')
+  assert.ok(reportViewCheck.hasDownloadBtn, 'Debe mostrar el botón de descarga de PDF')
+  console.log('  ✔ Report Integrity Gate presente y verificado en la interfaz de usuario')
 
   assert.equal(errors.length, 0, `No debe haber errores de consola: ${errors.join('; ')}`)
   console.log('\n======================================================')

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { UnionMonthlyDue, UnionMember, UnionDuePayment } from '../types'
 import { generateUnionDueReceiptPdf } from '../domain/parcelDocuments'
+import { calculateDuesCollectionForPeriod } from '../domain/parcelEngine'
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -117,7 +118,13 @@ export function SyndicateDuesView({
   const totalDuesInPeriod = duesInPeriod.length
   const paidCount = duesInPeriod.filter(d => d.status === 'paid').length
   const overdueCount = duesInPeriod.filter(d => d.balance > 0).length
-  const totalCollected = duesInPeriod.reduce((acc, d) => acc + d.paidAmount, 0)
+  // Recaudación efectiva basada estrictamente en fechas de pago reales del período
+  const totalCollected = viewAllPeriods
+    ? dues.reduce((acc, d) => {
+        const validPayments = (d.payments || []).filter(p => !p.isReversed)
+        return acc + validPayments.reduce((pAcc, p) => pAcc + p.amount, 0)
+      }, 0)
+    : calculateDuesCollectionForPeriod(dues, currentPeriodConfig.id)
   const totalPendingDebt = duesInPeriod.reduce((acc, d) => acc + d.balance, 0)
 
   const handleGeneratePeriodDues = () => {
@@ -389,74 +396,142 @@ export function SyndicateDuesView({
             No hay cuotas generadas para {viewAllPeriods ? 'el historial' : currentPeriodConfig.label}. Haz clic en "Generar Cuotas" para crear las obligaciones del período seleccionado.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                  <th className="py-3 px-4">Socio / Afiliado</th>
-                  <th className="py-3 px-3">N° Socio</th>
-                  <th className="py-3 px-3">Período</th>
-                  <th className="py-3 px-3">Cuota</th>
-                  <th className="py-3 px-3">Abonado</th>
-                  <th className="py-3 px-3">Saldo</th>
-                  <th className="py-3 px-3 text-center">Estado</th>
-                  <th className="py-3 px-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredDues.map(d => (
-                  <tr key={d.id} className="hover:bg-slate-50/70 transition">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900">{d.memberName}</div>
-                      <div className="text-[10px] text-slate-400">Vence: {d.dueDate}</div>
-                    </td>
-                    <td className="py-3 px-3 font-mono font-bold text-slate-700">{d.memberNumber}</td>
-                    <td className="py-3 px-3 text-slate-700 font-semibold">{d.periodLabel}</td>
-                    <td className="py-3 px-3 font-semibold text-slate-800">Bs. {d.amount.toFixed(2)}</td>
-                    <td className="py-3 px-3 font-semibold text-emerald-700">Bs. {d.paidAmount.toFixed(2)}</td>
-                    <td className="py-3 px-3 font-bold text-slate-900">
-                      {d.balance > 0 ? (
-                        <span className="text-red-600">Bs. {d.balance.toFixed(2)}</span>
-                      ) : (
-                        <span className="text-emerald-700">Bs. 0.00</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${d.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : d.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}
-                      >
-                        {d.status === 'paid' ? 'AL DÍA' : d.status === 'partial' ? 'PAGO PARCIAL' : 'PENDIENTE'}
+          <>
+            {/* Vista Móvil: Tarjetas optimizadas para celular */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredDues.map(d => (
+                <div key={d.id} className="p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md">
+                        {d.memberNumber}
                       </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {d.payments.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => openHistoryModal(d)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
-                            title="Ver pagos y opción de anulación"
-                          >
-                            <History className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Pagos ({d.payments.filter(p => !p.isReversed).length})</span>
-                          </button>
-                        )}
-                        {d.balance > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => openPayModal(d)}
-                            className="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 font-bold text-white text-xs shadow-xs transition"
-                          >
-                            Cobrar
-                          </button>
-                        )}
-                      </div>
-                    </td>
+                      <span className="font-bold text-slate-900 text-xs">{d.memberName}</span>
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${d.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : d.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}
+                    >
+                      {d.status === 'paid' ? 'AL DÍA' : d.status === 'partial' ? 'PARCIAL' : 'PENDIENTE'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Período: <strong className="text-slate-800 font-semibold">{d.periodLabel}</strong></span>
+                    <span>Vence: <strong className="text-slate-700">{d.dueDate}</strong></span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl text-center text-xs border border-slate-100">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase">Cuota</span>
+                      <strong className="text-slate-800">Bs. {d.amount.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase">Abonado</span>
+                      <strong className="text-emerald-700">Bs. {d.paidAmount.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase">Saldo</span>
+                      <strong className={d.balance > 0 ? 'text-red-600 font-black' : 'text-emerald-700'}>
+                        Bs. {d.balance.toFixed(2)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    {d.payments.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openHistoryModal(d)}
+                        className="flex-1 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <History className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Pagos ({d.payments.filter(p => !p.isReversed).length})</span>
+                      </button>
+                    )}
+                    {d.balance > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openPayModal(d)}
+                        className="flex-1 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 font-bold text-white text-xs shadow-xs transition flex items-center justify-center cursor-pointer"
+                      >
+                        Cobrar Cuota
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Vista Desktop: Tabla con scroll horizontal */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    <th className="py-3 px-4">Socio / Afiliado</th>
+                    <th className="py-3 px-3">N° Socio</th>
+                    <th className="py-3 px-3">Período</th>
+                    <th className="py-3 px-3">Cuota</th>
+                    <th className="py-3 px-3">Abonado</th>
+                    <th className="py-3 px-3">Saldo</th>
+                    <th className="py-3 px-3 text-center">Estado</th>
+                    <th className="py-3 px-4 text-right">Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredDues.map(d => (
+                    <tr key={d.id} className="hover:bg-slate-50/70 transition">
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-900">{d.memberName}</div>
+                        <div className="text-[10px] text-slate-400">Vence: {d.dueDate}</div>
+                      </td>
+                      <td className="py-3 px-3 font-mono font-bold text-slate-700">{d.memberNumber}</td>
+                      <td className="py-3 px-3 text-slate-700 font-semibold">{d.periodLabel}</td>
+                      <td className="py-3 px-3 font-semibold text-slate-800">Bs. {d.amount.toFixed(2)}</td>
+                      <td className="py-3 px-3 font-semibold text-emerald-700">Bs. {d.paidAmount.toFixed(2)}</td>
+                      <td className="py-3 px-3 font-bold text-slate-900">
+                        {d.balance > 0 ? (
+                          <span className="text-red-600">Bs. {d.balance.toFixed(2)}</span>
+                        ) : (
+                          <span className="text-emerald-700">Bs. 0.00</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${d.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : d.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}
+                        >
+                          {d.status === 'paid' ? 'AL DÍA' : d.status === 'partial' ? 'PAGO PARCIAL' : 'PENDIENTE'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {d.payments.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => openHistoryModal(d)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition"
+                              title="Ver pagos y opción de anulación"
+                            >
+                              <History className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Pagos ({d.payments.filter(p => !p.isReversed).length})</span>
+                            </button>
+                          )}
+                          {d.balance > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => openPayModal(d)}
+                              className="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 font-bold text-white text-xs shadow-xs transition"
+                            >
+                              Cobrar
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
