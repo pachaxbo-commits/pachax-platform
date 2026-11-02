@@ -1137,10 +1137,15 @@ async function applyRestaurantCommand(context) {
       throw new HttpsError('invalid-argument', `No se puede asignar una mesa a un pedido con entrega tipo "${fulfillmentType}".`)
     }
 
-    if (fulfillmentType === 'table' && !rawOrder.tableId) {
+    const isCounterService = actor.tenant.businessType === 'hamburger_shop' || actor.tenant.configuration?.serviceModel === 'counter_service'
+    const isReferenceTable = isCounterService && (rawOrder.referenceOnly === true || rawOrder.isReferenceTable === true)
+    const referencePoint = isReferenceTable ? optText(rawOrder.tableInfo, 80) : null
+    if (fulfillmentType === 'table' && !rawOrder.tableId && !isReferenceTable) {
       throw new HttpsError('invalid-argument', 'Los pedidos de tipo mesa requieren especificar una mesa.')
     }
-
+    if (fulfillmentType === 'table' && isReferenceTable && !referencePoint) {
+      throw new HttpsError('invalid-argument', 'Indica el punto de entrega o una mesa.')
+    }
     // 3. Validar orderSource canónico ('local', 'whatsapp')
     let orderSource = 'local'
     if (rawOrder.orderSource !== undefined && rawOrder.orderSource !== null) {
@@ -1154,9 +1159,6 @@ async function applyRestaurantCommand(context) {
     // 4. Manejo y validación de mesa
     let tableRef = null
     let tableData = null
-    const isCounterService = actor.tenant.businessType === 'hamburger_shop' || actor.tenant.configuration?.serviceModel === 'counter_service'
-    const isReferenceTable = isCounterService && (rawOrder.referenceOnly === true || rawOrder.isReferenceTable === true)
-
     if (rawOrder.tableId) {
       const tableIdInput = id(rawOrder.tableId)
       tableRef = root.collection('restaurantTables').doc(tableIdInput)
@@ -1245,7 +1247,7 @@ async function applyRestaurantCommand(context) {
     // 7. Allowlist estricto de campos del documento de orden
     const displayNumber = optText(rawOrder.displayNumber, 20) || `#${orderId.slice(-4).toUpperCase()}`
     const tableId = tableData ? tableData.id : null
-    const tableInfo = tableData ? tableData.name : null
+    const tableInfo = tableData ? tableData.name : referencePoint
     const customerId = rawOrder.customerId ? id(rawOrder.customerId) : null
     const customerName = optText(rawOrder.customerName, 100) || (tableData ? tableData.name : 'Cliente')
     const customerPhone = optText(rawOrder.customerPhone, 30)
