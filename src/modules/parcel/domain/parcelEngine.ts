@@ -17,8 +17,8 @@ import type {
   ParcelTariffConfig,
 } from '../types.ts'
 
-export function generateTrackingCode(existingCodes: string[], year = new Date().getFullYear()): string {
-  const prefix = `ENC-${year}-`
+export function generateTrackingCode(existingCodes: string[], year = new Date().getFullYear(), codePrefix = 'ENC'): string {
+  const prefix = `${codePrefix}-${year}-`
   let maxSeq = 0
   for (const code of existingCodes) {
     if (code.startsWith(prefix)) {
@@ -29,8 +29,8 @@ export function generateTrackingCode(existingCodes: string[], year = new Date().
   return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`
 }
 
-export function generateManifestNumber(existingManifests: string[], year = new Date().getFullYear()): string {
-  const prefix = `MAN-${year}-`
+export function generateManifestNumber(existingManifests: string[], year = new Date().getFullYear(), codePrefix = 'MAN'): string {
+  const prefix = `${codePrefix}-${year}-`
   let maxSeq = 0
   for (const code of existingManifests) {
     if (code.startsWith(prefix)) {
@@ -572,4 +572,28 @@ export function calculateFinancialSummary(params: {
     },
     netOperatingBalance,
   }
+}
+
+/**
+ * Calcula la recaudación efectiva de aportes/cuotas de sindicato correspondiente a un período
+ * mensual específico (ej. '2026-10') basado estrictamente en las fechas reales de cobro (`p.date`),
+ * excluyendo pagos anulados o revertidos (`!p.isReversed`).
+ * Distingue formalmente entre la fecha de pago y el período de obligación de la cuota.
+ */
+export function calculateDuesCollectionForPeriod(
+  dues: UnionMonthlyDue[],
+  targetPeriodMonth: string
+): number {
+  let total = 0
+  for (const due of dues) {
+    if (due.payments && Array.isArray(due.payments)) {
+      for (const p of due.payments) {
+        if (!p.isReversed && p.date && p.date.slice(0, 7) === targetPeriodMonth) {
+          const amt = typeof p.amount === 'number' && Number.isFinite(p.amount) ? p.amount : 0
+          total += amt
+        }
+      }
+    }
+  }
+  return Math.round(total * 100) / 100
 }

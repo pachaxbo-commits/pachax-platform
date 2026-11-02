@@ -29,6 +29,10 @@ import {
   createEmptyParcelDataset,
 } from '../datasets/parcel/parcelDatasets.ts'
 import {
+  createFullExpresoPunataDataset,
+  createEmptyExpresoPunataDataset,
+} from '../datasets/parcel/expresoPunataDatasets.ts'
+import {
   generateTrackingCode,
   generateManifestNumber,
   generateReceiptNumber,
@@ -41,13 +45,19 @@ import {
 } from '../../modules/parcel/domain/parcelEngine.ts'
 
 export type DemoDatasetMode = 'full' | 'empty'
+export type ParcelClientProfile = 'generic' | 'expreso-punata'
 
 const STUDIO_STORAGE_PREFIX = 'pachax:parcel-studio'
 const DEMO_STORAGE_PREFIX = 'pachax:parcel-demo'
+const EXPRESO_PUNATA_STORAGE_PREFIX = 'pachax:expreso-punata-studio'
 
-export function clearParcelDemoStorage(scope: 'studio' | 'demo' = 'demo'): void {
+export function clearParcelDemoStorage(scope: 'studio' | 'demo' | 'expreso-punata' = 'demo'): void {
   if (typeof window === 'undefined' || !window.sessionStorage) return
-  const prefix = scope === 'demo' ? DEMO_STORAGE_PREFIX : STUDIO_STORAGE_PREFIX
+  const prefix = scope === 'expreso-punata'
+    ? EXPRESO_PUNATA_STORAGE_PREFIX
+    : scope === 'demo'
+      ? DEMO_STORAGE_PREFIX
+      : STUDIO_STORAGE_PREFIX
   const keysToRemove: string[] = []
   for (let i = 0; i < window.sessionStorage.length; i++) {
     const key = window.sessionStorage.key(i)
@@ -65,20 +75,26 @@ export class DemoParcelController {
   private edition: ParcelEdition
   private datasetMode: DemoDatasetMode
   private storageScope: 'studio' | 'demo'
+  public readonly clientProfile: ParcelClientProfile
   private listeners: Set<(state: ParcelAppState) => void> = new Set()
 
   constructor(
     edition: ParcelEdition = 'sindicato',
     datasetMode: DemoDatasetMode = 'full',
-    storageScope: 'studio' | 'demo' = 'studio'
+    storageScope: 'studio' | 'demo' = 'studio',
+    clientProfile: ParcelClientProfile = 'generic'
   ) {
-    this.edition = edition
+    this.clientProfile = clientProfile
+    this.edition = clientProfile === 'expreso-punata' ? 'sindicato' : edition
     this.datasetMode = datasetMode
     this.storageScope = storageScope
     this.state = this.loadInitialState()
   }
 
   public getStorageKey(): string {
+    if (this.clientProfile === 'expreso-punata') {
+      return `${EXPRESO_PUNATA_STORAGE_PREFIX}:${this.datasetMode}:v1`
+    }
     const prefix = this.storageScope === 'demo' ? DEMO_STORAGE_PREFIX : STUDIO_STORAGE_PREFIX
     return `${prefix}:${this.edition}:${this.datasetMode}:v1`
   }
@@ -104,6 +120,12 @@ export class DemoParcelController {
       } catch {
         // Fallback al dataset base si falla el almacenamiento
       }
+    }
+
+    if (this.clientProfile === 'expreso-punata') {
+      return this.datasetMode === 'empty'
+        ? createEmptyExpresoPunataDataset()
+        : createFullExpresoPunataDataset()
     }
 
     return this.datasetMode === 'empty'
@@ -175,9 +197,15 @@ export class DemoParcelController {
 
   public resetDataset(mode?: DemoDatasetMode): void {
     if (mode) this.datasetMode = mode
-    this.state = this.datasetMode === 'empty'
-      ? createEmptyParcelDataset(this.edition)
-      : createFullParcelDataset(this.edition)
+    if (this.clientProfile === 'expreso-punata') {
+      this.state = this.datasetMode === 'empty'
+        ? createEmptyExpresoPunataDataset()
+        : createFullExpresoPunataDataset()
+    } else {
+      this.state = this.datasetMode === 'empty'
+        ? createEmptyParcelDataset(this.edition)
+        : createFullParcelDataset(this.edition)
+    }
     this.saveState()
   }
 
@@ -219,7 +247,8 @@ export class DemoParcelController {
     const cashierName = params.operatorName || (this.state.activeShift?.operatorName || 'Operador de Ventanilla')
 
     const existingCodes = this.state.shipments.map(s => s.trackingCode)
-    const trackingCode = generateTrackingCode(existingCodes)
+    const codePrefix = this.clientProfile === 'expreso-punata' ? 'PUN' : 'ENC'
+    const trackingCode = generateTrackingCode(existingCodes, new Date().getFullYear(), codePrefix)
 
     const totalWeightKg = params.items.reduce(
       (acc, it) => acc + (typeof it.weightKg === 'number' && Number.isFinite(it.weightKg) ? Math.max(0, it.weightKg) : 0),
@@ -354,7 +383,8 @@ export class DemoParcelController {
     const operator = params.operatorName || 'Encargado de Almacén'
 
     const existingManifests = this.state.manifests.map(m => m.manifestNumber)
-    const manifestNumber = generateManifestNumber(existingManifests)
+    const manifestPrefix = this.clientProfile === 'expreso-punata' ? 'MAN-PUN' : 'MAN'
+    const manifestNumber = generateManifestNumber(existingManifests, new Date().getFullYear(), manifestPrefix)
 
     const selectedParcels = this.state.shipments.filter(s => params.parcelIds.includes(s.id))
     const totalPackages = selectedParcels.reduce((acc, s) => acc + s.packageCount, 0)
@@ -762,9 +792,10 @@ export class DemoParcelController {
     if (!due) throw new Error('Cuota no encontrada.')
 
     const cashier = params.cashierName || (this.state.activeShift?.operatorName || 'Secretaría de Hacienda')
+    const cuotaPrefix = this.clientProfile === 'expreso-punata' ? 'CUOTA-PUN' : 'CUOTA'
     const receiptNumber = generateReceiptNumber(
       this.state.dues.flatMap(d => d.payments.map(p => p.receiptNumber)),
-      'CUOTA'
+      cuotaPrefix
     )
 
     const updatedDue = applyDuePayment(
@@ -935,7 +966,8 @@ export class DemoParcelController {
     if (params.amount <= 0) throw new Error('El importe debe ser mayor a cero.')
 
     const existingReceipts = this.state.workerPayments.map(p => p.receiptNumber)
-    const receiptNumber = generateReceiptNumber(existingReceipts, 'PAGO-TRAB')
+    const workerReceiptPrefix = this.clientProfile === 'expreso-punata' ? 'PAGO-TRAB-PUN' : 'PAGO-TRAB'
+    const receiptNumber = generateReceiptNumber(existingReceipts, workerReceiptPrefix)
     const now = new Date().toISOString()
     const operator = params.registeredBy || 'Secretaría de Hacienda'
 
@@ -1007,7 +1039,8 @@ export class DemoParcelController {
     if (params.amount <= 0) throw new Error('El importe del gasto debe ser mayor a cero.')
 
     const existingReceipts = this.state.unionExpenses.map(e => e.receiptNumber)
-    const receiptNumber = generateReceiptNumber(existingReceipts, 'GASTO')
+    const expenseReceiptPrefix = this.clientProfile === 'expreso-punata' ? 'GASTO-PUN' : 'GASTO'
+    const receiptNumber = generateReceiptNumber(existingReceipts, expenseReceiptPrefix)
     const now = new Date().toISOString()
     const operator = params.registeredBy || 'Secretaría de Hacienda'
 

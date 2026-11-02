@@ -256,7 +256,7 @@ export function SyndicateMembersView({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Cédula de Identidad (CI) *</label>
                   <input
@@ -281,7 +281,7 @@ export function SyndicateMembersView({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Categoría</label>
                   <select
@@ -306,7 +306,7 @@ export function SyndicateMembersView({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">Cuota Mensual (Bs.) *</label>
                   <input

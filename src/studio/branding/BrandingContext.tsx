@@ -7,6 +7,7 @@ import {
   DEFAULT_RETAIL_BRANDING,
   DEFAULT_NIGHTCLUB_BRANDING,
   DEFAULT_PARCEL_BRANDING,
+  DEFAULT_EXPRESO_PUNATA_BRANDING,
 } from './brandingTypes'
 import type { DemoTemplateId } from '../../demo/demoTypes'
 
@@ -28,6 +29,7 @@ export function getInitialBranding(template: DemoTemplateId): StudioBranding {
     retail: DEFAULT_RETAIL_BRANDING,
     nightclub: DEFAULT_NIGHTCLUB_BRANDING,
     parcel: DEFAULT_PARCEL_BRANDING,
+    'expreso-punata': DEFAULT_EXPRESO_PUNATA_BRANDING,
   }[template]
 
   try {
@@ -72,6 +74,7 @@ export function BrandingProvider({
       retail: DEFAULT_RETAIL_BRANDING,
       nightclub: DEFAULT_NIGHTCLUB_BRANDING,
       parcel: DEFAULT_PARCEL_BRANDING,
+      'expreso-punata': DEFAULT_EXPRESO_PUNATA_BRANDING,
     }[template]
     setBranding(defaults)
   }

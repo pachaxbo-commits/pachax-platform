@@ -617,6 +617,7 @@ export function ParcelExperience({
           <SyndicateDuesView
             dues={state.dues}
             members={state.members}
+            companyInfo={state.companyInfo}
             onGeneratePeriod={(p, l, d) => controller.generateDuesPeriod(p, l, d)}
             onPayDue={params => controller.payDue(params)}
             onRevertPayment={params => controller.revertDuePayment(params)}
@@ -667,6 +668,7 @@ export function ParcelExperience({
         onClose={() => setIsTicketModalOpen(false)}
         shipment={ticketShipment}
         isReprint={isReprint}
+        companyInfo={state.companyInfo}
       />
 
       <ParcelDispatchManifestModal
@@ -675,6 +677,7 @@ export function ParcelExperience({
         branches={state.branches}
         currentBranchId={state.currentBranchId}
         availableShipments={state.shipments}
+        companyInfo={state.companyInfo}
         onSubmit={data => controller.createDispatchManifest(data)}
       />
 
@@ -686,6 +689,7 @@ export function ParcelExperience({
         }}
         readyShipments={state.shipments.filter(s => s.status === 'ready_for_pickup')}
         preselectedShipment={preselectedDeliveryShipment}
+        companyInfo={state.companyInfo}
         onDeliver={params => controller.deliverShipment(params)}
       />
 
