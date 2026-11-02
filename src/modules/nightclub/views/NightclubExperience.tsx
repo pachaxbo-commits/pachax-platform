@@ -503,6 +503,7 @@ export function NightclubExperience(props: Props) {
           {currentModule === 'pos' && props.mode === 'tenant' && (!configuredCashboxes.length || !props.activeCashboxId) ? <section role="status" className="mx-auto my-8 max-w-xl rounded-2xl border border-amber-300/25 bg-amber-300/10 p-6 text-amber-50"><h2 className="text-lg font-bold">Caja requerida para operar</h2><p className="mt-2 text-sm text-amber-100/80">{configuredCashboxes.length ? 'Selecciona una caja desde el módulo Caja antes de comenzar una venta.' : 'Debes configurar las cajas y el almacén desde Configuración antes de comenzar a operar.'}</p><button type="button" onClick={() => go(configuredCashboxes.length ? 'cash' : 'settings')} className="mt-4 min-h-11 rounded-xl bg-amber-300 px-4 font-bold text-slate-950">{configuredCashboxes.length ? 'Ir a Caja' : 'Ir a Configuración'}</button></section> : currentModule === 'pos' && <NightclubPOS
             data={posData}
             mode={props.mode || 'demo'}
+            activeLocationId={props.activeLocationId}
             currentWaiterId={normalizedRole === 'waiter' ? props.demoUserId : undefined}
             draft={draft}
             selectedAccountId={selectedAccountId}
@@ -573,8 +574,8 @@ export function NightclubExperience(props: Props) {
                     return 'Ronda guardada. No se pudo confirmar si la impresión salió.'
                   }
                 }
-                return 'Ronda enviada; consumo cargado a cuenta e inventario actualizado.'
-              }, 'Ronda enviada; consumo cargado a cuenta e inventario actualizado.')
+                return 'Ronda enviada y registrada.'
+              }, 'Ronda enviada y registrada.')
             }}
             onSettleRound={async (id, items, payment, operationId, sellerStaffId) => {
               return run(async () => {
@@ -677,7 +678,7 @@ export function NightclubExperience(props: Props) {
               <NightclubCourtesyInventoryMovements data={data} />
             </div>
           ))}
-          {currentModule === 'products' && <NightclubProducts data={data} onSave={product => { const isPractice = ['demo', 'studio'].includes(props.mode || '') && product.name.trim() === 'Vaso de ron con Coca-Cola — Práctica'; const practice = isPractice ? { ...product, id: 'demo-tutorial-ron-coca-v1' } : product; return run(() => props.onSaveProduct(practice), 'Producto guardado.').then(saved => { if (saved && isPractice) setTutorialPracticeProductVersion(version => version + 1); return saved }) }} />}
+          {currentModule === 'products' && <NightclubProducts data={data} mode={props.mode || 'demo'} activeLocationId={props.activeLocationId} onSave={product => { const isPractice = ['demo', 'studio'].includes(props.mode || '') && product.name.trim() === 'Vaso de ron con Coca-Cola — Práctica'; const practice = isPractice ? { ...product, id: 'demo-tutorial-ron-coca-v1' } : product; return run(() => props.onSaveProduct(practice), 'Producto guardado.').then(saved => { if (saved && isPractice) setTutorialPracticeProductVersion(version => version + 1); return saved }) }} />}
           {currentModule === 'cash' && <NightclubCash
             data={data}
             activeCashboxId={props.activeCashboxId || undefined}

@@ -462,6 +462,21 @@ async function applyCommand(context) {
     const productId = id(p.id || `prod_${operationId}`)
     const productRef = root.collection('nightclubProducts').doc(productId)
     const existingProduct = await tx.get(productRef)
+    const inventoryMode = ['unit', 'recipe', 'none'].includes(p.inventoryMode) ? p.inventoryMode : 'recipe'
+    const recipe = Array.isArray(p.recipe) ? p.recipe : []
+    const bottlePresentation = p.bottlePresentation || null
+    const inventoryIds = inventoryMode === 'none' ? [] : [...new Set([
+      ...(bottlePresentation?.inventoryId ? [id(bottlePresentation.inventoryId)] : []),
+      ...(recipe.length ? recipe.map(line => id(line.inventoryId)) : p.inventoryId ? [id(p.inventoryId)] : []),
+    ])]
+    if (p.inventoryMode !== undefined && inventoryMode !== 'none' && !inventoryIds.length) throw new HttpsError('failed-precondition', 'Vincula el producto con inventario físico o configura su receta antes de guardarlo.')
+    if (inventoryMode !== 'none' && recipe.some(line => !line.inventoryId || !Number.isFinite(Number(line.quantity)) || Number(line.quantity) <= 0)) throw new HttpsError('invalid-argument', 'La receta debe contener insumos y cantidades válidas.')
+    const inventorySnaps = await Promise.all(inventoryIds.map(inventoryId => tx.get(root.collection('nightclubInventory').doc(inventoryId))))
+    if (inventorySnaps.some(snap => !snap.exists || snap.data().branchId !== branchId)) throw new HttpsError('failed-precondition', 'El inventario seleccionado no existe en esta sucursal.')
+    if (inventoryMode === 'unit' && !bottlePresentation && !recipe.length) {
+      const linked = inventorySnaps[0]?.data()
+      if (linked?.unit !== 'unit') throw new HttpsError('failed-precondition', 'Un producto por unidad debe vincularse a un artículo físico medido por unidades.')
+    }
     const data = {
       id: productId,
       tenantId: actor.tenantId,
@@ -471,10 +486,10 @@ async function applyCommand(context) {
       price: amount(p.price),
       preparationArea: p.preparationArea === 'Directo' ? 'Directo' : 'Barra',
       stockUnits: Number(p.stockUnits) || 0,
-      inventoryMode: ['unit', 'recipe', 'none'].includes(p.inventoryMode) ? p.inventoryMode : 'recipe',
+      inventoryMode,
       active: p.active !== false,
       ...(p.inventoryId ? { inventoryId: id(p.inventoryId) } : {}),
-      ...(Array.isArray(p.recipe) ? { recipe: p.recipe } : {}),
+      recipe,
       ...(p.bottlePresentation ? { bottlePresentation: p.bottlePresentation } : {}),
       ...(p.commission ? { commission: p.commission } : {}),
       updatedAt: now,
@@ -1424,6 +1439,7 @@ async function applyCommand(context) {
         throw new HttpsError('not-found', `Producto ${productIds[i]} no encontrado.`)
       }
       const pData = snap.data()
+      if (pData.branchId !== branchId) throw new HttpsError('not-found', `Producto ${productIds[i]} no encontrado en esta sucursal.`)
       if (pData.active === false || pData.isActive === false) {
         throw new HttpsError('failed-precondition', `El producto ${pData.name || productIds[i]} no está activo.`)
       }
@@ -1487,7 +1503,19 @@ async function applyCommand(context) {
     const status = hasBar ? 'pending' : 'ready'
 
     if (account.locationId) {
-      const locationConsumption = await consumeNightclubLocationStock({ tx, root, actor, branchId, operationId, account: { ...account, id: accountId }, roundId, products, drafts, now })
+      // Use the same stable item ids as the persisted round lines so physical
+      // FIFO allocations and costs remain auditable per product line.
+      const inventoryDrafts = lines.map(item => ({ id: item.id, productId: item.productId, quantity: item.quantity }))
+      const locationConsumption = await consumeNightclubLocationStock({ tx, root, actor, branchId, operationId, account: { ...account, id: accountId }, roundId, products, drafts: inventoryDrafts, now })
+      const items = lines.map(item => {
+        const fifoAllocations = locationConsumption.lineAllocations.filter(allocation => allocation.itemId === item.id)
+        const product = products.get(item.productId)
+        const recipe = product?.recipe?.length ? product.recipe : product?.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1, unit: 'unit' }] : []
+        const productQuantity = product?.bottlePresentation?.kind === 'bottle'
+          ? item.quantity
+          : recipe.filter(line => !['ml', 'l'].includes(line.unit)).reduce((sum, line) => sum + Number(line.quantity || 0) * item.quantity, 0)
+        return { ...item, costAtSale: money(fifoAllocations.reduce((sum, allocation) => sum + Number(allocation.costTotal || 0), 0)), fifoAllocations, physicalReturnEligible: fifoAllocations.length > 0 && fifoAllocations.every(allocation => allocation.unit === 'unit') && product?.bottlePresentation?.kind !== 'pour' && fifoAllocations.reduce((sum, allocation) => sum + allocation.quantity, 0) === productQuantity }
+      })
       tx.create(root.collection('nightclubRounds').doc(roundId), {
         id: roundId,
         operationId,
@@ -1499,8 +1527,10 @@ async function applyCommand(context) {
         accountId,
         tableId: account.serviceTarget?.type === 'table' ? account.serviceTarget.tableId : null,
         sequence: (account.roundCount || 0) + 1,
-        items: lines,
-        consumption: [],
+        items,
+        // Stock movements remain the physical ledger. This marker prevents
+        // pending settlement from consuming the same round a second time.
+        inventoryConsumptionStatus: 'consumed',
         total,
         status,
         authorization: 'account_charge',

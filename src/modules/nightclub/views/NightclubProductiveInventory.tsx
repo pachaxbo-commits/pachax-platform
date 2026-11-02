@@ -4,7 +4,6 @@ import type { NightclubDataset, NightclubInventoryItem } from '../domain/nightcl
 type IntakeLine = { inventoryId: string; quantity: string; unit: 'unit' | 'ml' | 'l' | 'g' | 'kg'; unitCost: string }
 type IntakeReceipt = { lines: Array<{ inventoryId: string; quantity: number; unit: IntakeLine['unit']; unitCost: number }>; supplier?: string; reference?: string; receivedDate?: string; notes?: string }
 
-const displayUnit = (item: NightclubInventoryItem) => item.displayUnit || item.unit
 const unitsFor = (item: NightclubInventoryItem): IntakeLine['unit'][] => item.unit === 'ml' ? ['ml', 'l'] : item.unit === 'g' ? ['g', 'kg'] : ['unit']
 const quantityLabel = (quantity: number, unit: string) => `${quantity.toLocaleString('es-BO')} ${unit === 'unit' ? 'unidades' : unit}`
 const transferStatusLabel = (status: string) => ({ requested: 'Solicitada', prepared: 'En preparación', in_transit: 'En tránsito', received: 'Recibida', cancelled: 'Cancelada' }[status] || status)
@@ -42,7 +41,8 @@ export function NightclubProductiveInventory({ data, canManage, onReceiveWarehou
   const isWarehouse = activeLocationId === 'warehouse-general'
   const addLine = () => {
     if (!selectedProduct || cart.some(line => line.inventoryId === selectedProduct.id)) return
-    setCart(lines => [...lines, { inventoryId: selectedProduct.id, quantity: '', unit: displayUnit(selectedProduct), unitCost: '' }])
+    // Persist the canonical inventory unit (e.g. `unit`); displayUnit is presentation-only.
+    setCart(lines => [...lines, { inventoryId: selectedProduct.id, quantity: '', unit: selectedProduct.unit, unitCost: '' }])
     setSelectedProductId('')
   }
   const updateLine = (inventoryId: string, field: keyof IntakeLine, value: string) => setCart(lines => lines.map(line => line.inventoryId === inventoryId ? { ...line, [field]: value } : line))

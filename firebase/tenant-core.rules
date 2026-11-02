@@ -205,7 +205,9 @@
     // An operator can read only their own server-written context. This document
     // is the source of truth for product cashbox, location and active shift.
     match /tenants/{tenantId}/nightclubOperatorContexts/{uid} {
-      allow get: if request.auth != null && request.auth.uid == uid && tBranch(tenantId, resource.data.branchId);
+      allow get: if request.auth != null && request.auth.uid == uid && tIsActiveMember(tenantId)
+        && (!exists(/databases/$(database)/documents/tenants/$(tenantId)/nightclubOperatorContexts/$(uid))
+          || tBranch(tenantId, resource.data.branchId));
       allow list, write: if false;
     }
     match /tenants/{tenantId}/nightclubInventoryBalances/{balanceId} {

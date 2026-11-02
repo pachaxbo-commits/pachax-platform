@@ -19,6 +19,7 @@ const setBalance = (locationId, inventoryId, availableQuantity) => root.collecti
 const setLot = (id, locationId, inventoryId, remainingQuantity, unitCost, receivedAt) => root.collection('nightclubInventoryLots').doc(id).set({ id, branchId: 'main', locationId, inventoryId, remainingQuantity, receivedQuantity: remainingQuantity, unitCost, receivedAt, status: 'available' })
 const account = (id, locationId, shiftId = 'shift-box-1') => root.collection('nightclubAccounts').doc(id).set({ id, branchId: 'main', status: 'open', serviceTarget: { type: 'bar' }, orderType: 'BAR', cashboxId: locationId === 'warehouse-general' ? null : locationId, locationId, shiftId, subtotal: 0, paidTotal: 0, balance: 0, roundCount: 0 })
 const pay = (accountId, productId, operationId) => call('waiter', 'settleRound', operationId, { accountId, items: [{ productId, quantity: 1 }], payment: { method: 'qr', amount: 100 } })
+const addRound = (accountId, items, operationId) => call('admin', 'addRound', operationId, { accountId, items })
 
 try {
   const template = getTemplate('nightclub_lounge')
@@ -29,6 +30,35 @@ try {
   await root.collection('nightclubShifts').doc('legacy-shift').set({ id: 'legacy-shift', branchId: 'main', status: 'open' })
   for (const locationId of ['warehouse-general', 'cashbox-1', 'cashbox-2', 'cashbox-3', 'cashbox-4']) await root.collection('nightclubLocations').doc(locationId).set({ id: locationId, branchId: 'main', type: locationId === 'warehouse-general' ? 'warehouse' : 'cashbox', active: true })
   for (const number of [1, 2, 3, 4]) { const id = `cashbox-${number}`; await root.collection('nightclubCashboxes').doc(id).set({ id, branchId: 'main', locationId: id, active: true }); await root.collection('nightclubShifts').doc(`shift-box-${number}`).set({ id: `shift-box-${number}`, branchId: 'main', cashboxId: id, locationId: id, status: 'open' }) }
+
+  // 0: account-charge rounds consume location FIFO once and remain traceable.
+  await root.collection('nightclubInventory').doc('unit-stock').set({ id: 'unit-stock', branchId: 'main', unit: 'unit', name: 'Botella QA' })
+  await setBalance('cashbox-1', 'unit-stock', 6); await setLot('unit-stock-lot', 'cashbox-1', 'unit-stock', 6, 12, '2026-01-01T00:00:00.000Z')
+  await assert.rejects(() => call('admin', 'saveProduct', 'unlinked-unit-create', { product: { id: 'unlinked-unit-save', name: 'Sin vínculo', active: true, price: 30, inventoryMode: 'unit', stockUnits: 6 } }), /inventario físico/i)
+  const savedUnitProduct = await call('admin', 'saveProduct', 'linked-unit-create', { product: { id: 'unit-product', name: 'Botella QA', active: true, price: 30, inventoryMode: 'unit', inventoryId: 'unit-stock', stockUnits: 6 } })
+  assert.equal(savedUnitProduct.product.inventoryId, 'unit-stock')
+  await account('account-charge', 'cashbox-1')
+  const firstRound = await addRound('account-charge', [{ productId: 'unit-product', quantity: 2 }], 'account-charge-two')
+  assert.equal((await doc('nightclubInventoryBalances', 'cashbox-1:unit-stock')).availableQuantity, 4)
+  assert.equal((await doc('nightclubInventoryLots', 'unit-stock-lot')).remainingQuantity, 4)
+  const storedFirstRound = await doc('nightclubRounds', firstRound.roundId)
+  assert.equal(storedFirstRound.inventoryConsumptionStatus, 'consumed'); assert.equal(storedFirstRound.items[0].fifoAllocations.reduce((sum, item) => sum + item.quantity, 0), 2)
+  await addRound('account-charge', [{ productId: 'unit-product', quantity: 2 }], 'account-charge-two')
+  assert.equal((await doc('nightclubInventoryBalances', 'cashbox-1:unit-stock')).availableQuantity, 4)
+  const secondRound = await addRound('account-charge', [{ productId: 'unit-product', quantity: 1 }], 'account-charge-one')
+  assert.equal((await doc('nightclubInventoryBalances', 'cashbox-1:unit-stock')).availableQuantity, 3)
+  assert.equal((await doc('nightclubInventoryLots', 'unit-stock-lot')).remainingQuantity, 3)
+  assert.equal((await root.collection('nightclubInventoryMovements').where('roundId', '==', secondRound.roundId).where('type', '==', 'sale').get()).size, 1)
+  await root.collection('nightclubProducts').doc('unlinked-unit').set({ id: 'unlinked-unit', branchId: 'main', name: 'Sin vínculo', active: true, price: 30, inventoryMode: 'unit', stockUnits: 6 })
+  await assert.rejects(() => addRound('account-charge', [{ productId: 'unlinked-unit', quantity: 1 }], 'unlinked-unit-sale'), /inventario físico|inventario configurado/i)
+  assert.equal((await doc('nightclubInventoryBalances', 'cashbox-1:unit-stock')).availableQuantity, 3)
+  await account('account-empty-location', 'cashbox-2', 'shift-box-2')
+  await assert.rejects(() => addRound('account-empty-location', [{ productId: 'unit-product', quantity: 1 }], 'other-box-sale'), /stock físico válido|Stock insuficiente/i)
+  await root.collection('nightclubProducts').doc('no-stock-product').set({ id: 'no-stock-product', branchId: 'main', name: 'Servicio sin stock', active: true, price: 10, inventoryMode: 'none' })
+  const noStockRound = await addRound('account-empty-location', [{ productId: 'no-stock-product', quantity: 1 }], 'no-stock-round')
+  assert.equal((await doc('nightclubRounds', noStockRound.roundId)).inventoryConsumptionStatus, 'consumed')
+  assert.equal((await root.collection('nightclubInventoryMovements').where('roundId', '==', noStockRound.roundId).get()).size, 0)
+  console.log('PASS addRound: 6→4→3 FIFO, idempotencia, producto no vinculado denegado, ubicación aislada y none autorizado')
 
   // 1: ml from an opened bottle, exact remaining ml and original FIFO lot.
   await root.collection('nightclubInventory').doc('cola').set({ branchId: 'main', bottleCapacityMl: 1000 })
