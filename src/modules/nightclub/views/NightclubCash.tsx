@@ -3,6 +3,7 @@ import { Wallet } from 'lucide-react'
 import type { NightclubCashMovement, NightclubDataset, NightclubPaymentDraft } from '../domain/nightclubAccounts'
 import { nightclubAccountLabel, nightclubBalance, nightclubCashReconciliation, nightclubCashSummary, nightclubPaidTotal, nightclubProfitSummary } from '../domain/nightclubAccounts'
 import { requiresCashboxSelection, resolveSelectedCashboxId } from '../domain/nightclubCashboxSelection'
+import { signedNightclubCashMovementAmount } from '../domain/nightclubCashMovements'
 import { NightclubAccountPayment } from './NightclubAccountPayment'
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const labels = { inventory_purchase: 'Compra de inventario', payroll: 'Pago al personal', services: 'Servicios', rent: 'Alquiler', maintenance: 'Mantenimiento', transport: 'Transporte', advertising: 'Publicidad', cleaning: 'Limpieza', security: 'Seguridad', administrative: 'Gasto administrativo', other: 'Otro gasto' } as const
@@ -261,7 +262,7 @@ export function NightclubCash({
           {movements.map(item => (
             <p key={item.id} className="flex justify-between border-t border-slate-800 py-2">
               <span>{item.description} · {item.category ? labels[item.category] : item.method}</span>
-              <b>{item.type === 'income' ? '+' : '−'}{money(item.amount)}</b>
+              <b>{signedNightclubCashMovementAmount(item) >= 0 ? '+' : '−'}{money(Math.abs(signedNightclubCashMovementAmount(item)))}</b>
             </p>
           ))}
         </div>

@@ -2,6 +2,7 @@ import { Beer, BottleWine, CupSoda, GlassWater, Martini, Minus, Plus, Search, So
 import { useMemo, useRef, useState } from 'react'
 import type { NightclubCustomer, NightclubDataset, NightclubProduct, NightclubRoundDraft, NightclubServiceTarget } from '../domain/nightclubAccounts'
 import { nightclubAccountLabel, nightclubProductAvailability } from '../domain/nightclubAccounts'
+import { nightclubLocationProductAvailability } from '../domain/nightclubLocationAvailability'
 
 const money = (value: number) => `Bs ${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -27,7 +28,7 @@ function ProductArtwork({ product }: { product: NightclubProduct }) {
   </div>
 }
 
-export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer, onTutorialRoundSent, pendingOnly = false, mode: _mode = 'demo' }: {
+export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, onSelectAccount, onDraftChange, onOpenAccount, onSendRound, onSettleRound, onCourtesy, onSaveCustomer, onTutorialRoundSent, pendingOnly = false, mode: _mode = 'demo', activeLocationId }: {
   data: NightclubDataset
   currentWaiterId?: string
   draft: NightclubRoundDraft[]
@@ -42,6 +43,7 @@ export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, 
   onTutorialRoundSent?: (accountId: string, previousRoundCount: number) => void
   pendingOnly?: boolean
   mode?: 'tenant' | 'demo' | 'studio'
+  activeLocationId?: string | null
 }) {
   const [category, setCategory] = useState('Todos')
   const [search, setSearch] = useState('')
@@ -185,7 +187,7 @@ export function NightclubPOS({ data, currentWaiterId, draft, selectedAccountId, 
     <div className="grid min-h-[calc(100vh-9.5rem)] overflow-hidden rounded-2xl border border-slate-700 bg-[#0d1519] lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_24rem]">
       <section className="min-w-0 p-3 sm:p-4 xl:p-5"><div className="flex flex-wrap gap-1.5">{categories.map(item => <button key={item} onClick={() => setCategory(item)} className={`min-h-9 rounded-lg border px-3 text-xs font-bold transition ${category === item ? 'border-amber-300 bg-amber-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500'}`}>{item}</button>)}</div>
         <label className="mt-3 flex min-h-11 items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 transition focus-within:border-amber-400 focus-within:bg-slate-900 focus-within:ring-2 focus-within:ring-amber-400/10"><Search size={17} className="text-slate-400" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por nombre" className="min-w-0 flex-1 !bg-transparent text-sm !text-slate-100 outline-none placeholder:!text-slate-500" /></label>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{products.map(product => { const available = pendingOnly ? Number.MAX_SAFE_INTEGER : nightclubProductAvailability(product, data.inventory); const quantity = draft.find(item => item.productId === product.id)?.quantity || 0; return <button key={product.id} data-tutorial-target={product.name === 'Vaso de ron con Coca-Cola — Práctica' ? 'pos-practice-product' : product.preparationArea !== 'Directo' ? 'pos-product' : undefined} disabled={available <= quantity} onClick={() => update(product.id, 1)} className="group grid h-40 grid-rows-[5rem_1fr] overflow-hidden rounded-xl border border-slate-700 bg-slate-900 text-left transition hover:-translate-y-0.5 hover:border-amber-400/60 disabled:translate-y-0 disabled:opacity-40"><ProductArtwork product={product} /><div className="flex min-h-0 flex-col justify-between p-2.5"><strong className="line-clamp-2 text-sm leading-5">{product.name}</strong><div className="flex items-end justify-between gap-2"><span className="text-sm font-black text-amber-300">{money(product.price)}</span>{quantity > 0 && <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-black text-slate-950">×{quantity}</span>}</div></div></button>})}</div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{products.map(product => { const available = pendingOnly ? Number.MAX_SAFE_INTEGER : _mode === 'tenant' ? nightclubLocationProductAvailability(product, data.inventory, data.inventoryBalances || [], data.openBottles || [], activeLocationId) : nightclubProductAvailability(product, data.inventory); const quantity = draft.find(item => item.productId === product.id)?.quantity || 0; return <button key={product.id} data-tutorial-target={product.name === 'Vaso de ron con Coca-Cola — Práctica' ? 'pos-practice-product' : product.preparationArea !== 'Directo' ? 'pos-product' : undefined} disabled={available <= quantity} title={_mode === 'tenant' && !activeLocationId ? 'Selecciona una caja para consultar su inventario.' : undefined} onClick={() => update(product.id, 1)} className="group grid h-40 grid-rows-[5rem_1fr] overflow-hidden rounded-xl border border-slate-700 bg-slate-900 text-left transition hover:-translate-y-0.5 hover:border-amber-400/60 disabled:translate-y-0 disabled:opacity-40"><ProductArtwork product={product} /><div className="flex min-h-0 flex-col justify-between p-2.5"><strong className="line-clamp-2 text-sm leading-5">{product.name}</strong><div className="flex items-end justify-between gap-2"><span className="text-sm font-black text-amber-300">{money(product.price)}</span><span className="text-[10px] text-slate-400">{_mode === 'tenant' && product.inventoryMode !== 'none' ? `${available} en caja` : ''}</span>{quantity > 0 && <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-black text-slate-950">×{quantity}</span>}</div></div></button>})}</div>
         {!products.length && <p className="mt-4 rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">No hay productos que coincidan con la búsqueda.</p>}
       </section>
       <div className="hidden min-w-0 lg:block">{accountPanel()}</div>

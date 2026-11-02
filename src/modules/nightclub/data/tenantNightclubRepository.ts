@@ -71,6 +71,7 @@ import type {
 import type { NightclubFinancialReadScope } from './nightclubFinancialSubscriptions'
 import { NIGHTCLUB_CASHBOX_STATUS_QUERY_CHUNK_SIZE, subscribeCashboxScopedCollection } from './nightclubFinancialSubscriptions'
 import { settleNightclubPendingRoundThroughGateway } from './nightclubGateway'
+import { normalizeNightclubCashMovement } from '../domain/nightclubCashMovements'
 
 const generateOpId = () => `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
@@ -432,17 +433,7 @@ export class TenantNightclubRepository implements NightclubRepository {
       if (!ctx || !active) return
       const cashRef = collection(ctx.db, 'tenants', this.tenantId, 'nightclubCashMovements')
       if (financialReadScope.kind === 'unresolved' || (financialReadScope.kind === 'restricted' && !financialReadScope.cashboxIds.length)) { listener([]); return }
-      const mapMovement = (id: string, data: Record<string, unknown>): NightclubCashMovement => ({
-        id,
-        shiftId,
-        type: (data.type as 'income' | 'expense') || 'income',
-        method: (data.method as 'cash' | 'qr' | 'card') || 'cash',
-        amount: (data.amount as number) || 0,
-        description: (data.description as string) || `Movimiento ${id}`,
-        at: (data.createdAt as string) || new Date().toISOString(),
-        actor: (data.actorUid as string) || 'Caja',
-        category: data.category as NightclubCashMovement['category'],
-      })
+      const mapMovement = (id: string, data: Record<string, unknown>): NightclubCashMovement => normalizeNightclubCashMovement(id, shiftId, data)
       if (financialReadScope.kind === 'restricted') {
         unsub = subscribeCashboxScopedCollection({ db: ctx.db, path: ['tenants', this.tenantId, 'nightclubCashMovements'], branchId: this.branchId, cashboxIds: financialReadScope.cashboxIds, constraints: [where('shiftId', '==', shiftId)], mapDocument: mapMovement, listener: rows => { if (active) listener(rows) }, onError })
         return
@@ -451,19 +442,7 @@ export class TenantNightclubRepository implements NightclubRepository {
         query(cashRef, where('branchId', '==', this.branchId), where('shiftId', '==', shiftId)),
         snap => {
           if (!active) return
-          const list = snap.docs.map(d => {
-            const data = d.data() as Record<string, unknown>
-            return {
-              id: d.id,
-              shiftId,
-              type: (data.type as 'income' | 'expense') || 'income',
-              method: (data.method as 'cash' | 'qr' | 'card') || 'cash',
-              amount: (data.amount as number) || 0,
-              description: (data.description as string) || `Movimiento ${d.id}`,
-              at: (data.createdAt as string) || new Date().toISOString(),
-              actor: (data.actorUid as string) || 'Caja',
-            }
-          })
+          const list = snap.docs.map(d => normalizeNightclubCashMovement(d.id, shiftId, d.data() as Record<string, unknown>))
           listener(list)
         },
         err => onError?.(err)
@@ -518,16 +497,7 @@ export class TenantNightclubRepository implements NightclubRepository {
     const movements = new Map<string, NightclubCashMovement>()
     for (const d of snapshots.flatMap(snapshot => snapshot.docs)) {
       const data = d.data() as Record<string, unknown>
-      movements.set(d.id, {
-        id: d.id,
-        shiftId,
-        type: (data.type as 'income' | 'expense') || 'income',
-        method: (data.method as 'cash' | 'qr' | 'card') || 'cash',
-        amount: (data.amount as number) || 0,
-        description: (data.description as string) || `Movimiento ${d.id}`,
-        at: (data.createdAt as string) || new Date().toISOString(),
-        actor: (data.actorUid as string) || 'Caja',
-      })
+      movements.set(d.id, normalizeNightclubCashMovement(d.id, shiftId, data))
     }
     return [...movements.values()]
   }

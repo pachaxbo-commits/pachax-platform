@@ -15,8 +15,11 @@ async function consumeNightclubLocationStock({ tx, root, actor, branchId, operat
   for (const [draftIndex, draft] of drafts.entries()) {
     const product = products.get(draft.productId)
     if (!product) fail('Producto no disponible.')
+    if (product.branchId !== branchId) fail('El producto no pertenece a esta sucursal.')
+    if (product.inventoryMode === 'none') continue
     if (product.bottlePresentation) {
       const presentation = product.bottlePresentation
+      if (!presentation.inventoryId || !['bottle', 'pour'].includes(presentation.kind) || (presentation.kind === 'pour' && !(Number(presentation.millilitres) > 0))) fail('La presentación del producto no tiene inventario físico válido.')
       if (presentation.kind === 'pour') add(liquid, presentation.inventoryId, Number(presentation.millilitres || 0) * draft.quantity)
       else {
         add(regular, presentation.inventoryId, draft.quantity)
@@ -27,10 +30,11 @@ async function consumeNightclubLocationStock({ tx, root, actor, branchId, operat
       }
       continue
     }
-    const recipe = product.inventoryMode === 'none' ? [] : product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1, unit: 'unit' }] : []
+    const recipe = product.recipe?.length ? product.recipe : product.inventoryId ? [{ inventoryId: product.inventoryId, quantity: 1, unit: 'unit' }] : []
+    if (!recipe.length) fail('El producto requiere una receta o vínculo de inventario físico antes de venderse.')
     for (const part of recipe) {
       const quantity = Number(part.quantity) * draft.quantity * unitFactor(part.unit)
-      if (!Number.isFinite(quantity) || quantity <= 0) fail('Receta inválida.')
+      if (!part.inventoryId || !Number.isFinite(quantity) || quantity <= 0) fail('Receta inválida.')
       add(part.unit === 'ml' || part.unit === 'l' ? liquid : regular, part.inventoryId, quantity); if (!(part.unit === 'ml' || part.unit === 'l')) lineRequirements.push({ itemId: draft.id || `${operationId}_${draftIndex}`, productId: draft.productId, inventoryId: part.inventoryId, quantity, unit: part.unit || 'unit' })
     }
   }
@@ -41,13 +45,14 @@ async function consumeNightclubLocationStock({ tx, root, actor, branchId, operat
     const [balance, lots, inventory, opens] = await Promise.all([
       tx.get(root.collection('nightclubInventoryBalances').doc(`${locationId}:${inventoryId}`)),
       tx.get(root.collection('nightclubInventoryLots').where('locationId', '==', locationId).where('inventoryId', '==', inventoryId).where('status', '==', 'available')),
-      liquid.has(inventoryId) ? tx.get(root.collection('nightclubInventory').doc(inventoryId)) : Promise.resolve(null),
+      tx.get(root.collection('nightclubInventory').doc(inventoryId)),
       liquid.has(inventoryId) ? tx.get(root.collection('nightclubOpenBottles').where('locationId', '==', locationId).where('inventoryId', '==', inventoryId).where('status', '==', 'open')) : Promise.resolve(null),
     ])
-    if (!balance.exists) fail('Stock insuficiente en la caja asignada.')
+    if (!balance.exists || balance.data().branchId !== branchId || balance.data().locationId !== locationId || balance.data().inventoryId !== inventoryId) fail('No existe stock físico válido para este producto en la ubicación de venta.')
+    if (!inventory.exists || inventory.data().branchId !== branchId) fail('El insumo no pertenece a esta sucursal.')
     balances.set(inventoryId, balance)
-    lotsByInventory.set(inventoryId, lots.docs.filter(doc => Number(doc.data().remainingQuantity || 0) > 0).sort((a, b) => String(a.data().receivedAt).localeCompare(String(b.data().receivedAt)) || a.id.localeCompare(b.id)))
-    if (inventory) inventoryById.set(inventoryId, inventory)
+    lotsByInventory.set(inventoryId, lots.docs.filter(doc => doc.data().branchId === branchId && doc.data().locationId === locationId && doc.data().inventoryId === inventoryId && Number(doc.data().remainingQuantity || 0) > 0).sort((a, b) => String(a.data().receivedAt).localeCompare(String(b.data().receivedAt)) || a.id.localeCompare(b.id)))
+    inventoryById.set(inventoryId, inventory)
     if (opens) openByInventory.set(inventoryId, opens.docs.sort((a, b) => String(a.data().openedAt).localeCompare(String(b.data().openedAt)) || a.id.localeCompare(b.id)))
   }
   const lotChanges = new Map(), balanceChanges = new Map(), openChanges = [], opened = [], movements = []
