@@ -721,7 +721,7 @@ export async function deleteTenantMember(
 
 export function subscribeCashMovements(
   tenantId: string,
-  _branchId: string,
+  branchId: string,
   shiftId: string,
   onNext: (movements: CashMovement[]) => void,
   onError?: (err: Error) => void
@@ -734,6 +734,7 @@ export function subscribeCashMovements(
     const col = collection(ctx.db, 'tenants', tenantId, 'restaurantCashMovements')
     const q = query(
       col,
+      where('branchId', '==', branchId),
       where('shiftId', '==', shiftId)
     )
     unsub = onSnapshot(

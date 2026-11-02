@@ -2193,8 +2193,73 @@ try {
   await call('cashier_user', 'closeShift', 'op-close-sm-suite', { countedCash: 332 })
   console.log('PASS Invariantes relacionales de requestBill y reopenBill comprobadas exitosamente.')
 
+  // 58. Hamburger permite cobrar con punto de entrega textual como mesa referencial.
+  console.log('58. Checkout Hamburger con punto de entrega textual y escritura atómica...')
+  for (const ingredientId of ['ing_pan', 'ing_carne', 'ing_queso']) {
+    await hambRoot.collection('products').doc(ingredientId).update({ stockBase: 10 })
+  }
+  const beforeRejectedReference = await hambRoot.collection('restaurantOrders').doc('ord_hamb_missing_reference').get()
+  await assert.rejects(
+    () => hambCall('hamb_cashier', 'addOrder', 'hamb-missing-reference', {
+      order: {
+        id: 'ord_hamb_missing_reference',
+        fulfillmentType: 'table',
+        referenceOnly: true,
+        paymentStatus: 'paid',
+        paymentMethod: 'cash',
+        payment: { method: 'cash', cashReceived: 35 },
+        items: [{ productId: 'prod_burger_clasica', quantity: 1 }],
+      },
+    }),
+    error => error.code === 'invalid-argument' && error.message.includes('punto de entrega'),
+    'Punto referencial vacío debe rechazarse antes de escribir',
+  )
+  assert.equal(beforeRejectedReference.exists, false)
+  assert.equal((await hambRoot.collection('restaurantPayments').doc('payment_hamb-missing-reference').get()).exists, false)
+
+  const freeformOrderInput = {
+    id: 'ord_hamb_freeform_checkout',
+    fulfillmentType: 'table',
+    tableInfo: 'Mostrador QA',
+    referenceOnly: true,
+    isReferenceTable: true,
+    paymentStatus: 'paid',
+    paymentMethod: 'cash',
+    payment: { method: 'cash', cashReceived: 40 },
+    items: [{ productId: 'prod_burger_clasica', quantity: 1 }],
+  }
+  const freeformOrder = await hambCall('hamb_cashier', 'addOrder', 'hamb-freeform-checkout', { order: freeformOrderInput })
+  assert.equal(freeformOrder.orderId, freeformOrderInput.id)
+  assert.equal(freeformOrder.total, 35)
+  const [freeformOrderDoc, freeformPaymentDoc, freeformCashDoc, freeformInventoryMovements] = await Promise.all([
+    hambRoot.collection('restaurantOrders').doc(freeformOrderInput.id).get(),
+    hambRoot.collection('restaurantPayments').doc('payment_hamb-freeform-checkout').get(),
+    hambRoot.collection('restaurantCashMovements').doc('cash_hamb-freeform-checkout').get(),
+    hambRoot.collection('restaurantInventoryMovements').where('orderId', '==', freeformOrderInput.id).get(),
+  ])
+  assert.equal(freeformOrderDoc.data().paymentStatus, 'paid')
+  assert.equal(freeformOrderDoc.data().tableId, null)
+  assert.equal(freeformOrderDoc.data().tableInfo, 'Mostrador QA')
+  assert.equal(freeformOrderDoc.data().isReferenceTable, true)
+  assert.equal(freeformPaymentDoc.data().amount, 35)
+  assert.equal(freeformPaymentDoc.data().change, 5)
+  assert.equal(freeformCashDoc.data().type, 'sale')
+  assert.equal(freeformCashDoc.data().amount, 35)
+  assert.equal(freeformInventoryMovements.size, 3)
+  for (const ingredientId of ['ing_pan', 'ing_carne', 'ing_queso']) {
+    assert.equal((await hambRoot.collection('products').doc(ingredientId).get()).data().stockBase, 9)
+  }
+
+  const retriedFreeformOrder = await hambCall('hamb_cashier', 'addOrder', 'hamb-freeform-checkout', { order: freeformOrderInput })
+  assert.equal(retriedFreeformOrder.orderId, freeformOrderInput.id)
+  assert.equal((await hambRoot.collection('restaurantOrders').where('id', '==', freeformOrderInput.id).get()).size, 1)
+  assert.equal((await hambRoot.collection('restaurantPayments').where('orderId', '==', freeformOrderInput.id).get()).size, 1)
+  assert.equal((await hambRoot.collection('restaurantCashMovements').where('orderId', '==', freeformOrderInput.id).get()).size, 1)
+  assert.equal((await hambRoot.collection('restaurantInventoryMovements').where('orderId', '==', freeformOrderInput.id).get()).size, 3)
+  console.log('PASS Punto vacío rechazado; cobro textual persistió una vez en pedido, pago, caja e inventario; reintento idempotente.')
+
   console.log('\n==================================================')
-  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (57/57)')
+  console.log('TODAS LAS PRUEBAS DE OPERACIONES RESTAURANTE PASARON (58/58)')
   console.log('==================================================\n')
   process.exit(0)
 } catch (error) {

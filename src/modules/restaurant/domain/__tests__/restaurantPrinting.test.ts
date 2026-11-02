@@ -211,6 +211,13 @@ test('aislamiento tenant A/B en almacenamiento de impresoras', () => {
   // Ninguna impresora de Alfa aparece en Beta ni viceversa
   assert.ok(!alfaPrinters.some((p) => p.name === 'Cocina Beta'))
   assert.ok(!betaPrinters.some((p) => p.name === 'Cocina Alfa'))
+  assert.deepEqual(loadPrinterProfiles('tenant-alfa', 'main').map(printer => printer.id), ['printer-kitchen-a'], 'Los perfiles del mismo navegador sobreviven a una nueva lectura')
+
+  const branchPrinter = { ...profileTenantA, id: 'printer-kitchen-branch-a', branchId: 'branch-a', name: 'Cocina Sucursal A' }
+  savePrinterProfile(branchPrinter, 'tenant-alfa', 'branch-a')
+  assert.deepEqual(loadPrinterProfiles('tenant-alfa', 'branch-a').map(printer => printer.id), ['printer-kitchen-branch-a'])
+  assert.deepEqual(loadPrinterProfiles('tenant-alfa', 'branch-b'), [])
+  assert.deepEqual(loadPrinterProfiles('tenant-alfa', 'branch-a').map(printer => printer.id), ['printer-kitchen-branch-a'], 'Perfil permanece disponible tras una nueva lectura del almacenamiento')
 
   // Eliminar en Alfa no afecta a Beta
   deletePrinterProfile('printer-kitchen-a', 'tenant-alfa', 'main')

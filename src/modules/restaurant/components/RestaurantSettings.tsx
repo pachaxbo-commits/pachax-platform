@@ -18,6 +18,7 @@ export function RestaurantSettings({
   businessIdentity,
   onSaveBusinessIdentity,
   onUploadLogo,
+  onOpenPrinters,
   canManage = true,
 }: {
   onResetDemo?: () => void
@@ -30,6 +31,7 @@ export function RestaurantSettings({
   businessIdentity?: BusinessIdentity
   onSaveBusinessIdentity?: (identity: BusinessIdentity) => Promise<void> | void
   onUploadLogo?: (file: File) => Promise<string>
+  onOpenPrinters?: () => void
   canManage?: boolean
 }) {
   const [draft, setDraft] = useState<RestaurantThemeColors>(themeColors)
@@ -82,6 +84,11 @@ export function RestaurantSettings({
         onUploadLogo={onUploadLogo}
       />
       </div>
+
+      {onOpenPrinters && canManage && <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div><h2 className="text-sm font-bold text-slate-900">Impresoras y dispositivos</h2><p className="mt-1 text-xs text-slate-600">Configura tickets y comandas para esta empresa y sucursal en este dispositivo.</p></div>
+        <button type="button" onClick={onOpenPrinters} className="min-h-10 shrink-0 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50">Configurar impresoras</button>
+      </section>}
 
       {isCounterService && onFloorAction && (
         <div className="restaurant-settings-panel space-y-4">

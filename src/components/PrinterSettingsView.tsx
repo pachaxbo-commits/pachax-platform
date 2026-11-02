@@ -1,5 +1,5 @@
 import { getFirebaseRestaurantId } from '../lib/firebase'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   Printer,
   Plus,
@@ -30,6 +30,8 @@ export interface PrinterSettingsViewProps {
   accentColor?: string
   theme?: string
   canManage?: boolean
+  canTestPrint?: boolean
+  showAutomaticOptions?: boolean
   allowedRoles?: Array<'receipt' | 'kitchen' | 'bar'>
   companyName?: string
   businessIdentity?: import('../core/businessIdentity').BusinessIdentity
@@ -43,6 +45,8 @@ export function PrinterSettingsView({
   branchId = 'main',
   accentColor,
   canManage = true,
+  canTestPrint = true,
+  showAutomaticOptions = true,
   allowedRoles,
   companyName,
   businessIdentity,
@@ -54,9 +58,16 @@ export function PrinterSettingsView({
 
   const effectiveTenantId = tenantId || getFirebaseRestaurantId() || 'principal'
   const effectiveBranchId = branchId || 'main'
+  const profileScope = `${effectiveTenantId}:${effectiveBranchId}`
 
   const [engineVersion, setEngineVersion] = useState<PrintingEngineVersion>(migration.getEngineVersion())
-  const [profiles, setProfiles] = useState<PrinterProfile[]>([])
+  const [profileState, setProfileState] = useState(() => ({
+    scope: profileScope,
+    profiles: engine.listPrinterProfiles(effectiveTenantId, effectiveBranchId),
+  }))
+  const profiles = profileState.scope === profileScope
+    ? profileState.profiles
+    : engine.listPrinterProfiles(effectiveTenantId, effectiveBranchId)
   const [isEditingModalOpen, setIsEditingModalOpen] = useState(false)
   const [editingProfile, setEditingProfile] = useState<Partial<PrinterProfile> | null>(null)
 
@@ -65,13 +76,9 @@ export function PrinterSettingsView({
   const [testResult, setTestResult] = useState<string | null>(null)
   const [isTesting, setIsTesting] = useState(false)
 
-  useEffect(() => {
-    loadProfiles()
-  }, [effectiveTenantId, effectiveBranchId])
-
   const loadProfiles = () => {
     const activeProfiles = engine.listPrinterProfiles(effectiveTenantId, effectiveBranchId)
-    setProfiles(activeProfiles)
+    setProfileState({ scope: profileScope, profiles: activeProfiles })
   }
 
   const handleToggleEngineVersion = (version: PrintingEngineVersion) => {
@@ -89,13 +96,13 @@ export function PrinterSettingsView({
       branchId: effectiveBranchId,
       name: defaultRole === 'bar' ? 'Impresora Barra' : 'Impresora Principal',
       role: defaultRole,
-      connectionType: typeof window !== 'undefined' && (window as any).Capacitor ? 'network_tcp' : 'browser_dialog',
+      connectionType: typeof window !== 'undefined' && 'Capacitor' in window ? 'network_tcp' : 'browser_dialog',
       paperWidth: '80mm',
       ipAddress: '192.168.1.150',
       port: 9100,
       copies: 1,
-      autoPrintOnOrderCreated: true,
-      autoPrintOnOrderPaid: true,
+      autoPrintOnOrderCreated: showAutomaticOptions,
+      autoPrintOnOrderPaid: showAutomaticOptions,
       kickDrawerOnPrint: true,
       isActive: true,
       capabilities: {
@@ -135,6 +142,7 @@ export function PrinterSettingsView({
       ...editingProfile,
       restaurantId: effectiveTenantId,
       branchId: effectiveBranchId,
+      ...(showAutomaticOptions ? {} : { autoPrintOnOrderCreated: false, autoPrintOnOrderPaid: false }),
     } as PrinterProfile
 
     savePrinterProfile(toSave, effectiveTenantId, effectiveBranchId)
@@ -197,6 +205,10 @@ export function PrinterSettingsView({
   }
 
   const handleTestPrint = async (profile: PrinterProfile) => {
+    if (!canTestPrint) {
+      setTestError('La prueba de impresión requiere la capacidad printing.manual.')
+      return
+    }
     setIsTesting(true)
     setStatusMessage(null)
     setTestError(null)
@@ -261,11 +273,12 @@ export function PrinterSettingsView({
     }
   }
 
-  const availableRoles: Array<{ id: 'receipt' | 'kitchen' | 'bar'; label: string }> = [
+  const printerRoles: Array<{ id: 'receipt' | 'kitchen' | 'bar'; label: string }> = [
     { id: 'receipt', label: 'Recibos / Caja' },
     { id: 'bar', label: 'Barra' },
     { id: 'kitchen', label: 'Comanda Cocina' },
-  ].filter((r) => !allowedRoles || allowedRoles.includes(r.id as any)) as any
+  ]
+  const availableRoles = allowedRoles ? printerRoles.filter(role => allowedRoles.includes(role.id)) : printerRoles
 
   return (
     <div className="space-y-4 bg-slate-50 min-h-screen pb-12">
@@ -438,14 +451,15 @@ export function PrinterSettingsView({
                       <div>Dispositivo MAC: <strong>{p.macAddress || 'Dispositivo vinculado'}</strong></div>
                     )}
                     <div>
-                      Auto-impresión: {p.autoPrintOnOrderCreated ? 'SÍ' : 'NO'} | Gaveta: {p.kickDrawerOnPrint ? 'SÍ' : 'NO'}
+                      {showAutomaticOptions ? <>Auto-impresión: {p.autoPrintOnOrderCreated ? 'SÍ' : 'NO'} | </> : 'Modo manual | '}
+                      Gaveta: {p.kickDrawerOnPrint ? 'SÍ' : 'NO'}
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
                     <button
                       type="button"
-                      disabled={isTesting}
+                      disabled={isTesting || !canTestPrint}
                       onClick={() => handleTestPrint(p)}
                       className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
                     >
@@ -475,6 +489,8 @@ export function PrinterSettingsView({
             })}
           </div>
         )}
+
+        {!canTestPrint && <p role="status" className="text-xs text-amber-800">La prueba de impresión requiere la capacidad `printing.manual`; la edición del perfil local sigue disponible.</p>}
 
         {/* Modal de Configuración / Vinculación */}
         {isEditingModalOpen && editingProfile && (
@@ -530,7 +546,7 @@ export function PrinterSettingsView({
                     <label className="font-bold text-slate-700 block mb-1">Uso / Rol:</label>
                     <select
                       value={editingProfile.role}
-                      onChange={(e) => setEditingProfile((p) => ({ ...p, role: e.target.value as any }))}
+                      onChange={(e) => setEditingProfile((p) => ({ ...p, role: e.target.value as PrinterProfile['role'] }))}
                       className="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 text-slate-800 font-semibold focus:outline-none"
                     >
                       {availableRoles.map((r) => (
@@ -592,15 +608,15 @@ export function PrinterSettingsView({
                   </div>
 
                   <div className="flex flex-col justify-end space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={editingProfile.autoPrintOnOrderCreated || false}
-                        onChange={(e) => setEditingProfile((p) => ({ ...p, autoPrintOnOrderCreated: e.target.checked }))}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
-                      />
+                    {showAutomaticOptions && <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
+                      <input type="checkbox" checked={editingProfile.autoPrintOnOrderCreated || false} onChange={(e) => setEditingProfile((p) => ({ ...p, autoPrintOnOrderCreated: e.target.checked }))} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4" />
                       Imprimir automáticamente al crear pedido
-                    </label>
+                    </label>}
+                    {showAutomaticOptions && <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
+                      <input type="checkbox" checked={editingProfile.autoPrintOnOrderPaid || false} onChange={(e) => setEditingProfile((p) => ({ ...p, autoPrintOnOrderPaid: e.target.checked }))} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4" />
+                      Imprimir automáticamente al confirmar pago
+                    </label>}
+                    {!showAutomaticOptions && <p className="text-xs text-slate-600">La plantilla usa impresión manual. No hay impresión automática de tickets configurada.</p>}
                     <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
                       <input
                         type="checkbox"

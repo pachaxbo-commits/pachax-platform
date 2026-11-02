@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Boxes, ChartNoAxesCombined, LoaderCircle, PackagePlus, RefreshCw, ShoppingCart, Users, Wallet } from 'lucide-react'
+import { Boxes, Building2, ChartNoAxesCombined, LoaderCircle, PackagePlus, RefreshCw, ShoppingCart, Users, Wallet } from 'lucide-react'
 import { authorizeReportAction, createRetailMember, loadRetailReportPage, loadRetailState, runRetailCommand, subscribeRetailMembers, updateRetailMember, type RetailReportPage, type RetailTenantMember, type RetailTenantProduct, type RetailTenantSale, type RetailTenantState } from '../data/retailRepository'
 import type { BusinessIdentity } from '../../../core/businessIdentity'
 import { resolveBusinessDocumentContext } from '../../../core/documents/businessDocumentContext'
 import { type CanonicalReceiptData } from '../../../core/receiptService'
 import { CanonicalReceiptModal } from '../../../components/receipt/CanonicalReceiptModal'
+import { BusinessIdentitySettings } from '../../../components/settings/BusinessIdentitySettings'
+import { PrinterSettingsView } from '../../../components/PrinterSettingsView'
 import { printBusinessReceipt } from '../../../services/printing/businessDocumentPrintService'
+import { initializePrinting } from '../../../services/printing/printerBootstrap'
+import { updateTenantBusinessIdentity, uploadTenantLogoToFirebase } from '../../../lib/firebase'
 import { localDateKey, reportPeriodUtcRange } from '../../../core/reports/reportPeriod'
 import { canUseReportCapability } from '../../../core/reports/reportCapabilities'
 import { exportBusinessReport } from '../../../core/reports/reportExport'
@@ -16,7 +20,7 @@ import { reportPaginationIsComplete } from '../../../core/reports/reportComplete
 import { canUseDocumentCapability } from '../../../core/documents/documentCapabilities'
 import { getActiveTenant } from '../../../store/activeTenant'
 
-type Section = 'pos' | 'products' | 'inventory' | 'cash' | 'reports' | 'users'
+type Section = 'pos' | 'products' | 'inventory' | 'cash' | 'reports' | 'users' | 'settings'
 type CartLine = { productId: string; quantity: number }
 type RetailReceiptDraft = {
   method: 'cash' | 'qr' | 'mixed'
@@ -44,6 +48,7 @@ const roleAllows = (role: string, section: Section) => ({
   cash: ['owner', 'admin', 'cashier'].includes(role),
   reports: ['owner', 'admin'].includes(role),
   users: ['owner', 'admin'].includes(role),
+  settings: ['owner', 'admin'].includes(role),
 }[section])
 
 export interface QuickRetailExperienceProps {
@@ -58,8 +63,9 @@ export interface QuickRetailExperienceProps {
   branchName?: string
 }
 
-export function QuickRetailExperience({ tenantId, branchId, uid, userName, role, companyName, businessIdentity, logoUrl, branchName = 'Sucursal principal' }: QuickRetailExperienceProps) {
+export function QuickRetailExperience({ tenantId, branchId, uid, userName, role, companyName, businessIdentity, logoUrl, branchName = branchId === 'main' ? 'Sucursal principal' : branchId }: QuickRetailExperienceProps) {
   const [section, setSection] = useState<Section>('pos')
+  const [identityOverride, setIdentityOverride] = useState<BusinessIdentity | undefined>(undefined)
   const [state, setState] = useState<RetailTenantState>(EMPTY_STATE)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -90,6 +96,11 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
   const [movement, setMovement] = useState({ type: 'expense' as 'income' | 'expense', amount: '', reason: '' })
   const [countedCash, setCountedCash] = useState('')
   const timeZone = getActiveTenant()?.tenant.configuration?.timezone || 'America/La_Paz'
+  const activeTenantContext = getActiveTenant()
+  const canManageSettings = activeTenantContext?.tenantId === tenantId
+    && activeTenantContext.branchId === branchId
+    && activeTenantContext.permissions.includes('settings.manage')
+  const effectiveIdentity = identityOverride || businessIdentity
   const [reportStartDate, setReportStartDate] = useState(() => localDateKey(new Date(), timeZone))
   const [reportEndDate, setReportEndDate] = useState(() => localDateKey(new Date(), timeZone))
   const [reportSales, setReportSales] = useState<RetailTenantSale[]>([])
@@ -100,7 +111,12 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
   const [reportPageCount, setReportPageCount] = useState(0)
   const [reportLoadedPeriod, setReportLoadedPeriod] = useState('')
   const reportPeriod = `${reportStartDate}/${reportEndDate}/${timeZone}`
-  const documentContext = useMemo(() => resolveBusinessDocumentContext(businessIdentity, { name: branchName }, { companyName, logoUrl }), [businessIdentity, branchName, companyName, logoUrl])
+  const documentContext = useMemo(() => resolveBusinessDocumentContext(effectiveIdentity, { name: branchName }, { companyName, logoUrl }), [effectiveIdentity, branchName, companyName, logoUrl])
+
+  useEffect(() => {
+    initializePrinting(tenantId, branchId)
+  }, [tenantId, branchId])
+
   const receiptData: CanonicalReceiptData | null = useMemo(() => lastReceipt ? {
     receiptNumber: lastReceipt.saleId.slice(-8).toUpperCase(),
     dateIso: lastReceipt.printedAt,
@@ -201,6 +217,17 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
     finally { setSaving(false) }
   }
   const canPrintReport = canUseDocumentCapability(getActiveTenant()?.tenant, 'printing.manual')
+
+  const saveBusinessIdentity = async (identity: BusinessIdentity) => {
+    if (!canManageSettings) throw new Error('Se requiere el permiso settings.manage para modificar la identidad empresarial.')
+    await updateTenantBusinessIdentity(tenantId, identity)
+    setIdentityOverride(identity)
+  }
+
+  const printReceipt = async (options?: { isCopy?: boolean }) => {
+    await authorizeReportAction(tenantId, branchId, 'printing.manual')
+    return printBusinessReceipt({ tenantId, branchId, sourceId: String(lastReceipt?.saleId), receipt: receiptData!, identity: documentContext, isCopy: options?.isCopy })
+  }
 
   useEffect(() => {
     if (!roleAllows(role, 'users')) return
@@ -357,14 +384,15 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
     { id: 'pos', label: 'Venta', icon: ShoppingCart }, { id: 'products', label: 'Productos', icon: PackagePlus },
     { id: 'inventory', label: 'Inventario', icon: Boxes }, { id: 'cash', label: 'Caja', icon: Wallet },
     { id: 'reports', label: 'Reportes', icon: ChartNoAxesCombined }, { id: 'users', label: 'Usuarios', icon: Users },
+    { id: 'settings', label: 'Configuración', icon: Building2 },
   ]
-  const visibleTabs = tabs.filter(tab => roleAllows(role, tab.id))
+  const visibleTabs = tabs.filter(tab => tab.id === 'settings' ? canManageSettings : roleAllows(role, tab.id))
   const activeSection = visibleTabs.some(tab => tab.id === section) ? section : visibleTabs[0]?.id || 'pos'
 
   return <main className="min-h-screen bg-slate-50 px-3 py-4 sm:px-6 sm:py-6">
     <div className="mx-auto max-w-7xl space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-4 shadow-xs sm:p-5">
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Comercio / Venta rápida</p><h1 className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">{companyName}</h1><p className="mt-1 text-sm text-slate-600">{userName} · {role} · Sucursal principal</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Comercio / Venta rápida</p><h1 className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">{effectiveIdentity?.tradeName || companyName}</h1><p className="mt-1 text-sm text-slate-600">{userName} · {role} · {branchName}</p></div>
         <button type="button" onClick={() => void refresh()} disabled={loading || saving} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} />Actualizar</button>
       </header>
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}{retry && <button type="button" onClick={() => void retryLast()} disabled={saving} className="ml-2 font-bold underline">Reintentar operación</button>}</div>}
@@ -470,6 +498,30 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
             </li>)}</ul> : <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Todavía no hay usuarios adicionales.</p>}
           </div>
         </section>}
+        {activeSection === 'settings' && canManageSettings && <section className="space-y-5">
+          <header><h2 className="text-xl font-bold text-slate-900">Configuración de la empresa</h2><p className="mt-1 text-sm text-slate-600">Identidad y comprobantes del negocio; la configuración de impresora se guarda localmente en este navegador y sucursal.</p></header>
+          <BusinessIdentitySettings
+            key={`${tenantId}:${branchId}`}
+            initialIdentity={effectiveIdentity}
+            canManage={canManageSettings}
+            onSaveIdentity={saveBusinessIdentity}
+            onUploadLogo={(file) => uploadTenantLogoToFirebase(file, tenantId)}
+          />
+          <section className="overflow-hidden rounded-2xl border bg-white">
+            <div className="border-b px-4 py-3 sm:px-5"><h3 className="font-bold text-slate-900">Impresora de tickets</h3><p className="mt-1 text-xs text-slate-600">Recibos manuales y prueba lógica. No se habilita impresión automática para Comercio. La salida usa una copia; solicita otra con «Reimprimir copia».</p></div>
+            <PrinterSettingsView
+              tenantId={tenantId}
+              branchId={branchId}
+              canManage={canManageSettings}
+              canTestPrint={canUseDocumentCapability(getActiveTenant()?.tenant, 'printing.manual')}
+              showAutomaticOptions={false}
+              allowedRoles={['receipt']}
+              companyName={documentContext.companyName}
+              businessIdentity={effectiveIdentity}
+              documentContext={documentContext}
+            />
+          </section>
+        </section>}
       </>}
     </div>
     {receiptData && <CanonicalReceiptModal
@@ -477,7 +529,7 @@ export function QuickRetailExperience({ tenantId, branchId, uid, userName, role,
       onClose={() => setReceiptOpen(false)}
       documentContext={documentContext}
       receiptData={receiptData}
-      onPrint={(options) => printBusinessReceipt({ tenantId, branchId, sourceId: String(lastReceipt?.saleId), receipt: receiptData, identity: documentContext, isCopy: options?.isCopy })}
+      onPrint={printReceipt}
     />}
   </main>
 }
