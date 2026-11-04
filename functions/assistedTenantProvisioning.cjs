@@ -6,7 +6,7 @@ const { PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } = require('./generat
 const { catalogForTenant, distributionProfile } = require('./distributionCatalog.cjs');
 const { readNightclubBaseInfrastructure, assertNightclubBaseInfrastructureState, createNightclubBaseInfrastructure } = require('./nightclubInfrastructure.cjs');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
-const { billingAccessUntil: billingAccessUntilMillis } = require('./billingPolicy.cjs');
+const { billingAccessUntil: billingAccessUntilMillis, addBillingPeriods, billingAnchorDay } = require('./billingPolicy.cjs');
 const { initialUsage, normalizeCapabilitiesV1 } = require('./commercialCapabilities.cjs');
 
 async function ownerPlatformActor(db, request) {
@@ -396,15 +396,18 @@ async function activateProvisionedTenant(db, actor, operation, reservation) {
     if (billingContractRef) {
       const cycle = billingContract.data().terms.billingCycle;
       const start = new Date();
-      const end = new Date(start);
-      end.setUTCMonth(end.getUTCMonth() + (cycle === 'annual' ? 12 : 1));
+      const periodCount = Number(billingContract.data().terms.periodCount) || 1;
+      const anchorDay = billingAnchorDay(start);
+      const end = addBillingPeriods(start, cycle, periodCount, anchorDay);
       const periodEnd = Timestamp.fromDate(end);
       const billingAccessUntil = Timestamp.fromMillis(billingAccessUntilMillis(periodEnd.toMillis()));
       Object.assign(activeFields, { subscriptionStatus: 'active', billingEnforcement: true, planKey: billingContract.data().terms.plan?.planId || null, billingAccessUntil });
       tx.update(billingContractRef, { status: 'active', activatedAt: now, updatedAt: now });
       tx.update(subscriptionRef, {
         status: 'active', tenantId: operation.tenantId, currentPeriodStart: Timestamp.fromDate(start),
-        currentPeriodEnd: periodEnd, nextRenewalAt: periodEnd, billingAccessUntil, activatedAt: now, updatedAt: now,
+        currentPeriodEnd: periodEnd, nextRenewalAt: periodEnd, billingAccessUntil,
+        periodCount, monthsCovered: Number(billingContract.data().terms.monthsCovered) || (cycle === 'annual' ? periodCount * 12 : periodCount),
+        billingAnchorDay: anchorDay, activatedAt: now, updatedAt: now,
       });
     }
     tx.update(root, activeFields);

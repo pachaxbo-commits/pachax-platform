@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { initializeTestEnvironment, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, getDoc } = require('firebase/firestore');
+const { doc, getDoc, setDoc } = require('firebase/firestore');
 
 const projectId = process.env.GCLOUD_PROJECT || '';
 if (!projectId.startsWith('demo-')) throw new Error('Billing tests may only run against a demo Firebase project.');
@@ -12,6 +12,7 @@ const { initializeApp, deleteApp } = require('firebase-admin/app');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const platform = require('../platform.cjs');
+const commercialBilling = require('../commercialBilling.cjs');
 const assisted = require('../assistedTenantProvisioning.cjs');
 const tenants = require('../tenants.cjs');
 const { hasPermission, hasTenantBillingAccess, tenantActor } = require('../authorization.cjs');
@@ -39,6 +40,9 @@ const createdPaths = [];
 const createdAuthUids = [];
 let rulesEnv;
 let passed = 0;
+let originalMethodsLoaded = false;
+let originalMethodsExisted = false;
+let originalMethods = null;
 const pass = label => { passed += 1; console.log(`PASS ${label}`); };
 const request = (uid, data) => ({ auth: { uid, token: { platform: true } }, data });
 const platformCall = (uid, data) => platform.platformGateway(db, request(uid, data));
@@ -118,6 +122,11 @@ async function cleanup() {
     await db.doc(`platformOperators/${uid}`).delete().catch(() => undefined);
     await auth.deleteUser(uid).catch(() => undefined);
   }
+  if (originalMethodsLoaded) {
+    const methodsRef = db.doc('platformBillingConfig/manualMethods');
+    if (originalMethodsExisted) await methodsRef.set(originalMethods).catch(() => undefined);
+    else await methodsRef.delete().catch(() => undefined);
+  }
   const auditRows = await db.collection('platformAuditLogs').where('operatorUid', '==', ownerUid).get().catch(() => ({ docs: [] }));
   await Promise.all(auditRows.docs.map(item => item.ref.delete().catch(() => undefined)));
   await deleteApp(app).catch(() => undefined);
@@ -130,6 +139,11 @@ async function run() {
       await db.doc(`platformOperators/${uid}`).set({ uid, role, active: true });
       createdPaths.push(`platformOperators/${uid}`);
     }
+    const methodsRef = db.doc('platformBillingConfig/manualMethods');
+    const previousMethods = await methodsRef.get();
+    originalMethodsLoaded = true;
+    originalMethodsExisted = previousMethods.exists;
+    originalMethods = previousMethods.exists ? previousMethods.data() : null;
     await seedPlan(planId, 'Plan Distribución QA', 20, 200);
     await seedPlan(nextPlanId, 'Plan Distribución QA Renovación', 30, 300);
     const listedPlans = await platformCall(ownerUid, { action: 'listPublishedBillingPlans' });
@@ -473,6 +487,7 @@ async function run() {
     const monthlyOnlyQuoteInput = {
       action: 'saveCommercialQuote', requestId: opId(), intentId: monthlyOnlyLead.intentId,
       implementation: '0', monthly: '30.00', annual: '', currency: 'BOB', billingCycle: 'monthly',
+      periodCount: 3,
       discount: '0', capabilitiesV1: distributionCapabilities,
       extras: [{ id: extraId, oneTime: '0', monthly: '0', annual: '0' }, { id: extraIdTwo, oneTime: '0', monthly: '0', annual: '0' }],
     };
@@ -483,8 +498,10 @@ async function run() {
     let monthlyQuote = (await monthlyOnlyIntentRef.get()).data().quote;
     assert.equal(monthlyQuote.monthlyMinor, 3000);
     assert.equal(monthlyQuote.annualMinor, 0);
-    assert.equal(monthlyQuote.initialDueMinor, 3000);
+    assert.equal(monthlyQuote.initialDueMinor, 9000);
     assert.equal(monthlyQuote.recurringMinor, 3000);
+    assert.equal(monthlyQuote.periodCount, 3);
+    assert.equal(monthlyQuote.monthsCovered, 3);
     assert.equal(monthlyQuote.capabilitiesV1.limits.activeUsers, distributionCapabilities.limits.activeUsers + 3,
       'Extras augment explicit capabilities when the quote has no plan snapshot.')
     assert.equal(monthlyQuote.capabilitiesV1.limits.activeProducts, distributionCapabilities.limits.activeProducts + 2)
@@ -502,14 +519,35 @@ async function run() {
     const monthlyContract = (await db.doc(`platformContracts/${monthlyOnlyContract.contractId}`).get()).data();
     assert.equal(monthlyContract.terms.plan, null);
     assert.equal(monthlyContract.terms.billingCycle, 'monthly');
+    assert.equal(monthlyContract.terms.periodCount, 3);
+    assert.equal(monthlyContract.terms.monthsCovered, 3);
     assert.equal(monthlyContract.terms.annualMinor, 0);
     assert.equal(monthlyContract.terms.capabilitiesV1.limits.activeUsers, distributionCapabilities.limits.activeUsers + 3)
     assert.equal(monthlyContract.terms.capabilitiesV1.limits.activeProducts, distributionCapabilities.limits.activeProducts + 2)
-    assert.equal(monthlyContract.terms.initialDueMinor, 3000);
+    assert.equal(monthlyContract.terms.initialDueMinor, 9000);
+    const noteRequest = { action: 'addBillingInternalNote', requestId: opId(), contractId: monthlyOnlyContract.contractId,
+      note: 'Validar datos comerciales enviados por WhatsApp antes de emitir la siguiente renovación.' };
+    const noteSaved = await platformCall(financeUid, noteRequest);
+    createdPaths.push(`platformBillingNotes/${noteSaved.noteId}`);
+    const noteReplay = await platformCall(financeUid, noteRequest);
+    assert.equal(noteReplay.noteId, noteSaved.noteId);
+    assert.equal(noteReplay.idempotent, true);
+    const listedNotes = await platformCall(ownerUid, { action: 'listBillingInternalNotes', contractId: monthlyOnlyContract.contractId, limit: 10 });
+    assert.equal(listedNotes.notes.length, 1);
+    assert.equal(listedNotes.notes[0].actorRole, 'platform_finance');
+    await assert.rejects(platformCall(supportUid, { action: 'listBillingInternalNotes', contractId: monthlyOnlyContract.contractId }), error => error.code === 'permission-denied');
+    await assert.rejects(platformCall(supportUid, { action: 'addBillingInternalNote', requestId: opId(), contractId: monthlyOnlyContract.contractId, note: 'Nota no autorizada.' }), error => error.code === 'permission-denied');
+    pass('observaciones internas son privadas, paginables, auditadas e idempotentes; Support no puede leerlas ni crearlas');
     const monthlyPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
-      chargeId: monthlyOnlyContract.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-MONTHLY-${suffix}` });
+      chargeId: monthlyOnlyContract.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-MONTHLY-${suffix}-1` });
     createdPaths.push(`platformBillingPayments/${monthlyPayment.paymentId}`);
-    const monthlyPaymentConfirmation = await platformCall(ownerUid, { action: 'confirmManualPayment', paymentId: monthlyPayment.paymentId, requestId: opId() });
+    const monthlyPartial = await platformCall(ownerUid, { action: 'confirmManualPayment', paymentId: monthlyPayment.paymentId, requestId: opId() });
+    assert.equal(monthlyPartial.status, 'partial');
+    assert.equal((await db.doc(`platformContracts/${monthlyOnlyContract.contractId}`).get()).data().status, 'pending_payment');
+    const monthlyPaymentTwo = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: monthlyOnlyContract.chargeId, amount: '60.00', method: 'bank_qr', bankReference: `QA-MONTHLY-${suffix}-2` });
+    createdPaths.push(`platformBillingPayments/${monthlyPaymentTwo.paymentId}`);
+    const monthlyPaymentConfirmation = await platformCall(ownerUid, { action: 'confirmManualPayment', paymentId: monthlyPaymentTwo.paymentId, requestId: opId() });
     assert.equal(monthlyPaymentConfirmation.status, 'confirmed');
     const monthlyProvisionInput = await prepareAssistedInput(monthlyOnlyContract.contractId, monthlyOnlyIntake.companyName,
       monthlyOnlyEmail, opId(), 'Propietario mensual QA');
@@ -521,6 +559,163 @@ async function run() {
     assert.equal(monthlyTenant.subscriptionStatus, 'active');
     assert.equal(monthlyTenant.planKey, null);
     assert.deepEqual(monthlyTenant.entitlements, {});
+    const monthlySubscription = (await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data();
+    assert.equal(monthlySubscription.monthsCovered, 3);
+    assert.equal(monthlySubscription.periodCount, 3);
+    assert(monthlySubscription.currentPeriodEnd.toMillis() > monthlySubscription.currentPeriodStart.toMillis() + 80 * 86_400_000,
+      'Three confirmed monthly periods cover at least 80 calendar days.');
+    const fakeMethods = { available: true, qrEnabled: false, transferEnabled: true, qrImageUrl: '', bankName: 'Banco QA Emulador',
+      accountHolder: 'PACHAX QA Ficticio', accountIdentifier: 'CUENTA-QA-000', instructions: 'Datos ficticios. No transferir.', whatsappNumber: '+59170000000' };
+    await assert.rejects(platformCall(adminUid, { action: 'saveManualPaymentMethods', requestId: opId(), methods: fakeMethods }), error => error.code === 'permission-denied');
+    const methodsSaved = await platformCall(ownerUid, { action: 'saveManualPaymentMethods', requestId: opId(), methods: fakeMethods });
+    assert.equal(methodsSaved.success, true);
+    const methodsRead = await platformCall(financeUid, { action: 'getManualPaymentMethods' });
+    assert.equal(methodsRead.methods.available, true);
+    assert.equal(methodsRead.methods.accountIdentifier, fakeMethods.accountIdentifier);
+    const tenantOverview = await commercialBilling.getTenantBillingOverview(db, { auth: { uid: monthlyProvision.ownerUid, token: {} },
+      data: { tenantId: monthlyProvision.tenantId } });
+    assert.equal(tenantOverview.enrolled, true);
+    assert.equal(tenantOverview.subscription.companyName, monthlyOnlyIntake.companyName);
+    assert.equal(tenantOverview.subscription.monthsCovered, 3);
+    assert.equal(tenantOverview.paymentMethods.accountIdentifier, fakeMethods.accountIdentifier);
+    await assert.rejects(() => commercialBilling.getTenantBillingOverview(db, { auth: { uid: monthlyProvision.ownerUid, token: {} },
+      data: { tenantId: provisionA.tenantId } }), error => error.code === 'permission-denied');
+    const billingEmployeeUid = `billing-employee-${suffix}`;
+    const billingEmployeeRef = db.doc(`tenants/${monthlyProvision.tenantId}/members/${billingEmployeeUid}`);
+    await billingEmployeeRef.set({ uid: billingEmployeeUid, roleId: 'cashier', status: 'active', branchIds: ['main'] });
+    createdPaths.push(billingEmployeeRef.path);
+    await assert.rejects(() => commercialBilling.getTenantBillingOverview(db, { auth: { uid: billingEmployeeUid, token: {} },
+      data: { tenantId: monthlyProvision.tenantId } }), error => error.code === 'permission-denied');
+    await assert.rejects(() => commercialBilling.recordManualPaymentReference(db, { auth: { uid: billingEmployeeUid, token: {} }, data: {
+      tenantId: monthlyProvision.tenantId, requestId: opId(), chargeId: monthlyOnlyContract.chargeId,
+      amount: '1.00', method: 'bank_transfer', bankReference: `QA-EMPLOYEE-${suffix}` } }), error => error.code === 'permission-denied');
+    pass('propietario consulta solo su facturación; empleado activo y propietario no autorizado de otra empresa quedan denegados');
+    await assert.rejects(platformCall(adminUid, { action: 'saveManualPaymentMethods', requestId: opId(), methods: { ...fakeMethods, available: false } }), error => error.code === 'permission-denied');
+    pass('métodos ficticios configurables solo por Platform Owner; Finance consulta; portal tenant restringe la empresa al propietario');
+
+    const monthlySubscriptionRef = db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`);
+    const dueEnd = Timestamp.fromMillis(Date.now() + 10 * 86_400_000);
+    await monthlySubscriptionRef.update({ currentPeriodEnd: dueEnd, nextRenewalAt: dueEnd, billingAccessUntil: Timestamp.fromMillis(dueEnd.toMillis() + 7 * 86_400_000), billingAnchorDay: 14 });
+    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(dueEnd.toMillis() + 7 * 86_400_000) });
+    const prepaidRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 2 });
+    createdPaths.push(`platformBillingCharges/${prepaidRenewal.chargeId}`);
+    const prepaidCharge = (await db.doc(`platformBillingCharges/${prepaidRenewal.chargeId}`).get()).data();
+    assert.equal(prepaidCharge.amountMinor, 6000);
+    assert.equal(prepaidCharge.periodCount, 2);
+    assert.equal(prepaidCharge.monthsCovered, 2);
+    assert(prepaidCharge.periodEnd.toMillis() > prepaidCharge.periodStart.toMillis() + 55 * 86_400_000);
+    const tenantReference = await commercialBilling.recordManualPaymentReference(db, { auth: { uid: monthlyProvision.ownerUid, token: {} }, data: {
+      tenantId: monthlyProvision.tenantId, requestId: opId(), chargeId: prepaidRenewal.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-OWNER-${suffix}-1` } });
+    createdPaths.push(`platformBillingPayments/${tenantReference.paymentId}`);
+    await assert.rejects(() => commercialBilling.recordManualPaymentReference(db, { auth: { uid: monthlyProvision.ownerUid, token: {} }, data: {
+      tenantId: monthlyProvision.tenantId, requestId: opId(), chargeId: prepaidRenewal.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-OWNER-${suffix}-1` } }), error => error.code === 'already-exists');
+    await assert.rejects(platformCall(monthlyProvision.ownerUid, { action: 'confirmManualPayment', paymentId: tenantReference.paymentId, requestId: opId() }), error => error.code === 'permission-denied');
+    const tenantPartialConfirmation = await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: tenantReference.paymentId, requestId: opId() });
+    assert.equal(tenantPartialConfirmation.status, 'partial');
+    assert.equal((await db.doc(`platformBillingCharges/${prepaidRenewal.chargeId}`).get()).data().status, 'partial');
+    const tenantReferenceTwo = await commercialBilling.recordManualPaymentReference(db, { auth: { uid: monthlyProvision.ownerUid, token: {} }, data: {
+      tenantId: monthlyProvision.tenantId, requestId: opId(), chargeId: prepaidRenewal.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-OWNER-${suffix}-2` } });
+    createdPaths.push(`platformBillingPayments/${tenantReferenceTwo.paymentId}`);
+    const confirmedPrepaid = await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: tenantReferenceTwo.paymentId, requestId: opId() });
+    assert.equal(confirmedPrepaid.status, 'confirmed');
+    const extendedSubscription = (await monthlySubscriptionRef.get()).data();
+    assert.equal(extendedSubscription.monthsCovered, 2);
+    assert(extendedSubscription.currentPeriodEnd.toMillis() > dueEnd.toMillis() + 55 * 86_400_000, 'Early payment extends from the already paid end date.');
+    pass('renovación prepagada de 2 meses, referencia duplicada rechazada, pago parcial y pago final extienden desde el vencimiento vigente');
+
+    const annualIntentResult = await platformCall(ownerUid, { action: 'createManualCommercialIntent', requestId: opId(),
+      contactName: 'Cliente anual QA', companyName: `Distribuidora Anual QA ${suffix}`, email: `annual-${suffix}@example.test`,
+      contactPhone: '+591 70000000', templateId: 'distribution', planId: null, extraIds: [], billingCycle: 'annual', needs: 'Contrato anual de prueba.' });
+    createdPaths.push(`platformCommercialIntents/${annualIntentResult.intentId}`);
+    const annualIntent = (await db.doc(`platformCommercialIntents/${annualIntentResult.intentId}`).get()).data();
+    const annualQuote = { action: 'saveCommercialQuote', requestId: opId(), intentId: annualIntentResult.intentId,
+      implementation: '0', monthly: '150.00', annual: '1500.00', currency: 'BOB', billingCycle: 'annual', periodCount: 2,
+      discount: '0', capabilitiesV1: distributionCapabilities, extras: [] };
+    await platformCall(ownerUid, annualQuote);
+    const annualQuoteRecord = (await db.doc(`platformCommercialIntents/${annualIntentResult.intentId}`).get()).data().quote;
+    assert.equal(annualQuoteRecord.recurringMinor, 150000, 'The contractual annual price is explicit and is not derived from 12 monthly payments.');
+    assert.equal(annualQuoteRecord.initialDueMinor, 300000, 'Two prepaid annual periods charge the approved annual amount twice.');
+    assert.equal(annualQuoteRecord.monthsCovered, 24);
+    await platformCall(ownerUid, { action: 'offerCommercialQuote', intentId: annualIntentResult.intentId, requestId: opId() });
+    await platformCall(ownerUid, { action: 'recordCommercialAcceptance', intentId: annualIntentResult.intentId,
+      requestId: opId(), channel: 'signed_document', reference: 'Aceptación anual QA verificada.' });
+    const annualContract = await platformCall(ownerUid, { action: 'createCommercialContract', intentId: annualIntentResult.intentId,
+      requestId: opId(), dueAt: dateAfter(7) });
+    createdPaths.push(`platformContracts/${annualContract.contractId}`, `platformBillingCharges/${annualContract.chargeId}`, `platformSubscriptions/${annualContract.contractId}`);
+    const annualPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: annualContract.chargeId, amount: '3000.00', method: 'bank_transfer', bankReference: `QA-ANNUAL-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${annualPayment.paymentId}`);
+    const concurrentConfirmations = await Promise.allSettled([
+      platformCall(ownerUid, { action: 'confirmManualPayment', paymentId: annualPayment.paymentId, requestId: opId() }),
+      platformCall(financeUid, { action: 'confirmManualPayment', paymentId: annualPayment.paymentId, requestId: opId() }),
+    ]);
+    assert.equal(concurrentConfirmations.filter(result => result.status === 'fulfilled').length, 1,
+      'Concurrent operators cannot both apply the same confirmation with separate operation IDs.');
+    assert.equal((await db.doc(`platformBillingCharges/${annualContract.chargeId}`).get()).data().paidMinor, 300000);
+    assert.equal((await db.doc(`platformContracts/${annualContract.contractId}`).get()).data().status, 'ready_for_activation');
+    const annualActivation = await assisted.createAssistedTenant(db, auth, request(ownerUid, await prepareAssistedInput(
+      annualContract.contractId, annualIntent.companyName, annualIntent.email, opId(), 'Propietario anual QA')));
+    createdAuthUids.push(annualActivation.ownerUid);
+    const annualSubscription = (await db.doc(`platformSubscriptions/${annualContract.contractId}`).get()).data();
+    assert.equal(annualSubscription.billingCycle, 'annual');
+    assert.equal(annualSubscription.periodCount, 2);
+    assert.equal(annualSubscription.monthsCovered, 24);
+    assert(annualSubscription.currentPeriodEnd.toMillis() > annualSubscription.currentPeriodStart.toMillis() + 720 * 86_400_000,
+      'The activated two-year term remains fully covered.');
+    pass('contrato anual conserva precio negociado; dos años prepagados se activan completos y la doble conciliación concurrente solo aplica una vez');
+
+    const correctionIntentResult = await platformCall(ownerUid, { action: 'createManualCommercialIntent', requestId: opId(),
+      contactName: 'Cliente corrección QA', companyName: `Cliente Corrección QA ${suffix}`, email: `correction-${suffix}@example.test`,
+      contactPhone: '+591 70000000', templateId: 'distribution', planId: null, extraIds: [], billingCycle: 'monthly', needs: 'Corrección auditada.' });
+    createdPaths.push(`platformCommercialIntents/${correctionIntentResult.intentId}`);
+    const correctionIntent = (await db.doc(`platformCommercialIntents/${correctionIntentResult.intentId}`).get()).data();
+    const correctionQuote = { action: 'saveCommercialQuote', requestId: opId(), intentId: correctionIntentResult.intentId,
+      implementation: '0', monthly: '40.00', annual: '', currency: 'BOB', billingCycle: 'monthly', periodCount: 1,
+      discount: '0', capabilitiesV1: distributionCapabilities, extras: [] };
+    await platformCall(ownerUid, correctionQuote);
+    await platformCall(ownerUid, { action: 'offerCommercialQuote', intentId: correctionIntentResult.intentId, requestId: opId() });
+    await platformCall(ownerUid, { action: 'recordCommercialAcceptance', intentId: correctionIntentResult.intentId,
+      requestId: opId(), channel: 'email', reference: 'Aceptación de cotización para prueba de corrección.' });
+    const correctionContract = await platformCall(ownerUid, { action: 'createCommercialContract', intentId: correctionIntentResult.intentId,
+      requestId: opId(), dueAt: dateAfter(7) });
+    createdPaths.push(`platformContracts/${correctionContract.contractId}`, `platformBillingCharges/${correctionContract.chargeId}`, `platformSubscriptions/${correctionContract.contractId}`);
+    const correctionRequest = { action: 'correctBillingCharge', requestId: opId(), chargeId: correctionContract.chargeId,
+      correctedAmount: '42.00', reason: 'Corrección aprobada del importe de implementación acordado.' };
+    const correctionResult = await platformCall(ownerUid, correctionRequest);
+    createdPaths.push(`platformBillingCorrections/${correctionResult.correctionId}`);
+    const correctionReplay = await platformCall(ownerUid, correctionRequest);
+    assert.equal(correctionReplay.correctionId, correctionResult.correctionId);
+    assert.equal(correctionReplay.idempotent, true);
+    const correctedCharge = (await db.doc(`platformBillingCharges/${correctionContract.chargeId}`).get()).data();
+    assert.equal(correctedCharge.originalAmountMinor, 4000);
+    assert.equal(correctedCharge.amountMinor, 4200);
+    assert.equal(correctedCharge.correctionCount, 1);
+    assert.equal((await db.doc(`platformBillingCorrections/${correctionResult.correctionId}`).get()).data().reason, correctionRequest.reason);
+    await assert.rejects(platformCall(adminUid, { ...correctionRequest, requestId: opId(), correctedAmount: '43.00' }), error => error.code === 'permission-denied');
+    const correctionPendingReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: correctionContract.chargeId, amount: '5.00', method: 'bank_transfer', bankReference: `QA-CORRECTION-PENDING-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${correctionPendingReference.paymentId}`);
+    await assert.rejects(platformCall(ownerUid, { ...correctionRequest, requestId: opId(), correctedAmount: '44.00' }), error => error.code === 'failed-precondition');
+    pass('corrección de cargo inicial pendiente se limita a Owner, conserva importe original y motivo inmutable, y es idempotente');
+
+    await monthlySubscriptionRef.update({ currentPeriodEnd: Timestamp.fromMillis(Date.now() + 10 * 86_400_000), billingAnchorDay: 14,
+      billingAccessUntil: Timestamp.fromMillis(Date.now() + 17 * 86_400_000) });
+    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(Date.now() + 17 * 86_400_000) });
+    const rejectedRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 1 });
+    createdPaths.push(`platformBillingCharges/${rejectedRenewal.chargeId}`);
+    const rejectedReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: rejectedRenewal.chargeId, amount: '10.00', method: 'bank_transfer', bankReference: `QA-REJECT-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${rejectedReference.paymentId}`);
+    await platformCall(ownerUid, { action: 'rejectManualPayment', paymentId: rejectedReference.paymentId,
+      reason: 'No se encontró el abono en la cuenta QA.', requestId: opId() });
+    const rejectedChargeRecord = (await db.doc(`platformBillingCharges/${rejectedRenewal.chargeId}`).get()).data();
+    assert.equal((await db.doc(`platformBillingPayments/${rejectedReference.paymentId}`).get()).data().status, 'rejected');
+    assert.equal(rejectedChargeRecord.pendingMinor, 0);
+    assert.equal(rejectedChargeRecord.status, 'due', 'A rejected reference releases its reserved amount without erasing history.');
+    pass('rechazo auditado libera el saldo reservado sin eliminar la referencia ni marcarla como ingreso');
+
     const monthlySetupUrl = new URL(monthlyProvision.ownerAccess.setupLink);
     const monthlyOobCode = monthlySetupUrl.searchParams.get('oobCode');
     assert(monthlyOobCode);
@@ -555,6 +750,54 @@ async function run() {
     await assert.rejects(platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: opId(),
       contractId: monthlyOnlyContract.contractId, planId: wrongBusinessPlanId, billingCycle: 'monthly' }),
     error => error.code === 'failed-precondition')
+    await platformCall(ownerUid, { action: 'changeSubscriptionStatus', contractId: monthlyOnlyContract.contractId,
+      status: 'suspended', reason: 'Suspensión administrativa QA autorizada.', requestId: opId() })
+    const suspendedRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 1 })
+    createdPaths.push(`platformBillingCharges/${suspendedRenewal.chargeId}`)
+    const suspendedCharge = (await db.doc(`platformBillingCharges/${suspendedRenewal.chargeId}`).get()).data()
+    const suspendedPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: suspendedRenewal.chargeId, amount: (suspendedCharge.amountMinor / 100).toFixed(2), method: 'bank_transfer', bankReference: `QA-SUSPENDED-${suffix}` })
+    createdPaths.push(`platformBillingPayments/${suspendedPayment.paymentId}`)
+    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: suspendedPayment.paymentId, requestId: opId() })
+    assert.equal((await monthlySubscriptionRef.get()).data().status, 'suspended', 'A paid renewal never auto-reactivates an administrative suspension.')
+    assert.equal((await db.doc(`tenants/${monthlyProvision.tenantId}`).get()).data().subscriptionStatus, 'suspended')
+    const reactivation = await platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
+      chargeId: suspendedRenewal.chargeId, reason: 'Pago conciliado y autorización QA.', requestId: opId() })
+    assert.equal(reactivation.success, true)
+    assert.equal((await monthlySubscriptionRef.get()).data().status, 'active')
+    assert.equal((await db.doc(`tenants/${monthlyProvision.tenantId}`).get()).data().subscriptionStatus, 'active')
+    // Bring the next renewal window inside the supported 30-day issue period;
+    // the preceding prepaid renewal advanced the fixture's paid-through date.
+    const cancellationWindowEnd = Timestamp.fromMillis(Date.now() + 10 * 86_400_000)
+    const cancellationAccessUntil = Timestamp.fromMillis(cancellationWindowEnd.toMillis() + 7 * 86_400_000)
+    await monthlySubscriptionRef.update({ currentPeriodEnd: cancellationWindowEnd, nextRenewalAt: cancellationWindowEnd,
+      billingAccessUntil: cancellationAccessUntil })
+    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: cancellationAccessUntil })
+    const cancellationPendingRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 1 })
+    createdPaths.push(`platformBillingCharges/${cancellationPendingRenewal.chargeId}`)
+    const cancellationPendingCharge = (await db.doc(`platformBillingCharges/${cancellationPendingRenewal.chargeId}`).get()).data()
+    const cancellationPendingPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: cancellationPendingRenewal.chargeId, amount: (cancellationPendingCharge.amountMinor / 100).toFixed(2),
+      method: 'bank_transfer', bankReference: `QA-CANCELLED-${suffix}` })
+    createdPaths.push(`platformBillingPayments/${cancellationPendingPayment.paymentId}`)
+    await platformCall(ownerUid, { action: 'changeSubscriptionStatus', contractId: monthlyOnlyContract.contractId,
+      status: 'cancelled', reason: 'Cancelación contractual QA.', requestId: opId() })
+    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: cancellationPendingPayment.paymentId, requestId: opId() })
+    assert.equal((await monthlySubscriptionRef.get()).data().status, 'cancelled', 'Reconciling a previously issued charge cannot revive a cancelled contract.');
+    assert.equal((await db.doc(`tenants/${monthlyProvision.tenantId}`).get()).data().subscriptionStatus, 'cancelled')
+    await assert.rejects(platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
+      chargeId: suspendedRenewal.chargeId, reason: 'Intento de reactivar cancelada.', requestId: opId() }), error => error.code === 'failed-precondition')
+    pass('suspensión no se reactiva al conciliar pago; reactivación excepcional exige Owner/motivo/cargo conciliado; un pago tardío tampoco revierte una cancelación');
+
+    const firstContractsPage = await platformCall(ownerUid, { action: 'listBillingRecords', kind: 'contracts', limit: 1 })
+    assert.equal(firstContractsPage.records.length, 1)
+    assert.equal(firstContractsPage.hasMore, true)
+    const secondContractsPage = await platformCall(ownerUid, { action: 'listBillingRecords', kind: 'contracts', limit: 1, cursor: firstContractsPage.nextCursor })
+    assert.equal(secondContractsPage.records.length, 1)
+    assert.notEqual(firstContractsPage.records[0].id, secondContractsPage.records[0].id)
+    pass('paginación por cursor mantiene orden estable sin repetir contratos con marcas de tiempo coincidentes');
     pass('sin plan de Distribución publicado: contacto WhatsApp, cotización mensual idempotente, aceptación, pago confirmado, alta asistida y acceso del propietario');
 
     const anonymous = rulesEnv.unauthenticatedContext().firestore();
@@ -562,6 +805,13 @@ async function run() {
     await assertFails(getDoc(doc(anonymous, `platformBillingCharges/${contractResult.chargeId}`)));
     const platformClient = rulesEnv.authenticatedContext(ownerUid, { platform: true, platformRole: 'platform_owner' }).firestore();
     await assertFails(getDoc(doc(platformClient, `platformBillingPayments/${firstPayment.paymentId}`)));
+    await assertFails(getDoc(doc(platformClient, 'platformBillingConfig/manualMethods')));
+    await assertFails(getDoc(doc(platformClient, `platformBillingNotes/${noteSaved.noteId}`)));
+    await assertFails(getDoc(doc(platformClient, `platformBillingCorrections/${correctionResult.correctionId}`)));
+    await assertFails(setDoc(doc(platformClient, 'platformBillingConfig/manualMethods'), { available: true }));
+    const monthlyTenantClient = rulesEnv.authenticatedContext(monthlyProvision.ownerUid).firestore();
+    await assertFails(getDoc(doc(monthlyTenantClient, `platformBillingCharges/${prepaidRenewal.chargeId}`)));
+    await assertFails(setDoc(doc(monthlyTenantClient, `platformBillingCharges/${prepaidRenewal.chargeId}`), { amountMinor: 1 }));
     const auditRows = await db.collection('platformAuditLogs').where('operatorUid', '==', ownerUid).get();
     assert(auditRows.docs.some(item => item.data().action === 'billing.payment.confirm'));
     assert(auditRows.docs.some(item => item.data().action === 'tenant.assistedProvision.completed'));
