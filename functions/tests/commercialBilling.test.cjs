@@ -85,13 +85,19 @@ async function runDistributionProductSave(tenantId, uid, productId, label, activ
   return (await ref.get()).data();
 }
 
-async function prepareAssistedInput(contractId, companyName, ownerEmail, operationId, ownerDisplayName = 'Propietario Billing QA') {
-  return {
+async function prepareAssistedInput(contractId, companyName, ownerEmail, operationId, ownerDisplayName = 'Propietario Billing QA', businessType = 'route_distribution') {
+  const input = {
     action: 'createAssistedTenant', operationId, billingContractId: contractId,
-    companyName, businessType: 'route_distribution', ownerEmail, ownerDisplayName,
-    ownerEmailConfirmed: true, industryProfile: 'beverages', currency: 'BOB', currencySymbol: 'Bs',
+    companyName, businessType, ownerEmail, ownerDisplayName,
+    ownerEmailConfirmed: true, currency: 'BOB', currencySymbol: 'Bs',
     timezone: 'America/La_Paz', businessIdentity: { legalName: 'QA Billing', city: 'Cochabamba' },
   };
+  if (businessType === 'route_distribution') input.industryProfile = 'beverages';
+  return input;
+}
+
+function capabilitiesFor(businessType) {
+  return { ...distributionCapabilities, businessType };
 }
 
 async function cleanup() {
@@ -302,6 +308,80 @@ async function run() {
     assert.equal(signedInActor.uid, login.localId);
     pass('solo el pago inicial íntegro habilita tenant y suscripción; el propietario configura su acceso e inicia sesión en la empresa');
 
+    const additionalTemplateCases = [
+      { businessType: 'hamburger_shop', templateId: 'hamburger', label: 'Hamburger' },
+      { businessType: 'gelateria_weight_cafe', templateId: 'retail', label: 'Comercio' },
+      { businessType: 'restaurant_pos', templateId: 'restaurant', label: 'Restaurante con salón' },
+      { businessType: 'nightclub_lounge', templateId: 'nightclub', label: 'Nightclub' },
+    ];
+    for (const item of additionalTemplateCases) {
+      const templateEmail = `billing-${item.templateId}-${suffix}@example.test`;
+      const templateCompany = `${item.label} Billing QA ${suffix}`;
+      const templateCapabilities = capabilitiesFor(item.businessType);
+      const templateIntent = await platformCall(ownerUid, {
+        action: 'createManualCommercialIntent', requestId: opId(), contactName: `Propietario ${item.label} QA`,
+        companyName: templateCompany, email: templateEmail, contactPhone: '+591 70000000',
+        templateId: item.templateId, planId: null, extraIds: [], billingCycle: 'monthly', needs: 'Alta asistida de validación en emulador.',
+      });
+      createdPaths.push(`platformCommercialIntents/${templateIntent.intentId}`);
+      const templateQuote = await platformCall(ownerUid, {
+        action: 'saveCommercialQuote', requestId: opId(), intentId: templateIntent.intentId,
+        implementation: '0', monthly: '25.00', annual: '', currency: 'BOB', billingCycle: 'monthly', periodCount: 1,
+        discount: '0', capabilitiesV1: templateCapabilities, extras: [],
+      });
+      assert.equal(templateQuote.initialDueMinor, 2500, `${item.label}: the manual monthly quote must create the exact initial charge.`);
+      await platformCall(ownerUid, { action: 'offerCommercialQuote', intentId: templateIntent.intentId, requestId: opId() });
+      await platformCall(ownerUid, { action: 'recordCommercialAcceptance', intentId: templateIntent.intentId,
+        requestId: opId(), channel: 'whatsapp', reference: `Aceptación QA ficticia ${item.templateId}.` });
+      const templateContract = await platformCall(ownerUid, { action: 'createCommercialContract', intentId: templateIntent.intentId,
+        requestId: opId(), dueAt: dateAfter(7) });
+      createdPaths.push(`platformContracts/${templateContract.contractId}`, `platformBillingCharges/${templateContract.chargeId}`,
+        `platformSubscriptions/${templateContract.contractId}`);
+      const templateCharge = (await db.doc(`platformBillingCharges/${templateContract.chargeId}`).get()).data();
+      assert.equal(templateCharge.amountMinor, 2500);
+      assert.equal(templateCharge.currency, 'BOB');
+      const templateReference = await platformCall(financeUid, {
+        action: 'recordManualPaymentReference', requestId: opId(), chargeId: templateContract.chargeId,
+        amount: '25.00', method: 'bank_transfer', bankReference: `QA-${item.templateId}-${suffix}`,
+      });
+      createdPaths.push(`platformBillingPayments/${templateReference.paymentId}`);
+      assert.equal((await db.doc(`platformBillingPayments/${templateReference.paymentId}`).get()).data().status, 'pending_review');
+      assert.equal((await db.doc(`platformContracts/${templateContract.contractId}`).get()).data().status, 'pending_payment');
+      const templateConfirmation = await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: templateReference.paymentId, requestId: opId() });
+      assert.equal(templateConfirmation.status, 'confirmed');
+      const templateContractRecord = (await db.doc(`platformContracts/${templateContract.contractId}`).get()).data();
+      assert.equal(templateContractRecord.status, 'ready_for_activation');
+      assert.equal(templateContractRecord.terms.plan, null, `${item.label}: unpublished-plan flow must retain a manual capabilities snapshot.`);
+      const templateActivation = await assisted.createAssistedTenant(db, auth, request(ownerUid,
+        await prepareAssistedInput(templateContract.contractId, templateCompany, templateEmail, opId(), `Propietario ${item.label} QA`, item.businessType)));
+      createdAuthUids.push(templateActivation.ownerUid);
+      const templateTenantRef = db.doc(`tenants/${templateActivation.tenantId}`);
+      const templateTenant = (await templateTenantRef.get()).data();
+      assert.equal(templateTenant.businessType, item.businessType);
+      assert.equal(templateTenant.status, 'active');
+      assert.equal(templateTenant.subscriptionStatus, 'active');
+      assert.equal(templateTenant.billingEnforcement, true);
+      assert.equal(templateTenant.planKey, null);
+      assert.deepEqual(templateTenant.commercialCapabilities, templateCapabilities);
+      assert.equal((await db.doc(`platformSubscriptions/${templateContract.contractId}`).get()).data().status, 'active');
+
+      const setupUrl = new URL(templateActivation.ownerAccess.setupLink);
+      const setupCode = setupUrl.searchParams.get('oobCode');
+      assert(setupCode, `${item.label}: assisted activation should create a one-time owner access link.`);
+      const passwordSetup = await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=emulator`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ oobCode: setupCode, newPassword: `TemplateOwner${item.templateId}123!` }),
+      });
+      assert.equal(passwordSetup.ok, true, `${item.label}: owner should be able to set a password through the Auth Emulator.`);
+      const templateLogin = await signInOwner(templateEmail, `TemplateOwner${item.templateId}123!`);
+      assert.equal(templateLogin.localId, templateActivation.ownerUid);
+      const templateActor = await tenantActor(db, { auth: { uid: templateLogin.localId, token: {} },
+        data: { tenantId: templateActivation.tenantId } }, 'settings.manage');
+      assert.equal(templateActor.uid, templateActivation.ownerUid);
+      pass(`${item.label}: sin plan publicado, cotización mensual, referencia pendiente, conciliación y alta asistida con acceso Owner pasan en emulador`);
+    }
+
+    const quotaMemberUids = [];
     for (let index = 0; index < 3; index += 1) {
       const member = await tenants.manageMember(db, auth, {
         auth: { uid: provisionA.ownerUid, token: {} },
@@ -309,21 +389,22 @@ async function run() {
           email: `cap-user-${index}-${suffix}@example.test`, displayName: `Almacén ${index}`, password: 'CapUserQa123!', branchIds: ['main'] },
       });
       createdAuthUids.push(member.uid);
+      quotaMemberUids.push(member.uid);
     }
     const userUsageAtLimit = (await tenantRef.collection('commercialUsage').doc('active').get()).data();
     assert.equal(userUsageAtLimit.activeUsers, 4);
     assert.equal((await tenantRef.get()).data().userCount, 4);
-    assert.notEqual(createdAuthUids[1], provisionA.ownerUid, 'Quota test must modify a created member, never the tenant owner.');
-    assert.notEqual(createdAuthUids[1], ownerUid, 'Quota test must modify a created member, never the Platform operator.');
+    assert.notEqual(quotaMemberUids[1], provisionA.ownerUid, 'Quota test must modify a created member, never the tenant owner.');
+    assert.notEqual(quotaMemberUids[1], ownerUid, 'Quota test must modify a created member, never the Platform operator.');
     await tenants.manageMember(db, auth, { auth: { uid: provisionA.ownerUid, token: {} },
-      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: createdAuthUids[1], roleId: 'distributor' } });
+      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: quotaMemberUids[1], roleId: 'distributor' } });
     assert.equal((await tenantRef.collection('commercialUsage').doc('active').get()).data().activeUsers, 4,
       'Changing an active member role must not change the active-user quota.');
     await tenants.manageMember(db, auth, { auth: { uid: provisionA.ownerUid, token: {} },
-      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: createdAuthUids[1], active: false } });
+      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: quotaMemberUids[1], active: false } });
     assert.equal((await tenantRef.collection('commercialUsage').doc('active').get()).data().activeUsers, 3);
     await tenants.manageMember(db, auth, { auth: { uid: provisionA.ownerUid, token: {} },
-      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: createdAuthUids[1], active: true } });
+      data: { tenantId: provisionA.tenantId, action: 'updateMember', uid: quotaMemberUids[1], active: true } });
     assert.equal((await tenantRef.collection('commercialUsage').doc('active').get()).data().activeUsers, 4);
     const rejectedEmail = `cap-user-over-${suffix}@example.test`;
     await assert.rejects(tenants.manageMember(db, auth, {
