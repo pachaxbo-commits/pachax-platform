@@ -77,6 +77,13 @@ const billingFixturePaths = []
 let socketOpen = false
 let nextId = 0
 const pending = new Map()
+const emulatorPort = value => Number(String(value).split(':').at(-1))
+const viteEmulatorEnv = {
+  ...process.env,
+  VITE_AUTH_EMULATOR_PORT: String(emulatorPort(process.env.FIREBASE_AUTH_EMULATOR_HOST)),
+  VITE_FIRESTORE_EMULATOR_PORT: String(emulatorPort(process.env.FIRESTORE_EMULATOR_HOST)),
+  VITE_FUNCTIONS_EMULATOR_PORT: process.env.VITE_FUNCTIONS_EMULATOR_PORT || '5103',
+}
 const send = (method, params = {}) => new Promise((resolve, reject) => {
   const id = ++nextId
   pending.set(id, { resolve, reject })
@@ -139,6 +146,8 @@ async function tenantRefUpdateBilling(fixture) {
 async function verifyBillingPortal(fixture, base, submitReference = false) {
   await openChrome(`${base}/login`)
   await login(fixture, base)
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Ver suscripción') && /Vence en \d+ días\./.test(text),
+    `${fixture.key} owner did not receive the pre-expiry subscription notice`)
   const ownerPortalButton = await waitFor(() => evaluate("[...document.querySelectorAll('button')].some(button=>button.textContent.includes('Mi empresa · Suscripción y pagos'))"), Boolean,
     `${fixture.key} owner did not receive the subscription portal entry`)
   assert(ownerPortalButton)
@@ -215,7 +224,7 @@ try {
 
   const vitePort = await freePort()
   const base = `http://127.0.0.1:${vitePort}`
-  viteProcess = spawn(process.execPath, [join(process.cwd(), 'node_modules/vite/bin/vite.js'), '--mode', 'emulator', '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'], { cwd: process.cwd(), stdio: 'ignore' })
+  viteProcess = spawn(process.execPath, [join(process.cwd(), 'node_modules/vite/bin/vite.js'), '--mode', 'emulator', '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'], { cwd: process.cwd(), stdio: 'ignore', env: viteEmulatorEnv })
   await waitFor(async () => { try { return (await fetch(base)).status } catch { return 0 } }, status => status === 200, 'Vite emulator app did not start')
 
   await openChrome(`${base}/login`)
@@ -270,7 +279,7 @@ try {
   })
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Ingreso QA en vivo'), 'Hamburger live cash listener did not show a movement for its branch')
   await send('Page.reload', { ignoreCache: true })
-  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('NUEVO PEDIDO'), 'Hamburger POS did not return after refresh')
+  await waitFor(() => evaluate('document.body?.innerText || ""'), text => text.includes('NUEVO PEDIDO'), 'Hamburger POS did not return after refresh')
   await clickExactText('Caja')
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Ingreso QA en vivo'), 'Hamburger cash movement did not persist across refresh')
   console.log('PASS authenticated Hamburger cash listener displays the active-branch movement live and after refresh')
