@@ -2,10 +2,10 @@ import { LayoutTemplate, Zap, Code2, BarChart3, CloudSync } from 'lucide-react'
 
 export function ValueStrip() {
   return (
-    <section className="w-full py-3 sm:py-6">
+    <section className="pachax-value-strip w-full py-3 sm:py-6">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         {/* Versión Desktop: Barra horizontal con 3 bloques destacados */}
-        <div className="hidden sm:grid sm:grid-cols-3 gap-4 lg:gap-6 bg-white border border-slate-200/90 rounded-2xl p-4 lg:p-6 shadow-xs">
+        <div className="pachax-value-card hidden sm:grid sm:grid-cols-3 gap-4 lg:gap-6 bg-white border border-slate-200/90 rounded-2xl p-4 lg:p-6 shadow-xs">
           {/* Bloque 1 */}
           <div className="flex items-center gap-4 px-2">
             <div className="w-12 h-12 rounded-xl bg-blue-50 text-[#0066FF] border border-blue-100 flex items-center justify-center shrink-0">
@@ -53,7 +53,7 @@ export function ValueStrip() {
         </div>
 
         {/* Versión Mobile: 3 Badges compactos en fila con texto adaptado y sin overflow */}
-        <div className="sm:hidden grid grid-cols-3 gap-1 bg-white border border-slate-200/80 rounded-2xl p-2.5 shadow-xs">
+        <div className="pachax-value-card-mobile sm:hidden grid grid-cols-3 gap-1 bg-white border border-slate-200/80 rounded-2xl p-2.5 shadow-xs">
           <div className="flex flex-col items-center text-center p-1">
             <div className="w-7 h-7 rounded-full bg-blue-50 text-[#0066FF] flex items-center justify-center mb-1 shrink-0">
               <Zap className="w-3.5 h-3.5" />

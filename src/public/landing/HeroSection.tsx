@@ -1,43 +1,73 @@
-import { useState } from 'react'
-import { ArrowRight, MessageSquare, Play, Check } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
-import { TemplateCoverflow } from './TemplateCoverflow'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
+import { PachaxProductMockup } from './PachaxProductMockup'
+import { PachaxTemplateCard } from './PachaxTemplateCard'
 import type { CommercialTemplateItem } from '../config/commercialShowcase'
 import { canLaunchCommercialDemo, freeDemoPath } from '../../core/publicTemplates'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import { buildPublishedShowcaseGroup } from './commercialPresentation'
 
 interface HeroSectionProps {
-  activeIndex?: number
-  onChangeActiveIndex?: (index: number) => void
   onViewPlans?: (templateId: 'hamburger' | 'retail') => void
 }
 
-export function HeroSection(props: HeroSectionProps) {
+type PresentedTemplate = CommercialTemplateItem & { displayMode: 'specialized' | 'self_service' }
+
+export function HeroSection({ onViewPlans }: HeroSectionProps) {
   const { navigate } = usePublicRouter()
-  const { publishedTemplates, landingContent, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
-  const specializedTemplates = buildPublishedShowcaseGroup(publishedTemplates, 'specialized')
-  const selfServiceTemplates = buildPublishedShowcaseGroup(publishedTemplates, 'self_service')
-
-  // Estados independientes para cada carrusel
-  const [activeIndexSpecialized, setActiveIndexSpecialized] = useState(0)
-  const [activeIndexSelfService, setActiveIndexSelfService] = useState(0)
-
-  // Modal para selector de modos de restaurante (salón vs mostrador)
+  const { publishedTemplates, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
+  const trackRef = useRef<HTMLDivElement>(null)
   const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
 
-  const activeSpecialized = specializedTemplates.length > 0
-    ? specializedTemplates[((activeIndexSpecialized % specializedTemplates.length) + specializedTemplates.length) % specializedTemplates.length]
-    : undefined
+  const templates = useMemo(() => [
+    ...buildPublishedShowcaseGroup(publishedTemplates, 'specialized').map((template) => ({ ...template, displayMode: 'specialized' as const })),
+    ...buildPublishedShowcaseGroup(publishedTemplates, 'self_service').map((template) => ({ ...template, displayMode: 'self_service' as const })),
+  ], [publishedTemplates])
 
-  const activeSelfService = selfServiceTemplates.length > 0
-    ? selfServiceTemplates[((activeIndexSelfService % selfServiceTemplates.length) + selfServiceTemplates.length) % selfServiceTemplates.length]
-    : undefined
+  const scrollToTemplates = () => document.getElementById('plantillas')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  // Manejo de Demo para Especializadas (Carrusel A)
-  const handleLaunchSpecializedDemo = (template: CommercialTemplateItem) => {
-    if (!canLaunchCommercialDemo(template)) return
+  const scrollByCard = (direction: -1 | 1) => {
+    const track = trackRef.current
+    if (!track) return
+    const card = track.querySelector<HTMLElement>('[data-pachax-template-card]')
+    if (track.scrollWidth <= track.clientWidth + 1) {
+      setActiveIndex((current) => (current + direction + templates.length) % templates.length)
+      return
+    }
+    const gap = Number.parseFloat(getComputedStyle(track).columnGap || '0')
+    const maximumScroll = track.scrollWidth - track.clientWidth
+    if (direction > 0 && track.scrollLeft >= maximumScroll - 2) {
+      track.scrollTo({ left: 0, behavior: 'smooth' })
+      return
+    }
+    if (direction < 0 && track.scrollLeft <= 2) {
+      track.scrollTo({ left: maximumScroll, behavior: 'smooth' })
+      return
+    }
+    track.scrollBy({ left: direction * ((card?.offsetWidth ?? track.clientWidth * 0.8) + gap), behavior: 'smooth' })
+  }
+
+  const handleTrackScroll = () => {
+    const track = trackRef.current
+    const card = track?.querySelector<HTMLElement>('[data-pachax-template-card]')
+    if (!track || !card) return
+    const gap = Number.parseFloat(getComputedStyle(track).columnGap || '0')
+    setActiveIndex(Math.max(0, Math.min(templates.length - 1, Math.round(track.scrollLeft / (card.offsetWidth + gap)))))
+  }
+
+  const handleSelectTemplate = (template: PresentedTemplate) => {
+    if (!canLaunchCommercialDemo(template)) {
+      if (template.displayMode === 'self_service' && (template.id === 'hamburger' || template.id === 'retail')) {
+        onViewPlans?.(template.id)
+      } else {
+        scrollToTemplates()
+      }
+      return
+    }
+
     const demoPath = freeDemoPath(template.id) || freeDemoPath(template.templateId || '')
     if (demoPath) {
       window.location.assign(demoPath)
@@ -56,285 +86,94 @@ export function HeroSection(props: HeroSectionProps) {
     }
   }
 
-  // Solicitud de implementación por WhatsApp para las tres plantillas especializadas.
-  const handleConsultSpecialized = (template: CommercialTemplateItem) => {
-    const text = encodeURIComponent(
-      `Hola PACHAX, solicito una implementación para la plantilla "${template.commercialName}". Quisiera conocer el diagnóstico y los siguientes pasos.`
-    )
-    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
-    if (!number) return
-    window.open(`https://wa.me/${number}?text=${text}`, '_blank', 'noopener,noreferrer')
-  }
-
-  const handleViewPlans = (template: CommercialTemplateItem) => {
-    if (template.id === 'hamburger' || template.id === 'retail') {
-      props.onViewPlans?.(template.id)
-    }
-  }
-
-  const isSpecializedDemoAvailable = Boolean(activeSpecialized && canLaunchCommercialDemo(activeSpecialized))
-  const isSelfServiceDemoAvailable = Boolean(activeSelfService && (freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '') || canLaunchCommercialDemo(activeSelfService)))
-  const catalogGroupLabel = (count: number) => {
-    if (isPublicEditorialFallback) return 'Fichas editoriales de referencia'
-    if (publicCatalogStatus === 'loading') return 'Verificando publicación…'
-    if (publicCatalogStatus === 'error') return 'Último catálogo confirmado'
-    return `${count} publicadas`
-  }
-
   return (
-    <section id="hero" className="relative w-full pt-4 pb-10 sm:pt-8 sm:pb-16 overflow-hidden z-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Cabecera Editorial Principal: Presentación de las Dos Modalidades */}
-        <div className="text-center max-w-3xl mx-auto mb-8 sm:mb-12">
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
-            <span>{landingContent.heroTagline}</span>
-          </div>
-
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-slate-950 tracking-tight leading-[1.15]">
-            {landingContent.heroTitle}
+    <section id="hero" className="pachax-hero relative z-10 w-full">
+      <div className="pachax-hero-main">
+        <div className="pachax-hero-copy">
+          <div className="pachax-hero-eyebrow"><span>PACHAX PLATFORM</span></div>
+          <h1>
+            Gestiona tu negocio<br className="pachax-desktop-break" /> de forma <span>inteligente</span>
           </h1>
-
-          <p className="text-xs sm:text-base text-slate-600 mt-3 sm:mt-4 leading-relaxed max-w-2xl mx-auto">
-            {landingContent.heroSubtitle}
-          </p>
-
-          <div className="mt-4 flex items-center justify-center gap-4 text-xs text-slate-500">
-            <span>¿Ya eres cliente?</span>
-            <button
-              type="button"
-              onClick={() => navigate('/login')}
-              className="font-bold text-[#0066FF] hover:text-[#0052cc] underline underline-offset-2 cursor-pointer"
-            >
-              Iniciar sesión en mi empresa
-            </button>
-          </div>
+          <p>Plantillas especializadas, listas para operar y adaptadas a la realidad de tu negocio.</p>
         </div>
-
-        {/* ========================================================================= */}
-        {/* DOS CARRUSELES: SIDE-BY-SIDE EN DESKTOP / APILADOS VERTICALMENTE EN MOBILE */}
-        {/* ========================================================================= */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-stretch">
-          {isPublicEditorialFallback && <p className="lg:col-span-2 -mb-4 text-center text-xs text-slate-500" role="status" data-catalog-state={publicCatalogStatus}>
-            {publicCatalogStatus === 'loading'
-              ? 'Verificando el catálogo. Mientras tanto mostramos fichas editoriales de referencia; la información comercial se confirma en el servidor.'
-              : 'No pudimos verificar el catálogo en este momento. Mostramos fichas editoriales de referencia; la información comercial requiere confirmación del servidor.'}
-          </p>}
-          {/* ===================================================================== */}
-          {/* CARRUSEL A: SOLUCIONES ESPECIALIZADAS (3 PLANTILLAS)                  */}
-          {/* ===================================================================== */}
-          <div className="flex flex-col justify-between bg-white/90 backdrop-blur-xs border border-slate-200/90 rounded-3xl p-5 sm:p-7 shadow-xs">
-            <div>
-              {/* Encabezado del Grupo A */}
-              <div className="mb-4">
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className="px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-bold uppercase tracking-wider">
-                    Soluciones Especializadas
-                  </span>
-                  <span className="text-[11px] font-semibold text-slate-400">
-                    {catalogGroupLabel(specializedTemplates.length)}
-                  </span>
-                </div>
-                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-                  Operaciones Complejas y Soporte Continuo
-                </h2>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Diseñadas para restaurantes con salón, distribuidoras y locales nocturnos. Requieren diagnóstico técnico, configuración a medida y mantenimiento mensual garantizado.
-                </p>
-              </div>
-
-              {/* Coverflow 3D Especializado */}
-              {specializedTemplates.length > 0 ? <div className="w-full flex justify-center my-2">
-                <TemplateCoverflow
-                  templates={specializedTemplates}
-                  activeIndex={activeIndexSpecialized}
-                  onChangeActiveIndex={setActiveIndexSpecialized}
-                  onSelectActiveCard={handleLaunchSpecializedDemo}
-                  compact={true}
-                  ariaLabel="Carrusel de soluciones especializadas"
-                />
-              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">
-                {publicCatalogStatus === 'loading' ? 'Verificando las plantillas de implementación…' : publicCatalogStatus === 'error' ? 'No se pudo verificar la publicación de estas plantillas.' : 'No hay plantillas especializadas publicadas en el catálogo confirmado.'}
-              </p>}
-
-              {/* Tarjeta de Detalle de la Plantilla Activa A */}
-              {activeSpecialized && (
-                <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <h3 className="text-sm font-bold text-slate-900">
-                      {activeSpecialized.commercialName}
-                    </h3>
-                    <span className="text-[10px] font-semibold text-[#0066FF] bg-blue-100/60 px-2 py-0.5 rounded-md">
-                      Mantenimiento continuo
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-snug line-clamp-2 mb-2.5">
-                    {activeSpecialized.description}
-                  </p>
-
-                  {/* Micro-bullets de capacidades */}
-                  <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 mb-3">
-                    {activeSpecialized.bullets.slice(0, 4).map((bullet, idx) => (
-                      <div key={idx} className="flex items-center gap-1.5">
-                        <Check className="w-3 h-3 text-[#0066FF] shrink-0" />
-                        <span className="truncate">{bullet}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Acciones de la Tarjeta Activa A: Ver demo en vivo + Solicitar asesoría */}
-                  <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/60">
-                    {isSpecializedDemoAvailable ? (
-                      <button
-                        type="button"
-                        onClick={() => handleLaunchSpecializedDemo(activeSpecialized)}
-                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-[#0066FF] hover:bg-[#0052cc] shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-white" />
-                        <span>Ver demo en vivo</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 border border-slate-200 inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
-                        title="Demostración pública en desarrollo (G2)"
-                      >
-                        <Play className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Demo próximamente</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleConsultSpecialized(activeSpecialized)}
-                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 text-[#0066FF]" />
-                      <span>Solicitar implementación</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 text-center">
-              <span className="text-[11px] text-slate-400">
-                Diagnóstico y configuración personalizada · Sin registro automático
-              </span>
-            </div>
-          </div>
-
-          {/* ===================================================================== */}
-          {/* CARRUSEL B: SOLUCIONES AUTOSERVICIO (2 PLANTILLAS)                   */}
-          {/* ===================================================================== */}
-          <div className="flex flex-col justify-between bg-white/90 backdrop-blur-xs border border-slate-200/90 rounded-3xl p-5 sm:p-7 shadow-xs">
-            <div>
-              {/* Encabezado del Grupo B */}
-              <div className="mb-4">
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold uppercase tracking-wider">
-                    Soluciones Autoservicio
-                  </span>
-                  <span className="text-[11px] font-semibold text-slate-400">
-                    {catalogGroupLabel(selfServiceTemplates.length)}
-                  </span>
-                </div>
-                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-                  Punto de Venta Ágil por Rubro
-                </h2>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Para comida rápida, mostrador, para llevar y comercio minorista por peso o unidad. Modelos ágiles en proceso de apertura comercial.
-                </p>
-              </div>
-
-              {/* Coverflow 3D Autoservicio */}
-              {selfServiceTemplates.length > 0 ? <div className="w-full flex justify-center my-2">
-                <TemplateCoverflow
-                  templates={selfServiceTemplates}
-                  activeIndex={activeIndexSelfService}
-                  onChangeActiveIndex={setActiveIndexSelfService}
-                  onSelectActiveCard={handleLaunchSpecializedDemo}
-                  compact={true}
-                  ariaLabel="Carrusel de soluciones autoservicio"
-                />
-              </div> : <p className="my-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600" role="status">
-                {publicCatalogStatus === 'loading' ? 'Verificando las plantillas de autoservicio…' : publicCatalogStatus === 'error' ? 'No se pudo verificar la publicación de estas plantillas.' : 'No hay soluciones de autoservicio publicadas en el catálogo confirmado.'}
-              </p>}
-
-              {/* Tarjeta de Detalle de la Plantilla Activa B */}
-              {activeSelfService && (
-                <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <h3 className="text-sm font-bold text-slate-900">
-                      {activeSelfService.commercialName}
-                    </h3>
-                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-100/70 border border-amber-200/60 px-2 py-0.5 rounded-md">
-                      Próximamente disponible
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-snug line-clamp-2 mb-2.5">
-                    {activeSelfService.description}
-                  </p>
-
-                  {/* Micro-bullets de capacidades */}
-                  <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 mb-3">
-                    {activeSelfService.bullets.slice(0, 4).map((bullet, idx) => (
-                      <div key={idx} className="flex items-center gap-1.5">
-                        <Check className="w-3 h-3 text-emerald-600 shrink-0" />
-                        <span className="truncate">{bullet}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Acciones de la Tarjeta Activa B: Consultar disponibilidad / Lista de espera + Demo honesta */}
-                  <div className="flex flex-col sm:flex-row items-center gap-2 pt-2 border-t border-slate-200/60">
-                    <button
-                      type="button"
-                      onClick={() => handleViewPlans(activeSelfService)}
-                      className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <span>Ver planes</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-
-                    {isSelfServiceDemoAvailable ? (
-                      <button
-                        type="button"
-                        onClick={() => handleLaunchSpecializedDemo(activeSelfService)}
-                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-100 border border-slate-200 shadow-2xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 text-slate-600" />
-                        <span>{freeDemoPath(activeSelfService.id) || freeDemoPath(activeSelfService.templateId || '') ? 'Probar demo' : 'Ver demo'}</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full sm:w-1/2 py-2.5 px-3 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 border border-slate-200 inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
-                        title="Demostración técnica en desarrollo"
-                      >
-                        <Play className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Demo próximamente</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 text-center">
-              <span className="text-[11px] text-slate-400">
-                Plantilla en proceso de consolidación · Apertura comercial próximamente
-              </span>
-            </div>
-          </div>
-        </div>
+        <PachaxProductMockup />
       </div>
 
-      {/* Modal para Selector de Modos de Restaurante */}
-      <TemplateModeSelectorModal
-        item={selectedForModal}
-        onClose={() => setSelectedForModal(null)}
-      />
+      {isPublicEditorialFallback && (
+        <p className="pachax-catalog-notice" role="status" data-catalog-state={publicCatalogStatus}>
+          {publicCatalogStatus === 'loading'
+            ? 'Verificando el catálogo. Las fichas editoriales son de referencia hasta confirmar la publicación.'
+            : 'No pudimos verificar el catálogo. Las fichas editoriales son de referencia; la disponibilidad comercial requiere confirmación.'}
+        </p>
+      )}
+
+      <div className="pachax-carousel-shell">
+        <button type="button" className="pachax-carousel-arrow pachax-carousel-prev" onClick={() => scrollByCard(-1)} aria-label="Plantilla anterior" disabled={templates.length < 2}>
+          <ChevronLeft aria-hidden="true" />
+        </button>
+        <div
+          ref={trackRef}
+          className="pachax-template-track"
+          role="region"
+          aria-label="Plantillas publicadas"
+          tabIndex={0}
+          onScroll={handleTrackScroll}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') scrollByCard(-1)
+            if (event.key === 'ArrowRight') scrollByCard(1)
+          }}
+        >
+          {templates.map((template, index) => (
+            <PachaxTemplateCard
+              key={template.id}
+              template={template}
+              index={index}
+              isActive={activeIndex === index}
+              onSelect={() => handleSelectTemplate(template)}
+            />
+          ))}
+          {templates.length === 0 && (
+            <p className="pachax-empty-catalog" role="status">
+              {publicCatalogStatus === 'loading' ? 'Verificando las plantillas publicadas…' : 'No hay plantillas publicadas en el catálogo confirmado.'}
+            </p>
+          )}
+        </div>
+        <button type="button" className="pachax-carousel-arrow pachax-carousel-next" onClick={() => scrollByCard(1)} aria-label="Siguiente plantilla" disabled={templates.length < 2}>
+          <ChevronRight aria-hidden="true" />
+        </button>
+      </div>
+
+      {templates.length > 1 && (
+        <div className="pachax-carousel-dots" aria-label="Posición del carrusel">
+          {templates.map((template, index) => (
+            <button
+              type="button"
+              key={template.id}
+              aria-label={`Ir a ${template.commercialName}`}
+              aria-current={activeIndex === index ? 'true' : undefined}
+              onClick={() => {
+                const track = trackRef.current
+                const card = track?.querySelectorAll<HTMLElement>('[data-pachax-template-card]')[index]
+                card?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="pachax-recommender">
+        <div className="pachax-recommender-copy">
+          <h2>¿No estás seguro de cuál elegir?</h2>
+          <p>Explora las opciones y revisa cuál se adapta mejor a tu negocio.</p>
+        </div>
+        <button type="button" className="pachax-outline-button" onClick={scrollToTemplates}>
+          <img src="/brand/pachax-isotipo-color.png" alt="" aria-hidden="true" />
+          <span>Descubrir mi plantilla</span>
+          <ArrowRight aria-hidden="true" />
+        </button>
+      </div>
+
+      <TemplateModeSelectorModal item={selectedForModal} onClose={() => setSelectedForModal(null)} />
     </section>
   )
 }

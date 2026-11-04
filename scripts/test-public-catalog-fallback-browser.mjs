@@ -96,8 +96,9 @@ try {
     await waitFor(() => evaluate(`(() => { const items=[...document.querySelectorAll('#plantillas img')]; items.forEach(item=>item.loading='eager'); return items.length; })()`), count => count === 6, `${width}x${height} catalog cards rendered`)
     const view = await waitFor(() => evaluate(`(() => {
       const cards=[...document.querySelectorAll('#plantillas [data-template-id]')];
-      const a=document.querySelectorAll('[aria-label="Carrusel de soluciones especializadas"] [data-coverflow-card]');
-      const b=document.querySelectorAll('[aria-label="Carrusel de soluciones autoservicio"] [data-coverflow-card]');
+      const heroCards=[...document.querySelectorAll('#hero [data-pachax-template-card]')];
+      const a=heroCards.filter(card=>!card.classList.contains('pachax-template-card-light'));
+      const b=heroCards.filter(card=>card.classList.contains('pachax-template-card-light'));
       const root=document.documentElement;
       return {cards:cards.map(card=>card.dataset.templateId),a:a.length,b:b.length,overflow:root.scrollWidth-innerWidth,
         fallback:document.querySelector('[data-catalog-state="error"]')?.textContent||'',
@@ -111,11 +112,11 @@ try {
         images:cards.map(card=>({id:card.dataset.templateId,loaded:!!card.querySelector('img')?.complete&&card.querySelector('img').naturalWidth>0})),
         actions:cards.map(card=>({id:card.dataset.templateId,buttons:[...card.querySelectorAll('button')].map(button=>({text:button.textContent.trim(),disabled:button.disabled}))})),
         planButtons:[...document.querySelectorAll('#planes [data-plan-template]')].map(button=>button.dataset.planTemplate),
-        referenceLabel:[...document.querySelectorAll('#hero span')].some(span=>span.textContent.includes('Fichas editoriales de referencia')),
+        referenceLabel:!!document.querySelector('#hero [data-catalog-state="error"]'),
         noZero:!document.body.innerText.includes('0 plantillas publicadas')};
     })()`), result => result.cards.length === 6 && result.a === 3 && result.b === 2
       && result.images.every(image => image.loaded)
-      && /fichas editoriales de referencia/i.test(result.fallback), `${width}x${height} catalog fallback`)
+      && /fichas editoriales .*referencia/i.test(result.fallback), `${width}x${height} catalog fallback`)
 
     assert.deepEqual(view.cards.sort(), ['custom', 'distribution', 'hamburger', 'nightclub', 'restaurant', 'retail'])
     assert.equal(view.a, 3)

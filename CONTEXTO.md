@@ -1,5 +1,13 @@
 # Continuidad del proyecto PACHAX
 
+## Rediseño de portada pública PACHAX Platform — fase 1 (04/11/2026)
+
+- **Rama:** `codex/pachax-platform-home-redesign-20261104`, worktree aislado `C:\PACHAX-worktrees\pachax-platform-home-redesign-20261104`, basada en `origin/main` `72acc1649d781702fa8536061b3bdf3bdf49d24b`. El checkout y trabajo paralelo permanecen intactos. Solo cambios de interfaz pública; sin backend, despliegues ni datos.
+- **Implementado:** nueva cabecera y hero con logotipos oficiales PACHAX, fondo oscuro continuo, mockup responsivo de producto, carrusel unificado desde plantillas publicadas y CTA hacia catálogo. Se conservan rutas y acciones reales, catálogo no disponible y estados reales; se identifican con claridad los datos de ejemplo del mockup. Los bloques posteriores conservan sus componentes/acciones, con ajustes tipográficos para continuidad del fondo.
+- **Verificación:** `npm run typecheck` PASS. `npm run test:landing-browser` PASS en 320×740, 375×812, 390×844, 430×932, 768×1024, 1024×768, 1440×900 y 1920×1080; capturas locales ignoradas en `tmp/landing-regression-evidence/`. `npm run test:public-catalog-fallback-browser` PASS en escritorio y móvil. Los registros del navegador no mostraron errores.
+- **Build/lint:** `npm run build` PASS con valores ficticios `build-only-placeholder` solo en el entorno del proceso, sin crear archivos ni apuntar a un proyecto Firebase real; las advertencias de chunks grandes corresponden al bundle existente. ESLint focal de todos los archivos cambiados PASS. `npm run lint` global reportó 476 errores y 4 warnings repartidos en el repositorio, en módulos no pertenecientes a esta landing.
+- **Pendiente:** revisión final del diff, publicación de rama y PR de revisión. El preview de Vercel se mantiene pendiente; no desplegar a Production.
+
 ## QA comercial de cuatro plantillas — checkpoint local (31/10/2026)
 
 - Rama aislada `codex/five-template-commercial-qa-20261031`, basada en `origin/main` `791c60c8074b5444edec7ef8a21e605b898e81b0`. Worktree ajeno `cambios-dario` sin cambios. Todo el trabajo QA usó `demo-pachax-platform` y Auth/Firestore/Functions Emulator; los datos se descartaron al cerrar la sesión. No se usó Production, Preview, Staging ni se escribieron datos reales.

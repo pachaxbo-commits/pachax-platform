@@ -71,11 +71,10 @@ try {
   }
 
   const state = () => evaluate(`(() => {
-    const cards = [...document.querySelectorAll('[data-coverflow-card]')];
-    const specialized = [...document.querySelectorAll('[aria-label="Carrusel de soluciones especializadas"] [data-coverflow-card]')];
-    const selfService = [...document.querySelectorAll('[aria-label="Carrusel de soluciones autoservicio"] [data-coverflow-card]')];
-    const activeSpecialized = specialized.find(c => c.dataset.active === 'true');
-    const activeSelfService = selfService.find(c => c.dataset.active === 'true');
+    const cards = [...document.querySelectorAll('#hero [data-pachax-template-card]')];
+    const specialized = cards.filter(c => !c.classList.contains('pachax-template-card-light'));
+    const selfService = cards.filter(c => c.classList.contains('pachax-template-card-light'));
+    const active = cards.find(c => c.classList.contains('is-active'));
     const footer = document.querySelector('footer');
     const root = document.documentElement;
     const scrollH = root?.scrollHeight || 0;
@@ -85,8 +84,10 @@ try {
       count: cards.length,
       specializedCount: specialized.length,
       selfServiceCount: selfService.length,
-      activeSpecialized: activeSpecialized?.dataset.templateId,
-      activeSelfService: activeSelfService?.dataset.templateId,
+      activeTemplate: active?.dataset.templateId,
+      activeIndex: active?.dataset.templateIndex,
+      title: document.querySelector('#hero h1')?.innerText,
+      brandLogoLoaded: Boolean(document.querySelector('.pachax-brand-lockup img')?.naturalWidth),
       overflow: (root?.scrollWidth || 0) > innerWidth,
       footerTrailingSpace: scrollH - footerBottom,
       footerBg: footer ? getComputedStyle(footer).backgroundColor : null,
@@ -119,15 +120,17 @@ try {
   await send('Page.enable')
   await send('Runtime.enable')
 
-  for (const [width, height] of [[1440, 900], [390, 844], [430, 932]]) {
+  for (const [width, height] of [[320, 740], [375, 812], [390, 844], [430, 932], [768, 1024], [1024, 768], [1440, 900], [1920, 1080]]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 })
     await send('Emulation.setTouchEmulationEnabled', { enabled: width < 768, maxTouchPoints: 1 })
     await send('Page.navigate', { url: baseUrl })
     const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2, `${width}: loaded`)
     await sleep(400)
 
-    assert.equal(loaded.specializedCount, 3, 'Carrusel A debe tener 3 plantillas especializadas')
-    assert.equal(loaded.selfServiceCount, 2, 'Carrusel B debe tener 2 plantillas autoservicio')
+    assert.equal(loaded.specializedCount, 3, 'La fila debe conservar las tres fichas especializadas')
+    assert.equal(loaded.selfServiceCount, 2, 'La fila debe conservar las dos fichas de autoservicio')
+    assert.match(loaded.title || '', /Gestiona tu negocio[\s\S]*de forma inteligente/, 'El titular coincide con la referencia aprobada')
+    assert.equal(loaded.brandLogoLoaded, true, 'El logotipo oficial debe estar disponible')
     assert.equal(loaded.overflow, false, 'No debe existir desbordamiento horizontal')
     assert.equal(loaded.footerTrailingSpace, 0, 'No debe existir espacio muerto debajo del footer')
     assert.equal(loaded.hasSparklesInBanner, false, 'No deben existir iconos Sparkles en el banner a medida')
@@ -169,57 +172,46 @@ try {
     assert(actionChecks.customLabels.includes('Cotizar a medida'))
     assert.equal(actionChecks.customLabels.some(label => /Demo próximamente/i.test(label)), false)
     assert.equal(actionChecks.registerLinks.some(Boolean), false, 'Ver planes nunca debe abrir /register')
-    await evaluate(`(() => {
-      window.__heroOpenedUrl = null;
-      window.open = (url) => { window.__heroOpenedUrl = String(url); };
-      [...document.querySelectorAll('#hero button')].find(button => button.textContent.includes('Solicitar implementación'))?.click();
-      return window.__heroOpenedUrl;
-    })()`)
-    const heroImplementationUrl = await evaluate(`window.__heroOpenedUrl`)
-    assert(decodeURIComponent(heroImplementationUrl || '').includes('Restaurante con salón'))
-    await evaluate(`([...document.querySelectorAll('#hero button')].find(button => button.textContent.includes('Ver planes')))?.click()`)
-    const heroPlanSelection = await waitForValue(`document.querySelector('[data-plan-template="hamburger"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'CTA principal selecciona Restaurante rápido')
-    assert.equal(heroPlanSelection, 'true')
+    await evaluate(`document.querySelector('.pachax-outline-button')?.click()`)
+    const discoveryTarget = await waitForValue(`Math.round(document.querySelector('#plantillas')?.getBoundingClientRect().top || 99999)`, value => value < height, 'El CTA Descubrir lleva al catálogo real')
+    assert(discoveryTarget < height, 'Descubrir mi plantilla debe llevar al catálogo existente')
+    await evaluate(`window.scrollTo({ top: 0, behavior: 'instant' })`)
+    await evaluate(`document.querySelector('.pachax-carousel-next')?.click()`)
+    const nextTemplate = await waitForValue(`document.querySelector('.pachax-carousel-dots button[aria-current="true"]')?.getAttribute('aria-label')`, value => value === 'Ir a Producción y Distribución', 'La flecha avanza el carrusel')
+    assert.equal(nextTemplate, 'Ir a Producción y Distribución')
     const noOfferState = await evaluate(`document.querySelector('#planes')?.innerText || ''`)
     assert(/No hay ofertas aprobadas|No se pudieron verificar/.test(noOfferState), 'El estado debe distinguir una oferta vacía confirmada de un error de conexión')
     assert.equal(/\$(29|59|99)(\.00)?/.test(noOfferState), false, 'No deben aparecer precios de referencia')
     await evaluate(`(() => {
       window.__plansInquiryUrl = null;
       window.open = (url) => { window.__plansInquiryUrl = String(url); };
-      [...document.querySelectorAll('#planes button')].find(button => button.textContent.includes('Solicitar información'))?.click();
+      document.querySelector('[data-quick-plans-inquiry="retail"]')?.click();
     })()`)
     const plansInquiryUrl = await evaluate(`window.__plansInquiryUrl`)
     assert.match(plansInquiryUrl || '', /wa\.me\/59177987776/, 'El estado sin oferta permite consulta por WhatsApp')
 
-    if (width === 1440) {
-      assert.equal(loaded.activeSpecialized, 'restaurant')
-      assert.equal(loaded.activeSelfService, 'hamburger')
-
-      // Siguiente en carrusel A
-      await evaluate(`document.querySelector('[aria-label="Carrusel de soluciones especializadas"] button[aria-label="Siguiente plantilla"]').click()`)
-      const nextA = await waitFor((r) => r.activeSpecialized === 'distribution', 'Carrusel A next -> distribution')
-      assert.equal(nextA.activeSpecialized, 'distribution')
-
-      // Siguiente en carrusel B
-      await evaluate(`document.querySelector('[aria-label="Carrusel de soluciones autoservicio"] button[aria-label="Siguiente plantilla"]').click()`)
-      const nextB = await waitFor((r) => r.activeSelfService === 'retail', 'Carrusel B next -> retail')
-      assert.equal(nextB.activeSelfService, 'retail')
-      await evaluate(`([...document.querySelectorAll('#hero button')].find(button => button.textContent.includes('Ver planes')))?.click()`)
-      const heroRetailSelection = await waitForValue(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'CTA principal selecciona Comercio')
-      assert.equal(heroRetailSelection, 'true')
+    if (width === 390) {
+      await evaluate(`document.querySelector('.pachax-menu-toggle')?.click()`)
+      const mobileMenu = await waitForValue(`document.querySelector('.pachax-menu-toggle')?.getAttribute('aria-expanded')`, value => value === 'true', 'El menú móvil abre')
+      assert.equal(mobileMenu, 'true')
+      await evaluate(`document.querySelector('.pachax-mobile-menu nav button')?.click()`)
+      await waitForValue(`document.querySelector('.pachax-menu-toggle')?.getAttribute('aria-expanded')`, value => value === 'false', 'El menú móvil cierra al navegar')
     }
 
-    console.log(`PASS ${width}×${height}: 2 carruseles independientes, sin overflow y footer perfecto`)
+    console.log(`PASS ${width}×${height}: carrusel unificado, CTA, navegación móvil y sin overflow`)
   }
 
 } finally {
   if (socket?.readyState === WebSocket.OPEN) {
+    try { await send('Browser.close') } catch { /* Chrome may already be exiting. */ }
+  }
+  if (socket?.readyState === WebSocket.OPEN) {
     socket.close()
   }
   browser.kill()
-  await sleep(1000)
+  await sleep(1800)
   try {
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
   } catch (error) {
     console.warn(`Chrome perfil temporal: ${error.message}`)
   }
