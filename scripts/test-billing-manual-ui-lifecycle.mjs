@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 const projectId = process.env.GCLOUD_PROJECT || process.env.FIREBASE_CONFIG_PROJECT_ID
 assert.equal(projectId, 'demo-pachax-platform', 'Billing UI QA requires demo-pachax-platform.')
@@ -18,7 +18,8 @@ const root = process.cwd()
 const require = createRequire(new URL('../functions/package.json', import.meta.url))
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
-const { getFirestore } = require('firebase-admin/firestore')
+const { getFirestore, Timestamp } = require('firebase-admin/firestore')
+const platform = require('./platform.cjs')
 const appName = `billing-ui-lifecycle-${Date.now().toString(36)}`
 const app = initializeApp({ projectId }, appName)
 const auth = getAuth(app)
@@ -59,9 +60,14 @@ const pending = new Map()
 let intentId
 let contractId
 let chargeId
+let renewalChargeId
 let tenantId
 let ownerUid
 let referenceHash
+let portalReferenceHash
+let originalMethodsLoaded = false
+let originalMethodsExisted = false
+let originalMethods = null
 
 async function cdp(method, params = {}) {
   assert(socketOpen, 'Chrome DevTools connection is not open.')
@@ -88,6 +94,17 @@ async function setField(label, value, tag = 'input') {
     return node.value;
   })()`
   assert.equal(await evaluate(script), String(value), `UI field ${label} did not accept the requested value.`)
+}
+
+async function setInput(selector, value) {
+  const script = `(() => {
+    const node = document.querySelector(${JSON.stringify(selector)});
+    if (!node) throw new Error('Missing input: ' + ${JSON.stringify(selector)});
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(node, ${JSON.stringify(value)});
+    node.dispatchEvent(new Event('input', {bubbles:true})); node.dispatchEvent(new Event('change', {bubbles:true}));
+    return node.value;
+  })()`
+  assert.equal(await evaluate(script), String(value), `Input ${selector} did not accept the requested value.`)
 }
 
 async function clickText(text, selector = 'button') {
@@ -127,6 +144,10 @@ async function cleanup() {
   await safeDeleteQuery('platformCommercialOperations', 'actorUid', operator.uid)
   await safeDeleteQuery('platformBillingOperations', 'actorUid', operator.uid)
   await safeDeleteQuery('platformAuditLogs', 'operatorUid', operator.uid)
+  if (ownerUid) {
+    await safeDeleteQuery('platformBillingOperations', 'actorUid', ownerUid)
+    await safeDeleteQuery('platformAuditLogs', 'operatorUid', ownerUid)
+  }
   await safeDeleteQuery('platformAssistedTenantOperations', 'companyName', companyName)
   if (ownerUid) {
     await db.recursiveDelete(db.doc(`users/${ownerUid}`)).catch(() => undefined)
@@ -138,12 +159,22 @@ async function cleanup() {
   }
   if (contractId) {
     const paymentRows = await db.collection('platformBillingPayments').where('contractId', '==', contractId).get().catch(() => null)
-    if (paymentRows) await Promise.all(paymentRows.docs.map(row => row.ref.delete().catch(() => undefined)))
+    if (paymentRows) await Promise.all(paymentRows.docs.map(async row => {
+      if (row.data()?.referenceHash) await db.doc(`platformPaymentReferenceClaims/${row.data().referenceHash}`).delete().catch(() => undefined)
+      await row.ref.delete().catch(() => undefined)
+    }))
     await db.doc(`platformSubscriptions/${contractId}`).delete().catch(() => undefined)
     await db.doc(`platformContracts/${contractId}`).delete().catch(() => undefined)
   }
   if (chargeId) await db.doc(`platformBillingCharges/${chargeId}`).delete().catch(() => undefined)
+  if (renewalChargeId) await db.doc(`platformBillingCharges/${renewalChargeId}`).delete().catch(() => undefined)
   if (referenceHash) await db.doc(`platformPaymentReferenceClaims/${referenceHash}`).delete().catch(() => undefined)
+  if (portalReferenceHash) await db.doc(`platformPaymentReferenceClaims/${portalReferenceHash}`).delete().catch(() => undefined)
+  if (originalMethodsLoaded) {
+    const methodsRef = db.doc('platformBillingConfig/manualMethods')
+    if (originalMethodsExisted) await methodsRef.set(originalMethods).catch(() => undefined)
+    else await methodsRef.delete().catch(() => undefined)
+  }
   if (intentId) await db.recursiveDelete(db.doc(`platformCommercialIntents/${intentId}`)).catch(() => undefined)
   const companyHash = createHash('sha256').update(`hamburger_shop:${companyNameKey}`).digest('hex')
   await db.doc(`platformAssistedTenantNames/${companyHash}`).delete().catch(() => undefined)
@@ -234,6 +265,8 @@ try {
   await clickText('Registrar aceptación confirmada')
   const accepted = await waitFor(async () => (await db.doc(`platformCommercialIntents/${intentId}`).get()).data(), value => Boolean(value?.acceptance), 'Acceptance did not persist')
   assert.equal(accepted.acceptance.quoteVersion, accepted.quote.version)
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent.includes('Crear contrato y orden de cobro')&&!button.disabled)`), Boolean,
+    `Accepted quote UI did not enable contract creation: ${await evaluate('document.body.innerText')}`)
   await clickText('Crear contrato y orden de cobro')
   const contracted = await waitFor(async () => (await db.doc(`platformCommercialIntents/${intentId}`).get()).data(), value => Boolean(value?.contractId), 'Contract and charge were not created')
   contractId = contracted.contractId
@@ -301,12 +334,15 @@ try {
   assert.equal(tenant.businessType, 'hamburger_shop')
   assert.equal(tenant.billingEnforcement, true)
   assert.equal(tenant.billingContractId, contractId)
-  const ownerRows = await db.collection(`tenants/${tenantId}/members`).where('roleId', '==', 'owner').get()
+  const ownerRows = await waitFor(async () => db.collection(`tenants/${tenantId}/members`).where('roleId', '==', 'owner').get(),
+    rows => rows.size === 1 && rows.docs[0].data().status === 'active', 'Tenant Owner membership did not become active')
   assert.equal(ownerRows.size, 1)
   ownerUid = ownerRows.docs[0].id
   assert.equal(ownerRows.docs[0].data().status, 'active')
-  const activeContract = (await db.doc(`platformContracts/${contractId}`).get()).data()
-  const activeSubscription = (await db.doc(`platformSubscriptions/${contractId}`).get()).data()
+  const activeContract = await waitFor(async () => (await db.doc(`platformContracts/${contractId}`).get()).data(),
+    value => value?.status === 'active', 'Paid contract did not complete activation')
+  const activeSubscription = await waitFor(async () => (await db.doc(`platformSubscriptions/${contractId}`).get()).data(),
+    value => value?.status === 'active', 'Paid subscription did not complete activation')
   assert.equal(activeContract.status, 'active')
   assert.equal(activeSubscription.status, 'active')
   assert.equal(activeSubscription.tenantId, tenantId)
@@ -316,6 +352,67 @@ try {
   assert(visible.includes('Empresa creada y acceso preparado'), 'Admin should confirm the tenant and owner access preparation.')
   assert(!visible.includes(operator.password) && !visible.includes('QA-BANK-REF-'), 'UI log should not expose any password or bank reference.')
   console.log('PASS Platform Owner activates exactly one paid Hamburger tenant; contract, subscription, branch and owner membership persist')
+
+  const methodsRef = db.doc('platformBillingConfig/manualMethods')
+  const methodsBefore = await methodsRef.get()
+  originalMethodsLoaded = true
+  originalMethodsExisted = methodsBefore.exists
+  originalMethods = methodsBefore.exists ? methodsBefore.data() : null
+  await methodsRef.set({ available: true, transferEnabled: true, qrEnabled: false, qrImageUrl: '',
+    bankName: 'Banco ficticio QA', accountHolder: 'PACHAX QA', accountIdentifier: 'TEST-ONLY', instructions: '', whatsappNumber: '' })
+
+  const passwordSetupLink = await auth.generatePasswordResetLink(ownerEmail)
+  const oobCode = new URL(passwordSetupLink).searchParams.get('oobCode')
+  assert(oobCode)
+  const ownerPassword = `OwnerQa${randomBytes(12).toString('base64url')}!`
+  const resetResponse = await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=emulator`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ oobCode, newPassword: ownerPassword }),
+  })
+  assert.equal(resetResponse.ok, true, 'Tenant Owner password setup must complete only in Auth Emulator.')
+
+  const expiredAt = Timestamp.fromMillis(Date.now() - 86_400_000)
+  await db.doc(`platformSubscriptions/${contractId}`).update({ status: 'overdue', currentPeriodEnd: expiredAt,
+    nextRenewalAt: expiredAt, billingAccessUntil: expiredAt })
+  await db.doc(`tenants/${tenantId}`).update({ status: 'overdue', subscriptionStatus: 'overdue', billingAccessUntil: expiredAt })
+  const ownerRenewal = await platform.platformGateway(db, { auth: { uid: operator.uid, token: { platform: true } },
+    data: { action: 'createRenewalCharge', requestId: randomUUID(), contractId,
+      dueAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), periodCount: 1 } })
+  renewalChargeId = ownerRenewal.chargeId
+
+  await clickText('Salir')
+  await waitFor(() => evaluate(`!!document.querySelector('[data-admin-login-submit]')`), Boolean, 'Platform Owner session did not close before tenant login')
+  await cdp('Page.navigate', { url: `${base}/login` })
+  await waitFor(() => evaluate(`!!document.querySelector('#login-email')`), Boolean, 'Tenant login page did not render')
+  await setInput('#login-email', ownerEmail)
+  await setInput('#login-password', ownerPassword)
+  await clickText('Ingresar', 'form button')
+  await waitFor(() => evaluate('document.body.innerText'), text => text.toLowerCase().includes('acceso operativo restringido')
+    && text.includes('Suscripción y pagos'), 'Tenant Owner did not enter the restricted regularization portal')
+  assert(await evaluate(`!!document.querySelector('[role="dialog"]')`), 'Regularization portal should remain open for the owner.')
+  console.log('PASS expired Tenant Owner remains in restricted, server-backed regularization view')
+
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('select')].find(select=>[...select.options].some(option=>option.value===${JSON.stringify(renewalChargeId)}))`), Boolean,
+    'Expired owner renewal charge was not visible in the portal')
+  await setField('Importe informado', '25.00')
+  await setField('Referencia bancaria', `QA-PORTAL-RENEWAL-${suffix}`)
+  await clickText('Enviar referencia para revisión', 'form button')
+  const portalPayment = await waitFor(async () => {
+    const rows = await db.collection('platformBillingPayments').where('chargeId', '==', renewalChargeId).get()
+    return rows.docs[0]?.data() || null
+  }, value => value?.status === 'pending_review', 'Tenant Owner payment reference did not persist from the portal')
+  portalReferenceHash = portalPayment.referenceHash
+  await platform.platformGateway(db, { auth: { uid: operator.uid, token: { platform: true } },
+    data: { action: 'confirmManualPayment', requestId: randomUUID(), paymentId: portalPayment.paymentId } })
+  assert.equal((await db.doc(`platformSubscriptions/${contractId}`).get()).data().status, 'active',
+    'A confirmed renewal should restore access from server state.')
+  await waitFor(() => evaluate('document.body.innerText'), text => !text.includes('Acceso operativo restringido'),
+    'The authenticated tenant view did not restore after the server-confirmed payment updated its tenant snapshot')
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Actualizar estado'&&!button.disabled)`), Boolean,
+    'The owner refresh control was not available after access was restored')
+  await clickText('Actualizar estado', 'button')
+  await waitFor(() => evaluate(`({restricted:document.body.innerText.includes('Acceso operativo restringido'), dialog:!!document.querySelector('[aria-labelledby="tenant-billing-title"]')})`),
+    state => !state.restricted && !state.dialog, 'The billing portal did not close after server reconciliation restored the operational shell')
+  console.log('PASS open owner portal follows the authoritative tenant update after Admin confirms payment and restores access')
   console.log('PASS authenticated Admin UI lifecycle complete; all records are fictitious and emulator-only')
 } finally {
   await cleanup()

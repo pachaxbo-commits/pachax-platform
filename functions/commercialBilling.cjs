@@ -39,6 +39,22 @@ function prepaidPeriods(cycle, value = 1) {
   try { return normalizePrepaidPeriods(cycle, value); }
   catch (error) { throw new HttpsError('invalid-argument', error.message); }
 }
+function validatedChargeBalances(charge) {
+  const { amountMinor, paidMinor, pendingMinor } = charge || {};
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0
+    || !Number.isSafeInteger(paidMinor) || paidMinor < 0
+    || !Number.isSafeInteger(pendingMinor) || pendingMinor < 0
+    || paidMinor + pendingMinor > amountMinor) {
+    throw new HttpsError('failed-precondition', 'El saldo del cargo tiene valores inconsistentes; requiere revisión manual.');
+  }
+  const expectedStatus = pendingMinor > 0 ? 'under_review'
+    : paidMinor === amountMinor ? 'paid'
+      : paidMinor > 0 ? 'partial' : 'due';
+  if (charge.status !== expectedStatus && charge.status !== 'cancelled') {
+    throw new HttpsError('failed-precondition', 'El estado del cargo no coincide con sus saldos; requiere revisión manual.');
+  }
+  return { amountMinor, paidMinor, pendingMinor };
+}
 function requirePermission(actor, permission) {
   if (!actor.permissions.includes(permission)) throw new HttpsError('permission-denied', 'El operador no tiene permiso para esta acción.');
 }
@@ -579,9 +595,10 @@ async function recordManualPaymentReference(db, request) {
       }
     }
     if (paymentSnap.exists || claimSnap.exists) throw new HttpsError('already-exists', 'La referencia bancaria ya está registrada; revisa el historial antes de reintentar.');
-    const paidMinor = Number(charge.paidMinor) || 0;
-    const pendingMinor = Number(charge.pendingMinor) || 0;
-    if (charge.status === 'paid' || charge.status === 'cancelled' || paidMinor + pendingMinor + amountMinor > charge.amountMinor) {
+    const balances = validatedChargeBalances(charge);
+    const paidMinor = balances.paidMinor;
+    const pendingMinor = balances.pendingMinor;
+    if (charge.status === 'paid' || charge.status === 'cancelled' || paidMinor + pendingMinor + amountMinor > balances.amountMinor) {
       throw new HttpsError('failed-precondition', 'El importe supera el saldo pendiente del cargo.');
     }
     const now = FieldValue.serverTimestamp();
@@ -633,14 +650,17 @@ async function confirmManualPayment(db, request) {
     if (charge.kind === 'renewal' && !['active', 'overdue', 'suspended', 'cancelled'].includes(subscriptionSnap.data().status)) {
       throw new HttpsError('failed-precondition', 'La suscripción no admite conciliación para este cargo.');
     }
-    if (charge.paidMinor + data.amountMinor > charge.amountMinor || charge.pendingMinor < data.amountMinor) {
+    const balances = validatedChargeBalances(charge);
+    if (!Number.isSafeInteger(data.amountMinor) || data.amountMinor <= 0
+      || balances.paidMinor + data.amountMinor > balances.amountMinor || balances.pendingMinor < data.amountMinor) {
       throw new HttpsError('failed-precondition', 'El saldo del cargo cambió; revisa el pago antes de confirmarlo.');
     }
-    const paidMinor = (Number(charge.paidMinor) || 0) + data.amountMinor;
-    const pendingMinor = (Number(charge.pendingMinor) || 0) - data.amountMinor;
+    const paidMinor = balances.paidMinor + data.amountMinor;
+    const pendingMinor = balances.pendingMinor - data.amountMinor;
     const isPaid = paidMinor === charge.amountMinor;
     let renewalActivation = null;
     if (isPaid && charge.kind === 'renewal' && ['active', 'overdue'].includes(subscriptionSnap.data().status)) {
+      if (charge.periodApplicationId) throw new HttpsError('failed-precondition', 'Este período de renovación ya fue aplicado; no se extenderá nuevamente.');
       const subscription = subscriptionSnap.data();
       const pendingPlanChange = subscription.pendingPlanChange || null;
       const cycle = pendingPlanChange?.billingCycle || charge.cycle || subscription.billingCycle;
@@ -670,7 +690,8 @@ async function confirmManualPayment(db, request) {
         const { subscription, pendingPlanChange, cycle, periodCount, anchorDay, startTimestamp, endTimestamp, accessUntil, tenantRef } = renewalActivation;
         const billingCycle = pendingPlanChange?.billingCycle || cycle;
         const monthsCovered = periodCount * (billingCycle === 'annual' ? 12 : 1);
-        tx.update(chargeRef, { periodStart: startTimestamp, periodEnd: endTimestamp, monthsCovered, billingAnchorDay: anchorDay, paidAt: now });
+        tx.update(chargeRef, { periodStart: startTimestamp, periodEnd: endTimestamp, monthsCovered, billingAnchorDay: anchorDay,
+          paidAt: now, periodApplicationId: `renewal:${charge.chargeId}`, periodAppliedAt: now, periodAppliedToContractId: data.contractId });
         tx.update(subscriptionRef, {
           status: 'active', currentPeriodStart: startTimestamp, currentPeriodEnd: endTimestamp, nextRenewalAt: endTimestamp, billingAccessUntil: accessUntil,
           periodCount, monthsCovered, billingAnchorDay: anchorDay,
@@ -726,14 +747,26 @@ async function rejectManualPayment(db, request) {
       if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador de rechazo ya se utilizó con otros datos.');
       return { success: true, idempotent: true };
     }
-    if (payment.status !== 'pending_review' || !chargeSnap.exists || !claimSnap.exists || claimSnap.data().paymentId !== paymentId) throw new HttpsError('failed-precondition', 'El pago no puede rechazarse en su estado actual.');
+    if (payment.status !== 'pending_review' || !chargeSnap.exists || !claimSnap.exists
+      || claimSnap.data().paymentId !== paymentId || claimSnap.data().status !== 'pending_review'
+      || claimSnap.data().chargeId !== payment.chargeId) throw new HttpsError('failed-precondition', 'El pago no puede rechazarse en su estado actual.');
     const charge = chargeSnap.data();
-    const pendingMinor = Math.max(0, charge.pendingMinor - payment.amountMinor);
+    const balances = validatedChargeBalances(charge);
+    if (charge.contractId !== payment.contractId || !Number.isSafeInteger(payment.amountMinor) || payment.amountMinor <= 0
+      || balances.pendingMinor < payment.amountMinor) {
+      throw new HttpsError('failed-precondition', 'La referencia no coincide con el saldo reservado; requiere revisión manual.');
+    }
+    const pendingMinor = balances.pendingMinor - payment.amountMinor;
+    if (balances.paidMinor + pendingMinor > balances.amountMinor) throw new HttpsError('failed-precondition', 'El saldo restante del cargo es inconsistente.');
     const now = FieldValue.serverTimestamp();
     tx.update(paymentRef, { status: 'rejected', rejectedBy: actor.uid, rejectionReason: reason, rejectedAt: now });
     tx.update(claimRef, { status: 'rejected', rejectedBy: actor.uid, rejectedAt: now });
-    tx.update(chargeRef, { pendingMinor, status: pendingMinor ? 'under_review' : charge.paidMinor ? 'partial' : 'due', updatedAt: now });
-    if (subscriptionSnap.exists && subscriptionSnap.data().pendingRenewalChargeId === payment.chargeId) {
+    const chargeStatus = pendingMinor ? 'under_review' : balances.paidMinor ? 'partial' : 'due';
+    tx.update(chargeRef, { pendingMinor, status: chargeStatus, updatedAt: now });
+    // Keep the renewal pointer while any unpaid balance remains. A rejected
+    // reference releases its reservation; it does not cancel the charge.
+    if (subscriptionSnap.exists && subscriptionSnap.data().pendingRenewalChargeId === payment.chargeId
+      && (chargeStatus === 'paid' || chargeStatus === 'cancelled')) {
       tx.update(subscriptionRef, { pendingRenewalChargeId: FieldValue.delete(), updatedAt: now });
     }
     tx.create(op, { actorUid: actor.uid, fingerprint, createdAt: now });
@@ -761,24 +794,44 @@ async function createRenewalCharge(db, request) {
     }
     const current = subscription.data();
     if (!['active', 'overdue', 'suspended'].includes(current.status) || !current.tenantId) throw new HttpsError('failed-precondition', 'Solo una suscripción comercial con empresa puede renovarse. Las canceladas requieren un contrato nuevo.');
-    if (current.status !== 'suspended' && current.currentPeriodEnd?.toMillis?.() > Date.now() + 31 * 86_400_000) {
-      throw new HttpsError('failed-precondition', 'La renovación puede emitirse dentro de los 30 días previos al vencimiento.');
-    }
     const pendingPlanChange = current.pendingPlanChange || null;
     const chargeCycle = pendingPlanChange?.billingCycle || current.billingCycle || contract.data().terms.billingCycle;
     const periodCount = prepaidPeriods(chargeCycle, requestedPeriodCount);
-    const amountMinor = (pendingPlanChange?.recurringMinor || current.recurringMinor || contract.data().terms.recurringMinor) * periodCount;
+    // The existing one-cycle renewal remains restricted to the 30-day window.
+    // A multi-cycle monthly charge is an explicit advance prepayment selected
+    // by a Platform Owner, and can extend paid coverage early.
+    const advanceMonthlyPrepayment = chargeCycle === 'monthly' && periodCount > 1;
+    if (current.status !== 'suspended' && !advanceMonthlyPrepayment
+      && current.currentPeriodEnd?.toMillis?.() > Date.now() + 31 * 86_400_000) {
+      throw new HttpsError('failed-precondition', 'La renovación puede emitirse dentro de los 30 días previos al vencimiento.');
+    }
+    const recurringMinor = pendingPlanChange?.recurringMinor ?? current.recurringMinor ?? contract.data().terms.recurringMinor;
+    if (!Number.isSafeInteger(recurringMinor) || recurringMinor <= 0) throw new HttpsError('failed-precondition', 'El precio contractual de renovación no es válido.');
+    const amountMinor = recurringMinor * periodCount;
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || amountMinor > 100_000_000) throw new HttpsError('failed-precondition', 'El importe recurrente excede el límite comercial permitido.');
     if (current.pendingRenewalChargeId) {
       const existingChargeRef = db.doc(`platformBillingCharges/${current.pendingRenewalChargeId}`);
       const existingCharge = await tx.get(existingChargeRef);
-      if (existingCharge.exists && ['due', 'partial', 'under_review'].includes(existingCharge.data().status)) {
+      if (!existingCharge.exists) throw new HttpsError('failed-precondition', 'La suscripción apunta a un cargo de renovación inexistente; requiere revisión manual.');
+      const existingData = existingCharge.data();
+      if (existingData.contractId !== contractId || existingData.tenantId !== current.tenantId || existingData.kind !== 'renewal') {
+        throw new HttpsError('failed-precondition', 'El cargo vinculado no corresponde a esta renovación; requiere revisión manual.');
+      }
+      validatedChargeBalances(existingData);
+      if (['due', 'partial', 'under_review'].includes(existingData.status)) {
         if ((Number(existingCharge.data().periodCount) || 1) !== periodCount || existingCharge.data().cycle !== chargeCycle) {
           throw new HttpsError('failed-precondition', 'Ya existe un cargo pendiente con otro período. Concílialo o recházalo antes de cotizar una duración distinta.');
         }
         tx.create(opRef, { actorUid: actor.uid, chargeId: existingCharge.id, fingerprint, createdAt: FieldValue.serverTimestamp() });
         return { success: true, chargeId: existingCharge.id, idempotent: false, reusedPendingCharge: true };
       }
+      throw new HttpsError('failed-precondition', 'La suscripción conserva un vínculo a un cargo ya finalizado; requiere revisión antes de otra renovación.');
+    }
+    const renewalHistory = await tx.get(db.collection('platformBillingCharges').where('contractId', '==', contractId));
+    const orphanedActiveRenewals = renewalHistory.docs.filter(item => item.data().kind === 'renewal'
+      && ['due', 'partial', 'under_review'].includes(item.data().status));
+    if (orphanedActiveRenewals.length) {
+      throw new HttpsError('failed-precondition', 'Hay un cargo de renovación abierto sin vínculo con la suscripción; concílialo antes de crear otro.');
     }
     const chargeId = `ch_${requestKey(actor, 'renewal', requestId).slice(0, 40)}`;
     const chargeRef = db.doc(`platformBillingCharges/${chargeId}`);
@@ -949,9 +1002,16 @@ async function reactivateSuspendedSubscription(db, request) {
     if (!contract.exists || !subscription.exists || !charge.exists) throw new HttpsError('not-found', 'No se encontró el contrato, suscripción o cargo.');
     const current = subscription.data(), paidCharge = charge.data();
     if (current.status !== 'suspended') throw new HttpsError('failed-precondition', 'Solo las suspensiones administrativas pueden reactivarse por este procedimiento. Las cancelaciones requieren un contrato nuevo.');
+    const paidBalances = validatedChargeBalances(paidCharge);
     if (paidCharge.contractId !== contractId || paidCharge.tenantId !== current.tenantId || paidCharge.kind !== 'renewal'
-      || paidCharge.status !== 'paid' || paidCharge.paidMinor !== paidCharge.amountMinor) {
+      || paidCharge.status !== 'paid' || paidBalances.paidMinor !== paidBalances.amountMinor || paidBalances.pendingMinor !== 0) {
       throw new HttpsError('failed-precondition', 'La reactivación exige un cargo de renovación totalmente conciliado para esta empresa.');
+    }
+    const alreadyCoveredThrough = paidCharge.periodEnd?.toMillis?.();
+    const currentCoveredThrough = current.currentPeriodEnd?.toMillis?.();
+    if (paidCharge.periodApplicationId || paidCharge.periodAppliedAt || paidCharge.reactivatedAt
+      || (Number.isFinite(alreadyCoveredThrough) && Number.isFinite(currentCoveredThrough) && alreadyCoveredThrough <= currentCoveredThrough)) {
+      throw new HttpsError('failed-precondition', 'Los meses de este cargo ya fueron aplicados; no se pueden reutilizar para reactivar la suscripción.');
     }
     const tenantRef = db.doc(`tenants/${current.tenantId}`);
     const tenant = await tx.get(tenantRef);
@@ -970,7 +1030,8 @@ async function reactivateSuspendedSubscription(db, request) {
     const accessUntil = addGracePeriod(endTimestamp);
     const now = FieldValue.serverTimestamp();
     const monthsCovered = periodCount * (cycle === 'annual' ? 12 : 1);
-    tx.update(chargeRef, { periodStart: startTimestamp, periodEnd: endTimestamp, monthsCovered, billingAnchorDay: anchorDay, reactivatedAt: now });
+    tx.update(chargeRef, { periodStart: startTimestamp, periodEnd: endTimestamp, monthsCovered, billingAnchorDay: anchorDay,
+      periodApplicationId: `renewal:${chargeId}`, periodAppliedAt: now, periodAppliedToContractId: contractId, reactivatedAt: now });
     tx.update(subscriptionRef, {
       status: 'active', currentPeriodStart: startTimestamp, currentPeriodEnd: endTimestamp, nextRenewalAt: endTimestamp,
       billingAccessUntil: accessUntil, periodCount, monthsCovered,

@@ -705,6 +705,37 @@ async function run() {
     assert(extendedSubscription.currentPeriodEnd.toMillis() > dueEnd.toMillis() + 55 * 86_400_000, 'Early payment extends from the already paid end date.');
     pass('renovación prepagada de 2 meses, referencia duplicada rechazada, pago parcial y pago final extienden desde el vencimiento vigente');
 
+    for (const daysUntilExpiry of [15, 45, 90, 180]) {
+      const paidThrough = Timestamp.fromMillis(Date.now() + daysUntilExpiry * 86_400_000);
+      await monthlySubscriptionRef.update({ currentPeriodEnd: paidThrough, nextRenewalAt: paidThrough,
+        billingAccessUntil: Timestamp.fromMillis(paidThrough.toMillis() + 7 * 86_400_000) });
+      await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(paidThrough.toMillis() + 7 * 86_400_000) });
+      if (daysUntilExpiry > 30) {
+        await assert.rejects(platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+          requestId: opId(), dueAt: dateAfter(7), periodCount: 1 }), error => error.code === 'failed-precondition');
+      }
+      const advance = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+        requestId: opId(), dueAt: dateAfter(7), periodCount: 6 });
+      createdPaths.push(`platformBillingCharges/${advance.chargeId}`);
+      const advanceCharge = (await db.doc(`platformBillingCharges/${advance.chargeId}`).get()).data();
+      assert.equal(advanceCharge.periodStart.toMillis(), paidThrough.toMillis(), 'Advance period starts exactly at the already-paid boundary.');
+      assert.equal(advanceCharge.amountMinor, monthlyContract.terms.recurringMinor * 6, 'Advance prepayment uses the agreed contract price.');
+      assert(advanceCharge.periodEnd.toMillis() > paidThrough.toMillis() + 170 * 86_400_000);
+      const reusedAdvance = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+        requestId: opId(), dueAt: dateAfter(7), periodCount: 6 });
+      assert.equal(reusedAdvance.chargeId, advance.chargeId, 'Another operator request cannot create a second active renewal charge.');
+      assert.equal(reusedAdvance.reusedPendingCharge, true);
+      const advanceReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+        chargeId: advance.chargeId, amount: (advanceCharge.amountMinor / 100).toFixed(2), method: 'bank_transfer',
+        bankReference: `QA-ADVANCE-${daysUntilExpiry}-${suffix}` });
+      createdPaths.push(`platformBillingPayments/${advanceReference.paymentId}`);
+      await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: advanceReference.paymentId, requestId: opId() });
+      const appliedAdvance = (await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data();
+      assert.equal(appliedAdvance.currentPeriodStart.toMillis(), paidThrough.toMillis());
+      assert.equal(appliedAdvance.currentPeriodEnd.toMillis(), advanceCharge.periodEnd.toMillis());
+    }
+    pass('prepago mensual de seis meses permitido a 15/45/90/180 días; renovación ordinaria conserva ventana, período sin solapamiento y precio contractual');
+
     const annualIntentResult = await platformCall(ownerUid, { action: 'createManualCommercialIntent', requestId: opId(),
       contactName: 'Cliente anual QA', companyName: `Distribuidora Anual QA ${suffix}`, email: `annual-${suffix}@example.test`,
       contactPhone: '+591 70000000', templateId: 'distribution', planId: null, extraIds: [], billingCycle: 'annual', needs: 'Contrato anual de prueba.' });
@@ -787,15 +818,60 @@ async function run() {
       requestId: opId(), dueAt: dateAfter(7), periodCount: 1 });
     createdPaths.push(`platformBillingCharges/${rejectedRenewal.chargeId}`);
     const rejectedReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
-      chargeId: rejectedRenewal.chargeId, amount: '10.00', method: 'bank_transfer', bankReference: `QA-REJECT-${suffix}` });
+      chargeId: rejectedRenewal.chargeId, amount: '15.00', method: 'bank_transfer', bankReference: `QA-REJECT-${suffix}` });
     createdPaths.push(`platformBillingPayments/${rejectedReference.paymentId}`);
-    await platformCall(ownerUid, { action: 'rejectManualPayment', paymentId: rejectedReference.paymentId,
-      reason: 'No se encontró el abono en la cuenta QA.', requestId: opId() });
-    const rejectedChargeRecord = (await db.doc(`platformBillingCharges/${rejectedRenewal.chargeId}`).get()).data();
-    assert.equal((await db.doc(`platformBillingPayments/${rejectedReference.paymentId}`).get()).data().status, 'rejected');
-    assert.equal(rejectedChargeRecord.pendingMinor, 0);
-    assert.equal(rejectedChargeRecord.status, 'due', 'A rejected reference releases its reserved amount without erasing history.');
-    pass('rechazo auditado libera el saldo reservado sin eliminar la referencia ni marcarla como ingreso');
+    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: rejectedReference.paymentId, requestId: opId() });
+    const secondPendingReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: rejectedRenewal.chargeId, amount: '15.00', method: 'bank_transfer', bankReference: `QA-REJECT-PARTIAL-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${secondPendingReference.paymentId}`);
+    const concurrentRejections = await Promise.allSettled([
+      platformCall(ownerUid, { action: 'rejectManualPayment', paymentId: secondPendingReference.paymentId,
+        reason: 'No se encontró el segundo abono QA.', requestId: opId() }),
+      platformCall(financeUid, { action: 'rejectManualPayment', paymentId: secondPendingReference.paymentId,
+        reason: 'No se encontró el segundo abono QA.', requestId: opId() }),
+    ]);
+    assert.equal(concurrentRejections.filter(result => result.status === 'fulfilled').length, 1,
+      'Concurrent rejection attempts must release a reservation exactly once.');
+    const partiallyPaidAfterReject = (await db.doc(`platformBillingCharges/${rejectedRenewal.chargeId}`).get()).data();
+    assert.equal(partiallyPaidAfterReject.paidMinor, 1500, 'Rejecting a second reference cannot erase the confirmed first payment.');
+    assert.equal(partiallyPaidAfterReject.pendingMinor, 0);
+    assert.equal(partiallyPaidAfterReject.status, 'partial');
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingRenewalChargeId, rejectedRenewal.chargeId,
+      'An unpaid partial renewal remains linked after a reference is rejected.');
+    assert.equal((await db.doc(`platformBillingPayments/${rejectedReference.paymentId}`).get()).data().status, 'confirmed');
+    assert.equal((await db.doc(`platformBillingPayments/${secondPendingReference.paymentId}`).get()).data().status, 'rejected');
+    const finalPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: rejectedRenewal.chargeId, amount: '15.00', method: 'bank_transfer', bankReference: `QA-REJECT-FINAL-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${finalPayment.paymentId}`);
+    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: finalPayment.paymentId, requestId: opId() });
+    const fullyPaidAfterReject = (await db.doc(`platformBillingCharges/${rejectedRenewal.chargeId}`).get()).data();
+    assert.equal(fullyPaidAfterReject.paidMinor, fullyPaidAfterReject.amountMinor);
+    assert.equal(fullyPaidAfterReject.pendingMinor, 0);
+    assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingRenewalChargeId, undefined);
+
+    const corruptRenewalWindowEnd = Timestamp.fromMillis(Date.now() + 10 * 86_400_000);
+    const corruptRenewalAccessUntil = Timestamp.fromMillis(corruptRenewalWindowEnd.toMillis() + 7 * 86_400_000);
+    await monthlySubscriptionRef.update({ currentPeriodEnd: corruptRenewalWindowEnd, nextRenewalAt: corruptRenewalWindowEnd,
+      billingAccessUntil: corruptRenewalAccessUntil });
+    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: corruptRenewalAccessUntil });
+    const corruptRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 1 });
+    createdPaths.push(`platformBillingCharges/${corruptRenewal.chargeId}`);
+    const corruptReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: corruptRenewal.chargeId, amount: '5.00', method: 'bank_transfer', bankReference: `QA-CORRUPT-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${corruptReference.paymentId}`);
+    const corruptChargeRef = db.doc(`platformBillingCharges/${corruptRenewal.chargeId}`);
+    await corruptChargeRef.update({ pendingMinor: 499, status: 'under_review' });
+    await assert.rejects(platformCall(ownerUid, { action: 'rejectManualPayment', paymentId: corruptReference.paymentId,
+      reason: 'Validar saldo inconsistente QA.', requestId: opId() }), error => error.code === 'failed-precondition');
+    await corruptChargeRef.update({ pendingMinor: 500, status: 'under_review' });
+    await platformCall(ownerUid, { action: 'rejectManualPayment', paymentId: corruptReference.paymentId,
+      reason: 'Liberar referencia ficticia QA.', requestId: opId() });
+    const recoveredReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: corruptRenewal.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-CORRUPT-RECOVER-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${recoveredReference.paymentId}`);
+    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: recoveredReference.paymentId, requestId: opId() });
+    pass('rechazo concurrente y parcial conserva ingresos confirmados y vínculo de renovación; saldo imposible se rechaza explícitamente sin Math.max');
 
     const monthlySetupUrl = new URL(monthlyProvision.ownerAccess.setupLink);
     const monthlyOobCode = monthlySetupUrl.searchParams.get('oobCode');
@@ -831,6 +907,27 @@ async function run() {
     await assert.rejects(platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: opId(),
       contractId: monthlyOnlyContract.contractId, planId: wrongBusinessPlanId, billingCycle: 'monthly' }),
     error => error.code === 'failed-precondition')
+    const scheduledPrepaymentEnd = Timestamp.fromMillis(Date.now() + 180 * 86_400_000)
+    await monthlySubscriptionRef.update({ currentPeriodEnd: scheduledPrepaymentEnd, nextRenewalAt: scheduledPrepaymentEnd,
+      billingAccessUntil: Timestamp.fromMillis(scheduledPrepaymentEnd.toMillis() + 7 * 86_400_000) })
+    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(scheduledPrepaymentEnd.toMillis() + 7 * 86_400_000) })
+    const scheduledPrepayment = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 6 })
+    createdPaths.push(`platformBillingCharges/${scheduledPrepayment.chargeId}`)
+    const scheduledCharge = (await db.doc(`platformBillingCharges/${scheduledPrepayment.chargeId}`).get()).data()
+    const pendingPlanChangeBeforePrepay = (await monthlySubscriptionRef.get()).data().pendingPlanChange
+    assert.equal(scheduledCharge.planSnapshot.planId, nextPlanId)
+    assert.equal(scheduledCharge.amountMinor, pendingPlanChangeBeforePrepay.recurringMinor * 6,
+      'Advance prepayment uses the scheduled destination plan price, not the old recurring price.')
+    assert.equal(scheduledCharge.periodStart.toMillis(), scheduledPrepaymentEnd.toMillis())
+    const scheduledReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: scheduledPrepayment.chargeId, amount: (scheduledCharge.amountMinor / 100).toFixed(2),
+      method: 'bank_transfer', bankReference: `QA-SCHEDULED-PREPAY-${suffix}` })
+    createdPaths.push(`platformBillingPayments/${scheduledReference.paymentId}`)
+    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: scheduledReference.paymentId, requestId: opId() })
+    assert.equal((await monthlySubscriptionRef.get()).data().planKey, nextPlanId)
+    assert.equal((await monthlySubscriptionRef.get()).data().pendingPlanChange, undefined)
+    pass('prepago anticipado conserva precio de plan destino programado y lo aplica desde el fin del período vigente');
     await platformCall(ownerUid, { action: 'changeSubscriptionStatus', contractId: monthlyOnlyContract.contractId,
       status: 'suspended', reason: 'Suspensión administrativa QA autorizada.', requestId: opId() })
     const suspendedRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
@@ -843,13 +940,34 @@ async function run() {
     await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: suspendedPayment.paymentId, requestId: opId() })
     assert.equal((await monthlySubscriptionRef.get()).data().status, 'suspended', 'A paid renewal never auto-reactivates an administrative suspension.')
     assert.equal((await db.doc(`tenants/${monthlyProvision.tenantId}`).get()).data().subscriptionStatus, 'suspended')
-    const reactivation = await platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
-      chargeId: suspendedRenewal.chargeId, reason: 'Pago conciliado y autorización QA.', requestId: opId() })
-    assert.equal(reactivation.success, true)
+    const reactivationRequestIds = [opId(), opId()]
+    const reactivationAttempts = await Promise.allSettled(reactivationRequestIds.map(requestId =>
+      platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
+        chargeId: suspendedRenewal.chargeId, reason: 'Pago conciliado y autorización QA.', requestId })))
+    assert.equal(reactivationAttempts.filter(result => result.status === 'fulfilled').length, 1,
+      'Concurrent distinct request IDs can apply a paid renewal period only once.')
+    const successfulReactivationIndex = reactivationAttempts.findIndex(result => result.status === 'fulfilled')
+    const sameRequestReplay = await platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
+      chargeId: suspendedRenewal.chargeId, reason: 'Pago conciliado y autorización QA.', requestId: reactivationRequestIds[successfulReactivationIndex] })
+    assert.equal(sameRequestReplay.idempotent, true, 'Retrying the same reactivation request returns its stored result.')
     assert.equal((await monthlySubscriptionRef.get()).data().status, 'active')
     assert.equal((await db.doc(`tenants/${monthlyProvision.tenantId}`).get()).data().subscriptionStatus, 'active')
-    // Bring the next renewal window inside the supported 30-day issue period;
-    // the preceding prepaid renewal advanced the fixture's paid-through date.
+    const appliedSuspendedCharge = (await db.doc(`platformBillingCharges/${suspendedRenewal.chargeId}`).get()).data()
+    assert.equal(appliedSuspendedCharge.periodApplicationId, `renewal:${suspendedRenewal.chargeId}`)
+    const appliedEnd = (await monthlySubscriptionRef.get()).data().currentPeriodEnd.toMillis()
+    await platformCall(ownerUid, { action: 'changeSubscriptionStatus', contractId: monthlyOnlyContract.contractId,
+      status: 'suspended', reason: 'Segunda suspensión QA para detectar reutilización.', requestId: opId() })
+    const repeatedReactivation = await Promise.allSettled([
+      platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
+        chargeId: suspendedRenewal.chargeId, reason: 'Intento repetido QA con otro ID.', requestId: opId() }),
+      platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
+        chargeId: suspendedRenewal.chargeId, reason: 'Intento repetido concurrente QA.', requestId: opId() }),
+    ])
+    assert.equal(repeatedReactivation.filter(result => result.status === 'fulfilled').length, 0,
+      'An already-applied charge cannot reactivate again, even concurrently and under new request IDs.')
+    assert.equal((await monthlySubscriptionRef.get()).data().currentPeriodEnd.toMillis(), appliedEnd,
+      'A failed repeated activation retains the legitimate paid coverage end.')
+    // Keep a future paid-through date while testing cancellation with a pending charge.
     const cancellationWindowEnd = Timestamp.fromMillis(Date.now() + 10 * 86_400_000)
     const cancellationAccessUntil = Timestamp.fromMillis(cancellationWindowEnd.toMillis() + 7 * 86_400_000)
     await monthlySubscriptionRef.update({ currentPeriodEnd: cancellationWindowEnd, nextRenewalAt: cancellationWindowEnd,
@@ -870,7 +988,7 @@ async function run() {
     assert.equal((await db.doc(`tenants/${monthlyProvision.tenantId}`).get()).data().subscriptionStatus, 'cancelled')
     await assert.rejects(platformCall(ownerUid, { action: 'reactivateSuspendedSubscription', contractId: monthlyOnlyContract.contractId,
       chargeId: suspendedRenewal.chargeId, reason: 'Intento de reactivar cancelada.', requestId: opId() }), error => error.code === 'failed-precondition')
-    pass('suspensión no se reactiva al conciliar pago; reactivación excepcional exige Owner/motivo/cargo conciliado; un pago tardío tampoco revierte una cancelación');
+    pass('suspensión exige autorización Owner; renovación conciliada se aplica una vez aun con concurrencia; reintentos nuevos no duplican meses y el pago tardío no revierte cancelación');
 
     const firstContractsPage = await platformCall(ownerUid, { action: 'listBillingRecords', kind: 'contracts', limit: 1 })
     assert.equal(firstContractsPage.records.length, 1)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { gateway } from '../../services/gateway'
 
@@ -29,6 +29,13 @@ function currencyLabel(minor = 0, currency = 'BOB') {
   return `${currency} ${(minor / 100).toFixed(2)}`
 }
 
+function timestampMillis(value?: BillingDate) {
+  if (!value) return NaN
+  if (typeof value === 'object' && value && 'toDate' in value && typeof value.toDate === 'function') return value.toDate().getTime()
+  if (typeof value === 'object' && value) return ((value.seconds ?? value._seconds) || 0) * 1000
+  return new Date(value).getTime()
+}
+
 const statusLabels: Record<string, string> = {
   pending: 'Pendiente de activación', active: 'Activa y al día', overdue: 'Próxima a vencer', grace: 'Período de gracia',
   expired: 'Vencida; acceso operativo restringido', suspended: 'Suspendida por PACHAX', cancelled: 'Cancelada', not_enrolled: 'Sin contrato comercial registrado',
@@ -37,7 +44,9 @@ const statusLabels: Record<string, string> = {
 export function TenantBillingPortal({ tenantId, role, regularizationOnly = false }: { tenantId: string; role: string; regularizationOnly?: boolean }) {
   const isOwner = role === 'owner'
   const [overview, setOverview] = useState<BillingOverview | null>(null)
-  const [open, setOpen] = useState(regularizationOnly)
+  const [open, setOpen] = useState(false)
+  const [regularizationResolvedForTenant, setRegularizationResolvedForTenant] = useState<string | null>(null)
+  const dialogOpen = (regularizationOnly && regularizationResolvedForTenant !== tenantId) || open
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -46,25 +55,47 @@ export function TenantBillingPortal({ tenantId, role, regularizationOnly = false
   const [amount, setAmount] = useState('')
   const [bankReference, setBankReference] = useState('')
   const [method, setMethod] = useState<'bank_transfer' | 'bank_qr'>('bank_transfer')
+  const refreshInFlight = useRef(false)
 
   const refresh = useCallback(async () => {
-    if (!isOwner) return
+    if (!isOwner || refreshInFlight.current) return
+    refreshInFlight.current = true
     setLoading(true)
     setError('')
     try {
       const result = await gateway<BillingOverview>('tenantGateway', { action: 'getMyBillingOverview', tenantId })
       setOverview(result)
+      const accessUntil = timestampMillis(result.subscription?.billingAccessUntil)
+      if (regularizationOnly && ['active', 'overdue'].includes(result.status) && Number.isFinite(accessUntil) && accessUntil > Date.now()) {
+        setRegularizationResolvedForTenant(tenantId)
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo consultar la suscripción.')
     } finally {
+      refreshInFlight.current = false
       setLoading(false)
     }
-  }, [isOwner, tenantId])
+  }, [isOwner, regularizationOnly, tenantId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void refresh() }, 0)
     return () => window.clearTimeout(timer)
   }, [refresh])
+
+  useEffect(() => {
+    if (!regularizationOnly || !isOwner) return
+    const refreshWhenActive = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    const interval = window.setInterval(refreshWhenActive, 30_000)
+    window.addEventListener('focus', refreshWhenActive)
+    document.addEventListener('visibilitychange', refreshWhenActive)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshWhenActive)
+      document.removeEventListener('visibilitychange', refreshWhenActive)
+    }
+  }, [isOwner, regularizationOnly, refresh])
 
   const unpaidCharges = useMemo(() => (overview?.charges || []).filter(charge =>
     ['initial', 'renewal'].includes(charge.kind) && ['due', 'partial', 'under_review'].includes(charge.status)
@@ -121,7 +152,7 @@ export function TenantBillingPortal({ tenantId, role, regularizationOnly = false
     {!regularizationOnly && <div className="mx-auto flex w-full max-w-6xl justify-end px-3 py-1 sm:px-5">
       <button type="button" onClick={() => setOpen(true)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Mi empresa · Suscripción y pagos</button>
     </div>}
-    {open && <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false) }}>
+    {dialogOpen && <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false) }}>
       <section role="dialog" aria-modal="true" aria-labelledby="tenant-billing-title" className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-2xl sm:p-6">
         <header className="flex items-start justify-between gap-4"><div><h2 id="tenant-billing-title" className="text-lg font-bold text-slate-950">Suscripción y pagos</h2><p className="mt-1 text-sm text-slate-600">Información privada de esta empresa. Los pagos por QR o transferencia requieren conciliación de PACHAX. Este registro comercial no es una factura fiscal.</p></div>{!regularizationOnly && <button type="button" onClick={() => setOpen(false)} className="rounded-lg border px-3 py-2 text-sm">Cerrar</button>}</header>
         {loading && <p className="mt-4 text-sm text-slate-600">Consultando suscripción…</p>}
