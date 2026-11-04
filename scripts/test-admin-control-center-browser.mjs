@@ -18,6 +18,8 @@ const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const suffix = Date.now().toString(36)
 const operator = { uid: `admin-ui-owner-${suffix}`, email: `admin-ui-owner-${suffix}@example.test`, password: 'AdminEmulatorOnly2026!' }
 const tenantId = `admin-ui-tenant-date-${suffix}`
+const billingContractId = `ct-admin-billing-${suffix}`
+const billingChargeId = `ch-admin-billing-${suffix}`
 const app = initializeApp({ projectId }, `admin-ui-browser-${suffix}`)
 const auth = getAuth(app)
 const db = getFirestore(app)
@@ -89,6 +91,15 @@ try {
     branchCount: 1,
     createdAt: Timestamp.fromDate(new Date('2024-02-03T12:00:00.000Z')),
   })
+  await db.doc(`platformContracts/${billingContractId}`).set({ contractId: billingContractId, tenantId,
+    customer: { companyName: 'Empresa QA Billing Admin', email: operator.email }, businessType: 'restaurant_pos', templateId: 'restaurant',
+    status: 'pending_payment', terms: { companyName: 'Empresa QA Billing Admin', templateId: 'restaurant', billingCycle: 'monthly',
+      currency: 'BOB', initialDueMinor: 5000, recurringMinor: 5000, monthsCovered: 1, plan: null }, createdAt: Timestamp.now() })
+  await db.doc(`platformSubscriptions/${billingContractId}`).set({ contractId: billingContractId, status: 'pending', billingCycle: 'monthly',
+    currency: 'BOB', recurringMinor: 5000, currentPeriodEnd: null, billingAccessUntil: null, createdAt: Timestamp.now() })
+  await db.doc(`platformBillingCharges/${billingChargeId}`).set({ chargeId: billingChargeId, contractId: billingContractId, tenantId,
+    kind: 'initial', currency: 'BOB', amountMinor: 5000, paidMinor: 0, pendingMinor: 0, status: 'due',
+    dueAt: Timestamp.fromMillis(Date.now() + 7 * 86_400_000), createdAt: Timestamp.now(), periodCount: 1, monthsCovered: 1 })
 
   const vitePort = await listenEphemeralPort()
   const base = `http://127.0.0.1:${vitePort}`
@@ -150,6 +161,33 @@ try {
   const tenantList = await waitFor(() => evaluate('document.body.innerText'), text => text.includes('QA Registro Timestamp'), 'Admin tenant list did not render the emulator fixture')
   assert(tenantList.includes('2024-02-03'), 'Tenant list did not format the Firestore createdAt timestamp.')
   console.log('PASS Chrome authenticated owner lists the fictitious emulator tenant and formats its Firestore createdAt timestamp')
+
+  await evaluate(`document.querySelector('[data-admin-tab="commercial-billing"]').click()`, true)
+  const billingText = await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Facturación de PACHAX') && text.includes('Empresa QA Billing Admin'), 'Billing Core owner records did not render')
+  assert(billingText.includes('No hay cobros automáticos') && billingText.includes('QR'), 'Billing screen must state manual-only scope and render payment configuration without fabricated bank data.')
+  assert(billingText.includes('Empresa QA Billing Admin'), 'Billing screen must find and render the fictitious contract fixture.')
+  assert(!billingText.includes('Bs 150') && !billingText.includes('Plan QA'), 'Billing UI must not invent unapproved plans or reference prices.')
+  await evaluate(`([...document.querySelectorAll('button')].find(item=>item.textContent.includes('Observaciones internas auditadas'))).click()`, true)
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Nueva observación'), 'Internal note editor did not open in Admin')
+  await evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Nueva observación'));const input=label?.querySelector('textarea');if(!input)throw new Error('Internal note textarea missing');const setter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;setter.call(input,'Revisar documentación comercial antes de activar el contrato QA.');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('form textarea')?.dispatchEvent(new Event('blur',{bubbles:true}));return true})()`)
+  await evaluate(`([...document.querySelectorAll('button')].find(item=>item.textContent.trim()==='Guardar observación')).click()`, true)
+  const noteRow = await waitFor(async () => (await db.collection('platformBillingNotes').where('contractId', '==', billingContractId).get()).docs[0]?.data(), value => Boolean(value?.note), 'Admin note was not persisted through platformGateway')
+  assert.equal(noteRow.actorRole, 'platform_owner')
+  console.log('PASS Admin billing notes are written through the authenticated Platform Owner interface and persist with actor role')
+  await evaluate(`([...document.querySelectorAll('button')].find(item=>item.textContent.includes('Corregir cargo pendiente'))).click()`, true)
+  await evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Nuevo importe'));const input=label?.querySelector('input');if(!input)throw new Error('Correction amount input missing');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'55.00');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));const reason=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Motivo obligatorio'))?.querySelector('textarea');if(!reason)throw new Error('Correction reason textarea missing');const textSetter=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;textSetter.call(reason,'Corrección ficticia autorizada para validar el flujo de facturación.');reason.dispatchEvent(new Event('input',{bubbles:true}));reason.dispatchEvent(new Event('change',{bubbles:true}));window.confirm=()=>true;return true})()`)
+  await evaluate(`([...document.querySelectorAll('button')].find(item=>item.textContent.trim()==='Confirmar y auditar')).click()`, true)
+  const correctedCharge = await waitFor(async () => (await db.doc(`platformBillingCharges/${billingChargeId}`).get()).data(), value => value?.amountMinor === 5500, 'Admin charge correction was not persisted by the backend')
+  assert.equal(correctedCharge.originalAmountMinor, 5000)
+  assert.equal(correctedCharge.correctionCount, 1)
+  console.log('PASS Admin Owner corrects an unpaid charge through the real form; original amount and audit metadata remain persisted')
+  for (const [width, height, mobile] of [[390, 844, true], [1440, 900, false]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile })
+    const layout = await evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,overflow:document.documentElement.scrollWidth-innerWidth,section:document.body.innerText.includes('Facturación de PACHAX')})`)
+    assert(layout.section && layout.overflow < 12, `Admin billing layout overflow at ${width}x${height}: ${JSON.stringify(layout)}`)
+    console.log(`PASS Authenticated Platform Owner billing screen ${width}x${height}, overflow ${layout.overflow}px`)
+  }
+  console.log('PASS Facturación PACHAX opens in the real Admin interface; empty state has no invented offer or bank details')
 } finally {
   socket?.close()
   chromeProcess?.kill()
@@ -162,5 +200,12 @@ try {
   if (audits) await Promise.all(audits.docs.map(item => item.ref.delete().catch(() => undefined)))
   await db.doc(`platformOperators/${operator.uid}`).delete().catch(() => undefined)
   await auth.deleteUser(operator.uid).catch(() => undefined)
+  for (const path of [`platformBillingNotes`, `platformBillingOperations`, `platformBillingCorrections`]) {
+    const rows = await db.collection(path).where('actorUid', '==', operator.uid).get().catch(() => ({ docs: [] }))
+    await Promise.all(rows.docs.map(item => item.ref.delete().catch(() => undefined)))
+  }
+  for (const path of [`platformBillingCharges/${billingChargeId}`, `platformSubscriptions/${billingContractId}`, `platformContracts/${billingContractId}`]) {
+    await db.doc(path).delete().catch(() => undefined)
+  }
   await deleteApp(app)
 }

@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { DistributionApp } from './modules/distribution/views/DistributionApp'
 import { DistributionPrinterModal } from './modules/distribution/views/DistributionPrinterModal'
 import { RestaurantApp } from './modules/restaurant/views/RestaurantApp'
 import { NightclubApp } from './modules/nightclub/views/NightclubApp'
 import { QuickRetailExperience } from './modules/retail/views/QuickRetailExperience'
+import { TenantBillingPortal } from './components/billing/TenantBillingPortal'
 import { PublicLanding } from './public/landing/PublicLanding'
 import { PublicLoginView } from './public/auth/PublicLoginView'
 import { PublicRegisterView } from './public/register/PublicRegisterView'
@@ -81,6 +82,11 @@ function DistributionShell(props: {
 
 function App() {
   const auth = useAuthStore()
+  const [billingClock, setBillingClock] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setBillingClock(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const { path, navigate } = usePublicRouter()
   const isNative =
     typeof window !== 'undefined' &&
@@ -246,10 +252,39 @@ function App() {
     />
   )
 
+  const billingEnforced = activeTenant?.tenant.billingEnforcement === true
+  const billingStatus = activeTenant?.tenant.subscriptionStatus
+  const accessUntilValue = activeTenant?.tenant.billingAccessUntil as { toMillis?: () => number; seconds?: number; _seconds?: number } | Date | string | null | undefined
+  const accessUntilMillis = accessUntilValue instanceof Date ? accessUntilValue.getTime()
+    : typeof accessUntilValue === 'string' ? Date.parse(accessUntilValue)
+      : accessUntilValue && typeof accessUntilValue === 'object'
+        ? (typeof accessUntilValue.toMillis === 'function' ? accessUntilValue.toMillis() : Number(accessUntilValue.seconds ?? accessUntilValue._seconds) * 1000)
+        : NaN
+  const billingAccessBlocked = billingEnforced
+    && (!['active', 'overdue'].includes(billingStatus || '') || !Number.isFinite(accessUntilMillis) || billingClock >= accessUntilMillis)
+
+  if (billingAccessBlocked) {
+    const isTenantOwner = (activeTenant?.role || auth.member.role) === 'owner'
+    return <div className="min-h-screen bg-slate-50">
+      {headerBar}
+      <main className="mx-auto w-full max-w-4xl p-4 sm:p-8">
+        <section className="rounded-2xl border border-amber-300 bg-white p-5 shadow-sm sm:p-8">
+          <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Acceso operativo restringido</p>
+          <h1 className="mt-2 text-xl font-bold text-slate-950">Regulariza la suscripción de esta empresa</h1>
+          <p className="mt-2 text-sm text-slate-700">Los datos de la empresa se conservan. Las operaciones quedan bloqueadas hasta que PACHAX regularice el estado comercial.</p>
+          {isTenantOwner
+            ? <TenantBillingPortal tenantId={auth.tenantId} role="owner" regularizationOnly />
+            : <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Contacta al propietario de la empresa para revisar la suscripción. El personal operativo no accede a datos de facturación.</p>}
+        </section>
+      </main>
+    </div>
+  }
+
   if (canonicalBusinessType === 'route_distribution') {
     return (
       <div className="min-h-screen flex flex-col w-full bg-[#FAF9F6]">
         {headerBar}
+        <TenantBillingPortal tenantId={auth.tenantId} role={activeTenant?.role || auth.member.role} />
         <div className="flex-1 w-full">
           <DistributionShell
             tenantId={auth.tenantId}
@@ -276,6 +311,7 @@ function App() {
     return (
       <div className="min-h-screen flex flex-col w-full bg-[#FAF9F6]">
         {headerBar}
+        <TenantBillingPortal tenantId={auth.tenantId} role={activeTenant?.role || auth.member.role} />
         <div className="flex-1 w-full">
           <RestaurantApp
             key={`${auth.tenantId}:${auth.member.uid}`}
@@ -301,6 +337,7 @@ function App() {
     return (
       <div className="min-h-screen flex flex-col w-full bg-[#FAF9F6]">
         {headerBar}
+        <TenantBillingPortal tenantId={auth.tenantId} role={activeTenant?.role || auth.member.role} />
         <div className="flex-1 w-full">
           <NightclubApp
             key={`${auth.tenantId}:${auth.member.uid}`}
@@ -322,6 +359,7 @@ function App() {
     return (
       <div className="min-h-screen flex flex-col w-full bg-[#FAF9F6]">
         {headerBar}
+        <TenantBillingPortal tenantId={auth.tenantId} role={activeTenant?.role || auth.member.role} />
         <div className="flex-1 w-full">
           <QuickRetailExperience
             key={`${auth.tenantId}:${auth.member.uid}:${activeTenant?.branchId || auth.member.branchId || 'main'}:${activeTenant?.role || auth.member.role}`}

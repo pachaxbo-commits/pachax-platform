@@ -13,7 +13,7 @@ assert(process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_AUTH_EMULATOR
 const require = createRequire(new URL('../functions/package.json', import.meta.url))
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
-const { getFirestore } = require('firebase-admin/firestore')
+const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const { createTenant } = require('../functions/tenants.cjs')
 const suffix = Date.now().toString(36)
 const app = initializeApp({ projectId }, `template-settings-ui-${suffix}`)
@@ -23,6 +23,8 @@ const fixtures = [
   { key: 'retail', type: 'gelateria_weight_cafe', email: `qa-settings-retail-${suffix}@example.test` },
   { key: 'hamburger', type: 'hamburger_shop', email: `qa-settings-hamburger-${suffix}@example.test` },
   { key: 'restaurant', type: 'restaurant_pos', email: `qa-settings-restaurant-${suffix}@example.test` },
+  { key: 'distribution', type: 'route_distribution', email: `qa-settings-distribution-${suffix}@example.test` },
+  { key: 'nightclub', type: 'nightclub_lounge', email: `qa-settings-nightclub-${suffix}@example.test` },
 ]
 for (const fixture of fixtures) {
   fixture.uid = `qa-settings-${fixture.key}-${suffix}`
@@ -69,6 +71,9 @@ let viteProcess
 let chromeProcess
 let profile
 let socket
+let originalPaymentMethods = null
+let paymentMethodsExisted = false
+const billingFixturePaths = []
 let socketOpen = false
 let nextId = 0
 const pending = new Map()
@@ -117,18 +122,89 @@ async function login(fixture, base) {
   await setInput('login-email', fixture.email)
   await setInput('login-password', fixture.password)
   await clickText('Ingresar')
-  await waitFor(() => evaluate('document.body.innerText'), text => text.includes(fixture.tenantName), 'Authenticated tenant shell did not load')
+  // The Retail owner settings scenario deliberately changes the displayed
+  // business name before the billing-portal pass. Authenticate by session UI,
+  // not by the fixture's original company label.
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Salir') && text.includes('Mi empresa · Suscripción y pagos'), 'Authenticated tenant shell did not load')
   const localUrls = await evaluate(`performance.getEntriesByType('resource').map(entry=>entry.name).filter(name=>/^https?:/.test(name)).map(name=>new URL(name).hostname)`)
   assert(localUrls.every(host => host === '127.0.0.1' || host === 'localhost'), `Unexpected non-emulator network host: ${JSON.stringify(localUrls)}`)
   return base
 }
 
+async function tenantRefUpdateBilling(fixture) {
+  await db.doc(`tenants/${fixture.tenantId}`).update({ billingEnforcement: true, billingContractId: fixture.contractId,
+    subscriptionStatus: 'active', billingAccessUntil: fixture.billingAccessUntil })
+}
+
+async function verifyBillingPortal(fixture, base, submitReference = false) {
+  await openChrome(`${base}/login`)
+  await login(fixture, base)
+  const ownerPortalButton = await waitFor(() => evaluate("[...document.querySelectorAll('button')].some(button=>button.textContent.includes('Mi empresa · Suscripción y pagos'))"), Boolean,
+    `${fixture.key} owner did not receive the subscription portal entry`)
+  assert(ownerPortalButton)
+  await clickText('Mi empresa · Suscripción y pagos')
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Suscripción y pagos') && text.includes('Banco ficticio QA'), `${fixture.key} billing portal failed to load server data`)
+  const portalText = await evaluate('document.body.innerText')
+  assert(portalText.includes('Acuerdo mensual QA') && portalText.includes('BOB 25.00') && portalText.includes('Meses cubiertos'))
+  assert(portalText.includes('no es una factura fiscal'), 'Internal billing records must not be represented as fiscal invoices.')
+  for (const [width, height, mobile] of [[390, 844, true], [1440, 900, false]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile })
+    const layout = await evaluate('({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,overflow:document.documentElement.scrollWidth-innerWidth,portal:document.body.innerText.includes("Suscripción y pagos")})')
+    assert(layout.portal && layout.overflow < 12, `${fixture.key} billing portal overflow at ${width}x${height}: ${JSON.stringify(layout)}`)
+    console.log(`PASS ${fixture.key} authenticated billing portal ${width}x${height}, overflow ${layout.overflow}px`)
+  }
+  if (submitReference) {
+    await evaluate(`(() => {const set=(labelText,value)=>{const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes(labelText));const element=label?.querySelector('input');if(!element)throw new Error('Missing '+labelText);const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(element,value);element.dispatchEvent(new Event('input',{bubbles:true}));element.dispatchEvent(new Event('change',{bubbles:true}));};set('Importe informado','25.00');set('Referencia bancaria',${JSON.stringify(`QA-UI-${suffix}`)});const button=[...document.querySelectorAll('button')].find(item=>item.textContent.includes('Enviar referencia para revisión'));if(!button)throw new Error('Missing reference submit');button.click();return true})()`)
+    const payment = await waitFor(async () => (await db.collection('platformBillingPayments').where('chargeId', '==', fixture.chargeId).get()).docs[0]?.data(),
+      value => value?.status === 'pending_review', 'Tenant UI did not persist its payment reference as pending review')
+    assert.equal(payment.tenantId, fixture.tenantId)
+    assert.equal(payment.amountMinor, 2500)
+    assert.equal((await db.doc(`platformBillingCharges/${fixture.chargeId}`).get()).data().pendingMinor, 2500)
+    await waitFor(() => evaluate('document.body.innerText'), text => text.includes('pendiente de conciliación') || text.includes('pending_review'),
+      'Tenant UI did not clearly state that reference awaits PACHAX reconciliation')
+    console.log('PASS Tenant Owner submits fictitious reference via the real portal; it persists pending_review and reserves the amount without confirming payment')
+  }
+  socket.close()
+  socketOpen = false
+  await stopChrome()
+  await removeProfile()
+}
+
 try {
+  const paymentMethodsRef = db.doc('platformBillingConfig/manualMethods')
+  const paymentMethodsSnapshot = await paymentMethodsRef.get()
+  paymentMethodsExisted = paymentMethodsSnapshot.exists
+  originalPaymentMethods = paymentMethodsSnapshot.exists ? paymentMethodsSnapshot.data() : null
+  await paymentMethodsRef.set({ available: true, qrEnabled: false, qrImageUrl: '', transferEnabled: true,
+    bankName: 'Banco ficticio QA', accountHolder: 'Titular ficticio QA', accountIdentifier: 'CUENTA-TEST-NO-TRANSFERIR',
+    instructions: 'Datos ficticios de emulador; no transferir.', whatsappNumber: '59170000000', version: 1, updatedBy: 'QA Emulator' })
   for (const fixture of fixtures) {
     await adminAuth.createUser({ uid: fixture.uid, email: fixture.email, password: fixture.password, displayName: `QA ${fixture.key}` })
     const result = await createTenant(db, adminAuth, { auth: { uid: fixture.uid, token: {} }, data: { action: 'createTenant', operationId: `settings-${fixture.key}-${suffix}`, name: `Empresa QA ${fixture.key}`, businessType: fixture.type } })
     fixture.tenantId = result.tenantId
     fixture.tenantName = `Empresa QA ${fixture.key}`
+    fixture.contractId = `ct-billing-ui-${fixture.key}-${suffix}`
+    fixture.chargeId = `ch-billing-ui-${fixture.key}-${suffix}`
+    fixture.currentPeriodEnd = Timestamp.fromMillis(Date.now() + 5 * 86_400_000)
+    fixture.billingAccessUntil = Timestamp.fromMillis(fixture.currentPeriodEnd.toMillis() + 7 * 86_400_000)
+    await tenantRefUpdateBilling(fixture)
+    await db.doc(`platformContracts/${fixture.contractId}`).set({ contractId: fixture.contractId,
+      tenantId: fixture.tenantId, businessType: fixture.type, templateId: fixture.type, status: 'active',
+      customer: { companyName: fixture.tenantName, email: fixture.email },
+      terms: { companyName: fixture.tenantName, templateId: fixture.type, billingCycle: 'monthly', currency: 'BOB', recurringMinor: 2500 },
+      createdAt: Timestamp.now() })
+    billingFixturePaths.push(`platformContracts/${fixture.contractId}`)
+    await db.doc(`platformSubscriptions/${fixture.contractId}`).set({ contractId: fixture.contractId, tenantId: fixture.tenantId,
+      status: 'active', billingCycle: 'monthly', currency: 'BOB', recurringMinor: 2500, currentPeriodStart: Timestamp.now(),
+      currentPeriodEnd: fixture.currentPeriodEnd, nextRenewalAt: fixture.currentPeriodEnd, billingAccessUntil: fixture.billingAccessUntil,
+      billingAnchorDay: new Date().getDate(), periodCount: 1, monthsCovered: 1, planSnapshot: { name: 'Acuerdo mensual QA' },
+      createdAt: Timestamp.now() })
+    billingFixturePaths.push(`platformSubscriptions/${fixture.contractId}`)
+    await db.doc(`platformBillingCharges/${fixture.chargeId}`).set({ chargeId: fixture.chargeId, contractId: fixture.contractId,
+      tenantId: fixture.tenantId, kind: 'renewal', currency: 'BOB', amountMinor: 2500, paidMinor: 0, pendingMinor: 0,
+      status: 'due', dueAt: Timestamp.fromMillis(Date.now() + 7 * 86_400_000), cycle: 'monthly', periodCount: 1,
+      monthsCovered: 1, createdAt: Timestamp.now() })
+    billingFixturePaths.push(`platformBillingCharges/${fixture.chargeId}`)
     if (fixture.key === 'hamburger') {
       const shiftId = `qa-cash-shift-${suffix}`
       fixture.shiftId = shiftId
@@ -222,6 +298,12 @@ try {
   await clickText('Configurar impresoras')
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Impresoras del restaurante'), 'Restaurant dining printer module did not open')
   console.log('PASS Restaurant with dining owner opens business settings and printer configuration through the authenticated tenant experience')
+
+  socket.close()
+  socketOpen = false
+  await stopChrome()
+  await removeProfile()
+  for (const fixture of fixtures) await verifyBillingPortal(fixture, base, fixture.key === 'retail')
 } finally {
   if (socketOpen) socket?.close()
   await stopChrome()
@@ -229,9 +311,22 @@ try {
   await sleep(250)
   await removeProfile().catch(() => undefined)
   for (const fixture of fixtures) {
+    const fixturePayments = await db.collection('platformBillingPayments').where('contractId', '==', fixture.contractId).get().catch(() => ({ docs: [] }))
+    for (const paymentDocument of fixturePayments.docs) {
+      const payment = paymentDocument.data()
+      if (payment.referenceHash) await db.doc(`platformPaymentReferenceClaims/${payment.referenceHash}`).delete().catch(() => undefined)
+      await paymentDocument.ref.delete().catch(() => undefined)
+    }
+    const operations = await db.collection('platformBillingOperations').where('actorUid', '==', fixture.uid).get().catch(() => ({ docs: [] }))
+    await Promise.all(operations.docs.map(item => item.ref.delete().catch(() => undefined)))
+    const audits = await db.collection('platformAuditLogs').where('operatorUid', '==', fixture.uid).get().catch(() => ({ docs: [] }))
+    await Promise.all(audits.docs.map(item => item.ref.delete().catch(() => undefined)))
     if (fixture.tenantId) await db.recursiveDelete(db.doc(`tenants/${fixture.tenantId}`)).catch(() => undefined)
     await db.recursiveDelete(db.doc(`users/${fixture.uid}`)).catch(() => undefined)
     await adminAuth.deleteUser(fixture.uid).catch(() => undefined)
   }
+  for (const path of billingFixturePaths) await db.recursiveDelete(db.doc(path)).catch(() => undefined)
+  if (paymentMethodsExisted) await db.doc('platformBillingConfig/manualMethods').set(originalPaymentMethods).catch(() => undefined)
+  else await db.doc('platformBillingConfig/manualMethods').delete().catch(() => undefined)
   await deleteApp(app)
 }

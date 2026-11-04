@@ -18,7 +18,7 @@ interface CommercialIntent {
   status: string
   planSnapshot?: { planId?: string; name?: string; monthlyPrice?: number; annualPrice?: number; currency?: string; capabilitiesV1?: { limits: { activeUsers: number; activeProducts: number; activeBranches: number }; features: { reports: { basic: boolean } } } } | null
   proposal?: { implementationOneTime?: number; monthlyPrice?: number; annualPrice?: number; currency?: string; extraIds?: string[]; status?: string }
-  quote?: { status?: string; version?: number; initialDueMinor?: number; recurringMinor?: number; currency?: string; billingCycle?: 'monthly' | 'annual' }
+  quote?: { status?: string; version?: number; initialDueMinor?: number; recurringMinor?: number; currency?: string; billingCycle?: 'monthly' | 'annual'; periodCount?: number; monthsCovered?: number }
   acceptance?: { channel?: string; reference?: string }
   contractId?: string
   requestedExtraSnapshots?: Array<{ id: string; title?: string; pricingType?: string }>
@@ -43,6 +43,7 @@ export function CommercialIntentsSection() {
   const [extraIds, setExtraIds] = useState<string[]>([])
   const [extraAmounts, setExtraAmounts] = useState<Record<string, { oneTime: string; monthly: string; annual: string }>>({})
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
+  const [periodCount, setPeriodCount] = useState(1)
   const [capabilityLimits, setCapabilityLimits] = useState({ activeUsers: 1, activeProducts: 10, activeBranches: 1 })
   const [basicReports, setBasicReports] = useState(true)
   const [discount, setDiscount] = useState('0')
@@ -65,7 +66,7 @@ export function CommercialIntentsSection() {
     && (extra.applicableTemplates === 'all' || extra.applicableTemplates.includes(intake.templateId)))
   const whatsAppMessage = selected
     ? selected.quote
-      ? `Hola, compartimos la propuesta PACHAX para ${selected.companyName}. Referencia ${selected.id}. Pago inicial ${((selected.quote.initialDueMinor ?? 0) / 100).toFixed(2)} ${selected.quote.currency || ''}; renovación ${((selected.quote.recurringMinor ?? 0) / 100).toFixed(2)} ${selected.quote.currency || ''} por ciclo ${selected.quote.billingCycle || 'mensual'}. Por favor revisa las condiciones y responde para coordinar.`
+      ? `Hola, compartimos la propuesta PACHAX para ${selected.companyName}. Referencia ${selected.id}. Pago inicial ${((selected.quote.initialDueMinor ?? 0) / 100).toFixed(2)} ${selected.quote.currency || ''}, cubre ${selected.quote.monthsCovered || (selected.quote.billingCycle === 'annual' ? 12 : 1)} meses; renovación ${((selected.quote.recurringMinor ?? 0) / 100).toFixed(2)} ${selected.quote.currency || ''} por ciclo ${selected.quote.billingCycle || 'mensual'}. Por favor revisa las condiciones y responde para coordinar.`
       : `Hola, recibimos la solicitud de ${selected.companyName} para ${selected.templateId}. Referencia ${selected.id}. Queremos conversar sobre la cotización y los siguientes pasos.`
     : ''
   const whatsAppUrl = selected ? OFFICIAL_WHATSAPP.buildUrl(whatsAppMessage) : ''
@@ -97,7 +98,7 @@ export function CommercialIntentsSection() {
     try {
       await gateway('platformGateway', {
         action: 'saveCommercialQuote', intentId: selected.id, requestId,
-        implementation, monthly, annual, currency, billingCycle, discount, discountReason,
+        implementation, monthly, annual, currency, billingCycle, periodCount, discount, discountReason,
         ...(!selected.planSnapshot ? { capabilitiesV1: {
           version: 1, businessType: selected.businessType, limits: capabilityLimits,
           features: { reports: { basic: basicReports, detailed: false, export: false }, receipts: { digital: false },
@@ -239,6 +240,7 @@ export function CommercialIntentsSection() {
                       setAnnual(String(intent.proposal?.annualPrice ?? intent.planSnapshot?.annualPrice ?? ''))
                       setCurrency(intent.proposal?.currency === 'BOB' || intent.planSnapshot?.currency === 'BOB' ? 'BOB' : 'USD')
                       setBillingCycle(intent.quote?.billingCycle || 'monthly')
+                      setPeriodCount(intent.quote?.periodCount || 1)
                       setDiscount('0')
                       setDiscountReason('')
                       setAcceptanceReference('')
@@ -279,7 +281,8 @@ export function CommercialIntentsSection() {
               <label className="text-xs font-semibold text-slate-800">Mensualidad<input inputMode="decimal" value={monthly} onChange={(event) => setMonthly(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
               <label className="text-xs font-semibold text-slate-800">Anualidad<input inputMode="decimal" aria-describedby="quote-annual-help" value={annual} onChange={(event) => setAnnual(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /><span id="quote-annual-help" className="mt-1 block font-normal text-slate-600">Opcional para ciclo mensual; requerido para cotización anual.</span></label>
               <label className="text-xs font-semibold text-slate-800">Moneda<select value={currency} onChange={(event) => setCurrency(event.target.value as 'USD' | 'BOB')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="USD">USD</option><option value="BOB">BOB</option></select></label>
-              <label className="text-xs font-semibold text-slate-800">Ciclo contratado<select value={billingCycle} onChange={event => setBillingCycle(event.target.value as 'monthly' | 'annual')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="monthly">Mensual</option><option value="annual">Anual</option></select></label>
+              <label className="text-xs font-semibold text-slate-800">Ciclo contratado<select value={billingCycle} onChange={event => { const next = event.target.value as 'monthly' | 'annual'; setBillingCycle(next); setPeriodCount(1) }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="monthly">Mensual</option><option value="annual">Anual</option></select></label>
+              <label className="text-xs font-semibold text-slate-800">Períodos que cubre el primer pago<select value={periodCount} onChange={event => setPeriodCount(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm">{(billingCycle === 'monthly' ? [1, 2, 3, 6, 12] : [1, 2, 3, 5]).map(count => <option key={count} value={count}>{count} {billingCycle === 'monthly' ? (count === 1 ? 'mes' : 'meses') : (count === 1 ? 'año' : 'años')}</option>)}</select><span className="mt-1 block font-normal text-slate-600">Duración incluida en el contrato comercial aprobado.</span></label>
               <label className="text-xs font-semibold text-slate-800">Descuento autorizado<input inputMode="decimal" value={discount} onChange={event => setDiscount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>
               {Number(discount) > 0 && <label className="text-xs font-semibold text-slate-800 sm:col-span-2">Motivo del descuento<input minLength={8} maxLength={500} value={discountReason} onChange={event => setDiscountReason(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" /></label>}
             </div>
@@ -302,7 +305,7 @@ export function CommercialIntentsSection() {
                 {extraIds.includes(extra.id) && <div className="mt-2 grid grid-cols-3 gap-2">{(extra.pricingType === 'recurring' ? ['monthly', 'annual'] as const : ['oneTime'] as const).map(kind => <label key={kind} className="text-[11px]">{kind === 'oneTime' ? 'Único' : kind === 'monthly' ? 'Mensual' : 'Anual'}<input inputMode="decimal" value={extraAmounts[extra.id]?.[kind] ?? '0'} onChange={event => { const existing = extraAmounts[extra.id] || { oneTime: '0', monthly: '0', annual: '0' }; setExtraAmounts(current => ({ ...current, [extra.id]: { ...existing, [kind]: event.target.value } })) }} className="mt-1 w-full rounded border p-1" /></label>)}</div>}
               </div>)}
             </fieldset>}
-            {selected.quote && <p className="mt-3 rounded bg-slate-50 p-2 text-xs text-slate-700">Cotización v{selected.quote.version}: {selected.quote.status}{selected.quote.initialDueMinor !== undefined ? ` · inicial ${(selected.quote.initialDueMinor / 100).toFixed(2)} ${selected.quote.currency}` : ''}</p>}
+            {selected.quote && <p className="mt-3 rounded bg-slate-50 p-2 text-xs text-slate-700">Cotización v{selected.quote.version}: {selected.quote.status}{selected.quote.initialDueMinor !== undefined ? ` · inicial ${(selected.quote.initialDueMinor / 100).toFixed(2)} ${selected.quote.currency}` : ''}{selected.quote.monthsCovered ? ` · cubre ${selected.quote.monthsCovered} meses` : ''}</p>}
             {!selected.acceptance && <button type="button" disabled={saving || Boolean(selected.contractId)} onClick={() => void prepare()} className="mt-5 w-full rounded-lg bg-slate-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-60">{saving ? 'Guardando…' : 'Guardar cotización en borrador'}</button>}
             {selected.quote?.status === 'draft' && <button type="button" disabled={saving} onClick={() => void offerQuote()} className="mt-2 w-full rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-60">Ofrecer cotización al cliente</button>}
             {selected.quote?.status === 'offered' && !selected.acceptance && !selected.contractId && <button type="button" disabled={saving} onClick={() => void withdrawQuote()} className="mt-2 w-full rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-900 disabled:opacity-60">Retirar oferta para corregirla</button>}
