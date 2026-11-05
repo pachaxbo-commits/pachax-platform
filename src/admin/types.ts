@@ -66,6 +66,8 @@ export interface TemplateTierPlan {
   tierLevel?: 1 | 2 | 3
   monthlyPriceUSD: number
   annualPriceUSD: number
+  /** Explicit unit confirmation. Missing/null legacy values are ambiguous and cannot be billed as annual plans. */
+  annualPriceUnit?: 'annual_total_12_months' | null
   currency: 'USD' | 'BOB'
   billingPeriod: 'monthly' | 'annual'
   badge?: string

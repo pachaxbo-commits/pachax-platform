@@ -32,6 +32,7 @@ async function clearDocuments() {
     `platformTemplates/hamburger`,
     `platformTemplates/custom`,
     `platformPlans/catalog-init-plan-${suffix}`,
+    `platformPlans/catalog-init-legacy-plan-${suffix}`,
   ]) await db.doc(path).delete().catch(() => undefined);
 }
 
@@ -100,11 +101,17 @@ async function main() {
     console.log('PASS repara snapshot revision 0 sin meta reconstruyendo únicamente desde fuentes publicadas');
 
     const planId = `catalog-init-plan-${suffix}`;
+    const legacyPlanId = `catalog-init-legacy-plan-${suffix}`;
     const batch = db.batch();
     batch.set(db.doc(`platformPlans/${planId}`), {
       templateId: 'hamburger', name: 'Plan publicado QA', planKind: 'paid', tierLevel: 1,
-      monthlyPriceUSD: 20, annualPriceUSD: 200, currency: 'USD', status: 'published',
+      monthlyPriceUSD: 20, annualPriceUSD: 200, annualPriceUnit: 'annual_total_12_months', currency: 'USD', status: 'published',
       priceApproval: 'approved', technicalEntitlements: [], includedFeatures: ['Caja'], order: 1,
+    });
+    batch.set(db.doc(`platformPlans/${legacyPlanId}`), {
+      templateId: 'retail', name: 'Plan legacy mensual QA', planKind: 'paid', tierLevel: 1,
+      monthlyPriceUSD: 30, annualPriceUSD: 300, currency: 'BOB', status: 'published',
+      priceApproval: 'approved', technicalEntitlements: [], includedFeatures: ['Venta'], order: 2,
     });
     const publishedRevision = await commercial.commitPublicCatalogMutation(db, batch);
     assert.equal(publishedRevision, 3);
@@ -113,6 +120,10 @@ async function main() {
     assert.equal(meta.revision, 3);
     assert.equal(snapshot.revision, 3);
     assert(snapshot.catalog.plans.some(plan => plan.id === planId));
+    const legacyPublicPlan = snapshot.catalog.plans.find(plan => plan.id === legacyPlanId);
+    assert.equal(legacyPublicPlan.monthlyPriceUSD, 30);
+    assert.equal(legacyPublicPlan.annualPriceUSD, 0, 'catalog projection redacts a legacy annual value with unknown unit');
+    assert.equal(legacyPublicPlan.annualPriceUnit, null);
     console.log('PASS publicar un plan actualiza contenido y revisión de meta/snapshot conjuntamente');
 
     const unpublish = db.batch();

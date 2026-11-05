@@ -36,7 +36,7 @@ function seedPayload() {
     })),
     plans: [{
       id: testPlanId, templateId: 'hamburger', name: 'Referencial', planKind: 'paid',
-      monthlyPriceUSD: 25, annualPriceUSD: 250, currency: 'USD', status: 'published',
+      monthlyPriceUSD: 25, annualPriceUSD: 250, annualPriceUnit: 'annual_total_12_months', currency: 'USD', status: 'published',
     }],
     extras: [{ id: testExtraId, title: 'Extra de prueba', status: 'published' }],
     mediaAssets: [],

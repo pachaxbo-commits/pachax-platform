@@ -187,12 +187,36 @@ async function main() {
     assert.equal(publicCatalog.plans.some(plan => plan.id === planId), false);
     assert.equal(publicCatalog.extras.some(extra => extra.id === extraId), false);
 
+    const approvedButAmbiguous = await saveAs(owner, {
+      action: 'savePlan', plan: { ...draftPlan, priceApproval: 'approved', status: 'published' },
+      expectedRevision: savedPlan.revision,
+    }).then(() => null, error => error);
+    assert.equal(approvedButAmbiguous?.code, 'failed-precondition', 'publishing an unconfirmed annual unit is rejected server-side');
+    const confirmedDraft = await saveAs(owner, {
+      action: 'savePlan', plan: { ...draftPlan, priceApproval: 'approved', status: 'draft', annualPriceUnit: 'annual_total_12_months' },
+      expectedRevision: savedPlan.revision,
+    });
+    const confirmedPublish = await saveAs(owner, {
+      action: 'publishPlan', planId, status: 'published', expectedRevision: confirmedDraft.revision,
+    });
+    const confirmedPlan = (await db.doc(`platformPlans/${planId}`).get()).data();
+    assert.equal(confirmedPlan.annualPriceUSD, 500, 'stored amount remains unchanged after explicit unit confirmation');
+    assert.equal(confirmedPlan.annualPriceUnit, 'annual_total_12_months');
+    assert.equal(confirmedPlan.status, 'published');
+    assert.equal(confirmedPublish.success, true);
+    const confirmedCatalog = await commercial.getPublicCommercialCatalog(db,
+      { rawRequest: { ip: `192.0.2.${Number(nonce.slice(-1), 36) % 200 + 1}` } },
+      'admin-control-center-test-secret-at-least-32-bytes', { emulator: true });
+    const publicConfirmedPlan = confirmedCatalog.plans.find(plan => plan.id === planId);
+    assert.equal(publicConfirmedPlan.annualPriceUSD, 500, 'public catalog exposes only the confirmed annual total');
+    assert.equal(publicConfirmedPlan.annualPriceUnit, 'annual_total_12_months');
+
     await assert.rejects(saveAs(owner, {
       action: 'saveTemplate', template: { ...storedTemplate, commercialName: 'Sobrescrito obsoleto' },
       expectedRevision: publishRevision,
     }), error => error.code === 'aborted');
 
-    console.log('PASS Admin Control Center: content save, canonical template identity/route, draft privacy, owner publication, price approval gate, role rejection, stale-write protection, public snapshot refresh and concurrent revision safety');
+    console.log('PASS Admin Control Center: content save, draft privacy, explicit annual-total confirmation, owner publication, role rejection, stale-write protection and public snapshot refresh');
   } finally {
     for (const path of [`platformPlans/${planId}`, `platformExtras/${extraId}`, `platformMedia/${mediaId}`]) {
       await db.doc(path).delete().catch(() => undefined);

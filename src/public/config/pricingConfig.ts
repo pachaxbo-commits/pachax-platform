@@ -31,6 +31,8 @@ export interface TemplateTierPlan {
   /* DEMO_PLACEHOLDER: precio de referencia visual no oficial */
   monthlyPriceUSD: number
   annualPriceUSD: number
+  /** Annual amount unit must be explicitly confirmed before it is displayed or billed. */
+  annualPriceUnit?: 'annual_total_12_months' | null
   currency: 'USD' | 'BOB'
   billingPeriod: 'monthly' | 'annual'
   badge?: string // Ej. 'Más popular' o 'Recomendado'

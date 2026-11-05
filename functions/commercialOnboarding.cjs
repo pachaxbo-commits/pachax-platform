@@ -86,10 +86,11 @@ function safePublicPlan(idValue, value) {
     || !Array.isArray(value.technicalEntitlements) || value.technicalEntitlements.length !== 0) return null;
   const monthly = Number(value.monthlyPriceUSD);
   const annual = Number(value.annualPriceUSD);
-  if (!['USD', 'BOB'].includes(value.currency) || !Number.isFinite(monthly) || !Number.isFinite(annual)) return null;
+  if (!['USD', 'BOB'].includes(value.currency) || !Number.isFinite(monthly)) return null;
+  const annualConfirmed = value.annualPriceUnit === 'annual_total_12_months' && Number.isFinite(annual) && annual > 0;
   if (value.planKind === 'free') {
-    if (monthly !== 0 || annual !== 0 || value.adsRequired !== true) return null;
-  } else if (value.planKind !== 'paid' || monthly <= 0 || annual <= 0) return null;
+    if (monthly !== 0 || !Number.isFinite(annual) || annual !== 0 || value.adsRequired !== true) return null;
+  } else if (value.planKind !== 'paid' || monthly <= 0) return null;
   const includedFeatures = publicStringList(value.includedFeatures, 30, 180);
   if (!publicString(value.name, 100) || includedFeatures.length === 0) return null;
   return {
@@ -99,7 +100,8 @@ function safePublicPlan(idValue, value) {
     planKind: value.planKind,
     tierLevel: [1, 2, 3].includes(Number(value.tierLevel)) ? Number(value.tierLevel) : null,
     monthlyPriceUSD: monthly,
-    annualPriceUSD: annual,
+    annualPriceUSD: annualConfirmed ? annual : 0,
+    annualPriceUnit: annualConfirmed ? 'annual_total_12_months' : null,
     currency: value.currency,
     // These are safe normalized contract flags, not the administrator's raw
     // entitlement configuration. The public client revalidates the projection.
@@ -400,7 +402,7 @@ async function submitPublicCommercialInterest(db, request, rateLimitSecret, opti
       const plan = planSnap.data();
       const safePlan = planSnap.exists ? safePublicPlan(planId, plan) : null;
       if (!safePlan || safePlan.templateId !== templateId) throw new HttpsError('failed-precondition', 'El plan ya no está disponible para esta plantilla.');
-      planSnapshot = { planId: safePlan.id, name: safePlan.name, planKind: safePlan.planKind, monthlyPrice: safePlan.monthlyPriceUSD, annualPrice: safePlan.annualPriceUSD, currency: safePlan.currency };
+      planSnapshot = { planId: safePlan.id, name: safePlan.name, planKind: safePlan.planKind, monthlyPrice: safePlan.monthlyPriceUSD, annualPrice: safePlan.annualPriceUSD, annualPriceUnit: safePlan.annualPriceUnit, currency: safePlan.currency };
     }
 
     const now = FieldValue.serverTimestamp();
@@ -496,10 +498,12 @@ async function submitCommercialInterest(db, request) {
       }
       const monthlyPrice = Number(plan.monthlyPriceUSD);
       const annualPrice = Number(plan.annualPriceUSD);
+      const annualPriceUnit = plan.annualPriceUnit === 'annual_total_12_months'
+        && Number.isFinite(annualPrice) && annualPrice > 0 ? plan.annualPriceUnit : null;
       const isFree = plan.planKind === 'free';
-      if (!['USD', 'BOB'].includes(plan.currency) || !Number.isFinite(monthlyPrice) || !Number.isFinite(annualPrice)
-        || (isFree && (monthlyPrice !== 0 || annualPrice !== 0 || plan.adsRequired !== true))
-        || (!isFree && (monthlyPrice <= 0 || annualPrice <= 0))
+      if (!['USD', 'BOB'].includes(plan.currency) || !Number.isFinite(monthlyPrice)
+        || (isFree && (monthlyPrice !== 0 || !Number.isFinite(annualPrice) || annualPrice !== 0 || plan.adsRequired !== true))
+        || (!isFree && monthlyPrice <= 0)
         || !Array.isArray(plan.includedFeatures) || plan.includedFeatures.length === 0
         || plan.includedFeatures.some(feature => typeof feature !== 'string' || !feature.trim())) {
         throw new HttpsError('failed-precondition', 'El plan publicado no cumple el contrato comercial vigente.');
@@ -510,7 +514,8 @@ async function submitCommercialInterest(db, request) {
         version: Number(plan.commercialVersion) || 1,
         planKind: plan.planKind === 'free' ? 'free' : 'paid',
         monthlyPrice,
-        annualPrice,
+        annualPrice: annualPriceUnit ? annualPrice : 0,
+        annualPriceUnit,
         currency: plan.currency === 'BOB' ? 'BOB' : 'USD',
       };
     }

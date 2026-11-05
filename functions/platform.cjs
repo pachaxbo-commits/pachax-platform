@@ -449,8 +449,10 @@ async function publishPlan(db, request) {
       || planData.includedFeatures.some(feature => typeof feature !== 'string' || !feature.trim() || feature.length > 180)) {
       throw new HttpsError('failed-precondition', 'El plan requiere características comerciales válidas.');
     }
-    if (planKind !== 'free' && (!(Number(planData.monthlyPriceUSD) > 0) || !(Number(planData.annualPriceUSD) > 0))) {
-      throw new HttpsError('failed-precondition', 'Un plan de pago requiere tarifas mensual y anual mayores que cero.');
+    if (planKind !== 'free' && (!(Number(planData.monthlyPriceUSD) > 0)
+      || !(Number(planData.annualPriceUSD) > 0)
+      || planData.annualPriceUnit !== 'annual_total_12_months')) {
+      throw new HttpsError('failed-precondition', 'Un plan publicado requiere precio mensual y confirmación de que el importe anual es el total de 12 meses.');
     }
     if (planKind === 'free') {
       if (Number(planData.monthlyPriceUSD || 0) !== 0 || Number(planData.annualPriceUSD || 0) !== 0) {
@@ -516,7 +518,7 @@ async function savePlan(db, request) {
     throw new HttpsError('invalid-argument', 'Datos de plan inválidos.');
   }
   const allowedPlanFields = new Set([
-    'id', 'templateId', 'name', 'planKind', 'priceApproval', 'tierLevel', 'monthlyPriceUSD', 'annualPriceUSD',
+    'id', 'templateId', 'name', 'planKind', 'priceApproval', 'tierLevel', 'monthlyPriceUSD', 'annualPriceUSD', 'annualPriceUnit',
     'currency', 'billingPeriod', 'badge', 'isPopular', 'adsRequired', 'clientProfile', 'limitsLabel',
     'includedFeatures', 'technicalEntitlements', 'ctaLabel', 'status', 'order', 'commercialVersion',
     'capabilitiesV1', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy', 'revision',
@@ -542,6 +544,11 @@ async function savePlan(db, request) {
   }
   let monthlyPrice = Number(plan.monthlyPriceUSD ?? 0);
   let annualPrice = Number(plan.annualPriceUSD ?? 0);
+  if (plan.annualPriceUnit !== undefined && plan.annualPriceUnit !== null
+    && plan.annualPriceUnit !== 'annual_total_12_months') {
+    throw new HttpsError('invalid-argument', 'La unidad del precio anual no es válida.');
+  }
+  const annualPriceUnit = plan.annualPriceUnit === 'annual_total_12_months' ? plan.annualPriceUnit : null;
 
   if (!Number.isFinite(monthlyPrice) || monthlyPrice < 0 || !Number.isFinite(annualPrice) || annualPrice < 0) {
     throw new HttpsError('invalid-argument', 'Los precios deben ser valores numéricos válidos mayores o iguales a 0.');
@@ -597,8 +604,9 @@ async function savePlan(db, request) {
     if (Array.isArray(plan.technicalEntitlements) && plan.technicalEntitlements.length > 0) {
       throw new HttpsError('failed-precondition', 'Los entitlements técnicos todavía no están conectados a Billing Core y no se pueden publicar como capacidades activas.');
     }
-    if (planKind !== 'free' && (!(monthlyPrice > 0) || !(annualPrice > 0))) {
-      throw new HttpsError('failed-precondition', 'Un plan de pago requiere tarifas mensual y anual mayores que cero.');
+    if (planKind !== 'free' && (!(monthlyPrice > 0) || !(annualPrice > 0)
+      || annualPriceUnit !== 'annual_total_12_months')) {
+      throw new HttpsError('failed-precondition', 'Un plan publicado requiere precio mensual y confirmación de que el importe anual es el total de 12 meses.');
     }
     if (planKind === 'free') {
       const freePublishedSnap = await db.collection('platformPlans')
@@ -623,6 +631,11 @@ async function savePlan(db, request) {
 
   const planRef = db.doc(`platformPlans/${planId}`);
   const planSnap = await planRef.get();
+  if (annualPriceUnit === 'annual_total_12_months'
+    && planSnap.data()?.annualPriceUnit !== annualPriceUnit
+    && actor.operator.role !== 'platform_owner') {
+    throw new HttpsError('permission-denied', 'Solo Platform Owner puede confirmar la unidad del precio anual.');
+  }
   const now = FieldValue.serverTimestamp();
 
   const payload = {
@@ -633,6 +646,7 @@ async function savePlan(db, request) {
     planKind,
     monthlyPriceUSD: monthlyPrice,
     annualPriceUSD: annualPrice,
+    annualPriceUnit,
     currency,
     adsRequired,
     priceApproval,
@@ -661,6 +675,7 @@ async function savePlan(db, request) {
       planId, name: plan.name, status, templateId, planKind, priceApproval,
       monthlyPriceUSD: monthlyPrice,
       annualPriceUSD: annualPrice,
+      annualPriceUnit,
       currency,
       includedFeatureCount: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.length : 0,
     },
