@@ -509,6 +509,7 @@ async function run() {
     assert.equal(change.idempotent, false);
     assert.equal(changeReplay.idempotent, true);
     const scheduled = (await db.doc(`platformSubscriptions/${contractResult.contractId}`).get()).data();
+    const originalScheduledTenant = (await tenantRef.get()).data();
     assert.equal(scheduled.planKey, planId, 'the current plan remains effective until next renewal');
     assert.equal(scheduled.pendingPlanChange.planSnapshot.planId, nextPlanId);
     assert.deepEqual(scheduled.pendingPlanChange.planSnapshot.capabilitiesV1.limits, { activeUsers: 4, activeProducts: 3, activeBranches: 1 });
@@ -527,6 +528,20 @@ async function run() {
     const renewalPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(), chargeId: renewal.chargeId,
       amount: '30.00', method: 'bank_transfer', bankReference: `QA-BANK-${suffix}-3` });
     createdPaths.push(`platformBillingPayments/${renewalPayment.paymentId}`);
+    await assert.rejects(platformCall(financeUid, { action: 'confirmManualPayment', paymentId: renewalPayment.paymentId, requestId: opId() }),
+      error => error.code === 'failed-precondition', 'A scheduled plan payment cannot grant its destination plan before the agreed date.');
+    const beforeEffectiveDate = (await subscriptionRef.get()).data();
+    assert.equal(beforeEffectiveDate.planKey, planId);
+    assert.deepEqual(beforeEffectiveDate.capabilitiesV1, scheduled.capabilitiesV1,
+      'The current subscription capabilities remain unchanged before the effective date.');
+    assert.equal(beforeEffectiveDate.pendingPlanChange.planSnapshot.planId, nextPlanId);
+    assert.equal((await tenantRef.get()).data().planKey, planId);
+    assert.deepEqual((await tenantRef.get()).data().commercialCapabilities, originalScheduledTenant.commercialCapabilities);
+    const effectiveAt = Timestamp.fromMillis(Date.now() - 1_000);
+    await subscriptionRef.update({ currentPeriodEnd: effectiveAt, nextRenewalAt: effectiveAt,
+      pendingPlanChange: { ...beforeEffectiveDate.pendingPlanChange, effectiveAt },
+      billingAccessUntil: Timestamp.fromMillis(Date.now() + 7 * 86_400_000) });
+    await tenantRef.update({ billingAccessUntil: Timestamp.fromMillis(Date.now() + 7 * 86_400_000) });
     await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: renewalPayment.paymentId, requestId: opId() });
     const updatedSubscription = (await db.doc(`platformSubscriptions/${contractResult.contractId}`).get()).data();
     assert.equal(updatedSubscription.planKey, nextPlanId);
@@ -777,6 +792,81 @@ async function run() {
       'The activated two-year term remains fully covered.');
     pass('contrato anual conserva precio negociado; dos años prepagados se activan completos y la doble conciliación concurrente solo aplica una vez');
 
+    const annualPaidThrough = annualSubscription.currentPeriodEnd;
+    await assert.rejects(platformCall(ownerUid, { action: 'createRenewalCharge', contractId: annualContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 1 }), error => error.code === 'failed-precondition',
+    'An ordinary one-year renewal remains inside the 30-day window even when the current paid term spans years.');
+    await assert.rejects(platformCall(ownerUid, { action: 'createRenewalCharge', contractId: annualContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 4 }), error => error.code === 'invalid-argument',
+    'Annual advance payment durations outside the published policy remain rejected.');
+    const annualPrepayRequestIds = [opId(), opId()];
+    const annualPrepayDueAt = dateAfter(7);
+    const annualPrepayAttempts = await Promise.all(annualPrepayRequestIds.map(requestId => platformCall(ownerUid, {
+      action: 'createRenewalCharge', contractId: annualContract.contractId, requestId, dueAt: annualPrepayDueAt, periodCount: 5,
+    })));
+    assert.equal(annualPrepayAttempts[0].chargeId, annualPrepayAttempts[1].chargeId,
+      'Concurrent annual prepayment requests share one active charge.');
+    assert.equal(annualPrepayAttempts.filter(result => result.reusedPendingCharge).length, 1);
+    assert.equal(annualPrepayAttempts[0].renewalMode, 'advance_prepayment');
+    const annualPrepayChargeId = annualPrepayAttempts[0].chargeId;
+    createdPaths.push(`platformBillingCharges/${annualPrepayChargeId}`);
+    const annualPrepayChargeRef = db.doc(`platformBillingCharges/${annualPrepayChargeId}`);
+    const annualPrepayCharge = (await annualPrepayChargeRef.get()).data();
+    assert.equal(annualPrepayCharge.renewalMode, 'advance_prepayment');
+    assert.equal(annualPrepayCharge.cycle, 'annual');
+    assert.equal(annualPrepayCharge.periodCount, 5);
+    assert.equal(annualPrepayCharge.monthsCovered, 60);
+    assert.equal(annualPrepayCharge.amountMinor, annualQuoteRecord.recurringMinor * 5,
+      'Annual advance payment uses the signed annual price for the maximum permitted duration.');
+    assert.equal(annualPrepayCharge.periodStart.toMillis(), annualPaidThrough.toMillis(),
+      'Annual advance period starts at the already-paid boundary.');
+    assert(annualPrepayCharge.periodEnd.toMillis() > annualPaidThrough.toMillis() + 1_790 * 86_400_000,
+      'Annual advance periods append five full years without overlap.');
+    const annualSameRequestReplay = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: annualContract.contractId,
+      requestId: annualPrepayRequestIds[0], dueAt: annualPrepayDueAt, periodCount: 5 });
+    assert.equal(annualSameRequestReplay.chargeId, annualPrepayChargeId);
+    assert.equal(annualSameRequestReplay.idempotent, true);
+    await assert.rejects(platformCall(ownerUid, { action: 'createRenewalCharge', contractId: annualContract.contractId,
+      requestId: opId(), dueAt: annualPrepayDueAt, periodCount: 3 }), error => error.code === 'failed-precondition',
+    'A second annual duration cannot replace a partially reconciled pending prepayment.');
+    const annualTenantRef = db.doc(`tenants/${annualActivation.tenantId}`);
+    const annualOriginalCapabilities = (await annualTenantRef.get()).data().commercialCapabilities;
+    const annualPaymentOne = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: annualPrepayChargeId, amount: '3750.00', method: 'bank_transfer', bankReference: `QA-ANNUAL-ADVANCE-1-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${annualPaymentOne.paymentId}`);
+    const annualPartialConfirmation = await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: annualPaymentOne.paymentId, requestId: opId() });
+    assert.equal(annualPartialConfirmation.status, 'partial');
+    assert.equal((await db.doc(`platformSubscriptions/${annualContract.contractId}`).get()).data().currentPeriodEnd.toMillis(), annualPaidThrough.toMillis(),
+      'A partial annual prepayment cannot extend coverage.');
+    assert.deepEqual((await annualTenantRef.get()).data().commercialCapabilities, annualOriginalCapabilities,
+      'A partial annual prepayment cannot change tenant capabilities.');
+    const annualPaymentTwo = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: annualPrepayChargeId, amount: '3750.00', method: 'bank_transfer', bankReference: `QA-ANNUAL-ADVANCE-2-${suffix}` });
+    createdPaths.push(`platformBillingPayments/${annualPaymentTwo.paymentId}`);
+    const annualFullConfirmation = await platformCall(ownerUid, { action: 'confirmManualPayment', paymentId: annualPaymentTwo.paymentId, requestId: opId() });
+    assert.equal(annualFullConfirmation.status, 'confirmed');
+    const annualExtendedSubscription = (await db.doc(`platformSubscriptions/${annualContract.contractId}`).get()).data();
+    assert.equal(annualExtendedSubscription.currentPeriodStart.toMillis(), annualPaidThrough.toMillis());
+    assert.equal(annualExtendedSubscription.currentPeriodEnd.toMillis(), annualPrepayCharge.periodEnd.toMillis());
+    assert.equal((await annualPrepayChargeRef.get()).data().periodApplicationId, `renewal:${annualPrepayChargeId}`);
+    const annualRenewalRows = await db.collection('platformBillingCharges').where('contractId', '==', annualContract.contractId).get();
+    assert.equal(annualRenewalRows.docs.filter(item => item.data().kind === 'renewal').length, 1,
+      'Retries and concurrent operators do not create duplicate annual charges.');
+    pass('prepago anual anticipado máximo de cinco años conserva cobertura, precio, ciclo e idempotencia; pago parcial no extiende ni cambia capacidades');
+
+    const annualOrdinaryEnd = Timestamp.fromMillis(Date.now() + 15 * 86_400_000);
+    await db.doc(`platformSubscriptions/${annualContract.contractId}`).update({ currentPeriodEnd: annualOrdinaryEnd,
+      nextRenewalAt: annualOrdinaryEnd, billingAccessUntil: Timestamp.fromMillis(annualOrdinaryEnd.toMillis() + 7 * 86_400_000) });
+    await annualTenantRef.update({ billingAccessUntil: Timestamp.fromMillis(annualOrdinaryEnd.toMillis() + 7 * 86_400_000) });
+    const annualOrdinaryRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: annualContract.contractId,
+      requestId: opId(), dueAt: dateAfter(7), periodCount: 1 });
+    createdPaths.push(`platformBillingCharges/${annualOrdinaryRenewal.chargeId}`);
+    const annualOrdinaryCharge = (await db.doc(`platformBillingCharges/${annualOrdinaryRenewal.chargeId}`).get()).data();
+    assert.equal(annualOrdinaryRenewal.renewalMode, 'ordinary');
+    assert.equal(annualOrdinaryCharge.periodCount, 1);
+    assert.equal(annualOrdinaryCharge.amountMinor, annualQuoteRecord.recurringMinor);
+    pass('renovación anual ordinaria de un período se habilita dentro de los 30 días y conserva la tarifa anual');
+
     const correctionIntentResult = await platformCall(ownerUid, { action: 'createManualCommercialIntent', requestId: opId(),
       contactName: 'Cliente corrección QA', companyName: `Cliente Corrección QA ${suffix}`, email: `correction-${suffix}@example.test`,
       contactPhone: '+591 70000000', templateId: 'distribution', planId: null, extraIds: [], billingCycle: 'monthly', needs: 'Corrección auditada.' });
@@ -907,27 +997,55 @@ async function run() {
     await assert.rejects(platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: opId(),
       contractId: monthlyOnlyContract.contractId, planId: wrongBusinessPlanId, billingCycle: 'monthly' }),
     error => error.code === 'failed-precondition')
-    const scheduledPrepaymentEnd = Timestamp.fromMillis(Date.now() + 180 * 86_400_000)
-    await monthlySubscriptionRef.update({ currentPeriodEnd: scheduledPrepaymentEnd, nextRenewalAt: scheduledPrepaymentEnd,
-      billingAccessUntil: Timestamp.fromMillis(scheduledPrepaymentEnd.toMillis() + 7 * 86_400_000) })
-    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(scheduledPrepaymentEnd.toMillis() + 7 * 86_400_000) })
+    const scheduledChangeBeforePayment = (await monthlySubscriptionRef.get()).data()
+    const scheduledPrepaymentEnd = scheduledChangeBeforePayment.pendingPlanChange.effectiveAt
+    assert(scheduledPrepaymentEnd.toMillis() > Date.now(), 'The scheduled plan change must still have a future contractual date.')
+    const originalScheduledPlanKey = scheduledChangeBeforePayment.planKey
+    const originalScheduledSubscriptionCapabilities = scheduledChangeBeforePayment.commercialCapabilities
+    const monthlyTenantRef = db.doc(`tenants/${monthlyProvision.tenantId}`)
+    const originalScheduledTenantCapabilities = (await monthlyTenantRef.get()).data().commercialCapabilities
     const scheduledPrepayment = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
       requestId: opId(), dueAt: dateAfter(7), periodCount: 6 })
     createdPaths.push(`platformBillingCharges/${scheduledPrepayment.chargeId}`)
     const scheduledCharge = (await db.doc(`platformBillingCharges/${scheduledPrepayment.chargeId}`).get()).data()
     const pendingPlanChangeBeforePrepay = (await monthlySubscriptionRef.get()).data().pendingPlanChange
+    assert.equal(scheduledPrepayment.renewalMode, 'advance_prepayment')
     assert.equal(scheduledCharge.planSnapshot.planId, nextPlanId)
     assert.equal(scheduledCharge.amountMinor, pendingPlanChangeBeforePrepay.recurringMinor * 6,
       'Advance prepayment uses the scheduled destination plan price, not the old recurring price.')
-    assert.equal(scheduledCharge.periodStart.toMillis(), scheduledPrepaymentEnd.toMillis())
+    assert.equal(scheduledCharge.periodStart.toMillis(), scheduledPrepaymentEnd.toMillis(),
+      'The scheduled plan is priced at and anchored to its future contractual date.')
     const scheduledReference = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
-      chargeId: scheduledPrepayment.chargeId, amount: (scheduledCharge.amountMinor / 100).toFixed(2),
-      method: 'bank_transfer', bankReference: `QA-SCHEDULED-PREPAY-${suffix}` })
+      chargeId: scheduledPrepayment.chargeId, amount: (scheduledCharge.amountMinor / 200).toFixed(2),
+      method: 'bank_transfer', bankReference: `QA-SCHEDULED-PREPAY-PARTIAL-${suffix}` })
     createdPaths.push(`platformBillingPayments/${scheduledReference.paymentId}`)
-    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: scheduledReference.paymentId, requestId: opId() })
+    await assert.rejects(platformCall(financeUid, { action: 'confirmManualPayment', paymentId: scheduledReference.paymentId, requestId: opId() }),
+      error => error.code === 'failed-precondition', 'A payment cannot apply scheduled capabilities before the agreed effective date.')
+    assert.equal((await db.doc(`platformBillingCharges/${scheduledPrepayment.chargeId}`).get()).data().paidMinor, 0)
+    assert.equal((await monthlySubscriptionRef.get()).data().planKey, originalScheduledPlanKey)
+    assert.deepEqual((await monthlyTenantRef.get()).data().commercialCapabilities, originalScheduledTenantCapabilities)
+    const effectivePlanDate = Timestamp.fromMillis(Date.now() - 86_400_000)
+    const expiredGraceDeadline = Timestamp.fromMillis(effectivePlanDate.toMillis() + 7 * 86_400_000)
+    await monthlySubscriptionRef.update({ currentPeriodEnd: effectivePlanDate, nextRenewalAt: effectivePlanDate,
+      billingAccessUntil: expiredGraceDeadline, pendingPlanChange: { ...scheduledChangeBeforePayment.pendingPlanChange,
+        effectiveAt: effectivePlanDate } })
+    await monthlyTenantRef.update({ billingAccessUntil: expiredGraceDeadline })
+    assert.equal((await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: scheduledReference.paymentId, requestId: opId() })).status, 'partial')
+    const afterScheduledPartial = (await monthlySubscriptionRef.get()).data()
+    assert.equal(afterScheduledPartial.planKey, originalScheduledPlanKey)
+    assert.deepEqual(afterScheduledPartial.commercialCapabilities, originalScheduledSubscriptionCapabilities)
+    assert.ok(afterScheduledPartial.pendingPlanChange, 'The destination plan remains scheduled until the full amount is reconciled.')
+    assert.deepEqual((await monthlyTenantRef.get()).data().commercialCapabilities, originalScheduledTenantCapabilities)
+    const scheduledReferenceTwo = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(),
+      chargeId: scheduledPrepayment.chargeId, amount: (scheduledCharge.amountMinor / 200).toFixed(2),
+      method: 'bank_transfer', bankReference: `QA-SCHEDULED-PREPAY-FINAL-${suffix}` })
+    createdPaths.push(`platformBillingPayments/${scheduledReferenceTwo.paymentId}`)
+    await platformCall(financeUid, { action: 'confirmManualPayment', paymentId: scheduledReferenceTwo.paymentId, requestId: opId() })
     assert.equal((await monthlySubscriptionRef.get()).data().planKey, nextPlanId)
+    assert.deepEqual((await monthlySubscriptionRef.get()).data().commercialCapabilities, pendingPlanChangeBeforePrepay.planSnapshot.capabilitiesV1)
+    assert.deepEqual((await monthlyTenantRef.get()).data().commercialCapabilities, pendingPlanChangeBeforePrepay.planSnapshot.capabilitiesV1)
     assert.equal((await monthlySubscriptionRef.get()).data().pendingPlanChange, undefined)
-    pass('prepago anticipado conserva precio de plan destino programado y lo aplica desde el fin del período vigente');
+    pass('cambio programado factura la tarifa destino en su fecha contractual; antes de esa fecha no concilia pagos ni aplica capacidades, y luego requiere el importe completo');
     await platformCall(ownerUid, { action: 'changeSubscriptionStatus', contractId: monthlyOnlyContract.contractId,
       status: 'suspended', reason: 'Suspensión administrativa QA autorizada.', requestId: opId() })
     const suspendedRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,

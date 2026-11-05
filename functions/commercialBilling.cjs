@@ -647,6 +647,14 @@ async function confirmManualPayment(db, request) {
       || contractSnap.data().initialChargeId !== charge.chargeId || subscriptionSnap.data().status !== 'pending')) {
       throw new HttpsError('failed-precondition', 'El cargo inicial no corresponde a un contrato pendiente de pago.');
     }
+    if (charge.kind === 'renewal') {
+      const pendingPlanChange = subscriptionSnap.data().pendingPlanChange || null;
+      const effectiveAt = pendingPlanChange?.effectiveAt?.toMillis?.()
+        ?? subscriptionSnap.data().currentPeriodEnd?.toMillis?.();
+      if (pendingPlanChange && Number.isFinite(effectiveAt) && effectiveAt > Date.now()) {
+        throw new HttpsError('failed-precondition', 'La renovación con cambio de plan solo puede confirmarse desde la fecha contractual del cambio. La referencia permanece pendiente de conciliación.');
+      }
+    }
     if (charge.kind === 'renewal' && !['active', 'overdue', 'suspended', 'cancelled'].includes(subscriptionSnap.data().status)) {
       throw new HttpsError('failed-precondition', 'La suscripción no admite conciliación para este cargo.');
     }
@@ -797,11 +805,13 @@ async function createRenewalCharge(db, request) {
     const pendingPlanChange = current.pendingPlanChange || null;
     const chargeCycle = pendingPlanChange?.billingCycle || current.billingCycle || contract.data().terms.billingCycle;
     const periodCount = prepaidPeriods(chargeCycle, requestedPeriodCount);
-    // The existing one-cycle renewal remains restricted to the 30-day window.
-    // A multi-cycle monthly charge is an explicit advance prepayment selected
-    // by a Platform Owner, and can extend paid coverage early.
-    const advanceMonthlyPrepayment = chargeCycle === 'monthly' && periodCount > 1;
-    if (current.status !== 'suspended' && !advanceMonthlyPrepayment
+    // A multi-cycle charge is an explicit advance prepayment selected by an
+    // authorized Platform operator, for either monthly or annual contracts.
+    // A scheduled plan change's price and capabilities come from its snapshot;
+    // confirmManualPayment prevents those capabilities from applying early.
+    const advancePrepayment = periodCount > 1;
+    const renewalMode = advancePrepayment ? 'advance_prepayment' : 'ordinary';
+    if (current.status !== 'suspended' && !advancePrepayment
       && current.currentPeriodEnd?.toMillis?.() > Date.now() + 31 * 86_400_000) {
       throw new HttpsError('failed-precondition', 'La renovación puede emitirse dentro de los 30 días previos al vencimiento.');
     }
@@ -823,7 +833,7 @@ async function createRenewalCharge(db, request) {
           throw new HttpsError('failed-precondition', 'Ya existe un cargo pendiente con otro período. Concílialo o recházalo antes de cotizar una duración distinta.');
         }
         tx.create(opRef, { actorUid: actor.uid, chargeId: existingCharge.id, fingerprint, createdAt: FieldValue.serverTimestamp() });
-        return { success: true, chargeId: existingCharge.id, idempotent: false, reusedPendingCharge: true };
+        return { success: true, chargeId: existingCharge.id, renewalMode, idempotent: false, reusedPendingCharge: true };
       }
       throw new HttpsError('failed-precondition', 'La suscripción conserva un vínculo a un cargo ya finalizado; requiere revisión antes de otra renovación.');
     }
@@ -847,6 +857,7 @@ async function createRenewalCharge(db, request) {
     tx.create(chargeRef, {
       chargeId, contractId, tenantId: current.tenantId, kind: 'renewal', currency: chargeCurrency,
       amountMinor, paidMinor: 0, pendingMinor: 0, status: 'due', dueAt,
+      renewalMode,
       cycle: chargeCycle, periodCount, monthsCovered: periodCount * (chargeCycle === 'annual' ? 12 : 1), periodStart, periodEnd,
       billingAnchorDay: anchorDay, planSnapshot: pendingPlanChange?.planSnapshot || current.planSnapshot || null,
       lineItems: [{ kind: 'subscription', amountMinor, periodCount, monthsCovered: periodCount * (chargeCycle === 'annual' ? 12 : 1), planId: pendingPlanChange?.planSnapshot?.planId || current.planKey || null }],
@@ -854,8 +865,8 @@ async function createRenewalCharge(db, request) {
     });
     tx.update(subscriptionRef, { pendingRenewalChargeId: chargeId, updatedAt: now });
     tx.create(opRef, { actorUid: actor.uid, chargeId, fingerprint, createdAt: now });
-    audit(db, tx, actor, 'billing.renewal.charge.create', chargeRef.path, { contractId, amountMinor });
-    return { success: true, chargeId, idempotent: false };
+    audit(db, tx, actor, 'billing.renewal.charge.create', chargeRef.path, { contractId, amountMinor, cycle: chargeCycle, periodCount, renewalMode });
+    return { success: true, chargeId, renewalMode, idempotent: false };
   });
 }
 

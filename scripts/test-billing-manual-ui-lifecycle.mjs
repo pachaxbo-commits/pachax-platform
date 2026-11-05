@@ -320,7 +320,7 @@ try {
   await clickText('Crear empresa pagada y preparar acceso')
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Alta asistida de empresa') && text.includes('Activación del contrato pagado'), 'Paid contract did not open assisted onboarding')
   await waitFor(() => evaluate(`!![...document.querySelectorAll('label')].find(item=>item.textContent.includes('Nombre comercial'))?.querySelector('input')?.value`), Boolean, 'Company details were not prefilled')
-  await evaluate(`(() => {const checkbox=document.querySelector('input[type="checkbox"]');if(!checkbox)throw new Error('Owner email confirmation missing');checkbox.click()})()`, true)
+  await evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Confirmo que este correo corresponde al propietario autorizado'));const checkbox=label?.querySelector('input[type="checkbox"]');if(!checkbox)throw new Error('Owner email confirmation missing');if(!checkbox.checked)checkbox.click();if(!checkbox.checked)throw new Error('Owner email confirmation did not become checked');return true})()`, true)
   await clickText('Crear empresa y preparar acceso', 'form button')
   const activationResult = await waitFor(async () => {
     const rows = await db.collection('tenants').where('nameKey', '==', companyNameKey).get()
