@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LandingHeader } from './LandingHeader'
 import { HeroSection } from './HeroSection'
-import { ValueStrip } from './ValueStrip'
 import { FeaturedTemplatesCatalog } from './FeaturedTemplatesCatalog'
 import { TemplatePricingSection } from './TemplatePricingSection'
 import { RealOnboardingSection } from './RealOnboardingSection'
@@ -51,10 +50,7 @@ export function PublicLanding() {
         {/* SECCIÓN 1: presentación, catálogo horizontal y acceso al catálogo completo */}
         <HeroSection onViewPlans={handleViewPlans} />
 
-        {/* Franja de Valor y Métricas Operacionales */}
-        <ValueStrip />
-
-        {/* SECCIÓN 2: Plantillas en Detalle (Audiencia, Problema Resuelto, Demos Canónicas) */}
+        {/* SECCIÓN 2: Catálogo de soluciones publicadas y servicios comerciales */}
         <FeaturedTemplatesCatalog onViewPlans={handleViewPlans} />
 
         {/* SECCIÓN 3: Planes por Plantilla (3 niveles por rubro + Desarrollo a Medida) */}

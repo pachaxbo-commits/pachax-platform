@@ -235,6 +235,7 @@ let hasReceivedPublicCatalog = false
 let publicSyncInFlight: Promise<void> | null = null
 let publicStorageSyncTimer: ReturnType<typeof setTimeout> | null = null
 let isAdminSyncing = false
+const visualPreviewOnly = import.meta.env.VITE_PACHAX_VISUAL_PREVIEW === 'true'
 
 function setPublicEditorialFallback(): void {
   const defaults = getDefaultConfig()
@@ -244,6 +245,11 @@ function setPublicEditorialFallback(): void {
     plans: [],
     extras: [],
   }
+}
+
+if (visualPreviewOnly) {
+  setPublicEditorialFallback()
+  publicCatalogStatus = 'error'
 }
 
 /**
@@ -301,6 +307,7 @@ const performPublicCatalogSync = createSingleFlight(async (): Promise<void> => {
 })
 
 export function syncPublicPublishedFromFirestore(forceRefresh = false): Promise<void> {
+  if (visualPreviewOnly) return Promise.resolve()
   if (typeof window === 'undefined' || window.location.pathname.startsWith('/admin')) return Promise.resolve()
   if (forceRefresh && publicSyncInFlight) {
     // A cross-tab Admin update may arrive while an older read is in flight.
@@ -777,7 +784,9 @@ export function useCommercialConfig() {
   useEffect(() => {
     // Si estamos en la ruta /admin, sincronizar la colección completa (draft + published)
     // Si estamos en la landing pública, consultar explícitamente solo status == 'published'
-    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    if (visualPreviewOnly) {
+      // La Preview editorial muestra datos de referencia y nunca inicializa Firebase.
+    } else if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
       syncAdminAllFromFirestore().catch(() => undefined)
     } else {
       syncPublicPublishedFromFirestore().catch(() => undefined)
@@ -793,7 +802,7 @@ export function useCommercialConfig() {
     const handleStorageUpdate = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return
       handleUpdate()
-      if (!isPublicPage) return
+      if (!isPublicPage || visualPreviewOnly) return
       if (publicStorageSyncTimer) clearTimeout(publicStorageSyncTimer)
       publicStorageSyncTimer = setTimeout(() => {
         publicStorageSyncTimer = null

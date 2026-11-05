@@ -16,6 +16,21 @@ const staging = {
   VITE_BOT_API_URL: '',
 }
 
+const visualPreview = {
+  VITE_FIREBASE_API_KEY: 'pachax-visual-preview-disabled',
+  VITE_FIREBASE_AUTH_DOMAIN: 'pachax-visual-preview.invalid',
+  VITE_FIREBASE_PROJECT_ID: 'pachax-visual-preview-disabled',
+  VITE_FIREBASE_STORAGE_BUCKET: 'pachax-visual-preview.invalid',
+  VITE_FIREBASE_MESSAGING_SENDER_ID: '0',
+  VITE_FIREBASE_APP_ID: 'pachax-visual-preview-disabled',
+  VITE_FIREBASE_MEASUREMENT_ID: 'DISABLED',
+  VITE_USE_FIREBASE_EMULATOR: 'false',
+  VITE_PACHAX_VISUAL_PREVIEW: 'true',
+  VITE_FIREBASE_APPCHECK_SITE_KEY: '',
+  VITE_FIREBASE_APPCHECK_DEBUG: 'false',
+  VITE_BOT_API_URL: '',
+}
+
 test('preview rejects Firebase Production before considering a fingerprint', () => {
   assert.throws(() => assertPreviewFirebaseIsolation({
     ...staging,
@@ -44,6 +59,23 @@ test('preview accepts only an exact staging fingerprint and rejects emulator/deb
   assert.doesNotThrow(() => assertPreviewFirebaseIsolation(config, 'preview'))
   assert.throws(() => assertPreviewFirebaseIsolation({ ...config, VITE_USE_FIREBASE_EMULATOR: 'true' }, 'preview'), /emuladores locales/)
   assert.throws(() => assertPreviewFirebaseIsolation({ ...config, VITE_FIREBASE_APPCHECK_DEBUG: 'true' }, 'preview'), /depuración/)
+})
+
+test('visual-only preview accepts only inert branch configuration and its exact fingerprint', () => {
+  const config = { ...visualPreview }
+  config.PACHAX_PREVIEW_FIREBASE_CONFIG_SHA256 = previewFirebaseConfigFingerprint(config)
+  assert.doesNotThrow(() => assertPreviewFirebaseIsolation(config, 'preview'))
+
+  const productionConfig = { ...config, VITE_FIREBASE_PROJECT_ID: 'pachax-platform' }
+  productionConfig.PACHAX_PREVIEW_FIREBASE_CONFIG_SHA256 = previewFirebaseConfigFingerprint(productionConfig)
+  assert.throws(() => assertPreviewFirebaseIsolation(productionConfig, 'preview'), /solo lectura/)
+
+  const appCheckConfig = { ...config, VITE_FIREBASE_APPCHECK_SITE_KEY: 'production-app-check-site-key' }
+  appCheckConfig.PACHAX_PREVIEW_FIREBASE_CONFIG_SHA256 = previewFirebaseConfigFingerprint(appCheckConfig)
+  assert.throws(() => assertPreviewFirebaseIsolation(appCheckConfig, 'preview'), /App Check/)
+
+  assert.throws(() => assertPreviewFirebaseIsolation(config, 'production'), /solo se permite/)
+  assert.throws(() => assertPreviewFirebaseIsolation({ ...config, VITE_FIREBASE_API_KEY: 'changed' }, 'preview'), /configuración de solo lectura/)
 })
 
 test('non-preview builds retain their existing configuration path', () => {

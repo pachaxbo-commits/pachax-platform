@@ -1,19 +1,32 @@
-// Visual regression for the public catalog fallback, using no Firebase config
-// and no network writes. The gateway is intentionally unavailable in this run.
+// Visual-only Preview regression with inert fake Firebase values and no network writes.
+// The production project is never initialized, and the public gateway is intentionally unavailable.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
+import { previewFirebaseConfigFingerprint } from './preview-firebase-isolation.mjs'
 
 const root = process.cwd()
 const chrome = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].filter(Boolean).find(existsSync)
 assert(chrome, 'Chrome not found; set CHROME_BIN.')
-for (const key of ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_AUTH_DOMAIN', 'VITE_FIREBASE_PROJECT_ID', 'VITE_FIREBASE_STORAGE_BUCKET', 'VITE_FIREBASE_MESSAGING_SENDER_ID', 'VITE_FIREBASE_APP_ID']) {
-  process.env[key] = ''
-}
-process.env.VITE_USE_FIREBASE_EMULATOR = 'false'
+Object.assign(process.env, {
+  VERCEL_ENV: 'preview',
+  VITE_FIREBASE_API_KEY: 'pachax-visual-preview-disabled',
+  VITE_FIREBASE_AUTH_DOMAIN: 'pachax-visual-preview.invalid',
+  VITE_FIREBASE_PROJECT_ID: 'pachax-visual-preview-disabled',
+  VITE_FIREBASE_STORAGE_BUCKET: 'pachax-visual-preview.invalid',
+  VITE_FIREBASE_MESSAGING_SENDER_ID: '0',
+  VITE_FIREBASE_APP_ID: 'pachax-visual-preview-disabled',
+  VITE_FIREBASE_MEASUREMENT_ID: 'DISABLED',
+  VITE_FIREBASE_APPCHECK_SITE_KEY: '',
+  VITE_FIREBASE_APPCHECK_DEBUG: 'false',
+  VITE_USE_FIREBASE_EMULATOR: 'false',
+  VITE_BOT_API_URL: '',
+  VITE_PACHAX_VISUAL_PREVIEW: 'true',
+})
+process.env.PACHAX_PREVIEW_FIREBASE_CONFIG_SHA256 = previewFirebaseConfigFingerprint(process.env)
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const listenEphemeralPort = async () => {
@@ -101,7 +114,7 @@ try {
       const b=heroCards.filter(card=>card.classList.contains('pachax-template-card-light'));
       const root=document.documentElement;
       return {cards:cards.map(card=>card.dataset.templateId),a:a.length,b:b.length,overflow:root.scrollWidth-innerWidth,
-        fallback:document.querySelector('[data-catalog-state="error"]')?.textContent||'',
+        fallback:document.querySelector('#plantillas [data-catalog-state="error"]')?.textContent||'',
         plans:document.querySelector('#planes')?.innerText||'',
         quickCard:document.querySelector('[data-quick-editorial-card="hamburger"]')?.innerText||'',
         quickCardHeight:document.querySelector('[data-quick-editorial-card="hamburger"]')?.scrollHeight||0,
@@ -116,7 +129,7 @@ try {
         noZero:!document.body.innerText.includes('0 plantillas publicadas')};
     })()`), result => result.cards.length === 6 && result.a === 3 && result.b === 2
       && result.images.every(image => image.loaded)
-      && /fichas editoriales .*referencia/i.test(result.fallback), `${width}x${height} catalog fallback`)
+      && /Catálogo editorial de referencia/i.test(result.fallback), `${width}x${height} catalog fallback`)
 
     assert.deepEqual(view.cards.sort(), ['custom', 'distribution', 'hamburger', 'nightclub', 'restaurant', 'retail'])
     assert.equal(view.a, 3)
@@ -125,11 +138,16 @@ try {
     assert(view.images.every(image => image.loaded), `A catalog image did not load: ${JSON.stringify(view.images)}`)
     for (const id of ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail']) {
       const card = view.actions.find(item => item.id === id)
-      assert(card && card.buttons.length >= 2 && card.buttons.every(button => !button.disabled), `${id} should retain its demo and commercial action buttons`)
+      assert(card && card.buttons.length === 1 && card.buttons.every(button => !button.disabled), `${id} should expose its accessible details action`)
+      await evaluate(`document.querySelector('#plantillas [data-template-id="${id}"] .pachax-card-detail-button')?.click()`)
+      const details = await waitFor(() => evaluate(`(() => { const dialog=document.querySelector('[role="dialog"]'); return {title:dialog?.querySelector('h2')?.textContent||'', features:dialog?.innerText||''}; })()`), result => Boolean(result.title), `${width}x${height} ${id} details`)
+      assert(details.features.length > details.title.length + 40, `${id} should provide full information in the accessible details view`)
+      await evaluate(`document.querySelector('.pachax-details-close')?.click()`)
     }
     const customActions = view.actions.find(item => item.id === 'custom')?.buttons || []
     assert.equal(customActions.length, 1)
     assert.match(customActions[0].text, /Cotizar a medida/)
+    assert.equal(view.actions.find(item => item.id === 'custom')?.buttons.length, 1, 'Custom development is represented by one service quote action')
     assert(view.planButtons.includes('hamburger') && view.planButtons.includes('retail'), 'Both self-service plan selectors should remain visible')
     assert(view.quickCard.includes('Restaurante Rápido') && view.quickCard.includes('Pedidos de mostrador y para llevar'), 'Hamburger editorial offer card should describe canonical capabilities')
     assert(view.quickCard.includes('Ofertas por verificar'), 'An unavailable gateway must not claim that no offers exist')

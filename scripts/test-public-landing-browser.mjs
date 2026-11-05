@@ -75,11 +75,14 @@ try {
     const specialized = cards.filter(c => !c.classList.contains('pachax-template-card-light'));
     const selfService = cards.filter(c => c.classList.contains('pachax-template-card-light'));
     const active = cards.find(c => c.classList.contains('is-active'));
-    const footer = document.querySelector('footer');
+    const footer = document.querySelector('.pachax-public-landing > footer');
     const root = document.documentElement;
     const scrollH = root?.scrollHeight || 0;
     const footerBottom = footer ? footer.offsetTop + footer.offsetHeight : 0;
     const tutorialButtons = [...document.querySelectorAll('#tutoriales .grid button')];
+    const catalogCards = [...document.querySelectorAll('#plantillas .pachax-featured-card')];
+    const catalogGrid = document.querySelector('#plantillas .pachax-featured-grid');
+    const catalogColumns = catalogGrid ? getComputedStyle(catalogGrid).gridTemplateColumns.split(' ').length : 0;
     return {
       count: cards.length,
       specializedCount: specialized.length,
@@ -92,6 +95,9 @@ try {
       footerTrailingSpace: scrollH - footerBottom,
       footerBg: footer ? getComputedStyle(footer).backgroundColor : null,
       tutorialTabCount: tutorialButtons.length,
+      catalogCount: catalogCards.length,
+      catalogColumns,
+      catalogIds: catalogCards.map(card => card.dataset.templateId),
       hasSparklesInBanner: !!document.querySelector('#planes .rounded-3xl.bg-slate-900 svg.lucide-sparkles'),
     };
   })()`)
@@ -117,6 +123,13 @@ try {
     const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     writeFileSync(resolve(output, `${label}.png`), Buffer.from(capture.data, 'base64'))
   }
+  const screenshotElement = async (selector, label) => {
+    await evaluate(`Promise.all([...document.querySelectorAll(${JSON.stringify(selector + ' img')})].map(img => { img.loading='eager'; return img.decode().catch(() => undefined); }))`)
+    const rect = await evaluate(`(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return null; const r=el.getBoundingClientRect(); return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height}; })()`)
+    assert(rect && rect.width > 0 && rect.height > 0, `No se pudo medir ${selector} para la captura`)
+    const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { ...rect, scale: 1 } })
+    writeFileSync(resolve(output, `${label}.png`), Buffer.from(capture.data, 'base64'))
+  }
   await send('Page.enable')
   await send('Runtime.enable')
 
@@ -125,6 +138,7 @@ try {
     await send('Emulation.setTouchEmulationEnabled', { enabled: width < 768, maxTouchPoints: 1 })
     await send('Page.navigate', { url: baseUrl })
     const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2, `${width}: loaded`)
+    const catalogState = await waitFor((res) => res.catalogCount === 6, `${width}: six catalog entries`)
     await sleep(400)
 
     assert.equal(loaded.specializedCount, 3, 'La fila debe conservar las tres fichas especializadas')
@@ -134,44 +148,57 @@ try {
     assert.equal(loaded.overflow, false, 'No debe existir desbordamiento horizontal')
     assert.equal(loaded.footerTrailingSpace, 0, 'No debe existir espacio muerto debajo del footer')
     assert.equal(loaded.hasSparklesInBanner, false, 'No deben existir iconos Sparkles en el banner a medida')
+    assert.deepEqual(catalogState.catalogIds, ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom'])
+    assert.equal(catalogState.catalogColumns, width <= 680 ? 1 : width <= 1100 ? 2 : 3, 'El catálogo debe adaptarse como grilla, sin carrusel móvil')
 
     await screenshot(`${width}-hero`)
+    if (width === 1440 || width === 390) {
+      await evaluate(`(() => { const section=document.querySelector('#plantillas'); window.scrollTo({top:section.offsetTop-180,behavior:'instant'}); })()`)
+      await sleep(250)
+      await screenshot(`${width}-section-transition`)
+      await screenshotElement('#plantillas', `${width}-section2-full`)
+      await evaluate(`window.scrollTo({top:0,behavior:'instant'})`)
+    }
 
     // Commercial actions stay informational and select the requested public plan.
-    const actionChecks = await evaluate(`(() => {
-      const findCard = (id) => document.querySelector('#plantillas [data-template-id="' + id + '"]');
-      const labels = (id) => [...(findCard(id)?.querySelectorAll('button') || [])].map(button => button.textContent.trim());
-      window.__commercialOpenedUrl = null;
-      window.open = (url) => { window.__commercialOpenedUrl = String(url); };
-      const implementationUrls = {};
-      for (const id of ['restaurant', 'distribution', 'nightclub']) {
-        findCard(id)?.querySelector('[data-commercial-action="contact"]')?.click();
-        implementationUrls[id] = window.__commercialOpenedUrl;
-      }
-      const implementationUrl = window.__commercialOpenedUrl;
-      const planCtas = {};
-      for (const id of ['retail']) {
-        const button = findCard(id)?.querySelector('[data-commercial-action="view-plans"]');
-        planCtas[id] = button?.textContent.trim();
-        button?.click();
-      }
-      const customLabels = labels('custom');
-      const registerLinks = [...document.querySelectorAll('a[href^="/register"], button')]
-        .filter(el => el.textContent.toLowerCase().includes('ver planes'))
-        .map(el => el.getAttribute('href'));
-      return { implementationUrl, implementationUrls, planCtas, customLabels, registerLinks };
-    })()`)
-    assert.match(actionChecks.implementationUrl || '', /wa\.me\/59177987776/)
-    for (const [id, expectedName] of [['restaurant', 'Restaurante con salón'], ['distribution', 'Producción y Distribución'], ['nightclub', 'Nightclub & Lounge']]) {
-      assert.match(actionChecks.implementationUrls[id] || '', /wa\.me\/59177987776/)
-      assert(decodeURIComponent(actionChecks.implementationUrls[id]).includes(expectedName), `${id} debe llevar mensaje de WhatsApp personalizado`)
+    const detailActions = {}
+    for (const id of ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom']) {
+      await evaluate(`document.querySelector('#plantillas [data-template-id="${id}"] .pachax-card-detail-button')?.click()`)
+      const title = await waitForValue(`document.querySelector('[role="dialog"] h2')?.textContent.trim()`, value => Boolean(value), `${id} abre detalles`)
+      detailActions[id] = await evaluate(`(() => {
+        const dialog=document.querySelector('[role="dialog"]');
+        const result={title:dialog?.querySelector('h2')?.textContent.trim(),text:dialog?.innerText||'',primary:dialog?.querySelector('.pachax-details-primary')?.textContent.trim()};
+        window.__commercialOpenedUrl=null;
+        window.open=url=>{window.__commercialOpenedUrl=String(url)};
+        dialog?.querySelector('.pachax-details-primary')?.click();
+        result.url=window.__commercialOpenedUrl;
+        return result;
+      })()`)
+      assert.equal(detailActions[id].title, title)
     }
-    assert.equal(actionChecks.planCtas.retail, 'Ver planes')
-    const catalogRetailSelection = await waitForValue(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'tarjeta Comercio selecciona sus planes')
+    for (const [id, expectedName] of [['restaurant', 'Restaurante con salón'], ['distribution', 'Producción y Distribución'], ['nightclub', 'Nightclub & Lounge']]) {
+      assert.equal(detailActions[id].title, expectedName, `${id} abre detalles completos`)
+      assert.match(detailActions[id].url || '', /wa\.me\/59177987776/)
+      assert(decodeURIComponent(detailActions[id].url).includes(expectedName), `${id} conserva el contacto personalizado`)
+    }
+    assert.equal(detailActions.hamburger.title, 'Restaurante Rápido')
+    assert.match(detailActions.hamburger.primary, /Ver planes/)
+    assert.equal(detailActions.retail.title, 'Comercio / Venta rápida')
+    assert.match(detailActions.retail.primary, /Ver planes/)
+    assert.match(detailActions.custom.primary, /Cotizar a medida/)
+    assert.match(detailActions.custom.url || '', /wa\.me\/59177987776/)
+    assert.equal(await evaluate(`document.querySelectorAll('a[href^="/register"]').length`), 0, 'Ver planes nunca debe abrir /register')
+    const catalogRetailSelection = await waitForValue(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'Comercio selecciona sus planes')
     assert.equal(catalogRetailSelection, 'true')
-    assert(actionChecks.customLabels.includes('Cotizar a medida'))
-    assert.equal(actionChecks.customLabels.some(label => /Demo próximamente/i.test(label)), false)
-    assert.equal(actionChecks.registerLinks.some(Boolean), false, 'Ver planes nunca debe abrir /register')
+    await evaluate(`(() => { const trigger=document.querySelector('#plantillas [data-template-id="restaurant"] .pachax-card-detail-button'); trigger?.focus(); trigger?.click(); })()`)
+    await waitForValue(`document.querySelector('[role="dialog"] h2')?.textContent.trim()`, value => value === 'Restaurante con salón', 'detalle accesible Restaurante')
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', modifiers: 8 })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', modifiers: 8 })
+    assert.equal(await evaluate(`document.activeElement?.classList.contains('pachax-details-primary')`), true, 'El foco queda dentro del diálogo al recorrer controles con Shift+Tab')
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
+    await waitForValue(`Boolean(document.querySelector('[role="dialog"]'))`, value => value === false, 'Escape cierra detalles')
+    assert.equal(await evaluate(`document.activeElement?.classList.contains('pachax-card-detail-button')`), true, 'Al cerrar, el foco vuelve a la ficha que abrió los detalles')
     await evaluate(`document.querySelector('.pachax-outline-button')?.click()`)
     const discoveryTarget = await waitForValue(`Math.round(document.querySelector('#plantillas')?.getBoundingClientRect().top || 99999)`, value => value < height, 'El CTA Descubrir lleva al catálogo real')
     assert(discoveryTarget < height, 'Descubrir mi plantilla debe llevar al catálogo existente')

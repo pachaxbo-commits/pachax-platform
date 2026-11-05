@@ -92,6 +92,7 @@ export function setFirebaseRestaurantId(id: string) {
 }
 
 export function isFirebaseConfigured() {
+  if (import.meta.env.VITE_PACHAX_VISUAL_PREVIEW === 'true') return false
   return Boolean(readFirebaseConfig())
 }
 
