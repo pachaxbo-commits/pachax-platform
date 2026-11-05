@@ -47,6 +47,9 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools@15.5.1
+
       - name: Install project dependencies
         run: npm ci
 
