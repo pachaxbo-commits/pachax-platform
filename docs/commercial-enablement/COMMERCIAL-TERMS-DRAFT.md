@@ -73,4 +73,4 @@ Anexar el aviso de privacidad aprobado, identificar responsable/proveedores y ca
 
 ### Decisiones abiertas antes de convertirlo en contrato
 
-Identidad legal y domicilio de notificación de PACHAX; régimen y documentos fiscales; significado exacto de precio anual; vigencia y fecha de inicio; cancelación y reembolsos; exportación y eliminación; alcance/SLA de soporte e implementación; privacidad y proveedores; proceso para reclamos; jurisdicción y firmas electrónicas/aceptación válida.
+Identidad legal y domicilio de notificación de PACHAX; régimen y documentos fiscales; importes y beneficios aprobados y forma contractual de presentar la tarifa anual total por doce meses; vigencia y fecha de inicio; cancelación y reembolsos; exportación y eliminación; alcance/SLA de soporte e implementación; privacidad y proveedores; proceso para reclamos; jurisdicción y firmas electrónicas/aceptación válida.
