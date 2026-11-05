@@ -9,7 +9,9 @@
     "test:demos-only:guard": "node scripts/test-demo-isolated-build-guard.mjs",
     "test:free-demo-routes": "node --experimental-strip-types --test tests/freeDemoRoutes.test.ts",
     "test:public-commercial-closed": "node --test functions/tests/publicCommercialClosed.test.cjs",
-    "test:billing-core": "npm run build:functions-core && firebase emulators:exec --config firebase.billing-test.json --only auth,firestore --project demo-pachax-billing-v1 \"node functions/tests/commercialBilling.test.cjs\"",
+    "test:billing-core": "npm run build:functions-core && firebase emulators:exec --config firebase.billing-test.json --only auth,firestore --project demo-pachax-platform \"node functions/tests/commercialBilling.test.cjs\"",
+    "test:billing-browser-emulator": "npm run build:functions-core && firebase emulators:exec --config firebase.billing-browser-test.json --only auth,firestore,functions --project demo-pachax-platform \"node scripts/test-template-settings-browser.mjs\"",
+    "test:billing-ui-lifecycle": "npm run build:functions-core && firebase emulators:exec --config firebase.billing-browser-test.json --only auth,firestore,functions --project demo-pachax-platform \"node scripts/test-billing-manual-ui-lifecycle.mjs\"",
     "test:commercial-capabilities": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --config firebase.plan-capabilities-test.json --only firestore --project demo-pachax-plan-capabilities \"node functions/tests/commercialCapabilities.test.cjs && node firebase/tests/commercialCapabilitiesRules.test.mjs\"",
     "test:documents-printing-core": "node --experimental-strip-types --test tests/documentsPrintingCore.test.ts",
     "test:retail-tenant": "npm run build:functions-core && npm run build:rules && firebase emulators:exec --only auth,firestore,functions --project demo-pachax-platform \"node functions/tests/retailTenant.test.cjs\"",
@@ -87,6 +89,8 @@
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@eslint/js": "^10.0.1",
     "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^24.12.3",

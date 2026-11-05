@@ -1,9 +1,14 @@
 const { createHash } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
-const { FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
+const { authenticated } = require('./authorization.cjs');
 const { PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
-const { BILLING_GRACE_PERIOD_DAYS, billingAccessUntil: billingAccessUntilMillis } = require('./billingPolicy.cjs');
+const {
+  BILLING_GRACE_PERIOD_DAYS, billingAccessUntil: billingAccessUntilMillis,
+  normalizePrepaidPeriods, addBillingPeriods,
+  renewalPeriodStart, effectiveBillingStatus, daysUntilBillingDate,
+} = require('./billingPolicy.cjs');
 const { normalizeCapabilitiesV1, normalizeCapabilityAdjustments, applyCapabilityAdjustments } = require('./commercialCapabilities.cjs');
 
 const BILLING_STATUSES = Object.freeze(['pending', 'active', 'overdue', 'suspended', 'cancelled']);
@@ -30,6 +35,26 @@ const requestUuid = value => {
   }
   return value;
 };
+function prepaidPeriods(cycle, value = 1) {
+  try { return normalizePrepaidPeriods(cycle, value); }
+  catch (error) { throw new HttpsError('invalid-argument', error.message); }
+}
+function validatedChargeBalances(charge) {
+  const { amountMinor, paidMinor, pendingMinor } = charge || {};
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0
+    || !Number.isSafeInteger(paidMinor) || paidMinor < 0
+    || !Number.isSafeInteger(pendingMinor) || pendingMinor < 0
+    || paidMinor + pendingMinor > amountMinor) {
+    throw new HttpsError('failed-precondition', 'El saldo del cargo tiene valores inconsistentes; requiere revisión manual.');
+  }
+  const expectedStatus = pendingMinor > 0 ? 'under_review'
+    : paidMinor === amountMinor ? 'paid'
+      : paidMinor > 0 ? 'partial' : 'due';
+  if (charge.status !== expectedStatus && charge.status !== 'cancelled') {
+    throw new HttpsError('failed-precondition', 'El estado del cargo no coincide con sus saldos; requiere revisión manual.');
+  }
+  return { amountMinor, paidMinor, pendingMinor };
+}
 function requirePermission(actor, permission) {
   if (!actor.permissions.includes(permission)) throw new HttpsError('permission-denied', 'El operador no tiene permiso para esta acción.');
 }
@@ -51,7 +76,151 @@ function validateDueAt(value) {
   return Timestamp.fromMillis(millis);
 }
 function audit(db, tx, actor, action, resource, metadata = {}) {
-  auditPlatform(db, tx, actor, action, { resource, reason: 'Operación de facturación comercial manual.', metadata });
+  if (actor.operator) {
+    auditPlatform(db, tx, actor, action, { tenantId: actor.tenantId || null, resource, reason: 'Operación de facturación comercial manual.', metadata });
+    return;
+  }
+  tx.create(db.collection('platformAuditLogs').doc(), {
+    operatorUid: actor.uid, operatorRole: 'tenant_owner', tenantId: actor.tenantId,
+    action: cleanText(action, 'Acción', 1, 120), resource: cleanText(resource, 'Recurso', 1, 160),
+    reason: 'El propietario registró una referencia de pago; no confirma el ingreso.', metadata,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
+
+async function tenantBillingActor(db, request) {
+  const uid = authenticated(request);
+  const tenantId = cleanText(request.data?.tenantId, 'Empresa', 1, 128);
+  const [tenantSnap, memberSnap, platformSnap] = await Promise.all([
+    db.doc(`tenants/${tenantId}`).get(), db.doc(`tenants/${tenantId}/members/${uid}`).get(),
+    db.doc(`platformOperators/${uid}`).get(),
+  ]);
+  if (platformSnap.data()?.active === true) throw new HttpsError('permission-denied', 'Utiliza el acceso de Administración de PACHAX.');
+  const tenant = tenantSnap.data(), membership = memberSnap.data();
+  if (!tenantSnap.exists || !memberSnap.exists || membership?.status !== 'active' || membership?.roleId !== 'owner') {
+    throw new HttpsError('permission-denied', 'Solo el propietario activo puede consultar o regularizar la suscripción de esta empresa.');
+  }
+  if (tenant?.billingEnforcement !== true || typeof tenant.billingContractId !== 'string') {
+    return { uid, tenantId, tenant, membership, contractId: null, actorType: 'tenant' };
+  }
+  return { uid, tenantId, tenant, membership, contractId: tenant.billingContractId, actorType: 'tenant' };
+}
+
+function sanitizeManualPaymentMethods(value = {}) {
+  const qrImageUrl = typeof value.qrImageUrl === 'string' ? value.qrImageUrl.trim() : '';
+  if (value.qrEnabled === true && !qrImageUrl) throw new HttpsError('invalid-argument', 'Agrega el QR oficial antes de habilitar pagos QR.');
+  if (qrImageUrl) {
+    let parsed;
+    try { parsed = new URL(qrImageUrl); } catch { throw new HttpsError('invalid-argument', 'La URL del QR debe ser válida.'); }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new HttpsError('invalid-argument', 'El QR debe usar una URL HTTPS sin credenciales.');
+  }
+  const whatsappNumber = typeof value.whatsappNumber === 'string' ? value.whatsappNumber.replace(/[^+\d]/g, '').trim() : '';
+  if (whatsappNumber && !/^\+?[1-9]\d{7,14}$/.test(whatsappNumber)) throw new HttpsError('invalid-argument', 'El WhatsApp de cobranza debe usar formato internacional.');
+  const methods = {
+    qrEnabled: value.qrEnabled === true && Boolean(qrImageUrl),
+    transferEnabled: value.transferEnabled === true,
+    qrImageUrl,
+    bankName: value.bankName ? cleanText(value.bankName, 'Banco', 2, 100) : '',
+    accountHolder: value.accountHolder ? cleanText(value.accountHolder, 'Titular', 2, 120) : '',
+    accountIdentifier: value.accountIdentifier ? cleanText(value.accountIdentifier, 'Dato de transferencia', 3, 120) : '',
+    instructions: value.instructions ? cleanText(value.instructions, 'Instrucciones de pago', 2, 1000) : '',
+    whatsappNumber,
+    available: value.available === true,
+  };
+  if (methods.transferEnabled && (!methods.bankName || !methods.accountHolder || !methods.accountIdentifier)) {
+    throw new HttpsError('invalid-argument', 'Completa banco, titular e identificador antes de habilitar transferencias.');
+  }
+  if (methods.available && !methods.qrEnabled && !methods.transferEnabled) throw new HttpsError('invalid-argument', 'Habilita al menos un método antes de activar la cobranza.');
+  return methods;
+}
+
+async function getManualPaymentMethods(db, request) {
+  const actor = await platformActor(db, request);
+  if (!['platform_owner', 'platform_finance'].includes(actor.operator.role)) throw new HttpsError('permission-denied', 'El operador no puede consultar la configuración de cobros.');
+  const snapshot = await db.doc('platformBillingConfig/manualMethods').get();
+  return { methods: snapshot.exists ? snapshot.data() : { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', bankName: '', accountHolder: '', accountIdentifier: '', instructions: '', whatsappNumber: '' } };
+}
+
+async function saveManualPaymentMethods(db, request) {
+  const actor = await platformActor(db, request);
+  if (actor.operator.role !== 'platform_owner') throw new HttpsError('permission-denied', 'Solo Platform Owner puede cambiar los métodos oficiales de cobro.');
+  const requestId = requestUuid(request.data?.requestId);
+  const methods = sanitizeManualPaymentMethods(request.data?.methods || {});
+  const fingerprint = digest(JSON.stringify(methods));
+  const configRef = db.doc('platformBillingConfig/manualMethods');
+  const opRef = db.doc(`platformBillingOperations/${requestKey(actor, 'payment-methods.save', requestId)}`);
+  return db.runTransaction(async tx => {
+    const [config, operation] = await Promise.all([tx.get(configRef), tx.get(opRef)]);
+    if (operation.exists) {
+      if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador ya se utilizó con otra configuración.');
+      return { success: true, idempotent: true, version: operation.data().version };
+    }
+    const version = (Number(config.data()?.version) || 0) + 1;
+    const now = FieldValue.serverTimestamp();
+    tx.set(configRef, { ...methods, version, updatedBy: actor.uid, updatedAt: now });
+    tx.create(opRef, { fingerprint, version, actorUid: actor.uid, createdAt: now });
+    audit(db, tx, actor, 'billing.payment_methods.update', configRef.path, { version, available: methods.available, qrEnabled: methods.qrEnabled, transferEnabled: methods.transferEnabled });
+    return { success: true, version, idempotent: false };
+  });
+}
+
+async function getTenantBillingOverview(db, request) {
+  const actor = await tenantBillingActor(db, request);
+  const methodsPromise = db.doc('platformBillingConfig/manualMethods').get();
+  if (!actor.contractId) {
+    const methods = await methodsPromise;
+    return { enrolled: false, status: 'not_enrolled', subscription: null, charges: [], payments: [], paymentMethods: methods.exists && methods.data()?.available === true ? sanitizeClientPaymentMethods(methods.data()) : null };
+  }
+  const contractRef = db.doc(`platformContracts/${actor.contractId}`);
+  const subscriptionRef = db.doc(`platformSubscriptions/${actor.contractId}`);
+  const [contractSnap, subscriptionSnap, chargesSnap, paymentsSnap, methodsSnap] = await Promise.all([
+    contractRef.get(), subscriptionRef.get(),
+    db.collection('platformBillingCharges').where('contractId', '==', actor.contractId).orderBy('createdAt', 'desc').limit(50).get(),
+    db.collection('platformBillingPayments').where('contractId', '==', actor.contractId).orderBy('recordedAt', 'desc').limit(100).get(),
+    methodsPromise,
+  ]);
+  if (!contractSnap.exists || !subscriptionSnap.exists || subscriptionSnap.data()?.tenantId !== actor.tenantId) {
+    throw new HttpsError('failed-precondition', 'La suscripción de esta empresa requiere revisión por PACHAX.');
+  }
+  const contract = contractSnap.data(), subscription = subscriptionSnap.data();
+  const status = effectiveBillingStatus(subscription);
+  const paymentMethods = methodsSnap.exists && methodsSnap.data()?.available === true ? sanitizeClientPaymentMethods(methodsSnap.data()) : null;
+  const charges = chargesSnap.docs.map(document => {
+    const charge = document.data();
+    return { id: document.id, kind: charge.kind, currency: charge.currency, amountMinor: charge.amountMinor,
+      paidMinor: charge.paidMinor, pendingMinor: charge.pendingMinor, status: charge.status, dueAt: charge.dueAt,
+      cycle: charge.cycle, periodCount: charge.periodCount || 1, monthsCovered: charge.monthsCovered || (charge.cycle === 'annual' ? 12 : 1), createdAt: charge.createdAt };
+  });
+  const payments = paymentsSnap.docs.map(document => {
+    const payment = document.data();
+    return { id: document.id, chargeId: payment.chargeId, amountMinor: payment.amountMinor, currency: payment.currency,
+      method: payment.method, bankReference: payment.bankReference, status: payment.status,
+      rejectionReason: payment.rejectionReason || null, recordedAt: payment.recordedAt, confirmedAt: payment.confirmedAt };
+  });
+  const currentPeriodEnd = subscription.currentPeriodEnd?.toDate?.() || null;
+  return {
+    enrolled: true, status, daysRemaining: daysUntilBillingDate(currentPeriodEnd),
+    subscription: { contractId: actor.contractId, tenantId: actor.tenantId, templateId: contract.templateId,
+      companyName: actor.tenant.name, planName: subscription.planSnapshot?.name || contract.terms?.plan?.name || 'Acuerdo personalizado',
+      currency: subscription.currency || contract.terms?.currency, recurringMinor: subscription.recurringMinor || contract.terms?.recurringMinor,
+      billingCycle: subscription.billingCycle || contract.terms?.billingCycle, currentPeriodStart: subscription.currentPeriodStart || null,
+      currentPeriodEnd: subscription.currentPeriodEnd || null, nextRenewalAt: subscription.nextRenewalAt || subscription.currentPeriodEnd || null,
+      billingAccessUntil: subscription.billingAccessUntil || null, effectiveStatus: status,
+      monthsCovered: subscription.monthsCovered || contract.terms?.monthsCovered || (subscription.billingCycle === 'annual' ? 12 : 1),
+      gracePeriodDays: BILLING_GRACE_PERIOD_DAYS },
+    charges, payments, paymentMethods,
+    contactUrl: paymentMethods?.whatsappNumber ? `https://wa.me/${paymentMethods.whatsappNumber.replace('+', '')}` : null,
+  };
+}
+
+function sanitizeClientPaymentMethods(methods) {
+  return {
+    qrEnabled: methods.qrEnabled === true, qrImageUrl: methods.qrEnabled === true ? methods.qrImageUrl : '',
+    transferEnabled: methods.transferEnabled === true, bankName: methods.transferEnabled === true ? methods.bankName : '',
+    accountHolder: methods.transferEnabled === true ? methods.accountHolder : '',
+    accountIdentifier: methods.transferEnabled === true ? methods.accountIdentifier : '',
+    instructions: methods.instructions || '', whatsappNumber: methods.whatsappNumber || '',
+  };
 }
 
 async function createManualCommercialIntent(db, request) {
@@ -134,6 +303,8 @@ async function saveCommercialQuote(db, request) {
   const currency = currencyCode(input.currency);
   const cycle = input.billingCycle;
   if (!['monthly', 'annual'].includes(cycle)) throw new HttpsError('invalid-argument', 'Selecciona ciclo mensual o anual.');
+  const periodCount = prepaidPeriods(cycle, input.periodCount ?? 1);
+  const monthsCovered = periodCount * (cycle === 'annual' ? 12 : 1);
   const implementationMinor = moneyMinor(input.implementation, 'Implementación');
   const monthlyMinor = moneyMinor(input.monthly, 'Mensualidad');
   const annualInput = cycle === 'monthly' && (input.annual == null || (typeof input.annual === 'string' && input.annual.trim() === ''))
@@ -153,7 +324,7 @@ async function saveCommercialQuote(db, request) {
   }));
   if (new Set(normalized.map(item => item.id)).size !== normalized.length) throw new HttpsError('invalid-argument', 'No repitas extras.');
   const fingerprint = digest(JSON.stringify({
-    intentId, currency, cycle, implementationMinor, monthlyMinor, annualMinor, discountMinor, discountReason,
+    intentId, currency, cycle, periodCount, implementationMinor, monthlyMinor, annualMinor, discountMinor, discountReason,
     extras: normalized, capabilitiesV1: input.capabilitiesV1 || null,
   }));
   const intentRef = db.doc(`platformCommercialIntents/${intentId}`);
@@ -194,19 +365,21 @@ async function saveCommercialQuote(db, request) {
       if (line.pricingType === 'recurring' && line.oneTimeMinor !== 0) throw new HttpsError('invalid-argument', 'Un extra recurrente no puede cotizarse como importe único.');
       if (line.pricingType !== 'recurring' && (line.monthlyMinor !== 0 || line.annualMinor !== 0)) throw new HttpsError('invalid-argument', 'Un extra de pago único no puede incluir mensualidad.');
     }
-    const recurring = cycle === 'annual' ? annualMinor : monthlyMinor;
-    const recurringExtras = extraLines.reduce((sum, line) => sum + (cycle === 'annual' ? line.annualMinor : line.monthlyMinor), 0);
-    const initialDueMinor = implementationMinor + recurring + recurringExtras + extraLines.reduce((sum, line) => sum + line.oneTimeMinor, 0) - discountMinor;
-    if (!Number.isSafeInteger(initialDueMinor) || initialDueMinor < 0) throw new HttpsError('invalid-argument', 'El descuento supera el importe inicial de la cotización.');
+    const recurringPerPeriod = cycle === 'annual' ? annualMinor : monthlyMinor;
+    const recurringExtrasPerPeriod = extraLines.reduce((sum, line) => sum + (cycle === 'annual' ? line.annualMinor : line.monthlyMinor), 0);
+    const recurring = recurringPerPeriod + recurringExtrasPerPeriod;
+    const prepaidRecurring = recurring * periodCount;
+    const initialDueMinor = implementationMinor + prepaidRecurring + extraLines.reduce((sum, line) => sum + line.oneTimeMinor, 0) - discountMinor;
+    if (!Number.isSafeInteger(prepaidRecurring) || prepaidRecurring > 100_000_000 || !Number.isSafeInteger(initialDueMinor) || initialDueMinor < 0) throw new HttpsError('invalid-argument', 'El importe inicial supera el límite permitido o el descuento excede la cotización.');
     if (cycle === 'monthly' ? monthlyMinor <= 0 : annualMinor <= 0) {
       throw new HttpsError('failed-precondition', `La cotización ${cycle === 'monthly' ? 'mensual' : 'anual'} requiere un importe recurrente mayor que cero.`);
     }
     const quoteVersion = (Number(intent.quote?.version) || 0) + 1;
     if (intent.quote?.status === 'offered') throw new HttpsError('failed-precondition', 'Retira la oferta anterior antes de guardar una nueva versión.');
     const quote = {
-      version: quoteVersion, status: 'draft', currency, billingCycle: cycle,
+      version: quoteVersion, status: 'draft', currency, billingCycle: cycle, periodCount, monthsCovered,
       implementationMinor, monthlyMinor, annualMinor, discountMinor, discountReason,
-      extras: extraLines, initialDueMinor, recurringMinor: recurring + recurringExtras,
+      extras: extraLines, initialDueMinor, recurringMinor: recurring,
       sourcePlanSnapshot: intent.planSnapshot || null, capabilitiesV1, technicalEntitlements: [],
       preparedBy: actor.uid, preparedAt: FieldValue.serverTimestamp(),
     };
@@ -332,6 +505,8 @@ async function createCommercialContract(db, request) {
       plan: intent.planSnapshot || null, extras: intent.quote.extras,
       capabilitiesV1: normalizeCapabilitiesV1(intent.quote.capabilitiesV1, intent.businessType),
       currency: intent.quote.currency, billingCycle: intent.quote.billingCycle,
+      periodCount: prepaidPeriods(intent.quote.billingCycle, intent.quote.periodCount || 1),
+      monthsCovered: Number(intent.quote.monthsCovered) || (intent.quote.billingCycle === 'annual' ? 12 : 1),
       implementationMinor: intent.quote.implementationMinor, monthlyMinor: intent.quote.monthlyMinor,
       annualMinor: intent.quote.annualMinor, discountMinor: intent.quote.discountMinor,
       discountReason: intent.quote.discountReason, initialDueMinor: intent.quote.initialDueMinor,
@@ -349,10 +524,12 @@ async function createCommercialContract(db, request) {
       chargeId, contractId, tenantId: null, kind: 'initial', currency: terms.currency,
       amountMinor: terms.initialDueMinor, paidMinor: 0, pendingMinor: 0, status: 'due', dueAt,
       cycle: terms.billingCycle, periodStart: null, periodEnd: null,
+      periodCount: terms.periodCount, monthsCovered: terms.monthsCovered,
       lineItems: [
         { kind: 'implementation', amountMinor: terms.implementationMinor },
-        { kind: 'subscription', amountMinor: terms.billingCycle === 'annual' ? terms.annualMinor : terms.monthlyMinor },
-        ...terms.extras.map(item => ({ kind: 'extra', extraId: item.id, title: item.title, amountMinor: item.oneTimeMinor + (terms.billingCycle === 'annual' ? item.annualMinor : item.monthlyMinor) })),
+        { kind: 'subscription', amountMinor: (terms.billingCycle === 'annual' ? terms.annualMinor : terms.monthlyMinor) * terms.periodCount, periodCount: terms.periodCount, monthsCovered: terms.monthsCovered },
+        ...terms.extras.map(item => ({ kind: 'extra', extraId: item.id, title: item.title,
+          amountMinor: item.oneTimeMinor + (terms.billingCycle === 'annual' ? item.annualMinor : item.monthlyMinor) * terms.periodCount })),
         ...(terms.discountMinor ? [{ kind: 'discount', amountMinor: -terms.discountMinor, reason: terms.discountReason }] : []),
       ], createdBy: actor.uid, createdAt: now, updatedAt: now,
     });
@@ -372,8 +549,10 @@ async function createCommercialContract(db, request) {
 }
 
 async function recordManualPaymentReference(db, request) {
-  const actor = await platformActor(db, request, 'billing.payments.confirm');
   const input = request.data || {};
+  const actor = input.tenantId
+    ? await tenantBillingActor(db, request)
+    : await platformActor(db, request, 'billing.payments.confirm');
   const operationId = requestUuid(input.requestId);
   const chargeId = cleanText(input.chargeId, 'Cargo', 1, 120);
   const amountMinor = moneyMinor(input.amount, 'Importe del pago', { allowZero: false });
@@ -386,17 +565,40 @@ async function recordManualPaymentReference(db, request) {
   const paymentRef = db.doc(`platformBillingPayments/${paymentId}`);
   const claimRef = db.doc(`platformPaymentReferenceClaims/${referenceHash}`);
   const operationRef = db.doc(`platformBillingOperations/${requestKey(actor, 'payment.record', operationId)}`);
-  const fingerprint = digest(JSON.stringify({ chargeId, amountMinor, method, referenceHash }));
+  const fingerprint = digest(JSON.stringify({ chargeId, amountMinor, method, referenceHash, tenantId: actor.tenantId || null }));
   return db.runTransaction(async tx => {
     const [chargeSnap, paymentSnap, claimSnap, operationSnap] = await Promise.all([tx.get(chargeRef), tx.get(paymentRef), tx.get(claimRef), tx.get(operationRef)]);
     if (!chargeSnap.exists) throw new HttpsError('not-found', 'Cargo no encontrado.');
+    let methods = null;
+    if (actor.actorType === 'tenant') {
+      const [tenantSnap, memberSnap, platformSnap, methodsSnap] = await Promise.all([
+        tx.get(db.doc(`tenants/${actor.tenantId}`)), tx.get(db.doc(`tenants/${actor.tenantId}/members/${actor.uid}`)),
+        tx.get(db.doc(`platformOperators/${actor.uid}`)), tx.get(db.doc('platformBillingConfig/manualMethods')),
+      ]);
+      if (!tenantSnap.exists || tenantSnap.data()?.billingContractId !== actor.contractId
+        || memberSnap.data()?.status !== 'active' || memberSnap.data()?.roleId !== 'owner' || platformSnap.data()?.active === true) {
+        throw new HttpsError('permission-denied', 'El propietario ya no tiene acceso a la facturación de esta empresa.');
+      }
+      if (methodsSnap.exists && methodsSnap.data()?.available === true) methods = methodsSnap.data();
+    }
     if (operationSnap.exists) {
       if (operationSnap.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador de pago ya se utilizó con otros datos.');
       return { success: true, paymentId: operationSnap.data().paymentId, idempotent: true };
     }
     const charge = chargeSnap.data();
+    if (actor.actorType === 'tenant') {
+      if (charge.tenantId !== actor.tenantId || charge.contractId !== actor.contractId || charge.kind !== 'renewal') {
+        throw new HttpsError('permission-denied', 'El cargo no pertenece a la suscripción de esta empresa.');
+      }
+      if (!methods || (method === 'bank_qr' && methods.qrEnabled !== true) || (method === 'bank_transfer' && methods.transferEnabled !== true)) {
+        throw new HttpsError('failed-precondition', 'Este método de pago no está habilitado por PACHAX. Contacta a soporte.');
+      }
+    }
     if (paymentSnap.exists || claimSnap.exists) throw new HttpsError('already-exists', 'La referencia bancaria ya está registrada; revisa el historial antes de reintentar.');
-    if (charge.status === 'paid' || charge.status === 'cancelled' || charge.paidMinor + charge.pendingMinor + amountMinor > charge.amountMinor) {
+    const balances = validatedChargeBalances(charge);
+    const paidMinor = balances.paidMinor;
+    const pendingMinor = balances.pendingMinor;
+    if (charge.status === 'paid' || charge.status === 'cancelled' || paidMinor + pendingMinor + amountMinor > balances.amountMinor) {
       throw new HttpsError('failed-precondition', 'El importe supera el saldo pendiente del cargo.');
     }
     const now = FieldValue.serverTimestamp();
@@ -407,7 +609,7 @@ async function recordManualPaymentReference(db, request) {
       recordedAt: now, confirmedAt: null,
     });
     tx.create(claimRef, { paymentId, chargeId, status: 'pending_review', createdAt: now });
-    tx.update(chargeRef, { pendingMinor: charge.pendingMinor + amountMinor, status: 'under_review', updatedAt: now });
+    tx.update(chargeRef, { pendingMinor: pendingMinor + amountMinor, status: 'under_review', updatedAt: now });
     tx.create(operationRef, { actorUid: actor.uid, paymentId, fingerprint, createdAt: now });
     audit(db, tx, actor, 'billing.payment.reference.record', paymentRef.path, { chargeId, amountMinor, method });
     return { success: true, paymentId, idempotent: false };
@@ -445,32 +647,62 @@ async function confirmManualPayment(db, request) {
       || contractSnap.data().initialChargeId !== charge.chargeId || subscriptionSnap.data().status !== 'pending')) {
       throw new HttpsError('failed-precondition', 'El cargo inicial no corresponde a un contrato pendiente de pago.');
     }
+    if (charge.kind === 'renewal') {
+      const pendingPlanChange = subscriptionSnap.data().pendingPlanChange || null;
+      const effectiveAt = pendingPlanChange?.effectiveAt?.toMillis?.()
+        ?? subscriptionSnap.data().currentPeriodEnd?.toMillis?.();
+      if (pendingPlanChange && Number.isFinite(effectiveAt) && effectiveAt > Date.now()) {
+        throw new HttpsError('failed-precondition', 'La renovación con cambio de plan solo puede confirmarse desde la fecha contractual del cambio. La referencia permanece pendiente de conciliación.');
+      }
+    }
     if (charge.kind === 'renewal' && !['active', 'overdue', 'suspended', 'cancelled'].includes(subscriptionSnap.data().status)) {
       throw new HttpsError('failed-precondition', 'La suscripción no admite conciliación para este cargo.');
     }
-    if (charge.paidMinor + data.amountMinor > charge.amountMinor || charge.pendingMinor < data.amountMinor) {
+    const balances = validatedChargeBalances(charge);
+    if (!Number.isSafeInteger(data.amountMinor) || data.amountMinor <= 0
+      || balances.paidMinor + data.amountMinor > balances.amountMinor || balances.pendingMinor < data.amountMinor) {
       throw new HttpsError('failed-precondition', 'El saldo del cargo cambió; revisa el pago antes de confirmarlo.');
     }
-    const paidMinor = charge.paidMinor + data.amountMinor;
-    const pendingMinor = charge.pendingMinor - data.amountMinor;
+    const paidMinor = balances.paidMinor + data.amountMinor;
+    const pendingMinor = balances.pendingMinor - data.amountMinor;
     const isPaid = paidMinor === charge.amountMinor;
+    let renewalActivation = null;
+    if (isPaid && charge.kind === 'renewal' && ['active', 'overdue'].includes(subscriptionSnap.data().status)) {
+      if (charge.periodApplicationId) throw new HttpsError('failed-precondition', 'Este período de renovación ya fue aplicado; no se extenderá nuevamente.');
+      const subscription = subscriptionSnap.data();
+      const pendingPlanChange = subscription.pendingPlanChange || null;
+      const cycle = pendingPlanChange?.billingCycle || charge.cycle || subscription.billingCycle;
+      const periodCount = prepaidPeriods(cycle, charge.periodCount || 1);
+      const { start, anchorDay } = renewalPeriodStart(subscription);
+      const end = addBillingPeriods(start, cycle, periodCount, anchorDay);
+      const startTimestamp = Timestamp.fromDate(start);
+      const endTimestamp = Timestamp.fromDate(end);
+      const tenantRef = db.doc(`tenants/${subscription.tenantId}`);
+      const tenantSnap = await tx.get(tenantRef);
+      if (!tenantSnap.exists || tenantSnap.data()?.billingEnforcement !== true || tenantSnap.data()?.billingContractId !== data.contractId) {
+        throw new HttpsError('failed-precondition', 'La empresa vinculada a esta renovación requiere revisión; el cobro no actualizó el acceso.');
+      }
+      renewalActivation = { subscription, pendingPlanChange, cycle, periodCount, anchorDay, startTimestamp, endTimestamp,
+        accessUntil: addGracePeriod(endTimestamp), tenantRef };
+    }
     const now = FieldValue.serverTimestamp();
     tx.update(paymentRef, { status: 'confirmed', confirmedBy: actor.uid, confirmedAt: now });
     tx.update(claimRef, { status: 'confirmed', confirmedBy: actor.uid, confirmedAt: now });
-    tx.update(chargeRef, { paidMinor, pendingMinor, status: isPaid ? 'paid' : pendingMinor ? 'under_review' : 'partial', updatedAt: now });
+    tx.update(chargeRef, { paidMinor, pendingMinor, status: isPaid ? 'paid' : pendingMinor ? 'under_review' : 'partial', ...(isPaid ? { paidAt: now } : {}), updatedAt: now });
     if (isPaid && charge.kind === 'initial') {
       tx.update(contractRef, { status: 'ready_for_activation', initialChargePaidAt: now, updatedAt: now });
       tx.update(subscriptionRef, { status: 'pending', updatedAt: now });
     }
     if (isPaid && charge.kind === 'renewal') {
-      const subscription = subscriptionSnap.data();
-      if (['active', 'overdue'].includes(subscription.status)) {
-        const start = charge.periodStart || Timestamp.fromMillis(Math.max(Date.now(), subscription.currentPeriodEnd?.toMillis?.() || Date.now()));
-        const end = charge.periodEnd || start;
-        const billingAccessUntil = addGracePeriod(end);
-        const pendingPlanChange = subscription.pendingPlanChange || null;
+      if (renewalActivation) {
+        const { subscription, pendingPlanChange, cycle, periodCount, anchorDay, startTimestamp, endTimestamp, accessUntil, tenantRef } = renewalActivation;
+        const billingCycle = pendingPlanChange?.billingCycle || cycle;
+        const monthsCovered = periodCount * (billingCycle === 'annual' ? 12 : 1);
+        tx.update(chargeRef, { periodStart: startTimestamp, periodEnd: endTimestamp, monthsCovered, billingAnchorDay: anchorDay,
+          paidAt: now, periodApplicationId: `renewal:${charge.chargeId}`, periodAppliedAt: now, periodAppliedToContractId: data.contractId });
         tx.update(subscriptionRef, {
-          status: 'active', currentPeriodStart: start, currentPeriodEnd: end, nextRenewalAt: end, billingAccessUntil,
+          status: 'active', currentPeriodStart: startTimestamp, currentPeriodEnd: endTimestamp, nextRenewalAt: endTimestamp, billingAccessUntil: accessUntil,
+          periodCount, monthsCovered, billingAnchorDay: anchorDay,
           pendingRenewalChargeId: FieldValue.delete(),
           ...(pendingPlanChange ? {
             planKey: pendingPlanChange.planSnapshot.planId,
@@ -483,16 +715,15 @@ async function confirmManualPayment(db, request) {
           } : {}),
           updatedAt: now,
         });
-        if (subscription.tenantId) tx.update(db.doc(`tenants/${subscription.tenantId}`), {
-          subscriptionStatus: 'active', status: 'active', billingAccessUntil, updatedAt: now,
+        if (subscription.tenantId) tx.update(tenantRef, {
+          subscriptionStatus: 'active', status: 'active', billingAccessUntil: accessUntil, updatedAt: now,
           ...(pendingPlanChange ? {
             planKey: pendingPlanChange.planSnapshot.planId,
             commercialCapabilities: pendingPlanChange.planSnapshot.capabilitiesV1,
           } : {}),
         });
       } else {
-        // El ingreso se registra, pero el pago de una suscripción cancelada o suspendida
-        // no reactiva el acceso automáticamente.
+        // El ingreso de una cuenta suspendida/cancelada no recupera acceso automáticamente.
         tx.update(subscriptionRef, { pendingRenewalChargeId: FieldValue.delete(), updatedAt: now });
       }
     }
@@ -515,19 +746,37 @@ async function rejectManualPayment(db, request) {
     if (!paymentSnap.exists) throw new HttpsError('not-found', 'Pago no encontrado.');
     const payment = paymentSnap.data();
     const chargeRef = db.doc(`platformBillingCharges/${payment.chargeId}`);
+    const subscriptionRef = db.doc(`platformSubscriptions/${payment.contractId}`);
     const claimRef = db.doc(`platformPaymentReferenceClaims/${payment.referenceHash}`);
-    const [operation, chargeSnap, claimSnap] = await Promise.all([tx.get(op), tx.get(chargeRef), tx.get(claimRef)]);
+    const [operation, chargeSnap, subscriptionSnap, claimSnap] = await Promise.all([
+      tx.get(op), tx.get(chargeRef), tx.get(subscriptionRef), tx.get(claimRef),
+    ]);
     if (operation.exists) {
       if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador de rechazo ya se utilizó con otros datos.');
       return { success: true, idempotent: true };
     }
-    if (payment.status !== 'pending_review' || !chargeSnap.exists || !claimSnap.exists || claimSnap.data().paymentId !== paymentId) throw new HttpsError('failed-precondition', 'El pago no puede rechazarse en su estado actual.');
+    if (payment.status !== 'pending_review' || !chargeSnap.exists || !claimSnap.exists
+      || claimSnap.data().paymentId !== paymentId || claimSnap.data().status !== 'pending_review'
+      || claimSnap.data().chargeId !== payment.chargeId) throw new HttpsError('failed-precondition', 'El pago no puede rechazarse en su estado actual.');
     const charge = chargeSnap.data();
-    const pendingMinor = Math.max(0, charge.pendingMinor - payment.amountMinor);
+    const balances = validatedChargeBalances(charge);
+    if (charge.contractId !== payment.contractId || !Number.isSafeInteger(payment.amountMinor) || payment.amountMinor <= 0
+      || balances.pendingMinor < payment.amountMinor) {
+      throw new HttpsError('failed-precondition', 'La referencia no coincide con el saldo reservado; requiere revisión manual.');
+    }
+    const pendingMinor = balances.pendingMinor - payment.amountMinor;
+    if (balances.paidMinor + pendingMinor > balances.amountMinor) throw new HttpsError('failed-precondition', 'El saldo restante del cargo es inconsistente.');
     const now = FieldValue.serverTimestamp();
     tx.update(paymentRef, { status: 'rejected', rejectedBy: actor.uid, rejectionReason: reason, rejectedAt: now });
     tx.update(claimRef, { status: 'rejected', rejectedBy: actor.uid, rejectedAt: now });
-    tx.update(chargeRef, { pendingMinor, status: pendingMinor ? 'under_review' : charge.paidMinor ? 'partial' : 'due', updatedAt: now });
+    const chargeStatus = pendingMinor ? 'under_review' : balances.paidMinor ? 'partial' : 'due';
+    tx.update(chargeRef, { pendingMinor, status: chargeStatus, updatedAt: now });
+    // Keep the renewal pointer while any unpaid balance remains. A rejected
+    // reference releases its reservation; it does not cancel the charge.
+    if (subscriptionSnap.exists && subscriptionSnap.data().pendingRenewalChargeId === payment.chargeId
+      && (chargeStatus === 'paid' || chargeStatus === 'cancelled')) {
+      tx.update(subscriptionRef, { pendingRenewalChargeId: FieldValue.delete(), updatedAt: now });
+    }
     tx.create(op, { actorUid: actor.uid, fingerprint, createdAt: now });
     audit(db, tx, actor, 'billing.payment.reject', paymentRef.path, { chargeId: payment.chargeId, amountMinor: payment.amountMinor, reason });
     return { success: true, idempotent: false };
@@ -539,10 +788,11 @@ async function createRenewalCharge(db, request) {
   const contractId = cleanText(request.data?.contractId, 'Contrato', 1, 120);
   const requestId = requestUuid(request.data?.requestId);
   const dueAt = validateDueAt(request.data?.dueAt);
+  const requestedPeriodCount = request.data?.periodCount ?? 1;
   const contractRef = db.doc(`platformContracts/${contractId}`);
   const subscriptionRef = db.doc(`platformSubscriptions/${contractId}`);
   const opRef = db.doc(`platformBillingOperations/${requestKey(actor, 'renewal.create', requestId)}`);
-  const fingerprint = digest(JSON.stringify({ contractId, dueAt: dueAt.toMillis() }));
+  const fingerprint = digest(JSON.stringify({ contractId, dueAt: dueAt.toMillis(), periodCount: requestedPeriodCount }));
   return db.runTransaction(async tx => {
     const [contract, subscription, operation] = await Promise.all([tx.get(contractRef), tx.get(subscriptionRef), tx.get(opRef)]);
     if (!contract.exists || !subscription.exists) throw new HttpsError('not-found', 'Suscripción no encontrada.');
@@ -551,42 +801,72 @@ async function createRenewalCharge(db, request) {
       return { success: true, chargeId: operation.data().chargeId, idempotent: true };
     }
     const current = subscription.data();
-    if (!['active', 'overdue'].includes(current.status) || !current.tenantId) throw new HttpsError('failed-precondition', 'Solo una suscripción activa o vencida con empresa puede renovarse.');
-    if (current.currentPeriodEnd?.toMillis?.() > Date.now() + 31 * 86_400_000) throw new HttpsError('failed-precondition', 'La renovación puede emitirse dentro de los 30 días previos al vencimiento.');
+    if (!['active', 'overdue', 'suspended'].includes(current.status) || !current.tenantId) throw new HttpsError('failed-precondition', 'Solo una suscripción comercial con empresa puede renovarse. Las canceladas requieren un contrato nuevo.');
     const pendingPlanChange = current.pendingPlanChange || null;
-    const amountMinor = pendingPlanChange?.recurringMinor || current.recurringMinor || contract.data().terms.recurringMinor;
-    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw new HttpsError('failed-precondition', 'El contrato no tiene un importe recurrente válido.');
+    const chargeCycle = pendingPlanChange?.billingCycle || current.billingCycle || contract.data().terms.billingCycle;
+    const periodCount = prepaidPeriods(chargeCycle, requestedPeriodCount);
+    // A multi-cycle charge is an explicit advance prepayment selected by an
+    // authorized Platform operator, for either monthly or annual contracts.
+    // A scheduled plan change's price and capabilities come from its snapshot;
+    // confirmManualPayment prevents those capabilities from applying early.
+    const advancePrepayment = periodCount > 1;
+    const renewalMode = advancePrepayment ? 'advance_prepayment' : 'ordinary';
+    if (current.status !== 'suspended' && !advancePrepayment
+      && current.currentPeriodEnd?.toMillis?.() > Date.now() + 31 * 86_400_000) {
+      throw new HttpsError('failed-precondition', 'La renovación puede emitirse dentro de los 30 días previos al vencimiento.');
+    }
+    const recurringMinor = pendingPlanChange?.recurringMinor ?? current.recurringMinor ?? contract.data().terms.recurringMinor;
+    if (!Number.isSafeInteger(recurringMinor) || recurringMinor <= 0) throw new HttpsError('failed-precondition', 'El precio contractual de renovación no es válido.');
+    const amountMinor = recurringMinor * periodCount;
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || amountMinor > 100_000_000) throw new HttpsError('failed-precondition', 'El importe recurrente excede el límite comercial permitido.');
     if (current.pendingRenewalChargeId) {
       const existingChargeRef = db.doc(`platformBillingCharges/${current.pendingRenewalChargeId}`);
       const existingCharge = await tx.get(existingChargeRef);
-      if (existingCharge.exists && ['due', 'partial', 'under_review'].includes(existingCharge.data().status)) {
-        tx.create(opRef, { actorUid: actor.uid, chargeId: existingCharge.id, fingerprint, createdAt: FieldValue.serverTimestamp() });
-        return { success: true, chargeId: existingCharge.id, idempotent: false, reusedPendingCharge: true };
+      if (!existingCharge.exists) throw new HttpsError('failed-precondition', 'La suscripción apunta a un cargo de renovación inexistente; requiere revisión manual.');
+      const existingData = existingCharge.data();
+      if (existingData.contractId !== contractId || existingData.tenantId !== current.tenantId || existingData.kind !== 'renewal') {
+        throw new HttpsError('failed-precondition', 'El cargo vinculado no corresponde a esta renovación; requiere revisión manual.');
       }
+      validatedChargeBalances(existingData);
+      if (['due', 'partial', 'under_review'].includes(existingData.status)) {
+        if ((Number(existingCharge.data().periodCount) || 1) !== periodCount || existingCharge.data().cycle !== chargeCycle) {
+          throw new HttpsError('failed-precondition', 'Ya existe un cargo pendiente con otro período. Concílialo o recházalo antes de cotizar una duración distinta.');
+        }
+        tx.create(opRef, { actorUid: actor.uid, chargeId: existingCharge.id, fingerprint, createdAt: FieldValue.serverTimestamp() });
+        return { success: true, chargeId: existingCharge.id, renewalMode, idempotent: false, reusedPendingCharge: true };
+      }
+      throw new HttpsError('failed-precondition', 'La suscripción conserva un vínculo a un cargo ya finalizado; requiere revisión antes de otra renovación.');
+    }
+    const renewalHistory = await tx.get(db.collection('platformBillingCharges').where('contractId', '==', contractId));
+    const orphanedActiveRenewals = renewalHistory.docs.filter(item => item.data().kind === 'renewal'
+      && ['due', 'partial', 'under_review'].includes(item.data().status));
+    if (orphanedActiveRenewals.length) {
+      throw new HttpsError('failed-precondition', 'Hay un cargo de renovación abierto sin vínculo con la suscripción; concílialo antes de crear otro.');
     }
     const chargeId = `ch_${requestKey(actor, 'renewal', requestId).slice(0, 40)}`;
     const chargeRef = db.doc(`platformBillingCharges/${chargeId}`);
     const existing = await tx.get(chargeRef);
     if (existing.exists) throw new HttpsError('already-exists', 'Ya existe el cargo para esta operación.');
-    const startMillis = Math.max(Date.now(), current.currentPeriodEnd?.toMillis?.() || Date.now());
-    const periodStart = Timestamp.fromMillis(startMillis);
-    const endDate = new Date(startMillis);
-    endDate.setUTCMonth(endDate.getUTCMonth() + ((pendingPlanChange?.billingCycle || current.billingCycle) === 'annual' ? 12 : 1));
+    const renewalStart = renewalPeriodStart(current);
+    const periodStart = Timestamp.fromDate(renewalStart.start);
+    const anchorDay = renewalStart.anchorDay;
+    const endDate = addBillingPeriods(renewalStart.start, chargeCycle, periodCount, anchorDay);
     const periodEnd = Timestamp.fromDate(endDate);
-    const chargeCycle = pendingPlanChange?.billingCycle || current.billingCycle;
     const chargeCurrency = pendingPlanChange?.currency || current.currency;
     const now = FieldValue.serverTimestamp();
     tx.create(chargeRef, {
       chargeId, contractId, tenantId: current.tenantId, kind: 'renewal', currency: chargeCurrency,
       amountMinor, paidMinor: 0, pendingMinor: 0, status: 'due', dueAt,
-      cycle: chargeCycle, periodStart, periodEnd, planSnapshot: pendingPlanChange?.planSnapshot || current.planSnapshot || null,
-      lineItems: [{ kind: 'subscription', amountMinor, planId: pendingPlanChange?.planSnapshot?.planId || current.planKey || null }],
+      renewalMode,
+      cycle: chargeCycle, periodCount, monthsCovered: periodCount * (chargeCycle === 'annual' ? 12 : 1), periodStart, periodEnd,
+      billingAnchorDay: anchorDay, planSnapshot: pendingPlanChange?.planSnapshot || current.planSnapshot || null,
+      lineItems: [{ kind: 'subscription', amountMinor, periodCount, monthsCovered: periodCount * (chargeCycle === 'annual' ? 12 : 1), planId: pendingPlanChange?.planSnapshot?.planId || current.planKey || null }],
       createdBy: actor.uid, createdAt: now, updatedAt: now,
     });
     tx.update(subscriptionRef, { pendingRenewalChargeId: chargeId, updatedAt: now });
     tx.create(opRef, { actorUid: actor.uid, chargeId, fingerprint, createdAt: now });
-    audit(db, tx, actor, 'billing.renewal.charge.create', chargeRef.path, { contractId, amountMinor });
-    return { success: true, chargeId, idempotent: false };
+    audit(db, tx, actor, 'billing.renewal.charge.create', chargeRef.path, { contractId, amountMinor, cycle: chargeCycle, periodCount, renewalMode });
+    return { success: true, chargeId, renewalMode, idempotent: false };
   });
 }
 
@@ -712,6 +992,184 @@ async function changeSubscriptionStatus(db, request) {
   });
 }
 
+async function reactivateSuspendedSubscription(db, request) {
+  const actor = await platformActor(db, request);
+  if (actor.operator.role !== 'platform_owner') throw new HttpsError('permission-denied', 'Solo Platform Owner puede autorizar una reactivación excepcional.');
+  const contractId = cleanText(request.data?.contractId, 'Contrato', 1, 120);
+  const chargeId = cleanText(request.data?.chargeId, 'Cargo', 1, 120);
+  const requestId = requestUuid(request.data?.requestId);
+  const reason = cleanText(request.data?.reason, 'Motivo de reactivación', 12, 500);
+  const contractRef = db.doc(`platformContracts/${contractId}`);
+  const subscriptionRef = db.doc(`platformSubscriptions/${contractId}`);
+  const chargeRef = db.doc(`platformBillingCharges/${chargeId}`);
+  const opRef = db.doc(`platformBillingOperations/${requestKey(actor, 'subscription.reactivate', requestId)}`);
+  const fingerprint = digest(JSON.stringify({ contractId, chargeId, reason }));
+  return db.runTransaction(async tx => {
+    const [contract, subscription, charge, operation] = await Promise.all([tx.get(contractRef), tx.get(subscriptionRef), tx.get(chargeRef), tx.get(opRef)]);
+    if (operation.exists) {
+      if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador ya se utilizó para otra reactivación.');
+      return { success: true, idempotent: true };
+    }
+    if (!contract.exists || !subscription.exists || !charge.exists) throw new HttpsError('not-found', 'No se encontró el contrato, suscripción o cargo.');
+    const current = subscription.data(), paidCharge = charge.data();
+    if (current.status !== 'suspended') throw new HttpsError('failed-precondition', 'Solo las suspensiones administrativas pueden reactivarse por este procedimiento. Las cancelaciones requieren un contrato nuevo.');
+    const paidBalances = validatedChargeBalances(paidCharge);
+    if (paidCharge.contractId !== contractId || paidCharge.tenantId !== current.tenantId || paidCharge.kind !== 'renewal'
+      || paidCharge.status !== 'paid' || paidBalances.paidMinor !== paidBalances.amountMinor || paidBalances.pendingMinor !== 0) {
+      throw new HttpsError('failed-precondition', 'La reactivación exige un cargo de renovación totalmente conciliado para esta empresa.');
+    }
+    const alreadyCoveredThrough = paidCharge.periodEnd?.toMillis?.();
+    const currentCoveredThrough = current.currentPeriodEnd?.toMillis?.();
+    if (paidCharge.periodApplicationId || paidCharge.periodAppliedAt || paidCharge.reactivatedAt
+      || (Number.isFinite(alreadyCoveredThrough) && Number.isFinite(currentCoveredThrough) && alreadyCoveredThrough <= currentCoveredThrough)) {
+      throw new HttpsError('failed-precondition', 'Los meses de este cargo ya fueron aplicados; no se pueden reutilizar para reactivar la suscripción.');
+    }
+    const tenantRef = db.doc(`tenants/${current.tenantId}`);
+    const tenant = await tx.get(tenantRef);
+    if (!tenant.exists || tenant.data()?.billingEnforcement !== true || tenant.data()?.billingContractId !== contractId || tenant.data()?.subscriptionStatus !== 'suspended') {
+      throw new HttpsError('failed-precondition', 'El tenant no coincide con la suspensión registrada; no se cambió el acceso.');
+    }
+    const pendingPlanChange = current.pendingPlanChange || null;
+    const cycle = pendingPlanChange?.billingCycle || paidCharge.cycle || current.billingCycle;
+    const periodCount = prepaidPeriods(cycle, paidCharge.periodCount || 1);
+    const paidAtMillis = paidCharge.paidAt?.toMillis?.() || Date.now();
+    const renewalStart = renewalPeriodStart(current, Math.max(Date.now(), paidAtMillis));
+    const start = renewalStart.start;
+    const anchorDay = renewalStart.anchorDay;
+    const end = addBillingPeriods(start, cycle, periodCount, anchorDay);
+    const startTimestamp = Timestamp.fromDate(start), endTimestamp = Timestamp.fromDate(end);
+    const accessUntil = addGracePeriod(endTimestamp);
+    const now = FieldValue.serverTimestamp();
+    const monthsCovered = periodCount * (cycle === 'annual' ? 12 : 1);
+    tx.update(chargeRef, { periodStart: startTimestamp, periodEnd: endTimestamp, monthsCovered, billingAnchorDay: anchorDay,
+      periodApplicationId: `renewal:${chargeId}`, periodAppliedAt: now, periodAppliedToContractId: contractId, reactivatedAt: now });
+    tx.update(subscriptionRef, {
+      status: 'active', currentPeriodStart: startTimestamp, currentPeriodEnd: endTimestamp, nextRenewalAt: endTimestamp,
+      billingAccessUntil: accessUntil, periodCount, monthsCovered,
+      billingAnchorDay: anchorDay, reactivatedBy: actor.uid, reactivatedAt: now, reactivationReason: reason,
+      pendingRenewalChargeId: FieldValue.delete(),
+      ...(pendingPlanChange ? { planKey: pendingPlanChange.planSnapshot.planId, planSnapshot: pendingPlanChange.planSnapshot,
+        commercialCapabilities: pendingPlanChange.planSnapshot.capabilitiesV1, recurringMinor: pendingPlanChange.recurringMinor,
+        billingCycle: pendingPlanChange.billingCycle, currency: pendingPlanChange.currency, pendingPlanChange: FieldValue.delete() } : {}),
+      updatedAt: now,
+    });
+    tx.update(tenantRef, {
+      status: 'active', subscriptionStatus: 'active', billingAccessUntil: accessUntil,
+      ...(pendingPlanChange ? { planKey: pendingPlanChange.planSnapshot.planId, commercialCapabilities: pendingPlanChange.planSnapshot.capabilitiesV1 } : {}),
+      updatedAt: now,
+    });
+    tx.update(contractRef, { subscriptionStatus: 'active', updatedAt: now });
+    tx.create(opRef, { actorUid: actor.uid, contractId, chargeId, fingerprint, createdAt: now });
+    audit(db, tx, actor, 'billing.subscription.reactivate', subscriptionRef.path, { chargeId, reason, periodCount, cycle });
+    return { success: true, idempotent: false, currentPeriodEnd: endTimestamp };
+  });
+}
+
+async function addBillingInternalNote(db, request) {
+  const actor = await platformActor(db, request);
+  requirePermission(actor, actor.permissions.includes('plans.manage') ? 'plans.manage' : 'finance.read');
+  const contractId = cleanText(request.data?.contractId, 'Contrato', 1, 120);
+  const note = cleanText(request.data?.note, 'Observación interna', 3, 1500);
+  const requestId = requestUuid(request.data?.requestId);
+  const contractRef = db.doc(`platformContracts/${contractId}`);
+  const operationRef = db.doc(`platformBillingOperations/${requestKey(actor, 'billing.note.add', requestId)}`);
+  const noteId = `bn_${requestKey(actor, 'billing.note.add', requestId).slice(0, 40)}`;
+  const noteRef = db.doc(`platformBillingNotes/${noteId}`);
+  const fingerprint = digest(JSON.stringify({ contractId, note }));
+  return db.runTransaction(async tx => {
+    const [contract, operation, existingNote] = await Promise.all([tx.get(contractRef), tx.get(operationRef), tx.get(noteRef)]);
+    if (!contract.exists) throw new HttpsError('not-found', 'Contrato no encontrado.');
+    if (operation.exists) {
+      if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador de observación ya se usó con otro contenido.');
+      return { success: true, noteId: operation.data().noteId, idempotent: true };
+    }
+    if (existingNote.exists) throw new HttpsError('already-exists', 'La observación ya existe; requiere revisión de auditoría.');
+    const now = FieldValue.serverTimestamp();
+    tx.create(noteRef, { contractId, tenantId: contract.data().tenantId || null, note, actorUid: actor.uid,
+      actorRole: actor.operator.role, createdAt: now });
+    tx.create(operationRef, { fingerprint, noteId, actorUid: actor.uid, createdAt: now });
+    audit(db, tx, actor, 'billing.internal_note.add', noteRef.path, { contractId, noteId });
+    return { success: true, noteId, idempotent: false };
+  });
+}
+
+async function listBillingInternalNotes(db, request) {
+  const actor = await platformActor(db, request);
+  if (!actor.permissions.some(permission => ['plans.manage', 'finance.read'].includes(permission))) {
+    throw new HttpsError('permission-denied', 'El operador no puede consultar observaciones de facturación.');
+  }
+  const contractId = cleanText(request.data?.contractId, 'Contrato', 1, 120);
+  const limit = Number(request.data?.limit ?? 50);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new HttpsError('invalid-argument', 'Límite de observaciones inválido.');
+  let query = db.collection('platformBillingNotes').where('contractId', '==', contractId)
+    .orderBy('createdAt', 'desc').orderBy(FieldPath.documentId(), 'desc');
+  const cursor = request.data?.cursor;
+  if (cursor != null) {
+    const milliseconds = Number(cursor.createdAtMillis);
+    const id = cleanText(cursor.id, 'Cursor', 1, 150);
+    if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) throw new HttpsError('invalid-argument', 'Cursor de observaciones inválido.');
+    query = query.startAfter(Timestamp.fromMillis(milliseconds), id);
+  }
+  const snapshot = await query.limit(limit + 1).get();
+  const page = snapshot.docs.slice(0, limit);
+  const last = page[page.length - 1];
+  const lastDate = last?.get('createdAt');
+  return { notes: page.map(document => ({ id: document.id, ...document.data() })),
+    hasMore: snapshot.docs.length > limit,
+    nextCursor: snapshot.docs.length > limit && lastDate?.toMillis ? { createdAtMillis: lastDate.toMillis(), id: last.id } : null };
+}
+
+async function correctBillingCharge(db, request) {
+  const actor = await platformActor(db, request);
+  if (actor.operator.role !== 'platform_owner') throw new HttpsError('permission-denied', 'Solo Platform Owner puede corregir el importe de un cargo.');
+  const chargeId = cleanText(request.data?.chargeId, 'Cargo', 1, 120);
+  const requestId = requestUuid(request.data?.requestId);
+  const correctedAmountMinor = moneyMinor(request.data?.correctedAmount, 'Importe corregido', { allowZero: false });
+  const reason = cleanText(request.data?.reason, 'Motivo de corrección', 12, 500);
+  const chargeRef = db.doc(`platformBillingCharges/${chargeId}`);
+  const operationRef = db.doc(`platformBillingOperations/${requestKey(actor, 'billing.charge.correct', requestId)}`);
+  const correctionId = `bc_${requestKey(actor, 'billing.charge.correct', requestId).slice(0, 40)}`;
+  const correctionRef = db.doc(`platformBillingCorrections/${correctionId}`);
+  const fingerprint = digest(JSON.stringify({ chargeId, correctedAmountMinor, reason }));
+  return db.runTransaction(async tx => {
+    const chargeSnap = await tx.get(chargeRef);
+    if (!chargeSnap.exists) throw new HttpsError('not-found', 'Cargo no encontrado.');
+    const charge = chargeSnap.data();
+    const contractRef = db.doc(`platformContracts/${charge.contractId}`);
+    const subscriptionRef = db.doc(`platformSubscriptions/${charge.contractId}`);
+    const [contractSnap, subscriptionSnap, operation, correction] = await Promise.all([
+      tx.get(contractRef), tx.get(subscriptionRef), tx.get(operationRef), tx.get(correctionRef),
+    ]);
+    if (operation.exists) {
+      if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador de corrección ya se usó con otros datos.');
+      return { success: true, correctionId: operation.data().correctionId, idempotent: true };
+    }
+    if (!contractSnap.exists || !subscriptionSnap.exists || charge.contractId !== contractSnap.id) throw new HttpsError('failed-precondition', 'Cargo sin contrato y suscripción íntegros.');
+    if (correction.exists || !['due', 'partial'].includes(charge.status) || Number(charge.paidMinor) !== 0
+      || Number(charge.pendingMinor) !== 0 || correctedAmountMinor === Number(charge.amountMinor)) {
+      throw new HttpsError('failed-precondition', 'Solo se corrige un cargo sin pagos ni referencias pendientes y con un importe distinto.');
+    }
+    if (charge.kind === 'initial' && (contractSnap.data().status !== 'pending_payment' || subscriptionSnap.data().tenantId)) {
+      throw new HttpsError('failed-precondition', 'El cargo inicial ya está asociado a una activación o requiere revisión especializada.');
+    }
+    if (charge.kind === 'renewal' && ['suspended', 'cancelled'].includes(subscriptionSnap.data().status)) {
+      throw new HttpsError('failed-precondition', 'No se corrige una renovación suspendida o cancelada; requiere revisión contractual.');
+    }
+    const now = FieldValue.serverTimestamp();
+    const previousAmountMinor = Number(charge.amountMinor);
+    tx.create(correctionRef, { chargeId, contractId: charge.contractId, tenantId: charge.tenantId || null,
+      previousAmountMinor, correctedAmountMinor, currency: charge.currency, reason, actorUid: actor.uid,
+      actorRole: actor.operator.role, createdAt: now });
+    tx.update(chargeRef, { originalAmountMinor: Number.isSafeInteger(charge.originalAmountMinor)
+      ? charge.originalAmountMinor : previousAmountMinor, amountMinor: correctedAmountMinor,
+    correctionCount: (Number(charge.correctionCount) || 0) + 1, lastCorrectionId: correctionId,
+    lastCorrectedBy: actor.uid, lastCorrectedAt: now, updatedAt: now });
+    tx.create(operationRef, { fingerprint, correctionId, actorUid: actor.uid, createdAt: now });
+    audit(db, tx, actor, 'billing.charge.correct', chargeRef.path, { correctionId, previousAmountMinor, correctedAmountMinor, currency: charge.currency, reason });
+    return { success: true, correctionId, idempotent: false };
+  });
+}
+
 async function listBillingRecords(db, request) {
   const actor = await platformActor(db, request);
   if (!actor.permissions.some(permission => ['plans.manage', 'finance.read', 'billing.payments.confirm'].includes(permission))) throw new HttpsError('permission-denied', 'El operador no puede consultar facturación.');
@@ -720,26 +1178,37 @@ async function listBillingRecords(db, request) {
   if (!Object.hasOwn(collections, kind)) throw new HttpsError('invalid-argument', 'Tipo de registro inválido.');
   const limit = Number(request.data?.limit ?? 50);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new HttpsError('invalid-argument', 'Límite inválido.');
-  let query = db.collection(collections[kind]).orderBy('createdAt', 'desc').limit(limit);
-  if (request.data?.status) query = query.where('status', '==', cleanText(request.data.status, 'Estado', 1, 40));
-  const snapshot = await query.get();
+  const sortField = kind === 'payments' ? 'recordedAt' : 'createdAt';
+  let query = db.collection(collections[kind])
+    .orderBy(sortField, 'desc')
+    .orderBy(FieldPath.documentId(), 'desc');
+  const cursor = request.data?.cursor;
+  if (cursor != null) {
+    const milliseconds = Number(cursor.createdAtMillis);
+    const id = cleanText(cursor.id, 'Cursor', 1, 150);
+    if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) throw new HttpsError('invalid-argument', 'Cursor de paginación inválido.');
+    query = query.startAfter(Timestamp.fromMillis(milliseconds), id);
+  }
+  const snapshot = await query.limit(limit + 1).get();
+  const page = snapshot.docs.slice(0, limit);
   const now = Date.now();
-  return { records: snapshot.docs.map(doc => {
+  const last = page[page.length - 1];
+  const lastDate = last?.get(sortField);
+  return { records: page.map(doc => {
     const record = { id: doc.id, ...doc.data() };
     if (kind !== 'subscriptions') return record;
-    const currentPeriodEnd = record.currentPeriodEnd?.toMillis?.();
-    const billingAccessUntil = record.billingAccessUntil?.toMillis?.();
-    const effectiveStatus = ['suspended', 'cancelled', 'pending'].includes(record.status) ? record.status
-      : billingAccessUntil == null || billingAccessUntil <= now ? 'expired'
-        : currentPeriodEnd != null && currentPeriodEnd <= now ? 'grace'
-          : record.status;
-    return { ...record, effectiveStatus };
-  }) };
+    const effectiveStatus = effectiveBillingStatus(record, now);
+    const periodEnd = record.currentPeriodEnd?.toDate?.() || null;
+    return { ...record, effectiveStatus, daysRemaining: daysUntilBillingDate(periodEnd, now) };
+  }), hasMore: snapshot.docs.length > limit, nextCursor: snapshot.docs.length > limit && lastDate?.toMillis
+    ? { createdAtMillis: lastDate.toMillis(), id: last.id } : null };
 }
 
 module.exports = {
   BILLING_STATUSES, BILLING_GRACE_PERIOD_DAYS, moneyMinor,
   createManualCommercialIntent, saveCommercialQuote, offerCommercialQuote, withdrawCommercialQuote, recordCommercialAcceptance,
   createCommercialContract, recordManualPaymentReference, confirmManualPayment, rejectManualPayment,
-  createRenewalCharge, requestSubscriptionPlanChange, listPublishedBillingPlans, changeSubscriptionStatus, listBillingRecords,
+  createRenewalCharge, requestSubscriptionPlanChange, listPublishedBillingPlans, changeSubscriptionStatus,
+  reactivateSuspendedSubscription, listBillingRecords, getManualPaymentMethods, saveManualPaymentMethods,
+  getTenantBillingOverview, addBillingInternalNote, listBillingInternalNotes, correctBillingCharge,
 };

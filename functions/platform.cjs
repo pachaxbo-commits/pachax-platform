@@ -1218,6 +1218,12 @@ async function platformGateway(db, request, auth = null) {
     case 'listPublishedBillingPlans': return commercialBilling.listPublishedBillingPlans(db, request);
     case 'changeSubscriptionStatus': return commercialBilling.changeSubscriptionStatus(db, request);
     case 'listBillingRecords': return commercialBilling.listBillingRecords(db, request);
+    case 'reactivateSuspendedSubscription': return commercialBilling.reactivateSuspendedSubscription(db, request);
+    case 'getManualPaymentMethods': return commercialBilling.getManualPaymentMethods(db, request);
+    case 'saveManualPaymentMethods': return commercialBilling.saveManualPaymentMethods(db, request);
+    case 'addBillingInternalNote': return commercialBilling.addBillingInternalNote(db, request);
+    case 'listBillingInternalNotes': return commercialBilling.listBillingInternalNotes(db, request);
+    case 'correctBillingCharge': return commercialBilling.correctBillingCharge(db, request);
     case 'validateOperator': return validateOperator(db, request);
     case 'listTenants': return listTenants(db, request);
     case 'tenantDetail': return tenantDetail(db, request);

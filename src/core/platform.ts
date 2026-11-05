@@ -61,7 +61,8 @@ export interface Tenant {
     }
   }
   planKey: string | null
-  subscriptionStatus: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled'
+  subscriptionStatus: 'trial' | 'active' | 'past_due' | 'overdue' | 'suspended' | 'cancelled'
+  billingAccessUntil?: string | Date | { toMillis: () => number; seconds?: number }
   schemaVersion: number
   templateVersion: number
   createdAt: string
