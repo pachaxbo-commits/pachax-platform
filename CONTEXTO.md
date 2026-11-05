@@ -1,5 +1,15 @@
 # Continuidad del proyecto PACHAX
 
+## Rediseño de portada pública PACHAX Platform — fase 3 (04/11/2026)
+
+- Rama `codex/pachax-platform-home-redesign-20261104`, PR #23 abierta; HEAD de inicio `a0b6ba8ecd0771a8df8c0db1bb92592d19fa9a9`. `origin/main` (`72acc1649d781702fa8536061b3bdf3bdf49d24b`) ya era ancestro de la rama. Solo se cambió la sección de Planes, su detalle y pruebas asociadas; las secciones 1 y 2 conservaron su código y regresión visual.
+- Sección 3 ahora presenta dos tarjetas principales paralelas: Implementación Asistida y Activación Directa, sobre `PachaxBrandBackground`. Adaptación de una columna para móvil/tablet; fotos con corte diagonal, cierre cyan, beneficios compactos y acciones de contorno. Los detalles comerciales viven en un único diálogo accesible y desplazable.
+- La implementación conserva plantillas y ofertas publicadas, selección de Restaurante Rápido/Comercio, niveles, features, moneda, precios/ciclos aprobados, WhatsApp y demos existentes. Al navegar desde «Ver planes» de sección 2, activa la solución elegida y abre el detalle. En fallback o error no muestra precio de referencia ni afirma que haya ofertas; el texto comercial no promete activación inmediata. No se alteró backend, modelo comercial ni Firebase.
+- Las capturas locales ignoradas están en `tmp/landing-regression-evidence/`: sección 3 desktop/móvil, transiciones sección 2→3, los dos detalles, hero y catálogo regresivos. La vista de Preview visual no contiene planes publicados, así que el estado capturado muestra correctamente «Ofertas por verificar»; la oferta publicada se valida por el contrato comercial filtrado, no con un precio inventado.
+- QA local: `npm run typecheck` y build de producción + artefactos demo PASS; ESLint focal PASS; `npm run test:preview-firebase-isolation` 5/5; `npm run test:landing-browser` PASS en 320, 375, 390, 430, 768, 1024, 1440 y 1920 px, incluyendo CTA, foco, diálogo y selección de Comercio; fallback Preview 1440×900 y 390×844 PASS con cero solicitudes externas; contratos/comercial presentation PASS; `git diff --check` PASS. Build conserva advertencias existentes de chunks grandes y de import dinámico inefectivo fuera de esta landing.
+- `hamburger-counter.webp` conserva su atribución Unsplash. `distribution-concept.webp` es un asset de landing existente; su registro de origen/licencia no aparece en el repositorio y esa limitación se documenta en `docs/landing-assets.md`.
+- Pendiente de entrega remota: commit y push de esta fase, deployment Preview visual de rama y actualización del cuerpo del PR #23. No se ha desplegado a Production ni se ha modificado su configuración.
+
 ## Rediseño de portada pública PACHAX Platform — fase 2 (04/11/2026)
 
 - Rama aislada `codex/pachax-platform-home-redesign-20261104`, PR #23 abierta en borrador; basada en `origin/main` `72acc1649d781702fa8536061b3bdf3bdf49d24b`. La fase continúa el rediseño de portada, sin tocar módulos tenant ni trabajo paralelo.

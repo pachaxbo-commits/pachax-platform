@@ -1,15 +1,9 @@
-import { useState } from 'react'
-import {
-  Check,
-  ArrowRight,
-  MessageSquare,
-  Play,
-} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowRight, Check, Cog, ExternalLink, MessageSquare, Play, X, Zap } from 'lucide-react'
 import {
   SPECIALIZED_IMPLEMENTATION_MODELS,
   QUICK_SERVICE_CATALOG,
   type SpecializedModelInfo,
-  type QuickServiceSubcategory,
   type TemplateTierPlan,
   CUSTOM_DEVELOPMENT_CONFIG,
 } from '../config/pricingConfig'
@@ -20,11 +14,25 @@ import { getQuickServiceEditorialData, getQuickServicePricingState } from './qui
 
 interface TemplatePricingSectionProps {
   initialQuickServiceId?: 'hamburger' | 'retail'
+  openInitialDetails?: boolean
 }
 
-export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: TemplatePricingSectionProps) {
+type PricingMode = 'assisted' | 'direct'
+type QuickServiceId = 'hamburger' | 'retail'
+type SpecializedId = 'distribution' | 'restaurant' | 'nightclub'
+
+const currencySymbol = (currency: string) => currency === 'BOB' ? 'Bs ' : '$'
+
+export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', openInitialDetails = false }: TemplatePricingSectionProps) {
   const { navigate } = usePublicRouter()
   const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus, isPublicEditorialFallback, landingContent } = useCommercialConfig()
+  const [openMode, setOpenMode] = useState<PricingMode | null>(openInitialDetails ? 'direct' : null)
+  const [selectedSpecializedId, setSelectedSpecializedId] = useState<SpecializedId>('distribution')
+  const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<QuickServiceId>(initialQuickServiceId)
+  const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2)
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
 
   const specializedModels = publishedTemplates
     .filter((template) => ['distribution', 'restaurant', 'nightclub'].includes(template.id))
@@ -36,7 +44,6 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
         ...base,
         title: template.commercialName,
         subtitle: template.detailDescription || template.cardSubtitle,
-        badge: template.badge || base.badge,
         diagnostic: {
           ...base.diagnostic,
           title: template.diagnosticTitle || base.diagnostic.title,
@@ -54,556 +61,251 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger' }: 
     .filter((template) => template.id === 'hamburger' || template.id === 'retail')
     .sort((a, b) => a.order - b.order)
 
-  // Estado del Bloque A: Implementación Especializada
-  const [selectedSpecializedId, setSelectedSpecializedId] = useState<'distribution' | 'restaurant' | 'nightclub'>('distribution')
   const activeSpecializedId = specializedModels.some((model) => model.id === selectedSpecializedId)
     ? selectedSpecializedId
     : (specializedModels[0]?.id || selectedSpecializedId)
   const activeSpecializedTemplate = publishedTemplates.find((template) => template.id === activeSpecializedId)
-  const activeSpecialized: SpecializedModelInfo =
-    specializedModels.find((model) => model.id === activeSpecializedId) ||
-    specializedModels[0] || SPECIALIZED_IMPLEMENTATION_MODELS[0]
-  const activeSpecializedPlans = publishedPlansByTemplate(activeSpecializedId)
+  const activeSpecialized: SpecializedModelInfo = specializedModels.find((model) => model.id === activeSpecializedId)
+    || specializedModels[0] || SPECIALIZED_IMPLEMENTATION_MODELS[0]
+  const activeSpecializedPlans = activeSpecializedTemplate ? publishedPlansByTemplate(activeSpecializedId) : []
   const activeSpecializedPlan = activeSpecializedPlans[0]
 
-  // Estado del Bloque B: Autoservicio con Planes Directos
-  const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<'hamburger' | 'retail'>(initialQuickServiceId)
   const activeQuickServiceId = publishedQuickTemplates.some((template) => template.id === selectedQuickServiceId)
     ? selectedQuickServiceId
-    : (publishedQuickTemplates[0]?.id as 'hamburger' | 'retail' | undefined) || selectedQuickServiceId
+    : (publishedQuickTemplates[0]?.id as QuickServiceId | undefined) || selectedQuickServiceId
   const activeQuickTemplate = publishedQuickTemplates.find((template) => template.id === activeQuickServiceId)
-  const activeQuickCatalogBase: QuickServiceSubcategory =
-    QUICK_SERVICE_CATALOG.find((q) => q.id === activeQuickServiceId) || QUICK_SERVICE_CATALOG[0]
-  const activeQuickCatalog: QuickServiceSubcategory = activeQuickTemplate
-    ? { ...activeQuickCatalogBase, label: activeQuickTemplate.commercialName, commercialTitle: activeQuickTemplate.cardSubtitle, description: activeQuickTemplate.detailDescription }
-    : activeQuickCatalogBase
+  const activeQuickCatalogBase = QUICK_SERVICE_CATALOG.find((item) => item.id === activeQuickServiceId) || QUICK_SERVICE_CATALOG[0]
+  const activeQuickLabel = activeQuickTemplate?.commercialName || activeQuickCatalogBase.label
   const activeQuickEditorial = activeQuickTemplate ? getQuickServiceEditorialData(activeQuickServiceId) : null
+  const activeQuickPlans = activeQuickTemplate ? publishedPlansByTemplate(activeQuickServiceId) : []
+  const quickPricingState = getQuickServicePricingState(publicCatalogStatus, Boolean(activeQuickTemplate), activeQuickPlans.length > 0)
+  const activePlan: TemplateTierPlan | undefined = activeQuickPlans.find((plan) => plan.tierLevel === selectedTierLevel)
+    || activeQuickPlans.find((plan) => plan.tierLevel === 2)
+    || activeQuickPlans[0]
+  const activePlanHasAnnualPrice = Boolean(activePlan && Number.isFinite(activePlan.annualPriceUSD) && activePlan.annualPriceUSD > 0)
+  const hasAnnualPrice = activeQuickPlans.some((plan) => Number.isFinite(plan.annualPriceUSD) && plan.annualPriceUSD > 0)
+  const calculatedPrice = activePlan
+    ? (billingCycle === 'annual' && activePlanHasAnnualPrice ? activePlan.annualPriceUSD : activePlan.monthlyPriceUSD)
+    : null
   const activeQuickDemoPath = activeQuickTemplate
     && (activeQuickTemplate.demoEnabledConfigured !== true || activeQuickTemplate.demoEnabled === true)
     ? freeDemoPath(activeQuickServiceId)
     : null
+  const activeSpecializedDemoEnabled = Boolean(activeSpecializedTemplate && canLaunchCommercialDemo(activeSpecializedTemplate))
 
-  const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2) // Nivel 2 (Más popular) por defecto
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
-
-  const activeQuickPlans = activeQuickTemplate ? publishedPlansByTemplate(activeQuickServiceId) : []
-  const quickPricingState = getQuickServicePricingState(publicCatalogStatus, Boolean(activeQuickTemplate), activeQuickPlans.length > 0)
-  const activePlan: TemplateTierPlan | undefined = activeQuickPlans.find((p) => p.tierLevel === selectedTierLevel)
-    || activeQuickPlans.find((p) => p.tierLevel === 2)
-    || activeQuickPlans[0]
-
-  const calculatedPrice = activePlan ? (billingCycle === 'annual' ? activePlan.annualPriceUSD : activePlan.monthlyPriceUSD) : null
-  const quickPlanCurrency = activePlan?.currency === 'BOB' ? 'Bs ' : '$'
-
-  const handleLaunchSpecializedDemo = (route: string) => {
-    if (route.startsWith('/demo/')) {
-      window.location.assign(route)
-    } else {
-      navigate(route)
+  useEffect(() => {
+    if (!openMode) return
+    const dialog = dialogRef.current
+    const focusable = () => dialog?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    )
+    focusable()?.[0]?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenMode(null)
+      } else if (event.key === 'Tab') {
+        const items = Array.from(focusable() || [])
+        if (!items.length) return
+        const first = items[0]
+        const last = items[items.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
     }
+    document.addEventListener('keydown', onKeyDown)
+    document.body.classList.add('pachax-dialog-open')
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.body.classList.remove('pachax-dialog-open')
+      returnFocusRef.current?.focus()
+    }
+  }, [openMode])
+
+  const openDetails = (mode: PricingMode, trigger: HTMLElement) => {
+    returnFocusRef.current = trigger
+    setOpenMode(mode)
   }
 
-  const handleSpecializedInquiry = (model: SpecializedModelInfo) => {
+  const contactWhatsApp = (message: string) => {
     const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
     if (!number) return
-    const message = `Hola, quiero solicitar una implementación de ${model.title} en PACHAX.`
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
   }
 
-  const handleSelectQuickPlan = (plan?: TemplateTierPlan) => {
-    const planDescription = plan ? ` sobre el plan ${plan.name}` : ' sobre los planes disponibles'
-    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
-    if (!number) return
-    const message = `Hola PACHAX, quiero consultar${planDescription} para ${activeQuickCatalog.label}.`
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+  const handleSpecializedInquiry = () => contactWhatsApp(`Hola, quiero solicitar una implementación de ${activeSpecialized.title} en PACHAX.`)
+  const handleQuickInquiry = (plan?: TemplateTierPlan) => {
+    const description = plan ? ` sobre el plan ${plan.name}` : ' sobre los planes disponibles'
+    contactWhatsApp(`Hola PACHAX, quiero consultar${description} para ${activeQuickLabel}.`)
   }
+  const handleCustomDevWhatsApp = () => contactWhatsApp(landingContent.defaultCustomDevMessage || CUSTOM_DEVELOPMENT_CONFIG.whatsAppMessage)
 
-  const handleCustomDevWhatsApp = () => {
-    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
-    if (!number) return
-    const message = landingContent.defaultCustomDevMessage || CUSTOM_DEVELOPMENT_CONFIG.whatsAppMessage
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+  const renderStatus = () => {
+    if (publicCatalogStatus === 'loading') return 'Verificando la publicación del catálogo.'
+    if (publicCatalogStatus === 'error') return 'No se pudo verificar el catálogo. Los precios no están disponibles.'
+    if (isPublicEditorialFallback) return 'Contenido de referencia; las ofertas comerciales aún no están confirmadas.'
+    return null
   }
-
-  const hasPublishedQuickPlans = activeQuickPlans.length > 0
-  const hasAnyConfirmedOffers = publicCatalogStatus === 'ready' && ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail']
-    .some((templateId) => publishedPlansByTemplate(templateId as 'restaurant' | 'distribution' | 'nightclub' | 'hamburger' | 'retail').length > 0)
 
   return (
-    <section id="planes" className="w-full py-20 bg-slate-50/70 border-t border-slate-200/80 relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Cabecera Editorial Principal */}
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-2.5">
-            <span>MODELOS COMERCIALES TRANSPARENTES</span>
-          </div>
-          <div className="mb-3">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-              {publicCatalogStatus === 'loading' ? 'VERIFICANDO PUBLICACIÓN'
-                : publicCatalogStatus === 'error' ? 'OFERTAS NO VERIFICADAS'
-                  : hasAnyConfirmedOffers ? 'OFERTAS APROBADAS Y PUBLICADAS' : 'SIN OFERTAS PUBLICADAS'}
-            </span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
-            {landingContent.sectionTitles.pricing}
-          </h2>
-          <p className="text-sm sm:text-base text-slate-600 mt-3 leading-relaxed">
-            {landingContent.sectionTitles.pricingSubtitle}
-          </p>
-        </div>
+    <section id="planes" className="pachax-pricing-section" data-selected-quick-service={activeQuickServiceId} aria-labelledby="pachax-pricing-title">
+      <div className="pachax-pricing-inner">
+        <header className="pachax-pricing-header">
+          <span className="pachax-pricing-accent" aria-hidden="true" />
+          <h2 id="pachax-pricing-title">Planes adaptados a la escala real de <span>tu empresa</span></h2>
+          <p>Elige la forma de activación que mejor se ajuste a tu operación, recursos y tiempo de implementación.</p>
+        </header>
 
-        {isPublicEditorialFallback && <p className="-mt-10 mb-8 text-center text-xs text-slate-500" role="status" data-catalog-state={publicCatalogStatus}>
-          {publicCatalogStatus === 'loading'
-            ? 'Las fichas editoriales se muestran como referencia mientras verificamos las ofertas.'
-            : 'Mostramos fichas editoriales de referencia. No hay precios ni planes confirmados por el servidor.'}
-        </p>}
-        {publicCatalogStatus === 'error' && !isPublicEditorialFallback && <p className="-mt-10 mb-8 text-center text-xs text-slate-500" role="status" data-catalog-state="error">
-          No pudimos actualizar las ofertas. La versión previa confirmada se conserva temporalmente y no se muestran precios sin verificación actual.
+        {renderStatus() && <p className="pachax-pricing-catalog-note" role="status" data-catalog-state={publicCatalogStatus}>
+          {renderStatus()}
         </p>}
 
-        {/* Dos Bloques Paralelos en Desktop, Apilados en Mobile */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch mb-14">
-          {/* ========================================================================= */}
-          {/* BLOQUE 1: IMPLEMENTACIÓN ESPECIALIZADA (Gris/Azul Noche Premium) */}
-          {/* ========================================================================= */}
-          <div className="bg-[#071322] text-white rounded-3xl p-6 sm:p-8 border border-blue-500/25 shadow-2xl relative overflow-hidden flex flex-col justify-between">
-            {/* Efecto de luz volumétrica nocturna */}
-            <div
-              aria-hidden="true"
-              className="absolute -top-24 -right-24 w-80 h-80 bg-blue-600/15 rounded-full blur-3xl pointer-events-none"
-            />
-            <div
-              aria-hidden="true"
-              className="absolute -bottom-24 -left-24 w-80 h-80 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"
-            />
-
-            <div className="relative z-10">
-              {/* Encabezado del Bloque Especializado */}
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                  Alta Complejidad & Flota
-                </span>
-                <span className="text-xs text-slate-400 font-medium">
-                  Ruta Guiada
-                </span>
-              </div>
-
-              <h3 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-                Implementación Especializada
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
-                Diseñado para operaciones que requieren auditoría de procesos, configuración de hardware y acompañamiento técnico directo.
-              </p>
-
-              {/* Selector de Plantilla Especializada (Tabs) */}
-              <div className="mt-6 p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-wrap sm:flex-nowrap gap-1">
-                {specializedModels.map((model) => {
-                  const isSelected = activeSpecializedId === model.id
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => setSelectedSpecializedId(model.id)}
-                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
-                        isSelected
-                          ? 'bg-[#0066FF] text-white shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                      }`}
-                    >
-                      {model.title}
-                    </button>
-                  )
-                })}
-              </div>
-
-              {!activeSpecializedTemplate ? <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/70 p-5 text-sm text-slate-300" role="status">
-                {publicCatalogStatus === 'error' ? 'No pudimos cargar las plantillas publicadas.' : publicCatalogStatus === 'loading' ? 'Cargando plantillas publicadas…' : 'No hay plantillas de implementación publicadas.'}
-              </div> : <div className="mt-6 p-5 rounded-2xl bg-[#0b1c31] border border-blue-500/20 space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-sky-400">
-                      {activeSpecialized.badge}
-                    </span>
-                    <h4 className="text-base sm:text-lg font-bold text-white tracking-tight mt-0.5">
-                      {activeSpecialized.subtitle}
-                    </h4>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      {activeSpecializedPlan?.name || (publicCatalogStatus === 'loading' ? 'Verificando ofertas' : publicCatalogStatus === 'error' ? 'Oferta no verificada' : 'Oferta publicada')}
-                    </span>
-                    <span className="text-lg sm:text-xl font-black text-white">
-                      {activeSpecializedPlan ? `${activeSpecializedPlan.currency === 'BOB' ? 'Bs ' : '$'}${activeSpecializedPlan.monthlyPriceUSD}` : publicCatalogStatus === 'ready' ? 'No hay oferta aprobada' : 'Sin precio confirmado'}
-                    </span>
-                    {activeSpecializedPlan && <span className="text-[11px] text-slate-400 ml-1">{activeSpecializedPlan.currency}/mes</span>}
-                  </div>
-                </div>
-
-                {/* 3 Etapas Claras del Proceso Especializado */}
-                <div className="space-y-2.5 pt-3 border-t border-white/10 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-400/30 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                      1
-                    </div>
-                    <div>
-                      <div className="font-bold text-white flex items-center gap-1.5">
-                        <span>{activeSpecialized.diagnostic.title}</span>
-                        <span className="text-[10px] text-emerald-400 bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/80">
-                          {activeSpecialized.diagnostic.badge}
-                        </span>
-                      </div>
-                      <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
-                        {activeSpecialized.diagnostic.detail}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-400/30 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                      2
-                    </div>
-                    <div>
-                      <div className="font-bold text-white flex items-center gap-1.5">
-                        <span>{activeSpecialized.implementation.title}</span>
-                        <span className="text-[10px] text-sky-400 bg-sky-950/80 px-1.5 py-0.2 rounded border border-sky-800/80">
-                          {publicCatalogStatus === 'ready' && activeSpecializedTemplate?.implementationBasePriceUSD != null
-                            ? `Costo base único: $${activeSpecializedTemplate.implementationBasePriceUSD} USD`
-                            : publicCatalogStatus === 'error' ? 'Costo base no verificado' : publicCatalogStatus === 'loading' ? 'Verificando costo base' : 'Costo base por cotizar'}
-                        </span>
-                      </div>
-                      <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
-                        {activeSpecialized.implementation.detail}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-400/30 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                      3
-                    </div>
-                    <div>
-                      <div className="font-bold text-white">
-                        Mantenimiento Cloud, Respaldos y Soporte Continuo
-                      </div>
-                      <p className="text-slate-300 mt-0.5 text-[11px] leading-relaxed">
-                        {activeSpecializedPlan?.clientProfile || 'La mensualidad se muestra únicamente cuando existe un plan aprobado y publicado.'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Funcionalidades Clave Incluidas */}
-                <div className="pt-3 border-t border-white/10">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                    Capacidades del motor canónico:
-                  </div>
-                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300">
-                    {(activeSpecializedPlan?.includedFeatures ?? []).map((feat, idx) => (
-                      <li key={idx} className="flex items-start gap-1.5">
-                        <Check className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
-                        <span>{feat}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>}
+        <div className="pachax-pricing-modes">
+          <article className="pachax-mode-card pachax-mode-card-assisted" data-pricing-mode="assisted">
+            <img className="pachax-mode-photo" src="/brand/showcase/distribution-concept.webp" alt="Centro de distribución con estanterías logísticas" />
+            <div className="pachax-mode-photo-shade" aria-hidden="true" />
+            <div className="pachax-mode-copy">
+              <Cog className="pachax-mode-icon" aria-hidden="true" />
+              <h3>Implementación Asistida</h3>
+              <p>Para operaciones complejas, procesos a medida o flujos logísticos avanzados.</p>
+              <ul>
+                <li><Check aria-hidden="true" />Análisis y configuración según tu operación.</li>
+                <li><Check aria-hidden="true" />Acompañamiento técnico especializado.</li>
+                <li><Check aria-hidden="true" />Puesta en marcha y validación del sistema.</li>
+              </ul>
+              <button type="button" className="pachax-pricing-action" onClick={(event) => openDetails('assisted', event.currentTarget)}>
+                Consultar modalidad <ArrowRight aria-hidden="true" />
+              </button>
             </div>
+            <span className="pachax-mode-corner" aria-hidden="true" />
+          </article>
 
-            {/* Acciones del Bloque Especializado */}
-            {activeSpecializedTemplate && <div className="relative z-10 pt-6 mt-6 border-t border-white/10 flex flex-col sm:flex-row gap-3">
-              <button
-                type="button"
-                onClick={() => handleSpecializedInquiry(activeSpecialized)}
-                className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-lg inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <MessageSquare className="w-4 h-4" />
-                <span>Solicitar implementación</span>
+          <article className="pachax-mode-card pachax-mode-card-direct" data-pricing-mode="direct">
+            <img className="pachax-mode-photo" src="/brand/showcase/hamburger-counter.webp" alt="Equipo atendiendo un mostrador de restaurante rápido" />
+            <div className="pachax-mode-photo-shade" aria-hidden="true" />
+            <div className="pachax-mode-copy">
+              <Zap className="pachax-mode-icon" aria-hidden="true" />
+              <h3>Activación Directa</h3>
+              <p>Soluciones estandarizadas con configuración ágil, según los planes publicados.</p>
+              <ul>
+                <li><Check aria-hidden="true" />Configuración más ágil.</li>
+                <li><Check aria-hidden="true" />Planes y características según oferta publicada.</li>
+                <li><Check aria-hidden="true" />Ideal para restaurantes rápidos y comercios.</li>
+              </ul>
+              <button type="button" className="pachax-pricing-action" onClick={(event) => openDetails('direct', event.currentTarget)}>
+                Consultar modalidad <ArrowRight aria-hidden="true" />
               </button>
-              <button
-                type="button"
-                onClick={() => handleLaunchSpecializedDemo(activeSpecialized.demoRoute)}
-                disabled={!activeSpecializedTemplate || !canLaunchCommercialDemo(activeSpecializedTemplate)}
-                hidden={!activeSpecializedTemplate || !canLaunchCommercialDemo(activeSpecializedTemplate)}
-                className="py-3 px-4 rounded-xl text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/15 inline-flex items-center justify-center gap-2"
-              >
-                <Play className="w-3.5 h-3.5 text-blue-400 fill-blue-400" />
-                <span>Ver demo en vivo</span>
-              </button>
-            </div>}
-          </div>
-
-          {/* ========================================================================= */}
-          {/* BLOQUE 2: AUTOSERVICIO CON PLANES DIRECTOS (Limpio / Comercial) */}
-          {/* ========================================================================= */}
-          <div className="bg-white text-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200/90 shadow-xl flex flex-col justify-between relative">
-            <div>
-              {/* Encabezado del Bloque Autoservicio */}
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Modelos de autoservicio
-                </span>
-                <span className="text-xs text-slate-500 font-medium" role="status">
-                    {quickPricingState === 'loading' ? 'Verificando ofertas' : quickPricingState === 'unverified' ? 'No se pudieron verificar' : quickPricingState === 'editorial' ? 'Planes y precios en preparación' : hasPublishedQuickPlans ? 'Oferta publicada' : 'No hay ofertas aprobadas'}
-                </span>
-              </div>
-
-              <h3 className="text-xl sm:text-2xl font-extrabold text-slate-950 tracking-tight">
-                Autoservicio con Planes Directos
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
-                Elige un rubro y revisa únicamente las ofertas aprobadas que estén publicadas. La solicitud no crea una cuenta ni activa una contratación.
-              </p>
-
-              {/* Selector de Subcategoría (Restaurante Rápido vs Comercio & Balanza) */}
-              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex">
-                  {publishedQuickTemplates.map((template) => {
-                    const cat = QUICK_SERVICE_CATALOG.find((item) => item.id === template.id)
-                    if (!cat) return null
-                    const isSelected = activeQuickServiceId === cat.id
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        data-plan-template={cat.id}
-                        aria-pressed={isSelected}
-                        onClick={() => setSelectedQuickServiceId(cat.id)}
-                        className={`flex-1 sm:flex-initial py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-white text-slate-950 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-950'
-                        }`}
-                      >
-                        {cat.label}
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {!activeQuickTemplate && <p className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600" role="status">
-                  {publicCatalogStatus === 'error' ? 'No se pudieron verificar las plantillas publicadas.' : publicCatalogStatus === 'loading' ? 'Verificando las plantillas publicadas…' : 'No hay plantillas de autoservicio publicadas en el catálogo confirmado.'}
-                </p>}
-
-                {/* Toggle de Ciclo de Facturación (Mensual / Anual) */}
-                {hasPublishedQuickPlans && <div data-plan-cycle-control="true" className="w-full sm:w-auto p-1 rounded-xl bg-slate-100 border border-slate-200/80 inline-flex items-center justify-between sm:justify-start gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setBillingCycle('monthly')}
-                    className={`py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                      billingCycle === 'monthly'
-                        ? 'bg-white text-slate-950 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900'
-                    }`}
-                  >
-                    Mensual
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBillingCycle('annual')}
-                    className={`py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer inline-flex items-center gap-1 ${
-                      billingCycle === 'annual'
-                        ? 'bg-white text-slate-950 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-900'
-                    }`}
-                  >
-                    <span>Anual</span>
-                  </button>
-                </div>}
-              </div>
-
-              {/* Selector de Nivel de Plan (Tabs de 3 Niveles) */}
-              {hasPublishedQuickPlans && <div className="mt-5 grid grid-cols-3 gap-2">
-                {activeQuickPlans.map((p) => {
-                  const isSelected = p.tierLevel === selectedTierLevel
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      data-plan-tier={p.tierLevel}
-                      onClick={() => setSelectedTierLevel(p.tierLevel || 1)}
-                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                        isSelected
-                          ? 'border-[#0066FF] bg-blue-50/50 text-[#0066FF] font-bold shadow-xs'
-                          : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:bg-slate-100 font-semibold'
-                      }`}
-                    >
-                      <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                        Nivel {p.tierLevel}
-                      </div>
-                      <div className="text-xs truncate font-bold mt-0.5">
-                        {p.name}
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>}
-
-              {/* Ficha Visual del Plan Activo Seleccionado */}
-              {activePlan ? <div className="mt-6 p-6 rounded-2xl border-2 border-[#0066FF] bg-gradient-to-b from-blue-50/30 to-white relative">
-                {activePlan.isPopular && (
-                  <div className="absolute -top-3 left-6">
-                    <span className="px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-[#0066FF] text-white shadow-xs">
-                      {activePlan.badge || 'Más popular'}
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex items-start justify-between gap-4 mb-4">
-                  <div>
-                    <h4 className="text-xl font-extrabold text-slate-950 tracking-tight">
-                      {activePlan.name}
-                    </h4>
-                    <p className="text-xs text-slate-600 mt-1 leading-snug">
-                      {activePlan.clientProfile}
-                    </p>
-                  </div>
-                  {activePlan.limitsLabel && (
-                    <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg shrink-0">
-                      {activePlan.limitsLabel}
-                    </span>
-                  )}
-                </div>
-
-                {/* Precio */}
-                <div className="pb-3 mb-3 border-b border-slate-100">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                      Precio publicado
-                    </span>
-                    <span className="text-4xl font-black text-slate-950 tracking-tight">
-                      {quickPlanCurrency}{calculatedPrice}
-                    </span>
-                    <span className="text-xs font-semibold text-slate-500">
-                      {activePlan.currency} / mes
-                    </span>
-                    {billingCycle === 'annual' && (
-                      <span className="ml-2 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
-                        Equivalente mensual con ciclo anual
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-slate-400 block mt-1">
-                    Oferta publicada por PACHAX. La solicitud no activa contratación ni cobro.
-                  </span>
-                </div>
-
-                {/* Lista de Capacidades Técnicas Incluidas */}
-                <div className="space-y-2.5 mb-2">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Capacidades incluidas:
-                  </div>
-                  <ul className="space-y-2 text-xs text-slate-700">
-                    {activePlan.includedFeatures.map((feat, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                        <span>{feat}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div> : activeQuickTemplate && activeQuickEditorial ? <div
-                className="mt-6 flex flex-1 flex-col rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-5 sm:p-6"
-                data-quick-editorial-card={activeQuickServiceId}
-                data-commercial-state={quickPricingState}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h4 className="text-lg sm:text-xl font-extrabold text-slate-950 tracking-tight">{activeQuickCatalog.label}</h4>
-                    <p className="mt-1 max-w-xl text-sm leading-relaxed text-slate-600">{activeQuickEditorial.description}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800" role="status">
-                    {quickPricingState === 'editorial' ? 'Planes y precios en preparación' : quickPricingState === 'loading' ? 'Verificando ofertas' : 'Ofertas por verificar'}
-                  </span>
-                </div>
-
-                <div className="mt-5">
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Capacidades disponibles</p>
-                  <ul className="grid grid-cols-1 gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                    {activeQuickEditorial.capabilities.map((capability) => (
-                      <li key={capability} className="flex items-start gap-2">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                        <span>{capability}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {isPublicEditorialFallback && <p className="mt-4 text-xs text-slate-500" role="note">
-                  Ficha editorial de referencia. La disponibilidad comercial se confirma en el catálogo publicado.
-                </p>}
-
-                <div className="mt-auto flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row">
-                  {activeQuickDemoPath && <button
-                    type="button"
-                    data-quick-demo={activeQuickServiceId}
-                    onClick={() => navigate(activeQuickDemoPath)}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition-colors hover:bg-slate-50"
-                  >
-                    <Play className="h-4 w-4 text-blue-600" />
-                    <span>Probar demo</span>
-                  </button>}
-                  <button
-                    type="button"
-                    data-quick-plans-inquiry={activeQuickServiceId}
-                    onClick={() => handleSelectQuickPlan()}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-slate-800"
-                  >
-                    <MessageSquare className="h-4 w-4 text-emerald-400" />
-                    <span>Consultar planes</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </div> : <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600" role="status">
-                {publicCatalogStatus === 'loading' ? 'Verificando las ofertas aprobadas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las ofertas.' : 'No hay ofertas aprobadas para una plantilla de autoservicio publicada.'}
-              </div>}
             </div>
-
-            {/* CTA del Bloque Autoservicio */}
-            {activePlan && <div className="pt-6 mt-6 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => handleSelectQuickPlan(activePlan)}
-                className="w-full py-3.5 px-6 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 hover:bg-slate-800 text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <MessageSquare className="w-4 h-4 text-emerald-400" />
-                <span>{activePlan ? `Solicitar información · ${activePlan.name}` : 'Solicitar información'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-              <p className="text-[11px] text-center text-slate-400 mt-2">
-                La solicitud es informativa: no crea una empresa, suscripción ni pago.
-              </p>
-            </div>}
-          </div>
+            <span className="pachax-mode-corner" aria-hidden="true" />
+          </article>
         </div>
-
-        {/* ========================================================================= */}
-        {/* BANNER DE CIERRE: INGENIERÍA Y DESARROLLO A MEDIDA */}
-        {/* ========================================================================= */}
-        {publishedTemplates.some((template) => template.id === 'custom') && <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 sm:p-8 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-1.5 text-center md:text-left max-w-2xl">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
-              <span>{CUSTOM_DEVELOPMENT_CONFIG.title}</span>
-            </div>
-            <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-              {CUSTOM_DEVELOPMENT_CONFIG.subtitle}
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              {CUSTOM_DEVELOPMENT_CONFIG.description}
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto shrink-0">
-            <button
-              type="button"
-              onClick={handleCustomDevWhatsApp}
-              className="w-full sm:w-auto py-3 px-5 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white shadow-md inline-flex items-center justify-center gap-2 transition-all cursor-pointer"
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span>Cotizar a medida</span>
-            </button>
-          </div>
-        </div>}
       </div>
+
+      {openMode && <div className="pachax-pricing-dialog-backdrop" onMouseDown={(event) => {
+        if (event.target === event.currentTarget) setOpenMode(null)
+      }}>
+        <div className="pachax-pricing-dialog" role="dialog" aria-modal="true" aria-labelledby="pachax-pricing-dialog-title" ref={dialogRef}>
+          <div className="pachax-pricing-dialog-heading">
+            <div>
+              <span className="pachax-pricing-dialog-eyebrow">Modalidad de implementación</span>
+              <h3 id="pachax-pricing-dialog-title">{openMode === 'assisted' ? 'Implementación Asistida' : 'Activación Directa'}</h3>
+            </div>
+            <button className="pachax-pricing-dialog-close" type="button" onClick={() => setOpenMode(null)} aria-label="Cerrar detalles"><X /></button>
+          </div>
+
+          {openMode === 'assisted' ? <div className="pachax-pricing-detail">
+            <p className="pachax-pricing-detail-intro">Selecciona una solución publicada para revisar el alcance disponible, sus condiciones comerciales confirmadas y las opciones de acompañamiento.</p>
+            {specializedModels.length > 0 ? <>
+              <div className="pachax-pricing-template-picker" aria-label="Soluciones de implementación">
+                {specializedModels.map((model) => <button
+                  key={model.id}
+                  type="button"
+                  aria-pressed={activeSpecializedId === model.id}
+                  onClick={() => setSelectedSpecializedId(model.id)}
+                >{model.title}</button>)}
+              </div>
+              {activeSpecializedTemplate && <div className="pachax-pricing-commercial-detail" data-specialized-template={activeSpecializedId}>
+                <p className="pachax-pricing-detail-summary">{activeSpecialized.subtitle}</p>
+                <div className="pachax-pricing-steps">
+                  <div><span>01</span><section><h4>{activeSpecialized.diagnostic.title}</h4><p>{activeSpecialized.diagnostic.detail}</p></section></div>
+                  <div><span>02</span><section><h4>{activeSpecialized.implementation.title}</h4><p>{activeSpecialized.implementation.detail}</p></section></div>
+                  <div><span>03</span><section><h4>Mantenimiento y soporte</h4><p>{activeSpecializedPlan?.clientProfile || 'El alcance y la mensualidad se confirman según la oferta publicada para esta solución.'}</p></section></div>
+                </div>
+                {activeSpecializedTemplate.implementationBasePriceUSD != null && publicCatalogStatus === 'ready' && <p className="pachax-pricing-confirmed-cost">Costo de implementación publicado: $ {activeSpecializedTemplate.implementationBasePriceUSD} USD, pago único.</p>}
+                <div className="pachax-pricing-capabilities">
+                  <h4>Capacidades incluidas en la oferta</h4>
+                  {activeSpecializedPlan ? <ul>{activeSpecializedPlans.flatMap((plan) => plan.includedFeatures).filter((feature, index, all) => all.indexOf(feature) === index).map((feature) => <li key={feature}><Check aria-hidden="true" />{feature}</li>)}</ul> : <p>{publicCatalogStatus === 'ready' ? 'No hay una oferta aprobada para mostrar. Las condiciones se revisan durante la consulta.' : 'Las capacidades comerciales se mostrarán cuando se verifique la publicación.'}</p>}
+                </div>
+                {activeSpecializedPlans.length > 0 && <div className="pachax-pricing-offers"><h4>Ofertas publicadas</h4>{activeSpecializedPlans.map((plan) => <div key={plan.id} className="pachax-pricing-offer-row"><span><strong>{plan.name}</strong><small>{plan.clientProfile}</small></span><span>{currencySymbol(plan.currency)}{plan.monthlyPriceUSD} <small>{plan.currency} / mes</small></span></div>)}</div>}
+                {renderStatus() && <p className="pachax-pricing-detail-status" role="status">{renderStatus()}</p>}
+                <div className="pachax-pricing-detail-actions">
+                  <button type="button" className="pachax-pricing-action" onClick={handleSpecializedInquiry}>Consultar implementación <MessageSquare aria-hidden="true" /></button>
+                  {activeSpecializedDemoEnabled && <button type="button" className="pachax-pricing-action pachax-pricing-action-secondary" onClick={() => window.location.assign(activeSpecialized.demoRoute)}><Play aria-hidden="true" /> Ver demostración</button>}
+                </div>
+              </div>}
+            </> : <div className="pachax-pricing-empty" role="status">{publicCatalogStatus === 'loading' ? 'Verificando soluciones publicadas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las soluciones.' : 'No hay soluciones de implementación publicadas en este momento.'}</div>}
+            {publishedTemplates.some((template) => template.id === 'custom') && <div className="pachax-pricing-custom-quote"><span><strong>{CUSTOM_DEVELOPMENT_CONFIG.title}</strong>{CUSTOM_DEVELOPMENT_CONFIG.description}</span><button type="button" className="pachax-pricing-action pachax-pricing-action-secondary" onClick={handleCustomDevWhatsApp}>Cotizar a medida <ArrowRight aria-hidden="true" /></button></div>}
+          </div> : <div className="pachax-pricing-detail">
+            <p className="pachax-pricing-detail-intro">Consulta las soluciones estandarizadas y las ofertas confirmadas para tu negocio. La consulta no crea una cuenta, activa una empresa ni inicia un cobro.</p>
+            {publishedQuickTemplates.length > 0 ? <>
+              <div className="pachax-pricing-template-picker" aria-label="Seleccionar plantilla">
+                {publishedQuickTemplates.map((template) => <button
+                  key={template.id}
+                  type="button"
+                  data-plan-template={template.id}
+                  aria-pressed={activeQuickServiceId === template.id}
+                  onClick={() => {
+                    setSelectedQuickServiceId(template.id as QuickServiceId)
+                    setSelectedTierLevel(2)
+                    setBillingCycle('monthly')
+                  }}
+                >{template.commercialName}</button>)}
+              </div>
+              <div className="pachax-pricing-commercial-detail" data-commercial-state={quickPricingState}>
+                <p className="pachax-pricing-detail-summary">{activeQuickTemplate?.detailDescription || activeQuickEditorial?.description}</p>
+                  {hasAnnualPrice && <div className="pachax-pricing-cycle" data-plan-cycle-control="true" aria-label="Ciclo de facturación">
+                  <button type="button" aria-pressed={billingCycle === 'monthly'} onClick={() => setBillingCycle('monthly')}>Mensual</button>
+                    <button type="button" aria-pressed={billingCycle === 'annual'} disabled={!activePlanHasAnnualPrice} onClick={() => activePlanHasAnnualPrice && setBillingCycle('annual')}>Anual</button>
+                </div>}
+                {activeQuickPlans.length > 0 ? <>
+                  <div className="pachax-pricing-tier-picker" aria-label="Niveles de planes">
+                    {activeQuickPlans.map((plan) => <button key={plan.id} type="button" data-plan-tier={plan.tierLevel} aria-pressed={activePlan?.id === plan.id} onClick={() => {
+                      setSelectedTierLevel(plan.tierLevel || 1)
+                      if (!(Number.isFinite(plan.annualPriceUSD) && plan.annualPriceUSD > 0)) setBillingCycle('monthly')
+                    }}>
+                      <span>Nivel {plan.tierLevel}</span><strong>{plan.name}</strong>
+                    </button>)}
+                  </div>
+                  {activePlan && <div className="pachax-pricing-published-plan">
+                    <div className="pachax-pricing-plan-heading"><span><strong>{activePlan.name}</strong><small>{activePlan.clientProfile}</small></span>{activePlan.limitsLabel && <span className="pachax-pricing-limits">{activePlan.limitsLabel}</span>}</div>
+                    <p className="pachax-pricing-price">{activePlan.planKind === 'free'
+                      ? <strong>Gratis</strong>
+                      : <><strong>{currencySymbol(activePlan.currency)}{calculatedPrice}</strong><span>{activePlan.currency} / {billingCycle === 'annual' && activePlanHasAnnualPrice ? 'año' : 'mes'}</span></>}
+                    </p>
+                    {activePlan.adsRequired && <p className="pachax-pricing-price-note">Este plan incluye publicidad.</p>}
+                    <ul>{activePlan.includedFeatures.map((feature) => <li key={feature}><Check aria-hidden="true" />{feature}</li>)}</ul>
+                    <p className="pachax-pricing-price-note">Precio publicado. La consulta no activa contratación ni cobro.</p>
+                  </div>}
+                </> : activeQuickTemplate && activeQuickEditorial ? <div className="pachax-pricing-editorial" data-quick-editorial-card={activeQuickServiceId}>
+                  <h4>{quickPricingState === 'editorial' ? 'Planes en preparación' : quickPricingState === 'loading' ? 'Verificando ofertas' : quickPricingState === 'unverified' ? 'Ofertas por verificar' : 'No hay ofertas aprobadas'}</h4>
+                  <p>{quickPricingState === 'editorial' ? 'Aún no hay planes publicados para esta solución. Consulta disponibilidad con el equipo PACHAX.' : quickPricingState === 'loading' ? 'Esperamos la respuesta del catálogo antes de mostrar precios.' : 'No mostramos precios porque no existe una oferta confirmada en el catálogo.'}</p>
+                  {isPublicEditorialFallback && <small>Contenido editorial de referencia; no representa una oferta de contratación.</small>}
+                </div> : <div className="pachax-pricing-empty" role="status">{publicCatalogStatus === 'loading' ? 'Verificando ofertas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las ofertas.' : 'No hay una solución publicada para consultar.'}</div>}
+                {activeQuickEditorial && <div className="pachax-pricing-capabilities"><h4>Capacidades de {activeQuickLabel}</h4><ul>{activeQuickEditorial.capabilities.map((capability) => <li key={capability}><Check aria-hidden="true" />{capability}</li>)}</ul></div>}
+                {renderStatus() && <p className="pachax-pricing-detail-status" role="status">{renderStatus()}</p>}
+                <div className="pachax-pricing-detail-actions">
+                  {activeQuickDemoPath && <button type="button" data-quick-demo={activeQuickServiceId} className="pachax-pricing-action pachax-pricing-action-secondary" onClick={() => navigate(activeQuickDemoPath)}><Play aria-hidden="true" /> Probar demo <ExternalLink aria-hidden="true" /></button>}
+                  <button type="button" data-quick-plans-inquiry={activeQuickServiceId} className="pachax-pricing-action" onClick={() => handleQuickInquiry(activePlan)}>Consultar planes <MessageSquare aria-hidden="true" /></button>
+                </div>
+              </div>
+            </> : <div className="pachax-pricing-empty" role="status">{publicCatalogStatus === 'loading' ? 'Verificando soluciones publicadas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las soluciones.' : 'No hay soluciones de activación directa publicadas en este momento.'}</div>}
+          </div>}
+        </div>
+      </div>}
     </section>
   )
 }

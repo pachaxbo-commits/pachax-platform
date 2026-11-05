@@ -116,12 +116,8 @@ try {
       return {cards:cards.map(card=>card.dataset.templateId),a:a.length,b:b.length,overflow:root.scrollWidth-innerWidth,
         fallback:document.querySelector('#plantillas [data-catalog-state="error"]')?.textContent||'',
         plans:document.querySelector('#planes')?.innerText||'',
-        quickCard:document.querySelector('[data-quick-editorial-card="hamburger"]')?.innerText||'',
-        quickCardHeight:document.querySelector('[data-quick-editorial-card="hamburger"]')?.scrollHeight||0,
-        cycleControl:!!document.querySelector('[data-plan-cycle-control]'),
-        tierControls:document.querySelectorAll('[data-plan-tier]').length,
-        quickDemo:!!document.querySelector('[data-quick-demo="hamburger"]'),
-        quickInquiry:!!document.querySelector('[data-quick-plans-inquiry="hamburger"]'),
+        modeCards:[...document.querySelectorAll('#planes [data-pricing-mode]')].map(card=>card.dataset.pricingMode),
+        heading:document.querySelector('#planes h2')?.innerText||'',
         images:cards.map(card=>({id:card.dataset.templateId,loaded:!!card.querySelector('img')?.complete&&card.querySelector('img').naturalWidth>0})),
         actions:cards.map(card=>({id:card.dataset.templateId,buttons:[...card.querySelectorAll('button')].map(button=>({text:button.textContent.trim(),disabled:button.disabled}))})),
         planButtons:[...document.querySelectorAll('#planes [data-plan-template]')].map(button=>button.dataset.planTemplate),
@@ -148,28 +144,35 @@ try {
     assert.equal(customActions.length, 1)
     assert.match(customActions[0].text, /Cotizar a medida/)
     assert.equal(view.actions.find(item => item.id === 'custom')?.buttons.length, 1, 'Custom development is represented by one service quote action')
-    assert(view.planButtons.includes('hamburger') && view.planButtons.includes('retail'), 'Both self-service plan selectors should remain visible')
-    assert(view.quickCard.includes('Restaurante Rápido') && view.quickCard.includes('Pedidos de mostrador y para llevar'), 'Hamburger editorial offer card should describe canonical capabilities')
-    assert(view.quickCard.includes('Ofertas por verificar'), 'An unavailable gateway must not claim that no offers exist')
-    assert(view.quickCardHeight > 200 && view.quickCardHeight < 720, `Editorial offer card should be complete without a large empty area: ${view.quickCardHeight}px`)
-    assert.equal(view.cycleControl, false, 'Monthly/annual controls must be hidden without approved plans')
-    assert.equal(view.tierControls, 0, 'Tier controls must be hidden without approved plans')
-    assert(view.quickDemo && view.quickInquiry, 'The no-offer card must retain demo and inquiry actions')
+    assert.deepEqual(view.modeCards, ['assisted', 'direct'], 'The pricing overview contains exactly two commercial modalities')
+    assert.match(view.heading, /Planes adaptados a la escala real de tu empresa/)
+    assert(!view.plans.includes('$29') && !view.plans.includes('$59') && !view.plans.includes('$99'), 'No reference prices appear in the summary')
+    assert(!view.plans.includes('Restaurante Rápido') && !view.plans.includes('Comercio'), 'Quick-service selectors remain hidden until details are requested')
+    await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
+    const directDetails = await waitFor(() => evaluate(`(() => { const dialog=document.querySelector('[role="dialog"]'); return {text:dialog?.innerText||'',cycle:!!dialog?.querySelector('[data-plan-cycle-control]'),tiers:dialog?.querySelectorAll('[data-plan-tier]').length||0,demo:!!dialog?.querySelector('[data-quick-demo="hamburger"]'),inquiry:!!dialog?.querySelector('[data-quick-plans-inquiry="hamburger"]')}; })()`), result => result.text.includes('Activación Directa'), `${width}x${height} direct activation details`)
+    assert(directDetails.text.includes('Restaurante Rápido') && directDetails.text.includes('Pedidos de mostrador y para llevar'), 'Hamburger details describe canonical capabilities')
+    assert(directDetails.text.includes('Ofertas por verificar'), 'An unavailable gateway must not claim there are no offers')
+    assert.equal(directDetails.cycle, false, 'Monthly/annual controls must be hidden without approved plans')
+    assert.equal(directDetails.tiers, 0, 'Tier controls must be hidden without approved plans')
+    assert(directDetails.demo && directDetails.inquiry, 'The no-offer details retain demo and inquiry actions')
     const hamburgerInquiryUrl = await evaluate(`(() => { window.__quickInquiryUrl=null; window.open=url=>{window.__quickInquiryUrl=String(url)}; document.querySelector('[data-quick-plans-inquiry="hamburger"]')?.click(); return window.__quickInquiryUrl })()`)
     assert.match(decodeURIComponent(hamburgerInquiryUrl||''), /wa\.me\/59177987776/)
     assert.match(decodeURIComponent(hamburgerInquiryUrl||''), /Restaurante Rápido/)
-    assert(/ofertas por verificar|no hay precios ni planes confirmados/i.test(view.plans), 'A gateway error must not be shown as a confirmed empty offer list')
+    await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+    assert(/no se pudo verificar el catálogo|no hay precios ni planes confirmados/i.test(view.plans), 'A gateway error must not be shown as a confirmed empty offer list')
     assert(!/\$(19|24|25|29|35|39|49|59|69|89|99)(\.00)?/.test(view.plans), 'Static reference prices must not be shown as official offers')
     assert(view.noZero, 'A failed or pending request must not claim zero published templates')
 
+    await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
     await evaluate(`document.querySelector('[data-plan-template="retail"]')?.click()`)
     const retailSelected = await evaluate(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`)
     assert.equal(retailSelected, 'true', 'Retail plan selector remains interactive')
-    const retailCard = await waitFor(() => evaluate(`document.querySelector('[data-quick-editorial-card="retail"]')?.innerText||''`), text => text.includes('Comercio / Venta rápida'), `${width}x${height} Retail editorial card`)
+    const retailCard = await waitFor(() => evaluate(`document.querySelector('.pachax-pricing-commercial-detail')?.innerText||''`), text => text.includes('Venta por peso'), `${width}x${height} Retail editorial card`)
     assert(retailCard.includes('Venta por peso') && retailCard.includes('Venta por unidad'), 'Retail card should expose only its documented weight/unit capabilities')
     const inquiryUrl = await evaluate(`(() => { window.__quickInquiryUrl=null; window.open=url=>{window.__quickInquiryUrl=String(url)}; document.querySelector('[data-quick-plans-inquiry="retail"]')?.click(); return window.__quickInquiryUrl })()`)
     assert.match(decodeURIComponent(inquiryUrl||''), /wa\.me\/59177987776/)
     assert.match(decodeURIComponent(inquiryUrl||''), /Comercio \/ Venta rápida/)
+    await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
     console.log(`PASS ${width}x${height}: six editorial cards, 3+2 carousels, images, plan selection, no price and no overflow`)
   }
 

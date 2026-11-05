@@ -429,3 +429,145 @@
   .pachax-featured-card h3 { font-size: 18px; }
   .pachax-featured-card p { font-size: 11px; }
 }
+
+/* Phase 3: two clear commercial routes, with published details kept in one dialog. */
+.pachax-public-landing .pachax-pricing-section {
+  position: relative;
+  padding: clamp(68px, 7.2vw, 108px) 0 clamp(78px, 8vw, 118px);
+  scroll-margin-top: 82px;
+  border: 0 !important;
+  background: transparent !important;
+}
+.pachax-pricing-inner { width: min(100% - 64px, 1500px); margin: 0 auto; }
+.pachax-pricing-header { max-width: 1040px; margin: 0 auto clamp(32px, 4vw, 56px); text-align: center; }
+.pachax-pricing-accent { display: block; width: 44px; height: 3px; margin: 0 auto 20px; background: var(--pachax-cyan); }
+.pachax-pricing-header h2 { max-width: 1050px; margin: 0 auto; color: var(--pachax-white) !important; font-size: clamp(36px, 4.15vw, 68px); font-weight: 820; letter-spacing: -.06em; line-height: 1.04; text-wrap: balance; }
+.pachax-pricing-header h2 span { color: #078de8 !important; }
+.pachax-pricing-header p { max-width: 800px; margin: 18px auto 0; color: #bdcadd !important; font-size: clamp(16px, 1.25vw, 21px); line-height: 1.5; text-wrap: balance; }
+.pachax-pricing-catalog-note { width: fit-content; max-width: 100%; margin: -22px auto 25px; padding: 7px 0; color: #aac3dc; font-size: 12px; line-height: 1.45; text-align: center; }
+.pachax-pricing-modes { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: clamp(20px, 2vw, 32px); align-items: stretch; }
+.pachax-mode-card { position: relative; min-width: 0; min-height: clamp(340px, 27vw, 420px); overflow: hidden; isolation: isolate; border: 1px solid rgba(75,151,194,.46); border-radius: 24px; color: #f2f5fa; background: linear-gradient(110deg,#041422 0%,#061a2b 61%,#0a2136 100%); box-shadow: 0 16px 38px rgba(0,0,0,.22); }
+.pachax-mode-photo { position: absolute; z-index: -2; top: 0; right: 0; width: 67%; height: 100%; object-fit: cover; object-position: center; clip-path: polygon(37% 0,100% 0,100% 100%,0 100%); }
+.pachax-mode-card-direct .pachax-mode-photo { object-position: 58% center; }
+.pachax-mode-photo-shade { position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg,#041422 0%,rgba(4,20,34,.98) 30%,rgba(4,20,34,.83) 46%,rgba(4,20,34,.17) 77%,rgba(4,20,34,.02) 100%),linear-gradient(0deg,rgba(1,9,17,.24),transparent 45%); }
+.pachax-mode-copy { display: flex; width: 64%; min-height: inherit; flex-direction: column; align-items: flex-start; padding: clamp(24px, 2.5vw, 38px) clamp(23px, 2.45vw, 38px) 30px; }
+.pachax-mode-icon { width: 34px; height: 34px; margin-bottom: 15px; color: #f3f7fc; stroke-width: 1.7; }
+.pachax-mode-copy h3 { max-width: 100%; margin: 0; color: #f4f7fc; font-size: clamp(23px, 2.15vw, 34px); font-weight: 810; letter-spacing: -.05em; line-height: 1.05; text-wrap: balance; }
+.pachax-mode-copy > p { max-width: 410px; margin: 12px 0 18px; color: #d0dceb; font-size: clamp(13px, 1.03vw, 16px); line-height: 1.44; }
+.pachax-mode-copy ul { display: grid; gap: 9px; margin: 0 0 20px; padding: 0; list-style: none; }
+.pachax-mode-copy li { display: flex; align-items: flex-start; gap: 10px; color: #e0e8f2; font-size: clamp(12px, .92vw, 14px); line-height: 1.38; }
+.pachax-mode-copy li svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--pachax-cyan); stroke-width: 2.5; }
+.pachax-pricing-action { display: inline-flex; min-height: 43px; align-items: center; justify-content: center; gap: 11px; margin-top: auto; padding: 0 17px; border: 1px solid rgba(213,232,247,.74); border-radius: 9px; color: #f4f7fc; background: rgba(3,15,27,.46); font: inherit; font-size: 13px; font-weight: 730; cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease; }
+.pachax-pricing-action:hover { transform: translateY(-1px); border-color: var(--pachax-cyan); background: rgba(0,125,204,.14); }
+.pachax-pricing-action svg { width: 17px; height: 17px; color: var(--pachax-cyan); }
+.pachax-mode-corner { position: absolute; right: 0; bottom: 0; width: 46px; height: 42px; background: linear-gradient(135deg,#00c2ff,#0874ff); clip-path: polygon(100% 0,100% 100%,0 100%); }
+.pachax-pricing-dialog-backdrop { position: fixed; z-index: 130; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(1,6,13,.8); backdrop-filter: blur(9px); }
+.pachax-dialog-open { overflow: hidden; }
+.pachax-pricing-dialog { width: min(100%, 900px); max-height: min(90vh, 940px); overflow: auto; border: 1px solid rgba(0,194,255,.34); border-radius: 20px; color: #edf3fb; background: linear-gradient(145deg,#0b1b2d,#07111e 72%); box-shadow: 0 26px 90px rgba(0,0,0,.58); }
+.pachax-pricing-dialog-heading { position: sticky; z-index: 2; top: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 23px clamp(20px, 3vw, 34px) 18px; border-bottom: 1px solid rgba(148,177,208,.16); background: rgba(8,20,34,.96); backdrop-filter: blur(14px); }
+.pachax-pricing-dialog-eyebrow { color: #7ecde9; font-size: 10px; font-weight: 780; letter-spacing: .14em; text-transform: uppercase; }
+.pachax-pricing-dialog-heading h3 { margin: 5px 0 0; color: #f2f5fa; font-size: clamp(24px, 3vw, 34px); font-weight: 810; letter-spacing: -.045em; line-height: 1.1; }
+.pachax-pricing-dialog-close { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border: 1px solid rgba(190,211,233,.3); border-radius: 50%; color: #f1f6fc; background: rgba(255,255,255,.03); cursor: pointer; }
+.pachax-pricing-dialog-close:hover { border-color: var(--pachax-cyan); color: var(--pachax-cyan); }
+.pachax-pricing-dialog-close svg { width: 18px; height: 18px; }
+.pachax-pricing-detail { padding: 20px clamp(20px, 3vw, 34px) 30px; }
+.pachax-pricing-detail-intro { max-width: 760px; margin: 0 0 18px; color: #b9cadd; font-size: 14px; line-height: 1.55; }
+.pachax-pricing-template-picker { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 17px; border-bottom: 1px solid rgba(148,177,208,.16); }
+.pachax-pricing-template-picker button, .pachax-pricing-cycle button { min-height: 39px; padding: 0 14px; border: 1px solid rgba(160,186,215,.3); border-radius: 8px; color: #d4dfeb; background: rgba(255,255,255,.025); font: inherit; font-size: 12px; font-weight: 680; cursor: pointer; }
+.pachax-pricing-template-picker button[aria-pressed="true"], .pachax-pricing-cycle button[aria-pressed="true"] { border-color: rgba(0,194,255,.7); color: #f3f8fc; background: rgba(0,119,190,.15); }
+.pachax-pricing-commercial-detail { padding-top: 19px; }
+.pachax-pricing-detail-summary { margin: 0 0 17px; color: #d2deeb; font-size: 14px; line-height: 1.48; }
+.pachax-pricing-steps { display: grid; gap: 0; border-top: 1px solid rgba(148,177,208,.15); }
+.pachax-pricing-steps > div { display: flex; gap: 15px; padding: 17px 0; border-bottom: 1px solid rgba(148,177,208,.15); }
+.pachax-pricing-steps > div > span { color: var(--pachax-cyan); font-size: 12px; font-weight: 780; letter-spacing: .08em; }
+.pachax-pricing-steps h4, .pachax-pricing-capabilities h4, .pachax-pricing-offers h4 { margin: 0 0 6px; color: #edf3fb; font-size: 14px; font-weight: 760; }
+.pachax-pricing-steps p, .pachax-pricing-capabilities > p { margin: 0; color: #aebed0; font-size: 12px; line-height: 1.52; }
+.pachax-pricing-confirmed-cost { margin: 15px 0 0; color: #b8d8e8; font-size: 12px; }
+.pachax-pricing-capabilities, .pachax-pricing-offers { margin-top: 20px; }
+.pachax-pricing-capabilities ul { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px 18px; margin: 11px 0 0; padding: 0; list-style: none; }
+.pachax-pricing-capabilities li, .pachax-pricing-published-plan li { display: flex; align-items: flex-start; gap: 8px; color: #c1cfde; font-size: 12px; line-height: 1.42; }
+.pachax-pricing-capabilities li svg, .pachax-pricing-published-plan li svg { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--pachax-cyan); }
+.pachax-pricing-offers > h4 { margin-bottom: 9px; }
+.pachax-pricing-offer-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 11px 0; border-top: 1px solid rgba(148,177,208,.14); color: #e7eff8; font-size: 13px; }
+.pachax-pricing-offer-row > span { display: grid; gap: 3px; }
+.pachax-pricing-offer-row > span:last-child { flex: none; text-align: right; }
+.pachax-pricing-offer-row small { color: #a9bacd; font-size: 11px; line-height: 1.4; }
+.pachax-pricing-detail-status { margin: 17px 0 0; color: #aac2d9; font-size: 12px; line-height: 1.45; }
+.pachax-pricing-detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; padding-top: 17px; border-top: 1px solid rgba(148,177,208,.16); }
+.pachax-pricing-action-secondary { border-color: rgba(165,190,218,.38); background: rgba(255,255,255,.025); }
+.pachax-pricing-custom-quote { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(148,177,208,.16); }
+.pachax-pricing-custom-quote > span { display: grid; gap: 5px; color: #aebed0; font-size: 12px; line-height: 1.5; }
+.pachax-pricing-custom-quote strong { color: #ecf3fa; font-size: 13px; }
+.pachax-pricing-cycle { display: flex; gap: 7px; margin: 0 0 14px; }
+.pachax-pricing-cycle button { min-height: 34px; padding-inline: 12px; }
+.pachax-pricing-tier-picker { display: flex; gap: 8px; overflow-x: auto; padding: 0 0 14px; }
+.pachax-pricing-tier-picker button { display: grid; min-width: 126px; gap: 4px; padding: 10px 12px; border: 1px solid rgba(160,186,215,.25); border-radius: 8px; color: #dbe5ef; text-align: left; background: rgba(255,255,255,.025); cursor: pointer; }
+.pachax-pricing-tier-picker button[aria-pressed="true"] { border-color: rgba(0,194,255,.7); background: rgba(0,119,190,.12); }
+.pachax-pricing-tier-picker button span { color: #9caec2; font-size: 10px; }
+.pachax-pricing-tier-picker button strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pachax-pricing-published-plan { padding: 16px 0 0; border-top: 1px solid rgba(148,177,208,.15); }
+.pachax-pricing-plan-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+.pachax-pricing-plan-heading > span:first-child { display: grid; gap: 4px; }
+.pachax-pricing-plan-heading strong { color: #f0f5fb; font-size: 16px; }
+.pachax-pricing-plan-heading small { color: #afc0d3; font-size: 11px; line-height: 1.45; }
+.pachax-pricing-limits { max-width: 190px; color: #c4d4e4; font-size: 11px; text-align: right; }
+.pachax-pricing-price { display: flex; align-items: baseline; gap: 8px; margin: 16px 0; }
+.pachax-pricing-price strong { color: #f3f7fc; font-size: 32px; letter-spacing: -.04em; }
+.pachax-pricing-price span { color: #aebed0; font-size: 12px; }
+.pachax-pricing-published-plan ul { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 16px; margin: 0; padding: 0; list-style: none; }
+.pachax-pricing-price-note { margin: 14px 0 0; color: #9eb2c8; font-size: 11px; }
+.pachax-pricing-editorial, .pachax-pricing-empty { padding: 17px 0 2px; }
+.pachax-pricing-editorial h4 { margin: 0 0 6px; color: #ecf3fa; font-size: 16px; }
+.pachax-pricing-editorial p, .pachax-pricing-editorial small, .pachax-pricing-empty { color: #aebed0; font-size: 12px; line-height: 1.5; }
+.pachax-pricing-editorial p { margin: 0; }
+.pachax-pricing-editorial small { display: block; margin-top: 8px; }
+
+@media (max-width: 900px) {
+  .pachax-pricing-inner { width: min(100% - 48px, 720px); }
+  .pachax-pricing-modes { grid-template-columns: 1fr; gap: 17px; }
+  .pachax-mode-card { min-height: 340px; border-radius: 20px; }
+  .pachax-mode-copy { width: 70%; padding: 22px 18px 24px; }
+  .pachax-mode-photo { width: 70%; clip-path: polygon(42% 0,100% 0,100% 100%,0 100%); }
+  .pachax-mode-photo-shade { background: linear-gradient(90deg,#041422 0%,rgba(4,20,34,.98) 35%,rgba(4,20,34,.78) 53%,rgba(4,20,34,.13) 82%,transparent 100%); }
+  .pachax-mode-copy h3 { font-size: clamp(22px, 2.8vw, 28px); }
+}
+@media (max-width: 680px) {
+  .pachax-public-landing .pachax-pricing-section { padding: 58px 0 72px; }
+  .pachax-pricing-inner { width: calc(100% - 38px); }
+  .pachax-pricing-header { margin: 0 0 27px; text-align: left; }
+  .pachax-pricing-accent { width: 36px; height: 2px; margin: 0 0 17px; }
+  .pachax-pricing-header h2 { max-width: 610px; margin: 0; font-size: clamp(34px, 8.5vw, 48px); line-height: 1.05; letter-spacing: -.055em; text-wrap: pretty; }
+  .pachax-pricing-header p { margin: 15px 0 0; font-size: 16px; line-height: 1.48; }
+  .pachax-pricing-catalog-note { margin: -8px 0 20px; text-align: left; }
+  .pachax-pricing-modes { grid-template-columns: 1fr; gap: 15px; }
+  .pachax-mode-card { min-height: clamp(225px, 59vw, 264px); border-radius: 18px; }
+  .pachax-mode-photo { width: 67%; clip-path: polygon(38% 0,100% 0,100% 100%,0 100%); }
+  .pachax-mode-photo-shade { background: linear-gradient(90deg,#041422 0%,rgba(4,20,34,.98) 30%,rgba(4,20,34,.82) 47%,rgba(4,20,34,.08) 80%,transparent 100%),linear-gradient(0deg,rgba(1,9,17,.24),transparent 52%); }
+  .pachax-mode-copy { width: 68%; padding: 18px 13px 18px 19px; }
+  .pachax-mode-icon { width: 27px; height: 27px; margin-bottom: 8px; }
+  .pachax-mode-copy h3 { max-width: 270px; font-size: clamp(20px, 5.3vw, 25px); }
+  .pachax-mode-copy > p { display: -webkit-box; margin: 7px 0 10px; overflow: hidden; font-size: clamp(11px, 3.1vw, 13px); line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  .pachax-mode-copy ul { display: none; }
+  .pachax-pricing-action { min-height: 37px; gap: 8px; padding-inline: 12px; font-size: 11px; }
+  .pachax-pricing-action svg { width: 15px; height: 15px; }
+  .pachax-mode-corner { width: 34px; height: 31px; }
+  .pachax-pricing-dialog-backdrop { align-items: end; padding: 9px; }
+  .pachax-pricing-dialog { max-height: 92vh; border-radius: 17px 17px 12px 12px; }
+  .pachax-pricing-dialog-heading { padding: 17px 17px 14px; }
+  .pachax-pricing-dialog-heading h3 { font-size: 24px; }
+  .pachax-pricing-dialog-close { width: 36px; height: 36px; }
+  .pachax-pricing-detail { padding: 16px 17px 22px; }
+  .pachax-pricing-detail-intro { font-size: 13px; }
+  .pachax-pricing-template-picker { gap: 7px; }
+  .pachax-pricing-template-picker button { flex: 1 1 auto; padding-inline: 11px; font-size: 11px; }
+  .pachax-pricing-capabilities ul, .pachax-pricing-published-plan ul { grid-template-columns: 1fr; }
+  .pachax-pricing-custom-quote { align-items: flex-start; flex-direction: column; }
+  .pachax-pricing-detail-actions .pachax-pricing-action { flex: 1 1 auto; }
+}
+@media (max-width: 380px) {
+  .pachax-pricing-inner { width: calc(100% - 30px); }
+  .pachax-mode-card { min-height: 218px; }
+  .pachax-mode-copy { width: 72%; padding-left: 15px; }
+  .pachax-mode-photo { width: 65%; }
+  .pachax-mode-copy > p { -webkit-line-clamp: 3; }
+}

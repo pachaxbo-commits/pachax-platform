@@ -57,6 +57,7 @@ export function PublicLanding() {
         <TemplatePricingSection
           key={requestedPricingTemplate?.request ?? 0}
           initialQuickServiceId={requestedPricingTemplate?.templateId ?? 'hamburger'}
+          openInitialDetails={Boolean(requestedPricingTemplate)}
         />
 
         {/* SECCIÓN 4: Configura tu empresa en 5 minutos (Progresión editorial de 5 pasos) */}

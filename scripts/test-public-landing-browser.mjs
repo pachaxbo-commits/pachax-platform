@@ -99,6 +99,11 @@ try {
       catalogColumns,
       catalogIds: catalogCards.map(card => card.dataset.templateId),
       hasSparklesInBanner: !!document.querySelector('#planes .rounded-3xl.bg-slate-900 svg.lucide-sparkles'),
+      pricingModeCards: [...document.querySelectorAll('#planes [data-pricing-mode]')].map(card => card.dataset.pricingMode),
+      pricingImagesLoaded: [...document.querySelectorAll('#planes [data-pricing-mode] img')].every(img => img.complete && img.naturalWidth > 0),
+      pricingHeading: document.querySelector('#planes h2')?.innerText || '',
+      pricingCardHeights: [...document.querySelectorAll('#planes [data-pricing-mode]')].map(card => Math.round(card.getBoundingClientRect().height)),
+      pricingCardCopy: [...document.querySelectorAll('#planes [data-pricing-mode] p')].map(paragraph => paragraph.innerText),
     };
   })()`)
 
@@ -148,6 +153,11 @@ try {
     assert.equal(loaded.overflow, false, 'No debe existir desbordamiento horizontal')
     assert.equal(loaded.footerTrailingSpace, 0, 'No debe existir espacio muerto debajo del footer')
     assert.equal(loaded.hasSparklesInBanner, false, 'No deben existir iconos Sparkles en el banner a medida')
+    assert.deepEqual(loaded.pricingModeCards, ['assisted', 'direct'], 'Planes muestra las dos modalidades aprobadas')
+    assert.equal(loaded.pricingImagesLoaded, true, 'Las dos fotografías comerciales están cargadas')
+    assert.match(loaded.pricingHeading, /Planes adaptados a la escala real de tu empresa/)
+    assert(loaded.pricingCardHeights.every(height => height > 200), 'Las dos tarjetas deben conservar una altura legible')
+    assert(loaded.pricingCardCopy.every(text => !text.includes('…')), 'Las descripciones de las modalidades no se recortan')
     assert.deepEqual(catalogState.catalogIds, ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom'])
     assert.equal(catalogState.catalogColumns, width <= 680 ? 1 : width <= 1100 ? 2 : 3, 'El catálogo debe adaptarse como grilla, sin carrusel móvil')
 
@@ -157,6 +167,18 @@ try {
       await sleep(250)
       await screenshot(`${width}-section-transition`)
       await screenshotElement('#plantillas', `${width}-section2-full`)
+      await evaluate(`(() => { const section=document.querySelector('#planes'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.45),behavior:'instant'}); })()`)
+      await sleep(200)
+      await screenshot(`${width}-section2-3-transition`)
+      await screenshotElement('#planes', `${width}-section3-full`)
+      await evaluate(`document.querySelector('#planes [data-pricing-mode="assisted"] button')?.click()`)
+      await waitForValue(`document.querySelector('[role="dialog"] h3')?.textContent.trim()`, value => value === 'Implementación Asistida', 'abre detalle implementación')
+      await screenshot(`${width}-implementation-details`)
+      await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+      await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
+      await waitForValue(`document.querySelector('[role="dialog"] h3')?.textContent.trim()`, value => value === 'Activación Directa', 'abre detalle activación')
+      await screenshot(`${width}-direct-details-no-published-plans`)
+      await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
       await evaluate(`window.scrollTo({top:0,behavior:'instant'})`)
     }
 
@@ -175,6 +197,7 @@ try {
         return result;
       })()`)
       assert.equal(detailActions[id].title, title)
+      if (id !== 'retail') await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
     }
     for (const [id, expectedName] of [['restaurant', 'Restaurante con salón'], ['distribution', 'Producción y Distribución'], ['nightclub', 'Nightclub & Lounge']]) {
       assert.equal(detailActions[id].title, expectedName, `${id} abre detalles completos`)
@@ -188,8 +211,13 @@ try {
     assert.match(detailActions.custom.primary, /Cotizar a medida/)
     assert.match(detailActions.custom.url || '', /wa\.me\/59177987776/)
     assert.equal(await evaluate(`document.querySelectorAll('a[href^="/register"]').length`), 0, 'Ver planes nunca debe abrir /register')
-    const catalogRetailSelection = await waitForValue(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'Comercio selecciona sus planes')
-    assert.equal(catalogRetailSelection, 'true')
+    const catalogRetailSelection = await waitForValue(`document.querySelector('#planes')?.dataset.selectedQuickService`, value => value === 'retail', 'Comercio conserva la selección al navegar desde el catálogo')
+    assert.equal(catalogRetailSelection, 'retail')
+    if (!await evaluate(`Boolean(document.querySelector('[data-plan-template="retail"]'))`)) {
+      await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
+    }
+    assert.equal(await evaluate(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`), 'true', 'El modal de planes abre Comercio como plantilla seleccionada')
+    await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
     await evaluate(`(() => { const trigger=document.querySelector('#plantillas [data-template-id="restaurant"] .pachax-card-detail-button'); trigger?.focus(); trigger?.click(); })()`)
     await waitForValue(`document.querySelector('[role="dialog"] h2')?.textContent.trim()`, value => value === 'Restaurante con salón', 'detalle accesible Restaurante')
     await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', modifiers: 8 })
@@ -206,9 +234,22 @@ try {
     await evaluate(`document.querySelector('.pachax-carousel-next')?.click()`)
     const nextTemplate = await waitForValue(`document.querySelector('.pachax-carousel-dots button[aria-current="true"]')?.getAttribute('aria-label')`, value => value === 'Ir a Producción y Distribución', 'La flecha avanza el carrusel')
     assert.equal(nextTemplate, 'Ir a Producción y Distribución')
-    const noOfferState = await evaluate(`document.querySelector('#planes')?.innerText || ''`)
-    assert(/No hay ofertas aprobadas|No se pudieron verificar/.test(noOfferState), 'El estado debe distinguir una oferta vacía confirmada de un error de conexión')
+    await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
+    const noOfferState = await evaluate(`document.querySelector('[role="dialog"]')?.innerText || ''`)
+    assert(/Planes en preparación|Ofertas por verificar|No hay ofertas aprobadas|No se pudieron verificar/.test(noOfferState), 'El detalle distingue el estado real de la oferta')
     assert.equal(/\$(29|59|99)(\.00)?/.test(noOfferState), false, 'No deben aparecer precios de referencia')
+    assert.equal(await evaluate(`document.querySelectorAll('[data-plan-template]').length`), 2, 'El selector de planes existe solo dentro del detalle')
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', modifiers: 8 })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', modifiers: 8 })
+    assert.equal(await evaluate(`document.activeElement?.getAttribute('data-quick-plans-inquiry')`), 'retail', 'El foco recorre el diálogo de modalidad con Shift+Tab')
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
+    await waitForValue(`Boolean(document.querySelector('.pachax-pricing-dialog'))`, value => value === false, 'Escape cierra el detalle comercial')
+    assert.equal(await evaluate(`document.activeElement?.closest('[data-pricing-mode="direct"]') !== null`), true, 'Al cerrar los detalles, el foco vuelve a la modalidad elegida')
+    await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
+    await evaluate(`document.querySelector('[data-plan-template="retail"]')?.click()`)
+    const selectedRetail = await waitForValue(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`, value => value === 'true', 'Comercio selecciona sus planes')
+    assert.equal(selectedRetail, 'true')
     await evaluate(`(() => {
       window.__plansInquiryUrl = null;
       window.open = (url) => { window.__plansInquiryUrl = String(url); };
@@ -216,6 +257,7 @@ try {
     })()`)
     const plansInquiryUrl = await evaluate(`window.__plansInquiryUrl`)
     assert.match(plansInquiryUrl || '', /wa\.me\/59177987776/, 'El estado sin oferta permite consulta por WhatsApp')
+    await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
 
     if (width === 390) {
       await evaluate(`document.querySelector('.pachax-menu-toggle')?.click()`)
