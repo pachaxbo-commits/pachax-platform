@@ -2,8 +2,8 @@
   "format": 1,
   "buildCommand": "npm run build:demos-only",
   "outputDirectory": "dist-demo-isolated",
-  "totalFiles": 96,
-  "totalBytes": 23457613,
+  "totalFiles": 100,
+  "totalBytes": 24489894,
   "files": [
     {
       "path": "aviso-privacidad-solicitud-comercial.html",
@@ -19,6 +19,16 @@
       "path": "brand/pachax-app-icon.png",
       "bytes": 8623,
       "sha256": "f35262859c241a136a1f4da1d7118210dc2c5ed3cfba8219da48d1000a7ad47e"
+    },
+    {
+      "path": "brand/pachax-isotipo-color.png",
+      "bytes": 512361,
+      "sha256": "c96fffbd30f2651f5cdd1a44731699dc0429438876935f4f71c11d39bb55639e"
+    },
+    {
+      "path": "brand/pachax-logo-white.png",
+      "bytes": 374782,
+      "sha256": "d60dc911b847427b7b80949b2d9a7e4997a3bd7aa3e9f51bef34f25fc7864868"
     },
     {
       "path": "brand/pachax-logo.png",
@@ -59,6 +69,11 @@
       "path": "brand/showcase/distribution-showcase.svg",
       "bytes": 5987,
       "sha256": "17a812aebac4ab856efeb0c6353357523e260563cab874d5335b9e940c4eed49"
+    },
+    {
+      "path": "brand/showcase/hamburger-counter.webp",
+      "bytes": 96056,
+      "sha256": "3f4332e9957bc604b2919ca0ac485ea484ba8ccae8c40c85a15e024d985a3059"
     },
     {
       "path": "brand/showcase/nightclub-concept.jpg",
@@ -104,6 +119,11 @@
       "path": "brand/showcase/retail-showcase.svg",
       "bytes": 6336,
       "sha256": "65f48db451b057663ae2b1620dc6a2c74995996dd99626536c8380ba29f76931"
+    },
+    {
+      "path": "brand/showcase/support-specialist.webp",
+      "bytes": 55874,
+      "sha256": "05bebc9578c5fd0aed080a62349400b05a67f8edc9de1a0e90fc8b24c070e742"
     },
     {
       "path": "brand/verification/admin-clients.png",
@@ -271,19 +291,19 @@
       "sha256": "e17cabe5e25f3c66777c529f01df0ae562f11671a8506eb583d8799eaceeb149"
     },
     {
-      "path": "demo-assets/datasets-D0GZ0tYu.js",
+      "path": "demo-assets/datasets-BXa1HW4G.js",
       "bytes": 21718,
-      "sha256": "90d89cbf640c6baedc511f0b43ec49695eb084315162c9ef8707716124c118c8"
+      "sha256": "6fa69f06600def0e17983b64b075036f5dc7af13a3af72e1edfbbf3d179df686"
     },
     {
-      "path": "demo-assets/demo-Bm-9ooeV.css",
-      "bytes": 143054,
-      "sha256": "7b24d0edd932c2e40677f8065fff7f3a32ce9dfa0a246b5bcdef7b6efb52046e"
+      "path": "demo-assets/demo-7zwkGgCP.css",
+      "bytes": 136262,
+      "sha256": "00243a195996abf3dcc0971bb9005f76f678be7ca077ac2a5fa354c69c2f62bc"
     },
     {
-      "path": "demo-assets/demo-CFZmTqia.js",
+      "path": "demo-assets/demo-B13kLFGL.js",
       "bytes": 208063,
-      "sha256": "7190c538675b224475591f59bfcdd32e223358f569adcdb56b708f1103598868"
+      "sha256": "9f7a207a1d8cf111b8245c0baf5c2a32024160d43723eb0dd42b9432dcb9521d"
     },
     {
       "path": "demo-assets/dist-BcvA-GRa.js",
@@ -291,14 +311,14 @@
       "sha256": "f4d084abb55d5e2f8b9f0a0f604c11caab2b9d3e9eac9854addf254df5903b65"
     },
     {
-      "path": "demo-assets/esm-0f__CEMH.js",
-      "bytes": 1389,
-      "sha256": "3bafba2f049ca7c5c5ad592ab32e3cef581068e81289997ea597d797a31bbe30"
+      "path": "demo-assets/esm-C40Yl7mi.js",
+      "bytes": 345,
+      "sha256": "ec755100a7fdd5f4608b6f856037373f87a5bd59d7e2cc51c0d2341949f26c79"
     },
     {
-      "path": "demo-assets/esm-CDhWT4MA.js",
-      "bytes": 345,
-      "sha256": "60e63c0be5a936354e3391bc69da305310ca48194bde289417c0624b45b076f6"
+      "path": "demo-assets/esm-CANuYjsb.js",
+      "bytes": 1389,
+      "sha256": "2caa75b4a6b444233a17786f18fe95bf68766d215593165c1a4b35cfbff09c18"
     },
     {
       "path": "demo-assets/exceljs.min-DXOFVt0i.js",
@@ -316,9 +336,9 @@
       "sha256": "158c0db513d2607dfb1b57cb748ba34631b0a70cc960cb40aa32b5ec3dc1d626"
     },
     {
-      "path": "demo-assets/jspdf.es.min-DjsSRauD.js",
+      "path": "demo-assets/jspdf.es.min-CxeKZ2Fl.js",
       "bytes": 399686,
-      "sha256": "684364493a317742d5a71ed8ff0b32a121be7607b93636d11ec80abb29fedc60"
+      "sha256": "31989ce28c16180c3515013ddc5ee0f3912e04720a1b00adbf98f1011b83c584"
     },
     {
       "path": "demo-assets/jspdf.plugin.autotable-GudEMuKW.js",
@@ -331,19 +351,19 @@
       "sha256": "b242a72dc734e1e0001337c1ab362ad94fd3a5e2f94fe5bb89f09dc98bcb903a"
     },
     {
-      "path": "demo-assets/QuickRetailDemo-DMTN_I3x.js",
+      "path": "demo-assets/QuickRetailDemo-U2HkoBmy.js",
       "bytes": 47708,
-      "sha256": "72e01b16705bd63d3f5f1798bcf438fdbdd03f13714d9525620651a001bc00b4"
-    },
-    {
-      "path": "demo-assets/RestaurantDemo-B4TP8dOl.js",
-      "bytes": 586842,
-      "sha256": "4fcb6ef9146b8fd50392f96e450b744b518a6fd4227ed2ef3cf48a0f71f205a5"
+      "sha256": "d3ed4a1fcda564834c85ae6b498e358cc4c5102d9ed7acce5a84607d3e2e4052"
     },
     {
       "path": "demo-assets/RestaurantDemo-BLO4p97i.css",
       "bytes": 16666,
       "sha256": "9b714f73af6d40396970e6e48f76a7bed914f61ab8a73da3669a9bd975e53711"
+    },
+    {
+      "path": "demo-assets/RestaurantDemo-DlkvmJjj.js",
+      "bytes": 586842,
+      "sha256": "b8b3cc440f4ec5c9059f752ae2becb9803957af1b0d487e3526dd744fc9c2f12"
     },
     {
       "path": "demo-assets/typeof-B5XbjTb1.js",
@@ -361,14 +381,14 @@
       "sha256": "78e59e7e9126afc07a60c408b11f4bd89a511e54d6442c381355f02fe4c55bba"
     },
     {
-      "path": "demo-assets/web-p_oSFaso.js",
+      "path": "demo-assets/web-En8-Q2oj.js",
       "bytes": 8492,
-      "sha256": "67793921dd41f05d65f3f34c0188af6406c0b88f133a10d6baa75e162bf6b5b9"
+      "sha256": "cf6baea042f5d6fbbbe280c7efeb798afdd880de042941ca81a4ffb851262a15"
     },
     {
       "path": "demo-isolated.html",
       "bytes": 941,
-      "sha256": "35124071d9523cc080426f55d4ca1d6af5fb4c0218f0ba6b96926e7cf9bb4eb1"
+      "sha256": "7bdaca91a62f5866772db3482d6172c28034eb3ac013bb6c3a6250e874ba07bf"
     },
     {
       "path": "demo-isolation-network-guard.js",

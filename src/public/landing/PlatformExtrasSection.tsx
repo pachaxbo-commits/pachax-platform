@@ -1,208 +1,150 @@
 import {
+  ArrowRight,
+  Check,
+  Code2,
+  Headphones,
   Megaphone,
   Palette,
-  Headphones,
   Zap,
-  Code2,
   Cpu,
-  MessageSquare,
-  ArrowRight,
+  MessageCircle,
+  CalendarDays,
 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialExtraService } from '../../admin/types'
 
+const EXTRA_ICONS = {
+  megaphone: Megaphone,
+  palette: Palette,
+  headset: Headphones,
+  zap: Zap,
+  code: Code2,
+} as const
+
 const TEMPLATE_LABELS: Record<string, string> = {
-  restaurant: 'Restaurante con salón', distribution: 'Producción y Distribución',
-  nightclub: 'Nightclub & Lounge', hamburger: 'Restaurante Rápido', retail: 'Comercio / Venta rápida',
+  restaurant: 'Restaurante con salón',
+  distribution: 'Producción y Distribución',
+  nightclub: 'Nightclub & Lounge',
+  hamburger: 'Restaurante Rápido',
+  retail: 'Comercio / Venta rápida',
+}
+
+function getExtraIcon(iconKey: CommercialExtraService['iconKey']) {
+  return EXTRA_ICONS[iconKey] || Cpu
+}
+
+function getTemplateScope(extra: CommercialExtraService) {
+  return extra.applicableTemplates === 'all'
+    ? 'Todas las plantillas operativas'
+    : extra.applicableTemplates.map((id) => TEMPLATE_LABELS[id] || id).join(', ')
+}
+
+function openWhatsApp(number: string, message: string) {
+  const normalizedNumber = number.replace(/\D/g, '')
+  if (!normalizedNumber) return
+  const url = `https://wa.me/${normalizedNumber}?text=${encodeURIComponent(message)}`
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 export function PlatformExtrasSection() {
   const { landingContent, publishedExtras } = useCommercialConfig()
 
-  const featuredCustom = publishedExtras.find(
-    (e) => e.id === 'extra_custom_dev' || e.category === 'custom'
-  ) || publishedExtras[0]
+  const contactNumber = landingContent.officialWhatsAppNumber
+  const customDevelopment = publishedExtras.find((extra) => extra.id === 'extra_custom_dev')
+  const services = customDevelopment
+    ? [customDevelopment, ...publishedExtras.filter((extra) => extra.id !== customDevelopment.id)]
+    : publishedExtras
 
-  const complementaryExtras = publishedExtras.filter(
-    (e) => e.id !== featuredCustom?.id
-  )
-
-  const renderIcon = (iconKey: string, className = 'w-5 h-5') => {
-    switch (iconKey) {
-      case 'megaphone':
-        return <Megaphone className={className} />
-      case 'palette':
-        return <Palette className={className} />
-      case 'headset':
-        return <Headphones className={className} />
-      case 'zap':
-        return <Zap className={className} />
-      case 'scale':
-        return <Cpu className={className} />
-      case 'code':
-      default:
-        return <Code2 className={className} />
-    }
+  const handleServiceInquiry = (extra: CommercialExtraService) => {
+    openWhatsApp(
+      contactNumber,
+      `Hola PACHAX, quiero consultar sobre ${extra.title} (${extra.referencePriceLabel}) para mi empresa.`,
+    )
   }
 
-  const handleInquireWhatsApp = (extra?: CommercialExtraService) => {
-    const text = extra
-      ? `Hola PACHAX, me interesa consultar sobre el servicio especializado: ${extra.title} (${extra.referencePriceLabel}) para mi empresa.`
-      : landingContent.defaultCustomDevMessage
-
-    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
-    if (!number) return
-    const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`
-    window.open(url, '_blank', 'noopener,noreferrer')
+  const handleWhatsAppContact = () => {
+    openWhatsApp(contactNumber, landingContent.defaultCustomDevMessage)
   }
 
-  const formatTemplateScope = (extra: CommercialExtraService) => extra.applicableTemplates === 'all'
-    ? 'Todas las plantillas operativas'
-    : extra.applicableTemplates.map((id) => TEMPLATE_LABELS[id] || id).join(', ')
+  const handleProposalRequest = () => {
+    openWhatsApp(
+      contactNumber,
+      'Hola PACHAX, quiero solicitar una propuesta para ordenar la gestión operativa de mi empresa. ¿Qué información necesitan para evaluar mi caso?',
+    )
+  }
 
   return (
-    <section id="extras" className="w-full pt-16 pb-10 sm:pt-20 sm:pb-12 bg-slate-50 border-t border-slate-200/80 relative overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Encabezado Editorial */}
-        <div className="max-w-3xl mb-14">
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-blue-50 border border-blue-200/80 text-[11px] font-bold uppercase tracking-wider text-[#0066FF] mb-3">
-            <span>SERVICIOS ESTRATÉGICOS Y EXTENSIONES</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
-            {landingContent.sectionTitles.extras}
+    <section id="extras" className="pachax-extras-section" aria-labelledby="pachax-extras-title">
+      <div className="pachax-extras-container">
+        <header className="pachax-extras-heading">
+          <p className="pachax-extras-eyebrow">Servicios estratégicos y extensiones</p>
+          <h2 id="pachax-extras-title">
+            Potencia tu operación con módulos y <span>servicios especializados</span>
           </h2>
-          <p className="text-sm sm:text-base text-slate-600 mt-2.5 leading-relaxed">
-            {landingContent.sectionTitles.extrasSubtitle}
+          <p className="pachax-extras-intro">
+            Separa las herramientas técnicas de los servicios de crecimiento. Consulta las opciones disponibles para tu operación.
           </p>
-        </div>
+        </header>
 
-        {/* Portafolio Asimétrico: Columna izquierda destacada (Ingeniería a Medida) + Columna derecha (Franjas de servicios) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 mb-14 items-stretch">
-          {/* Card Heroica: Solución de Software e Integración a Medida (5 columnas en desktop) */}
-          {featuredCustom && (
-            <div className="lg:col-span-5 bg-[#071322] text-white rounded-3xl border border-blue-500/30 p-7 sm:p-8 flex flex-col justify-between shadow-2xl relative overflow-hidden">
-              <div
-                aria-hidden="true"
-                className="absolute -right-20 -top-20 w-64 h-64 bg-blue-600/20 rounded-full blur-3xl pointer-events-none"
-              />
-
-              <div className="relative z-10">
-                <div className="flex items-center justify-between gap-3 mb-6">
-                  <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
-                    {renderIcon(featuredCustom.iconKey, 'w-6 h-6 text-blue-400')}
+        {services.length > 0 ? (
+          <div className={`pachax-extras-grid${services.length === 1 ? ' is-solo' : ''}`} aria-label="Servicios publicados">
+            {services.map((extra) => {
+              const Icon = getExtraIcon(extra.iconKey)
+              return (
+                <article className="pachax-extra-card" key={extra.id}>
+                  <span className="pachax-extra-icon" aria-hidden="true"><Icon /></span>
+                  <h3>{extra.title}</h3>
+                  <p className="pachax-extra-description">{extra.shortDescription}</p>
+                  <p className="pachax-extra-scope">Aplica a: {getTemplateScope(extra)}</p>
+                  <div className="pachax-extra-meta">
+                    <span>{extra.referencePriceLabel}</span>
+                    <button type="button" onClick={() => handleServiceInquiry(extra)}>
+                      Consultar <ArrowRight aria-hidden="true" />
+                    </button>
                   </div>
-                  <span className="text-xs font-bold tracking-wider uppercase text-blue-300 bg-blue-900/40 border border-blue-700/50 px-3 py-1 rounded-full">
-                    {featuredCustom.referencePriceLabel}
-                  </span>
-                </div>
-
-                <div className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-2">
-                  PILAR ESTRATÉGICO
-                </div>
-                <h3 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight mb-3">
-                  {featuredCustom.title}
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-6">
-                  {featuredCustom.shortDescription}
-                </p>
-
-              </div>
-
-              <div className="relative z-10 pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleInquireWhatsApp(featuredCustom)}
-                  className="flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-[#0066FF] hover:bg-[#0052cc] text-white transition-all inline-flex items-center justify-center gap-2 shadow-md cursor-pointer"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  <span>Consultar por WhatsApp</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Columna Derecha: Franjas de Servicios Complementarios (7 columnas en desktop) */}
-          <div className="lg:col-span-7 flex flex-col justify-between gap-4">
-            {complementaryExtras.map((extra) => (
-              <div
-                key={extra.id}
-                className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-xs hover:shadow-md transition-all duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
-              >
-                <div className="flex items-start gap-4 flex-1 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-blue-100/70 transition-colors">
-                    {renderIcon(extra.iconKey, 'w-5 h-5 text-[#0066FF]')}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h4 className="text-sm sm:text-base font-bold text-slate-950 tracking-tight group-hover:text-[#0066FF] transition-colors">
-                        {extra.title}
-                      </h4>
-                    </div>
-                    <p className="text-xs sm:text-sm text-slate-600 leading-snug line-clamp-2">
-                      {extra.shortDescription}
-                    </p>
-                    <p className="text-[10px] font-semibold text-slate-500 mt-2">Aplica a: {formatTemplateScope(extra)}</p>
-                  </div>
-                </div>
-
-                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 shrink-0 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                  <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200/80">
-                    {extra.referencePriceLabel}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleInquireWhatsApp(extra)}
-                    className="text-xs font-bold text-[#0066FF] hover:text-[#0052cc] inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <span>Consultar</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+                  <i className="pachax-extra-corner" aria-hidden="true" />
+                </article>
+              )
+            })}
           </div>
-        </div>
+        ) : (
+          <div className="pachax-extras-empty" role="status">
+            <span className="pachax-extras-empty-mark" aria-hidden="true"><Check /></span>
+            <div>
+              <h3>Servicios en preparación</h3>
+              <p>Estamos actualizando las opciones comerciales. Puedes consultar con el equipo sobre tu operación.</p>
+            </div>
+          </div>
+        )}
 
-        {/* ========================================================================= */}
-        {/* BANNER COMERCIAL HEROICO DE CIERRE (Portal Tecnológico Azul Noche) */}
-        {/* ========================================================================= */}
-        <div className="rounded-3xl bg-gradient-to-r from-[#030C1A] via-[#091728] to-[#002b66] border border-blue-500/30 p-8 sm:p-12 text-white shadow-2xl relative overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-8">
-          {/* Volumetric glow accent */}
-          <div
-            aria-hidden="true"
-            className="absolute top-0 right-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none"
+        <aside className="pachax-extras-contact" aria-labelledby="pachax-extras-contact-title">
+          <img
+            className="pachax-extras-contact-photo"
+            src="/brand/showcase/support-specialist.webp"
+            alt="Ilustración editorial de una especialista de soporte en un entorno de trabajo"
+            loading="lazy"
+            decoding="async"
           />
-
-          <div className="space-y-3 text-center lg:text-left max-w-2xl relative z-10">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 text-[11px] font-bold uppercase tracking-wider">
-              <span>ASESORÍA Y DESPLIEGUE DIRECTO</span>
-            </div>
-            <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              ¿Listo para ordenar la gestión operativa de tu empresa?
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Habla directamente con nuestro equipo de ingeniería y producto. Analizamos tus procesos de cobro, básculas, almacenes o reglas de negocio sin costo ni compromiso.
-            </p>
+          <div className="pachax-extras-contact-shade" aria-hidden="true" />
+          <div className="pachax-extras-contact-copy">
+            <p className="pachax-extras-eyebrow">Asesoría y despliegue directo</p>
+            <h3 id="pachax-extras-contact-title">¿Listo para ordenar la gestión operativa de <span>tu empresa?</span></h3>
+            <p>Habla con nuestro equipo de ingeniería y producto para revisar procesos de cobro, básculas, almacenes o reglas de negocio.</p>
           </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-3.5 w-full lg:w-auto shrink-0 relative z-10">
-            <button
-              type="button"
-              onClick={() => handleInquireWhatsApp()}
-              className="w-full sm:w-auto px-7 py-4 rounded-xl bg-[#0066FF] hover:bg-[#0052cc] text-white text-xs sm:text-sm font-bold shadow-lg inline-flex items-center justify-center gap-2.5 transition-all cursor-pointer"
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span>Contactar por WhatsApp (+591 77987776)</span>
+          <div className="pachax-extras-contact-actions">
+            <button className="pachax-contact-action" type="button" onClick={handleWhatsAppContact}>
+              <MessageCircle aria-hidden="true" />
+              <span>Contactar por WhatsApp <small>{landingContent.officialWhatsAppDisplay}</small></span>
+              <ArrowRight aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              onClick={() => handleInquireWhatsApp()}
-              className="w-full sm:w-auto px-7 py-4 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/20 transition-all cursor-pointer text-center"
-            >
-              Solicitar propuesta
+            <button className="pachax-proposal-action" type="button" onClick={handleProposalRequest}>
+              <CalendarDays aria-hidden="true" />
+              <span>Solicitar propuesta</span>
+              <ArrowRight aria-hidden="true" />
             </button>
           </div>
-        </div>
+          <i className="pachax-extras-contact-corner" aria-hidden="true" />
+        </aside>
       </div>
     </section>
   )

@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { LandingHeader } from './LandingHeader'
 import { HeroSection } from './HeroSection'
-import { ValueStrip } from './ValueStrip'
 import { FeaturedTemplatesCatalog } from './FeaturedTemplatesCatalog'
 import { TemplatePricingSection } from './TemplatePricingSection'
 import { RealOnboardingSection } from './RealOnboardingSection'
@@ -10,6 +9,7 @@ import { PlatformExtrasSection } from './PlatformExtrasSection'
 import { TrustFooter } from './TrustFooter'
 import { PachaxBrandBackground } from './PachaxBrandBackground'
 import '../publicExperience.css'
+import './pachaxLanding.css'
 
 export function PublicLanding() {
   const [requestedPricingTemplate, setRequestedPricingTemplate] = useState<{
@@ -23,15 +23,6 @@ export function PublicLanding() {
     }))
     document.getElementById('planes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
-  // Inicialización adaptativa: en desktop Nightclub (índice 2) es protagonista en la maqueta,
-  // en mobile Restaurante (índice 0) es protagonista en la maqueta.
-  const [activeIndex, setActiveIndex] = useState<number>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
-      return 2 // Nightclub
-    }
-    return 0 // Restaurante
-  })
-
   // Validación de accesibilidad y verificación de ausencia de scroll horizontal
   useEffect(() => {
     const updateMetrics = () => {
@@ -47,35 +38,29 @@ export function PublicLanding() {
   }, [])
 
   return (
-    <div className="w-full min-h-screen bg-[#FAF9F6] text-slate-900 font-sans flex flex-col selection:bg-[#0066FF] selection:text-white overflow-x-hidden relative">
+    <div className="pachax-public-landing w-full min-h-screen font-sans flex flex-col selection:bg-[#0066FF] selection:text-white overflow-x-clip relative">
       {/* Fondo Arquitectónico Geométrico Inspirado en el Isotipo PACHAX */}
-      <PachaxBrandBackground activeIndex={activeIndex} />
+      <PachaxBrandBackground />
 
       {/* Header Oficial de Producto con branding, navegación anclada y accesibilidad */}
       <LandingHeader />
 
       {/* Contenido Principal en Orden Canónico Riguroso */}
       <main className="flex-1 w-full flex flex-col overflow-x-hidden relative z-10">
-        {/* SECCIÓN 1: Hero Principal con Coverflow 3D, Detalle Activo y WhatsApp CTA */}
-        <HeroSection
-          activeIndex={activeIndex}
-          onChangeActiveIndex={setActiveIndex}
-          onViewPlans={handleViewPlans}
-        />
+        {/* SECCIÓN 1: presentación, catálogo horizontal y acceso al catálogo completo */}
+        <HeroSection onViewPlans={handleViewPlans} />
 
-        {/* Franja de Valor y Métricas Operacionales */}
-        <ValueStrip />
-
-        {/* SECCIÓN 2: Plantillas en Detalle (Audiencia, Problema Resuelto, Demos Canónicas) */}
+        {/* SECCIÓN 2: Catálogo de soluciones publicadas y servicios comerciales */}
         <FeaturedTemplatesCatalog onViewPlans={handleViewPlans} />
 
         {/* SECCIÓN 3: Planes por Plantilla (3 niveles por rubro + Desarrollo a Medida) */}
         <TemplatePricingSection
           key={requestedPricingTemplate?.request ?? 0}
           initialQuickServiceId={requestedPricingTemplate?.templateId ?? 'hamburger'}
+          openInitialDetails={Boolean(requestedPricingTemplate)}
         />
 
-        {/* SECCIÓN 4: Configura tu empresa en 5 minutos (Progresión editorial de 5 pasos) */}
+        {/* SECCIÓN 4: Implementación guiada demostrativa en cuatro pasos */}
         <RealOnboardingSection />
 
         {/* SECCIÓN 5: Tutoriales Guiados Interactivos (Simulador de asistencia en pantalla) */}

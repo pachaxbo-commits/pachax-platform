@@ -1,277 +1,155 @@
-import { useState } from 'react'
-import { ArrowRight, Eye, CheckCircle2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
-import type { CommercialTemplateItem } from '../../admin/types'
+import type { CommercialExtraService, CommercialTemplateItem } from '../../admin/types'
 import { canLaunchCommercialDemo, freeDemoPath } from '../../core/publicTemplates'
+import { CUSTOM_DEVELOPMENT_CONFIG } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
-import { getTemplateContactUrl, getTemplateSecondaryAction } from './templateActionPolicy'
+import { FeaturedTemplateCard, type FeaturedCatalogEntry } from './FeaturedTemplateCard'
+import { FeaturedTemplateDetails } from './FeaturedTemplateDetails'
 
 interface FeaturedTemplatesCatalogProps {
   onViewPlans?: (templateId: 'hamburger' | 'retail') => void
 }
 
+function templateEntry(template: CommercialTemplateItem): FeaturedCatalogEntry {
+  return {
+    kind: 'template',
+    id: template.id,
+    title: template.commercialName,
+    summary: template.cardSubtitle || template.detailDescription,
+    imageUrl: template.thumbnailUrl,
+    imageAlt: template.thumbnailAlt,
+    imagePosition: template.thumbnailFocalPoint || '50% 50%',
+    template,
+  }
+}
+
+function customServiceEntry(
+  template: CommercialTemplateItem | undefined,
+  service: CommercialExtraService | undefined,
+): FeaturedCatalogEntry {
+  return {
+    kind: 'service',
+    id: 'custom',
+    title: template?.commercialName || CUSTOM_DEVELOPMENT_CONFIG.title,
+    summary: service?.shortDescription || template?.cardSubtitle || CUSTOM_DEVELOPMENT_CONFIG.subtitle,
+    imageUrl: template?.thumbnailUrl || '/brand/showcase/custom-concept.webp',
+    imageAlt: template?.thumbnailAlt || 'Equipo trabajando en una oficina tecnológica',
+    imagePosition: template?.thumbnailFocalPoint || '50% 50%',
+    template,
+    service,
+  }
+}
+
+function entryOrder(entry: FeaturedCatalogEntry): number {
+  if (entry.kind === 'template') return entry.template.order
+  return entry.template?.order ?? entry.service?.order ?? Number.MAX_SAFE_INTEGER
+}
+
 export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatalogProps) {
   const { navigate } = usePublicRouter()
-  const { publishedTemplates, landingContent, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
-  const [selectedFilter, setSelectedFilter] = useState<string>('all')
+  const { publishedTemplates, publishedExtras, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
+  const [selectedEntry, setSelectedEntry] = useState<FeaturedCatalogEntry | null>(null)
+  const [selectedForDemo, setSelectedForDemo] = useState<CommercialTemplateItem | null>(null)
 
-  const filterOptions = [
-    { id: 'all', label: 'Todas las plantillas' },
-    { id: 'restaurant', label: 'Gastronomía' },
-    { id: 'distribution', label: 'Distribución' },
-    { id: 'nightclub', label: 'Lounge & Club' },
-    { id: 'retail', label: 'Comercio Express' },
-    { id: 'custom', label: 'A Medida' },
-  ] as const
+  const entries = useMemo(() => {
+    const templates = publishedTemplates.filter((template) => template.status === 'published')
+    const customTemplate = templates.find((template) => template.id === 'custom')
+    const customService = publishedExtras.find((service) => service.id === 'extra_custom_dev' || service.category === 'custom')
+    const regularEntries = templates
+      .filter((template) => template.id !== 'custom')
+      .map(templateEntry)
+    const serviceEntry = customTemplate || customService
+      ? [customServiceEntry(customTemplate, customService)]
+      : []
 
-  const filteredTemplates = publishedTemplates.filter((tpl) => {
-    if (selectedFilter === 'all') return true
-    return tpl.id === selectedFilter
-  })
+    return [...regularEntries, ...serviceEntry].sort((a, b) => entryOrder(a) - entryOrder(b))
+  }, [publishedTemplates, publishedExtras])
 
-  const [selectedForModal, setSelectedForModal] = useState<CommercialTemplateItem | null>(null)
+  const handleViewPlans = (templateId: 'hamburger' | 'retail') => {
+    setSelectedEntry(null)
+    onViewPlans?.(templateId)
+  }
 
-  const handleLaunchDemo = (tpl: CommercialTemplateItem) => {
-    if (!canLaunchCommercialDemo(tpl)) return
-    if (tpl.id === 'restaurant' || tpl.templateId === 'restaurant') {
-      setSelectedForModal(tpl)
+  const handleLaunchDemo = (entry: FeaturedCatalogEntry) => {
+    if (entry.kind !== 'template' || !canLaunchCommercialDemo(entry.template)) return
+    const template = entry.template
+    if (template.id === 'restaurant' || template.templateId === 'restaurant') {
+      setSelectedForDemo(template)
       return
     }
-    const demoPath = freeDemoPath(tpl.id) || freeDemoPath(tpl.templateId || '')
+    const demoPath = freeDemoPath(template.id) || freeDemoPath(template.templateId || '')
     if (demoPath) {
       window.location.assign(demoPath)
       return
     }
-    if (!canLaunchCommercialDemo(tpl)) return
-    if (tpl.demoRoute.startsWith('/demo/')) {
-      // Navegación canónica de documento hacia demo.html
-      window.location.assign(tpl.demoRoute)
-    } else if (tpl.demoRoute.startsWith('http')) {
-      window.open(tpl.demoRoute, '_blank', 'noopener,noreferrer')
+    if (!canLaunchCommercialDemo(template)) return
+    if (template.demoRoute.startsWith('/demo/')) {
+      window.location.assign(template.demoRoute)
+    } else if (template.demoRoute.startsWith('http')) {
+      window.open(template.demoRoute, '_blank', 'noopener,noreferrer')
     } else {
-      navigate(tpl.demoRoute)
-    }
-  }
-
-  const handleSelectTemplate = (tpl: CommercialTemplateItem) => {
-    const action = getTemplateSecondaryAction(tpl.id)
-    if (action.kind === 'quote') {
-      window.open(getTemplateContactUrl(tpl.commercialName, action), '_blank', 'noopener,noreferrer')
-      return
-    }
-    if (action.kind === 'contact') {
-      window.open(getTemplateContactUrl(tpl.commercialName, action), '_blank', 'noopener,noreferrer')
-      return
-    }
-    if (action.kind === 'view-plans') {
-      onViewPlans?.(action.templateId)
-      return
+      navigate(template.demoRoute)
     }
   }
 
   return (
-    <section id="plantillas" className="w-full py-16 sm:py-20 bg-white/70 backdrop-blur-xs border-t border-slate-200/80 z-10 relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Cabecera Editorial con Acento Geométrico (Sin Pills Genéricas de IA) */}
-        <div className="max-w-3xl mb-10">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#0066FF]">
-              PLANTILLAS CANÓNICAS ESPECIALIZADAS
-            </span>
-            <span className="h-px flex-1 max-w-[60px] bg-blue-300" />
-          </div>
-          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight">
-            {landingContent.sectionTitles.catalog}
+    <section id="plantillas" className="pachax-catalog-section w-full relative z-10">
+      <div className="pachax-catalog-inner">
+        <header className="pachax-catalog-header">
+          <div className="pachax-catalog-eyebrow"><span aria-hidden="true" />PLANTILLAS PACHAX</div>
+          <h2 className="pachax-catalog-title">
+            <span className="pachax-catalog-title-line">Soluciones especializadas</span>{' '}
+            <span className="pachax-catalog-title-line">para <strong>tu tipo de negocio</strong></span>
           </h2>
-          <p className="text-sm sm:text-base text-slate-600 mt-2 leading-relaxed">
-            {landingContent.sectionTitles.catalogSubtitle}
+          <p className="pachax-catalog-subtitle">
+            Elige una plantilla diseñada para tu rubro y comienza a operar con procesos, herramientas y flujos ya preconfigurados.
           </p>
-        </div>
-
-        {/* Barra de Filtros por Rubro */}
-        <div className="flex flex-wrap items-center gap-2 mb-10 pb-4 border-b border-slate-200/80">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400 mr-2">
-            Filtrar rubro:
-          </span>
-          {filterOptions.map((opt) => {
-            const isActive = selectedFilter === opt.id
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setSelectedFilter(opt.id)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-[#0066FF] text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200/80'
-                }`}
-              >
-                {opt.label}
-              </button>
-            )
-          })}
-        </div>
+        </header>
 
         {isPublicEditorialFallback && (
-          <p role="status" className="mb-5 text-sm text-slate-600" data-catalog-state={publicCatalogStatus}>
-            {publicCatalogStatus === 'loading'
-              ? 'Verificando el catálogo. Mostramos fichas editoriales de referencia; los precios y ofertas requieren confirmación del servidor.'
-              : 'No pudimos verificar el catálogo. Mostramos fichas editoriales de referencia; los precios y ofertas requieren confirmación del servidor.'}
+          <p className="pachax-catalog-status" role="status" data-catalog-state={publicCatalogStatus}>
+            Catálogo editorial de referencia. La disponibilidad comercial y las ofertas requieren confirmación.
           </p>
         )}
         {!isPublicEditorialFallback && publicCatalogStatus === 'loading' && (
-          <p role="status" className="mb-5 text-sm text-slate-500" data-catalog-state="loading">
-            Cargando el catálogo publicado…
+          <p className="pachax-catalog-status" role="status" data-catalog-state="loading">
+            Verificando el catálogo publicado…
           </p>
         )}
-        {publicCatalogStatus === 'error' && !isPublicEditorialFallback && (
-          <p role="status" className="mb-5 text-sm text-slate-600" data-catalog-state="error">
-            No pudimos actualizar el catálogo. Seguimos mostrando la última versión pública confirmada.
+        {!isPublicEditorialFallback && publicCatalogStatus === 'error' && (
+          <p className="pachax-catalog-status" role="status" data-catalog-state="error">
+            No pudimos actualizar el catálogo. Se conservan los datos publicados disponibles.
           </p>
         )}
 
-        {/* Grilla Editorial de Plantillas */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch">
-          {filteredTemplates.map((template) => {
-            const action = getTemplateSecondaryAction(template.id)
-            const isPrimary = action.kind === 'quote'
-            return (
-            <div
-              key={template.id}
-              data-template-id={template.id}
-              className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between group"
-            >
-              {/* Contenedor Superior: Imagen y Contenido */}
-              <div>
-                {/* Ranura Visual de Concepto (Encuadre Amplio y Nítido) */}
-                <div className="relative w-full aspect-16/10 overflow-hidden bg-[#06101c] border-b border-slate-100">
-                  <picture>
-                    <source srcSet={template.thumbnailUrl} type="image/webp" />
-                    <img
-                      src={template.thumbnailUrl.replace('.webp', '.jpg')}
-                      alt={template.thumbnailAlt}
-                      style={{ objectPosition: template.thumbnailFocalPoint || '50% 38%' }}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-103 select-none"
-                      loading="lazy"
-                    />
-                  </picture>
-
-                  {/* Sutil viñeta para legibilidad */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-
-                  {/* Badge sobrio en la esquina */}
-                  {template.badge && (
-                    <div className="absolute top-3 right-3">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-blue-600/90 text-white backdrop-blur-xs shadow-xs">
-                        {template.badge}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Textos y Ficha Editorial */}
-                <div className="p-6">
-                  <h3 className="text-xl font-bold text-slate-900 tracking-tight mb-2">
-                    {template.commercialName}
-                  </h3>
-                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-5">
-                    {template.detailDescription}
-                  </p>
-
-                  {/* Bloque Editorial: Audiencia y Propuesta de Valor (Sin cajas ni stickers de IA) */}
-                  <div className="space-y-3 mb-5 text-xs">
-                    <div>
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-0.5">
-                        Perfil objetivo
-                      </span>
-                      <p className="text-slate-700 font-medium leading-relaxed">
-                        {template.targetAudience}
-                      </p>
-                    </div>
-                    <div className="pl-3 border-l-2 border-[#0066FF]/60 py-0.5">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-[#0066FF] block mb-0.5">
-                        Impacto operacional
-                      </span>
-                      <p className="text-slate-600 leading-relaxed">
-                        {template.problemSolved}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Funcionalidades Principales Verificadas */}
-                  <div className="space-y-2 pt-3 border-t border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                      Capacidades operativas incluidas:
-                    </p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {template.bullets.map((bullet, bIdx) => (
-                        <div key={bIdx} className="flex items-center gap-1.5 text-xs text-slate-700">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#0066FF] shrink-0" />
-                          <span className="truncate">{bullet}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Acciones de Tarjeta: Probar demo y Comenzar */}
-              <div className="p-6 pt-0">
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
-                  {template.id !== 'custom' && (canLaunchCommercialDemo(template) ? (
-                    <button
-                      type="button"
-                      data-demo-path={template.demoRoute}
-                      onClick={() => handleLaunchDemo(template)}
-                      className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:text-slate-950 hover:bg-slate-50 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-slate-500" />
-                      <span>{template.id === 'restaurant' ? 'Explorar Gastronomía' : 'Probar demo'}</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled
-                      className="flex-1 py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-400 inline-flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
-                      title="Demostración interactiva en desarrollo"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Demo próximamente</span>
-                    </button>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={() => handleSelectTemplate(template)}
-                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all shadow-xs inline-flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 ${isPrimary ? 'bg-slate-900 hover:bg-slate-800 text-white' : 'bg-[#0066FF] hover:bg-[#0052cc] text-white'}`}
-                    data-commercial-action={action.kind}
-                  >
-                    <span>{action.label}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-            )
-          })}
-          {publicCatalogStatus === 'ready' && filteredTemplates.length === 0 && (
-            <p role="status" className="col-span-full rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600" data-catalog-state="empty">
-              No hay plantillas publicadas para esta categoría en el catálogo confirmado.
-            </p>
-          )}
-          {publicCatalogStatus === 'error' && !isPublicEditorialFallback && filteredTemplates.length === 0 && (
-            <p role="status" className="col-span-full rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600" data-catalog-state="error-empty">
-              La última versión confirmada no incluye plantillas para esta categoría; no pudimos verificar si hubo cambios recientes.
+        <div className="pachax-featured-grid" aria-label="Soluciones publicadas">
+          {entries.map((entry) => (
+            <FeaturedTemplateCard key={`${entry.kind}-${entry.id}`} entry={entry} onDetails={setSelectedEntry} />
+          ))}
+          {publicCatalogStatus === 'ready' && entries.length === 0 && (
+            <p className="pachax-catalog-empty" role="status" data-catalog-state="empty">
+              No hay soluciones publicadas en el catálogo confirmado.
             </p>
           )}
         </div>
+
+        <footer className="pachax-catalog-footer">
+          <p>Explora cada solución para conocer sus funciones.</p>
+        </footer>
       </div>
 
+      <FeaturedTemplateDetails
+        entry={selectedEntry}
+        onClose={() => setSelectedEntry(null)}
+        onLaunchDemo={(entry) => { setSelectedEntry(null); handleLaunchDemo(entry) }}
+        onViewPlans={handleViewPlans}
+      />
       <TemplateModeSelectorModal
-        key={selectedForModal?.id || selectedForModal?.templateId || 'closed'}
-        item={selectedForModal}
-        onClose={() => setSelectedForModal(null)}
+        key={selectedForDemo?.id || 'closed'}
+        item={selectedForDemo}
+        onClose={() => setSelectedForDemo(null)}
       />
     </section>
   )

@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Menu, X, ArrowRight } from 'lucide-react'
-import { BrandMark } from '../components/BrandMark'
+import { useEffect, useState } from 'react'
+import { ArrowRight, Menu, X } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useAuthStore } from '../../store/authStore'
 
@@ -11,9 +10,7 @@ export function LandingHeader() {
   const [isScrolled, setIsScrolled] = useState(false)
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 15)
-    }
+    const handleScroll = () => setIsScrolled(window.scrollY > 12)
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
@@ -21,10 +18,9 @@ export function LandingHeader() {
   const handleNav = (target: string) => {
     setIsMenuOpen(false)
     if (target.startsWith('#')) {
-      const targetId = target.slice(1)
-      const el = document.getElementById(targetId)
+      const el = document.getElementById(target.slice(1))
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth' })
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
         return
       }
     }
@@ -35,192 +31,56 @@ export function LandingHeader() {
   const companyName = auth.account?.name || 'Mi Empresa'
 
   return (
-    <header
-      className={`sticky top-0 z-50 w-full transition-all duration-200 ${
-        isScrolled
-          ? 'bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs'
-          : 'bg-white/80 backdrop-blur-xs border-b border-slate-100'
-      }`}
-    >
-      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 h-14 sm:h-20 flex items-center justify-between">
-        {/* Identidad Oficial: Logo PACHAX Platform */}
-        <div className="flex items-center shrink-0">
-          <BrandMark
-            size="md"
-            href="/"
-            onClick={(e) => {
-              e.preventDefault()
-              navigate('/')
-            }}
-          />
-        </div>
+    <header className={`pachax-header${isScrolled ? ' is-scrolled' : ''}`}>
+      <div className="pachax-header-inner">
+        <a href="/" className="pachax-brand-lockup" aria-label="PACHAX Platform, inicio" onClick={(event) => { event.preventDefault(); navigate('/') }}>
+          <img src="/brand/pachax-logo-white.png" alt="PACHAX" />
+          <span>Platform</span>
+        </a>
 
-        {/* Navegación Desktop */}
-        <nav className="hidden md:flex items-center gap-8 text-[14px] font-medium text-slate-700">
-          <button
-            type="button"
-            onClick={() => handleNav('#plantillas')}
-            className="hover:text-slate-950 transition-colors cursor-pointer"
-          >
-            Plantillas
-          </button>
-          <button
-            type="button"
-            onClick={() => handleNav('#planes')}
-            className="hover:text-slate-950 transition-colors cursor-pointer"
-          >
-            Planes
-          </button>
-          <button
-            type="button"
-            onClick={() => handleNav('#tutoriales')}
-            className="hover:text-slate-950 transition-colors cursor-pointer"
-          >
-            Tutoriales
-          </button>
+        <nav className="pachax-desktop-nav" aria-label="Navegación principal">
+          <button type="button" onClick={() => handleNav('#plantillas')}>Plantillas</button>
+          <button type="button" onClick={() => handleNav('#planes')}>Planes</button>
+          <button type="button" onClick={() => handleNav('#tutoriales')}>Tutoriales</button>
         </nav>
 
-        {/* Acciones Desktop */}
-        <div className="hidden md:flex items-center gap-4 shrink-0">
-          {/* Separador vertical sutil */}
-          <div className="h-5 w-px bg-slate-200" aria-hidden="true" />
-
+        <div className="pachax-header-actions">
           {isAuthorized ? (
-            <button
-              type="button"
-              onClick={() => navigate('/platform')}
-              className="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-all rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-2 group"
-            >
-              <span>Ir a mi empresa ({companyName})</span>
-              <ArrowRight className="w-4 h-4 text-slate-300 group-hover:translate-x-0.5 transition-transform" />
+            <button type="button" className="pachax-account-link" onClick={() => navigate('/platform')}>
+              <span>Ir a mi empresa ({companyName})</span><ArrowRight aria-hidden="true" />
             </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => navigate('/login')}
-                className="px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-950 transition-colors cursor-pointer"
-              >
-                Iniciar sesión
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/register')}
-                className="px-5 py-2.5 text-sm font-semibold text-white bg-[#0066FF] hover:bg-[#0052cc] transition-all rounded-xl shadow-xs hover:shadow-md cursor-pointer inline-flex items-center gap-1.5 active:scale-98"
-              >
-                <span>Registrarse</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </>
-          )}
+          ) : <>
+            <button type="button" className="pachax-login-link" onClick={() => navigate('/login')}>Iniciar sesión</button>
+            <button type="button" className="pachax-register-button" onClick={() => navigate('/register')}>Registrarse <ArrowRight aria-hidden="true" /></button>
+          </>}
         </div>
 
-        {/* Acciones Mobile / Tablet (Diseñadas para caber con holgura desde 360px) */}
-        <div className="flex md:hidden items-center gap-1 sm:gap-1.5 shrink-0">
-          {isAuthorized ? (
-            <button
-              type="button"
-              onClick={() => navigate('/login')}
-              className="px-2 py-1 text-xs font-semibold text-white bg-slate-900 rounded-lg inline-flex items-center gap-1"
-            >
-              <span>Mi Empresa</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => navigate('/login')}
-                className="px-1.5 py-1 text-[11px] font-medium text-slate-700 hover:text-slate-950 whitespace-nowrap cursor-pointer"
-              >
-                Iniciar sesión
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/register')}
-                className="px-2.5 py-1 text-[11px] font-semibold text-white bg-[#0066FF] hover:bg-[#0052cc] rounded-lg shadow-xs whitespace-nowrap cursor-pointer"
-              >
-                Registrarse
-              </button>
-            </>
-          )}
-
-          {/* Botón de Menú Hamburguesa */}
-          <button
-            type="button"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="p-1 text-slate-700 hover:text-slate-950 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
-            aria-label={isMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
-            aria-expanded={isMenuOpen}
-          >
-            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="pachax-menu-toggle"
+          onClick={() => setIsMenuOpen((open) => !open)}
+          aria-label={isMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
+          aria-expanded={isMenuOpen}
+          aria-controls="pachax-mobile-menu"
+        >
+          {isMenuOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
+        </button>
       </div>
 
-      {/* Menú Móvil Desplegable */}
       {isMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white/98 backdrop-blur-md px-4 pt-3 pb-6 space-y-3 animate-in fade-in slide-in-from-top-2 duration-150 shadow-lg">
-          <div className="flex flex-col space-y-2 text-sm font-medium text-slate-800">
-            <button
-              type="button"
-              onClick={() => handleNav('#plantillas')}
-              className="py-2 px-3 text-left rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Plantillas
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNav('#planes')}
-              className="py-2 px-3 text-left rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Planes
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNav('#tutoriales')}
-              className="py-2 px-3 text-left rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Tutoriales
-            </button>
-          </div>
-
-          <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
+        <div className="pachax-mobile-menu" id="pachax-mobile-menu">
+          <nav aria-label="Navegación móvil">
+            <button type="button" onClick={() => handleNav('#plantillas')}>Plantillas</button>
+            <button type="button" onClick={() => handleNav('#planes')}>Planes</button>
+            <button type="button" onClick={() => handleNav('#tutoriales')}>Tutoriales</button>
+          </nav>
+          <div>
             {isAuthorized ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  navigate('/platform')
-                }}
-                className="w-full py-2.5 text-sm font-semibold text-white bg-slate-900 rounded-xl text-center"
-              >
-                Ir a mi empresa ({companyName})
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMenuOpen(false)
-                    navigate('/login')
-                  }}
-                  className="w-full py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl text-center"
-                >
-                  Iniciar sesión
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMenuOpen(false)
-                    navigate('/register')
-                  }}
-                  className="w-full py-2.5 text-sm font-semibold text-white bg-[#0066FF] rounded-xl text-center shadow-xs"
-                >
-                  Registrarse
-                </button>
-              </>
-            )}
+              <button type="button" onClick={() => { setIsMenuOpen(false); navigate('/platform') }}>Ir a mi empresa ({companyName})</button>
+            ) : <>
+              <button type="button" onClick={() => { setIsMenuOpen(false); navigate('/login') }}>Iniciar sesión</button>
+              <button type="button" className="pachax-register-button" onClick={() => { setIsMenuOpen(false); navigate('/register') }}>Registrarse <ArrowRight aria-hidden="true" /></button>
+            </>}
           </div>
         </div>
       )}
