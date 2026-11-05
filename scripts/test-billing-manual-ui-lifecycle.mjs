@@ -321,11 +321,14 @@ try {
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Alta asistida de empresa') && text.includes('Activación del contrato pagado'), 'Paid contract did not open assisted onboarding')
   await waitFor(() => evaluate(`!![...document.querySelectorAll('label')].find(item=>item.textContent.includes('Nombre comercial'))?.querySelector('input')?.value`), Boolean, 'Company details were not prefilled')
   await evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Confirmo que este correo corresponde al propietario autorizado'));const checkbox=label?.querySelector('input[type="checkbox"]');if(!checkbox)throw new Error('Owner email confirmation missing');if(!checkbox.checked)checkbox.click();if(!checkbox.checked)throw new Error('Owner email confirmation did not become checked');return true})()`, true)
+  const activationFormState = await waitFor(() => evaluate(`(() => {const form=[...document.querySelectorAll('form')].find(item=>[...item.querySelectorAll('button[type="submit"]')].some(button=>button.textContent.includes('Crear empresa y preparar acceso')));const button=form?.querySelector('button[type="submit"]');const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Confirmo que este correo corresponde al propietario autorizado'));return {formValid:form?.checkValidity()??false,buttonDisabled:button?.disabled??true,emailConfirmed:label?.querySelector('input[type="checkbox"]')?.checked??false}})()`), state => state?.formValid && !state.buttonDisabled && state.emailConfirmed,
+    'Owner confirmation did not enable a valid assisted-tenant form')
+  assert.equal(activationFormState.emailConfirmed, true)
   await clickText('Crear empresa y preparar acceso', 'form button')
   const activationResult = await waitFor(async () => {
     const rows = await db.collection('tenants').where('nameKey', '==', companyNameKey).get()
-    const alert = await evaluate(`document.querySelector('[role="alert"]')?.innerText || ''`)
-    return { tenant: rows.docs[0] || null, alert }
+    const ui = await evaluate(`(() => {const form=[...document.querySelectorAll('form')].find(item=>[...item.querySelectorAll('button[type="submit"]')].some(button=>button.textContent.includes('Crear empresa y preparar acceso')||button.textContent.includes('Creando empresa')));const button=form?.querySelector('button[type="submit"]');const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Confirmo que este correo corresponde al propietario autorizado'));return {alert:document.querySelector('[role="alert"]')?.innerText || '',saving:button?.textContent.includes('Creando empresa')??false,formValid:form?.checkValidity()??false,buttonDisabled:button?.disabled??true,emailConfirmed:label?.querySelector('input[type="checkbox"]')?.checked??false}})()`)
+    return { tenant: rows.docs[0] || null, ...ui }
   }, value => Boolean(value?.tenant || value?.alert), 'Assisted tenant creation did not persist or return a visible result through the Admin UI')
   if (activationResult.alert) throw new Error(`Assisted tenant creation was rejected by the application: ${activationResult.alert}`)
   const createdTenant = activationResult.tenant
