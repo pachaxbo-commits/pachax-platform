@@ -1,5 +1,13 @@
 # Landing page showcase assets
 
+## Ilustración editorial del banner de contacto — Fase 6
+
+- File: `public/brand/showcase/support-specialist.webp`
+- Use: banner de contacto de la sección de servicios estratégicos.
+- Origin: generated for this project with OpenAI image generation; fictional illustrative support specialist, not a PACHAX employee or customer.
+- Processing: converted from PNG to WebP (quality 84); 55,874 bytes.
+- Marks/logos: none. The image is an editorial illustration and does not assert a real staff identity.
+
 ## Hamburger counter photograph
 
 - File: `public/brand/showcase/hamburger-counter.webp`

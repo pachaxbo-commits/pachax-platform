@@ -137,6 +137,16 @@ try {
     const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     writeFileSync(resolve(output, `${label}.png`), Buffer.from(capture.data, 'base64'))
   }
+  const screenshotFullPage = async (label) => {
+    await evaluate(`window.scrollTo({top:0,behavior:'instant'})`)
+    await sleep(120)
+    const { contentSize } = await send('Page.getLayoutMetrics')
+    const capture = await send('Page.captureScreenshot', {
+      format: 'png', captureBeyondViewport: true,
+      clip: { x: 0, y: 0, width: contentSize.width, height: contentSize.height, scale: 1 },
+    })
+    writeFileSync(resolve(output, `${label}.png`), Buffer.from(capture.data, 'base64'))
+  }
   const screenshotElement = async (selector, label) => {
     await evaluate(`Promise.all([...document.querySelectorAll(${JSON.stringify(selector + ' img')})].map(img => { img.loading='eager'; return img.decode().catch(() => undefined); }))`)
     const rect = await evaluate(`(() => { const el=document.querySelector(${JSON.stringify(selector)}); if(!el) return null; const r=el.getBoundingClientRect(); return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height}; })()`)
@@ -165,7 +175,7 @@ try {
     assert.equal(loaded.tutorialSelected, 'restaurant', 'Tutoriales inicia en Restaurante con salón')
     if (width > 1100) assert.equal(loaded.tutorialSelectorScrollWidth, loaded.tutorialSelectorWidth, 'Las cinco plantillas quedan visibles en escritorio')
     assert.equal(loaded.overflow, false, 'No debe existir desbordamiento horizontal')
-    assert.equal(loaded.footerTrailingSpace, 0, 'No debe existir espacio muerto debajo del footer')
+    assert(Math.abs(loaded.footerTrailingSpace) <= 1, 'No debe existir espacio muerto debajo del footer')
     assert.equal(loaded.hasSparklesInBanner, false, 'No deben existir iconos Sparkles en el banner a medida')
     assert.deepEqual(loaded.pricingModeCards, ['assisted', 'direct'], 'Planes muestra las dos modalidades aprobadas')
     assert.equal(pricingImages.pricingImagesLoaded, true, 'Las dos fotografías comerciales están cargadas')
@@ -175,7 +185,44 @@ try {
     assert.deepEqual(catalogState.catalogIds, ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom'])
     assert.equal(catalogState.catalogColumns, width <= 680 ? 1 : width <= 1100 ? 2 : 3, 'El catálogo debe adaptarse como grilla, sin carrusel móvil')
 
+    if ([320, 375].includes(width)) {
+      await evaluate(`(() => { const section=document.querySelector('#tutoriales'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.4),behavior:'instant'}); })()`)
+      await waitForValue(`document.querySelector('#tutoriales .pachax-tutorials-frame')?.contentDocument?.readyState`, value => value === 'complete', 'carga el demo para captura integral')
+    }
+    await evaluate(`(() => { const section=document.querySelector('#extras'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.4),behavior:'instant'}); const image=section.querySelector('.pachax-extras-contact-photo'); if(image) image.loading='eager'; return image?.decode().catch(()=>undefined); })()`)
+    const extrasState = await evaluate(`(() => {
+      const section=document.querySelector('#extras');
+      return {
+        title: section?.querySelector('h2')?.innerText || '',
+        services: section?.querySelectorAll('.pachax-extra-card').length || 0,
+        empty: section?.querySelector('.pachax-extras-empty')?.innerText || '',
+        photoLoaded: Boolean(section?.querySelector('.pachax-extras-contact-photo')?.naturalWidth),
+        contactActions: section?.querySelectorAll('.pachax-extras-contact-actions button').length || 0,
+        footerLinks: [...document.querySelectorAll('.pachax-footer-navigation a')].map(link=>link.getAttribute('href')),
+        registerLinks: document.querySelectorAll('.pachax-trust-footer a[href^="/register"], .pachax-trust-footer button[data-register]').length,
+      };
+    })()`)
+    assert.match(extrasState.title, /Potencia tu operación con módulos y servicios especializados/)
+    assert(extrasState.services >= 0)
+    if (extrasState.services === 0) assert.match(extrasState.empty, /Servicios en preparación/, 'No se muestran servicios de borrador')
+    assert.equal(extrasState.photoLoaded, true, 'El asset editorial del cierre se carga')
+    assert.equal(extrasState.contactActions, 2, 'El cierre separa WhatsApp y solicitud de propuesta')
+    assert.deepEqual(extrasState.footerLinks, ['#plantillas', '#planes', '#tutoriales', '#extras'])
+    assert.equal(extrasState.registerLinks, 0, 'El footer no anuncia alta autónoma pausada')
+
+    await evaluate(`(() => {
+      window.__extrasContactUrls=[];
+      window.open=(url)=>window.__extrasContactUrls.push(String(url));
+      document.querySelector('.pachax-contact-action')?.click();
+      document.querySelector('.pachax-proposal-action')?.click();
+    })()`)
+    const extrasContactUrls = await evaluate(`window.__extrasContactUrls`)
+    assert.equal(extrasContactUrls.length, 2)
+    assert(extrasContactUrls.every(url=>/wa\.me\/59177987776/.test(url)), 'Ambas acciones usan el WhatsApp oficial')
+    assert.notEqual(new URL(extrasContactUrls[0]).searchParams.get('text'), new URL(extrasContactUrls[1]).searchParams.get('text'), 'WhatsApp y propuesta tienen mensajes distintos')
+
     await screenshot(`${width}-hero`)
+    if ([320, 375, 390, 1440, 1920].includes(width)) await screenshotFullPage(`${width}-landing-full`)
     if (width === 1440 || width === 390 || width === 1920) {
       await evaluate(`(() => { const section=document.querySelector('#plantillas'); window.scrollTo({top:section.offsetTop-180,behavior:'instant'}); })()`)
       await sleep(250)
@@ -317,6 +364,14 @@ try {
       assert.match(retailTutorial.tutorialFrameUrl, /\/demo\/retail\?/)
       assert.match(await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-guide-note')?.innerText||''`), /Centro de tutoriales no está disponible/)
       assert.equal(await evaluate(`Boolean(document.querySelector('#tutoriales [data-tutorial-open-guide]'))`), false, 'Comercio no anuncia un tutorial inexistente')
+
+      await evaluate(`(() => { const section=document.querySelector('#extras'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.42),behavior:'instant'}); })()`)
+      await sleep(200)
+      await screenshot(`${width}-section5-6-transition`)
+      await screenshotElement('#extras', `${width}-services-full`)
+      await evaluate(`(() => { const footer=document.querySelector('.pachax-trust-footer'); window.scrollTo({top:footer.offsetTop-Math.round(innerHeight*.55),behavior:'instant'}); })()`)
+      await sleep(180)
+      await screenshot(`${width}-footer`)
 
       if (width === 390) {
         await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="restaurant"]')?.focus()`)

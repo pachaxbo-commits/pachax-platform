@@ -82,6 +82,8 @@ try {
   await new Promise((resolve, reject) => { socket.onopen = () => { socketOpen = true; resolve() }; socket.onerror = reject })
   socket.onmessage = event => {
     const message = JSON.parse(event.data)
+    if (message.method === 'Runtime.exceptionThrown') console.error('BROWSER_EXCEPTION', message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text)
+    if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') console.error('BROWSER_LOG', message.params.entry.text)
     if (message.method === 'Network.requestWillBeSent') requests.add(new URL(message.params.request.url).origin)
     if (!pending.has(message.id)) return
     const operation = pending.get(message.id)
@@ -101,6 +103,7 @@ try {
   }
   await send('Page.enable')
   await send('Runtime.enable')
+  await send('Log.enable')
   await send('Network.enable')
 
   for (const [width, height] of [[1440, 900], [390, 844]]) {
