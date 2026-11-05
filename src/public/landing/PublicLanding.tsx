@@ -60,7 +60,7 @@ export function PublicLanding() {
           openInitialDetails={Boolean(requestedPricingTemplate)}
         />
 
-        {/* SECCIÓN 4: Configura tu empresa en 5 minutos (Progresión editorial de 5 pasos) */}
+        {/* SECCIÓN 4: Implementación guiada demostrativa en cuatro pasos */}
         <RealOnboardingSection />
 
         {/* SECCIÓN 5: Tutoriales Guiados Interactivos (Simulador de asistencia en pantalla) */}

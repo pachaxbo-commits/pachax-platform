@@ -144,6 +144,8 @@ try {
     await send('Page.navigate', { url: baseUrl })
     const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2, `${width}: loaded`)
     const catalogState = await waitFor((res) => res.catalogCount === 6, `${width}: six catalog entries`)
+    await evaluate(`document.querySelectorAll('#planes img').forEach(image=>{image.loading='eager'})`)
+    const pricingImages = await waitFor((res) => res.pricingImagesLoaded, `${width}: commercial images loaded`)
     await sleep(400)
 
     assert.equal(loaded.specializedCount, 3, 'La fila debe conservar las tres fichas especializadas')
@@ -154,7 +156,7 @@ try {
     assert.equal(loaded.footerTrailingSpace, 0, 'No debe existir espacio muerto debajo del footer')
     assert.equal(loaded.hasSparklesInBanner, false, 'No deben existir iconos Sparkles en el banner a medida')
     assert.deepEqual(loaded.pricingModeCards, ['assisted', 'direct'], 'Planes muestra las dos modalidades aprobadas')
-    assert.equal(loaded.pricingImagesLoaded, true, 'Las dos fotografías comerciales están cargadas')
+    assert.equal(pricingImages.pricingImagesLoaded, true, 'Las dos fotografías comerciales están cargadas')
     assert.match(loaded.pricingHeading, /Planes adaptados a la escala real de tu empresa/)
     assert(loaded.pricingCardHeights.every(height => height > 200), 'Las dos tarjetas deben conservar una altura legible')
     assert(loaded.pricingCardCopy.every(text => !text.includes('…')), 'Las descripciones de las modalidades no se recortan')
@@ -162,7 +164,7 @@ try {
     assert.equal(catalogState.catalogColumns, width <= 680 ? 1 : width <= 1100 ? 2 : 3, 'El catálogo debe adaptarse como grilla, sin carrusel móvil')
 
     await screenshot(`${width}-hero`)
-    if (width === 1440 || width === 390) {
+    if (width === 1440 || width === 390 || width === 1920) {
       await evaluate(`(() => { const section=document.querySelector('#plantillas'); window.scrollTo({top:section.offsetTop-180,behavior:'instant'}); })()`)
       await sleep(250)
       await screenshot(`${width}-section-transition`)
@@ -179,6 +181,94 @@ try {
       await waitForValue(`document.querySelector('[role="dialog"] h3')?.textContent.trim()`, value => value === 'Activación Directa', 'abre detalle activación')
       await screenshot(`${width}-direct-details-no-published-plans`)
       await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+
+      const onboardingState = await evaluate(`(() => {
+        const section=document.querySelector('#onboarding');
+        const layout=section?.querySelector('.pachax-onboarding-layout');
+        const device=section?.querySelector('.pachax-onboarding-device');
+        const cta=section?.querySelector('.pachax-onboarding-cta');
+        return {
+          title: section?.querySelector('h2')?.innerText || '',
+          steps: section?.querySelectorAll('[data-onboarding-step-trigger]').length || 0,
+          activeStep: Number(device?.getAttribute('data-onboarding-step')),
+          progress: section?.querySelector('[data-onboarding-progress-label]')?.textContent.trim(),
+          cta: cta?.getAttribute('href') || '',
+          layoutAreas: layout ? getComputedStyle(layout).gridTemplateAreas : '',
+          deviceWidth: Math.round(device?.getBoundingClientRect().width || 0),
+          deviceHeight: Math.round(device?.getBoundingClientRect().height || 0),
+        };
+      })()`)
+      assert.match(onboardingState.title, /Configura y prepara tu empresa[\s\S]*paso a paso/)
+      assert.equal(onboardingState.steps, 4, 'La sección conserva los cuatro pasos navegables')
+      assert.equal(onboardingState.activeStep, 1, 'La demostración inicia en el primer paso')
+      assert.equal(onboardingState.progress, 'Paso 1 de 4', 'El dispositivo muestra el paso activo')
+      assert.match(onboardingState.cta, /wa\.me\/59177987776/, 'El CTA dirige a consulta asistida por el canal oficial')
+      assert(onboardingState.deviceWidth > 200 && onboardingState.deviceHeight > 300, 'El dispositivo conserva proporciones visibles')
+      assert.equal(await evaluate(`document.querySelectorAll('#onboarding a[href^="/register"]').length`), 0, 'La demostración no inicia el registro autónomo pausado')
+      if (width <= 1100) assert.match(onboardingState.layoutAreas, /"intro" "steps" "device" "action"/, 'En móvil/tablet, el recorrido precede al teléfono y al CTA')
+
+      await evaluate(`(() => { const section=document.querySelector('#onboarding'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.45),behavior:'instant'}); })()`)
+      await sleep(200)
+      await screenshot(`${width}-section3-4-transition`)
+      await screenshotElement('#onboarding', `${width}-onboarding-full`)
+      await screenshotElement('#onboarding', `${width}-onboarding-step-1`)
+
+      assert.equal(await evaluate(`document.querySelector('.pachax-onboarding-app-controls > button:first-child')?.disabled`), true, 'Anterior queda deshabilitado en el primer paso')
+      await evaluate(`document.querySelector('.pachax-onboarding-app-controls > button:last-child')?.click()`)
+      await waitForValue(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`, value => value === '2', 'Siguiente avanza al paso dos')
+      await evaluate(`document.querySelector('.pachax-onboarding-app-controls > button:first-child')?.click()`)
+      await waitForValue(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`, value => value === '1', 'Anterior vuelve al primer paso')
+      await evaluate(`window.__onboardingErrors=[]; window.addEventListener('error',event=>window.__onboardingErrors.push(event.message)); window.addEventListener('unhandledrejection',event=>window.__onboardingErrors.push(String(event.reason)));`)
+
+      await evaluate(`(() => {
+        window.__onboardingServiceRequests=[];
+        const originalFetch=window.fetch.bind(window);
+        window.fetch=(input,init)=>{
+          const url=typeof input==='string'?input:input?.url||'';
+          if(/firebase|googleapis|tenantGateway|functions/i.test(url)) window.__onboardingServiceRequests.push(url);
+          return originalFetch(input,init);
+        };
+        const originalOpen=XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open=function(method,url,...rest){
+          if(/firebase|googleapis|tenantGateway|functions/i.test(String(url))) window.__onboardingServiceRequests.push(String(url));
+          return originalOpen.call(this,method,url,...rest);
+        };
+      })()`)
+      await evaluate(`document.querySelector('[data-onboarding-step-trigger="2"]')?.click()`)
+      await waitForValue(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`, value => value === '2', 'el stepper actualiza el simulador')
+      await evaluate(`document.querySelector('[data-demo-template="nightclub_lounge"]')?.click()`)
+      assert.equal(await evaluate(`document.querySelector('[data-demo-template="nightclub_lounge"]')?.getAttribute('aria-pressed')`), 'true', 'La plantilla de ejemplo se puede seleccionar')
+      assert.match(await evaluate(`document.querySelector('.pachax-onboarding-selection-note')?.textContent||''`), /Nightclub & Lounge/)
+      await evaluate(`document.activeElement?.blur()`)
+      await screenshotElement('#onboarding', `${width}-onboarding-step-2`)
+
+      await evaluate(`document.querySelector('[data-onboarding-step-trigger="3"]')?.click()`)
+      await waitForValue(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`, value => value === '3', 'el tercer paso queda sincronizado')
+      await evaluate(`document.querySelector('[data-demo-palette="emerald"]')?.click()`)
+      assert.equal(await evaluate(`document.querySelector('[data-demo-palette="emerald"]')?.getAttribute('aria-pressed')`), 'true', 'La paleta de marca se puede seleccionar')
+      assert.equal(await evaluate(`document.querySelector('.pachax-onboarding-brand-preview')?.style.getPropertyValue('--demo-brand-primary')`), '#0F766E')
+      await evaluate(`document.activeElement?.blur()`)
+      await screenshotElement('#onboarding', `${width}-onboarding-step-3`)
+
+      await evaluate(`document.querySelector('[data-onboarding-step-trigger="4"]')?.click()`)
+      await waitForValue(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`, value => value === '4', 'el paso final queda sincronizado')
+      const illustrativeProvisioning = await evaluate(`document.querySelector('[data-onboarding-step-content="4"]')?.innerText||''`)
+      assert.match(illustrativeProvisioning, /Resultado ilustrativo · no ejecutado/)
+      assert.match(illustrativeProvisioning, /no crea|no se crea|no ejecutado/i)
+      assert.equal(await evaluate(`document.querySelector('.pachax-onboarding-app-controls > button:last-child')?.disabled`), true, 'Siguiente queda deshabilitado en el último paso')
+      await evaluate(`document.activeElement?.blur()`)
+      await screenshotElement('#onboarding', `${width}-onboarding-step-4`)
+      await evaluate(`document.querySelector('.pachax-onboarding-app-controls > button:first-child')?.click()`)
+      assert.equal(await evaluate(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`), '3', 'Anterior retrocede manteniendo sincronizado el simulador')
+      assert.deepEqual(await evaluate(`window.__onboardingServiceRequests`), [], 'La demostración no llama Firebase, Functions ni servicios de aprovisionamiento')
+      assert.deepEqual(await evaluate(`window.__onboardingErrors`), [], 'La demostración no genera errores de navegador')
+
+      if (width === 390) {
+        await evaluate(`(() => { const trigger=document.querySelector('[data-onboarding-step-trigger="2"]'); trigger?.focus(); })()`)
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+        assert.equal(await evaluate(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`), '2', 'Los pasos se pueden seleccionar con teclado')
+      }
       await evaluate(`window.scrollTo({top:0,behavior:'instant'})`)
     }
 

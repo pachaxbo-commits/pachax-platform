@@ -1,5 +1,16 @@
 # Continuidad del proyecto PACHAX
 
+## Rediseño de portada pública PACHAX Platform — fase 4 (04/11/2026)
+
+- Continúa en `codex/pachax-platform-home-redesign-20261104`, PR #23. `origin/main` (`72acc1649d781702fa8536061b3bdf3bdf49d24b`) es ancestro de la rama; las fases 1–3 permanecen intactas. No se hicieron cambios de backend, contratación, reglas ni Firebase.
+- `RealOnboardingSection.tsx` ahora presenta una composición de dos zonas en escritorio y una secuencia vertical en móvil/tablet. El marco laptop y teléfono comparten un único simulador React y estado para cuatro pasos: entidad legal, plantilla operativa, identidad y marca, y aprovisionamiento. Se reutiliza el wordmark/isotipo local existente y `BRAND_PALETTES`; no se añadieron assets externos.
+- El simulador usa datos demostrativos no operativos, permite seleccionar Restaurante con salón, Distribución o Nightclub y cambiar una paleta. El paso 4 es una vista de resultado ilustrativa: no crea tenant, sucursal, usuario o caja ni invoca Firebase/Functions. Se añadió barra lateral visual solo en la laptop, sin controles duplicados.
+- `PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED` continúa en `false` y `/register` presenta el aviso de creación autónoma pausada. Por ello, la sección evita prometer activación «en minutos» y el CTA consulta implementación asistida por el WhatsApp oficial; no habilita el registro ni aprovisionamiento público.
+- Capturas de la sección completa, transición 3→4 y pasos 1–4, en `tmp/landing-regression-evidence/` (artefactos locales ignorados): prefijos `1440-`, `390-` y `1920-`; los ocho viewports del browser test cubren también 320, 375, 430, 768 y 1024 px.
+- QA Fase 4: `npm run typecheck` PASS; `npm run build` PASS (configuración local de Preview visual ficticia; build aislado auditó 0 referencias prohibidas); ESLint focal PASS; `npm run test:preview-firebase-isolation` 5/5; `npm run test:landing-browser` PASS en 8 anchos, pasos, navegación anterior/siguiente, teclado, selección de plantilla/paleta, CTA, cero solicitudes Firebase/Functions en la interacción y cero errores de navegador; `npm run test:public-catalog-fallback-browser` PASS en 1440×900/390×844; `npm run test:brand-palettes`, `test:commercial-catalog-contract`, `test:commercial-presentation` y `git diff --check` PASS.
+- Limitación comercial conservada: la Preview visual no aprovisiona empresas y el registro autónomo sigue pausado; el simulador no es un formulario real. La captura no presenta empresas, credenciales, tenant IDs ni estados de activación ejecutados.
+- Pendiente al registrar este checkpoint: publicar el commit de Fase 4 en la rama existente y comprobar el deployment Vercel Preview generado para ese SHA. No publicar ni promover a Production, no cambiar variables/SSO compartidas y no hacer merge del PR.
+
 ## Rediseño de portada pública PACHAX Platform — fase 3 (04/11/2026)
 
 - Rama `codex/pachax-platform-home-redesign-20261104`, PR #23 abierta; HEAD de inicio `a0b6ba8ecd0771a8df8c0db1bb92592d19fa9a9`. `origin/main` (`72acc1649d781702fa8536061b3bdf3bdf49d24b`) ya era ancestro de la rama. Solo se cambió la sección de Planes, su detalle y pruebas asociadas; las secciones 1 y 2 conservaron su código y regresión visual.
