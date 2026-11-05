@@ -1,0 +1,78 @@
+name: Billing Core PR gate
+
+on:
+  pull_request:
+    paths:
+      - 'functions/commercialBilling.cjs'
+      - 'functions/billingPolicy.cjs'
+      - 'functions/tests/commercialBilling.test.cjs'
+      - 'src/App.tsx'
+      - 'src/admin/views/sections/CommercialBillingSection.tsx'
+      - 'src/components/billing/**'
+      - 'scripts/test-billing-manual-ui-lifecycle.mjs'
+      - 'CONTEXTO.md'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'functions/package.json'
+      - 'functions/package-lock.json'
+      - '.github/workflows/billing-core-pr.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-core-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  billing-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      - name: Set up Java for Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools@15.5.1
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build Functions and Firestore Rules
+        run: |
+          npm run build:functions-core
+          npm run build:rules
+
+      - name: Run platform contract tests
+        run: npm run test:platform
+
+      - name: Run Billing Core on isolated demo emulators
+        run: npm run test:billing-core
+
+      - name: Run authenticated Billing UI lifecycle on isolated demo emulators
+        run: npm run test:billing-ui-lifecycle
+
+      - name: Lint changed Billing files
+        run: npx eslint functions/commercialBilling.cjs functions/tests/commercialBilling.test.cjs src/App.tsx src/admin/views/sections/CommercialBillingSection.tsx src/components/billing/TenantBillingPortal.tsx scripts/test-billing-manual-ui-lifecycle.mjs

@@ -8,6 +8,7 @@ const tenants = require('./tenants.cjs');
 const { prepareCleanDelivery, executeCleanDelivery } = require('./maintenance.cjs');
 const { PACHAX_FUNCTIONS_REGION } = require('./regions.cjs');
 const platform = require('./platform.cjs');
+const commercialBilling = require('./commercialBilling.cjs');
 const commercialOnboarding = require('./commercialOnboarding.cjs');
 const onboarding = require('./onboarding.cjs');
 const { executeNightclubCommand } = require('./nightclub.cjs');
@@ -37,6 +38,8 @@ exports.tenantGateway = onCall(options, async request => {
   const db = getFirestore(), auth = getAuth();
   switch (request.data?.action) {
     case 'retailCommand': return executeRetailCommand(db, request);
+    case 'getMyBillingOverview': return commercialBilling.getTenantBillingOverview(db, request);
+    case 'recordManualPaymentReference': return commercialBilling.recordManualPaymentReference(db, request);
     case 'authorizeReportCapability': return authorizeReportCapability(db, request);
     case 'restaurantCommand': return executeRestaurantCommand(db, request);
     case 'nightclubCommand': return executeNightclubCommand(db, request);

@@ -13,13 +13,15 @@ interface BillingRecord {
   paymentId?: string
   tenantId?: string | null
   amountMinor?: number
+  originalAmountMinor?: number
+  correctionCount?: number
   paidMinor?: number
   pendingMinor?: number
   currency?: string
   kind?: string
   dueAt?: { _seconds?: number; seconds?: number } | string
   customer?: { companyName?: string; email?: string; phone?: string }
-  terms?: { companyName?: string; templateId?: string; initialDueMinor?: number; recurringMinor?: number; currency?: string; billingCycle?: string; plan?: { name?: string } | null }
+  terms?: { companyName?: string; templateId?: string; initialDueMinor?: number; recurringMinor?: number; currency?: string; billingCycle?: string; periodCount?: number; monthsCovered?: number; plan?: { name?: string } | null }
   bankReference?: string
   method?: string
   createdAt?: { _seconds?: number; seconds?: number } | string
@@ -27,13 +29,23 @@ interface BillingRecord {
   currentPeriodEnd?: { _seconds?: number; seconds?: number } | string
   billingAccessUntil?: { _seconds?: number; seconds?: number } | string
   effectiveStatus?: string
+  daysRemaining?: number | null
   templateId?: string
   planKey?: string | null
   billingCycle?: string
-  pendingPlanChange?: { planSnapshot?: { name?: string }; effectiveAt?: { _seconds?: number; seconds?: number } }
+  pendingPlanChange?: { planSnapshot?: { name?: string }; effectiveAt?: { _seconds?: number; seconds?: number }; billingCycle?: string }
+  periodCount?: number
+  monthsCovered?: number
+  recurringMinor?: number
+  planSnapshot?: { name?: string } | null
+  recordedAt?: { _seconds?: number; seconds?: number } | string
 }
+interface BillingNote { id: string; note: string; actorRole: string; createdAt?: { seconds?: number; _seconds?: number } }
 
 interface BillingPlanOption { id: string; name: string; templateId: string; currency: string; monthlyMinor: number; annualMinor: number }
+interface BillingCursor { createdAtMillis: number; id: string }
+type ManualMethods = { available: boolean; qrEnabled: boolean; transferEnabled: boolean; qrImageUrl: string; bankName: string; accountHolder: string; accountIdentifier: string; instructions: string; whatsappNumber: string }
+const EMPTY_METHODS: ManualMethods = { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', bankName: '', accountHolder: '', accountIdentifier: '', instructions: '', whatsappNumber: '' }
 
 export interface PaidContractActivation {
   id: string
@@ -43,10 +55,21 @@ export interface PaidContractActivation {
 }
 
 const currencyLabel = (minor = 0, currency = 'BOB') => `${currency} ${(minor / 100).toFixed(2)}`
-const dateLabel = (value?: BillingRecord['dueAt']) => {
+const dateMillis = (value?: BillingRecord['dueAt']) => {
   const seconds = typeof value === 'object' && value ? value.seconds ?? value._seconds : undefined
-  const date = seconds ? new Date(seconds * 1000) : typeof value === 'string' ? new Date(value) : null
-  return date && Number.isFinite(date.getTime()) ? date.toLocaleDateString('es-BO') : '—'
+  const millis = seconds ? seconds * 1000 : typeof value === 'string' ? Date.parse(value) : NaN
+  return Number.isFinite(millis) ? millis : null
+}
+const dateLabel = (value?: BillingRecord['dueAt']) => {
+  const millis = dateMillis(value)
+  return millis == null ? '—' : new Date(millis).toLocaleDateString('es-BO')
+}
+const renewalCycleFor = (subscription: BillingRecord): 'monthly' | 'annual' =>
+  subscription.pendingPlanChange?.billingCycle === 'annual' || (!subscription.pendingPlanChange && subscription.billingCycle === 'annual') ? 'annual' : 'monthly'
+const renewalPeriodsFor = (cycle: 'monthly' | 'annual') => cycle === 'annual' ? [1, 2, 3, 5] : [1, 2, 3, 6, 12]
+const futurePlanChangeFor = (subscription: BillingRecord) => {
+  const effectiveAt = dateMillis(subscription.pendingPlanChange?.effectiveAt)
+  return effectiveAt != null && effectiveAt > Date.now()
 }
 
 export function CommercialBillingSection({ onActivateContract }: { onActivateContract?: (contract: PaidContractActivation) => void }) {
@@ -65,25 +88,48 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
   const [requestId, setRequestId] = useState(() => crypto.randomUUID())
   const [billingPlans, setBillingPlans] = useState<BillingPlanOption[]>([])
   const [planSelections, setPlanSelections] = useState<Record<string, string>>({})
+  const [recordsHasMore, setRecordsHasMore] = useState<Record<BillingKind, boolean>>({ contracts: false, charges: false, payments: false, subscriptions: false })
+  const [recordCursors, setRecordCursors] = useState<Partial<Record<BillingKind, BillingCursor>>>({})
+  const [loadingMore, setLoadingMore] = useState<BillingKind | null>(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [templateFilter, setTemplateFilter] = useState('all')
+  const [methods, setMethods] = useState<ManualMethods>(EMPTY_METHODS)
+  const [methodsLoading, setMethodsLoading] = useState(false)
+  const [methodsSaving, setMethodsSaving] = useState(false)
+  const [internalNotes, setInternalNotes] = useState<Record<string, BillingNote[]>>({})
+  const [notesOpen, setNotesOpen] = useState<Record<string, boolean>>({})
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
+  const [correctionChargeId, setCorrectionChargeId] = useState('')
+  const [correctionAmount, setCorrectionAmount] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
 
   const loadBillingData = useCallback(async () => {
     const kinds: BillingKind[] = ['contracts', 'charges', 'payments', 'subscriptions']
-    const results = await Promise.all(kinds.map(kind => gateway<{ records: BillingRecord[] }>('platformGateway', { action: 'listBillingRecords', kind, limit: 100 })))
+    const results = await Promise.all(kinds.map(kind => gateway<{ records: BillingRecord[]; hasMore?: boolean; nextCursor?: BillingCursor | null }>('platformGateway', { action: 'listBillingRecords', kind, limit: 30 })))
     const nextRecords = Object.fromEntries(kinds.map((kind, index) => [kind, results[index].records || []])) as Record<BillingKind, BillingRecord[]>
     const nextPlans = ['platform_owner', 'platform_admin'].includes(user?.role || '')
       ? (await gateway<{ plans: BillingPlanOption[] }>('platformGateway', { action: 'listPublishedBillingPlans' })).plans || []
       : []
-    return { records: nextRecords, plans: nextPlans }
+    const nextMore = Object.fromEntries(kinds.map((kind, index) => [kind, results[index].hasMore === true])) as Record<BillingKind, boolean>
+    const nextCursors = Object.fromEntries(kinds.map((kind, index) => [kind, results[index].nextCursor || undefined])) as Partial<Record<BillingKind, BillingCursor>>
+    const nextMethods = ['platform_owner', 'platform_finance'].includes(user?.role || '')
+      ? (await gateway<{ methods: ManualMethods }>('platformGateway', { action: 'getManualPaymentMethods' })).methods || EMPTY_METHODS
+      : EMPTY_METHODS
+    return { records: nextRecords, plans: nextPlans, more: nextMore, cursors: nextCursors, methods: nextMethods }
   }, [user])
 
   const refresh = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true); setMethodsLoading(true); setError('')
     try {
       const result = await loadBillingData()
       setRecords(result.records)
       setBillingPlans(result.plans)
+      setRecordsHasMore(result.more)
+      setRecordCursors(result.cursors)
+      setMethods(result.methods)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo consultar la facturación.') }
-    finally { setLoading(false) }
+    finally { setLoading(false); setMethodsLoading(false) }
   }, [loadBillingData])
 
   useEffect(() => {
@@ -92,11 +138,39 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       if (!active) return
       setRecords(result.records)
       setBillingPlans(result.plans)
+      setRecordsHasMore(result.more)
+      setRecordCursors(result.cursors)
+      setMethods(result.methods)
     }).catch(cause => {
       if (active) setError(cause instanceof Error ? cause.message : 'No se pudo consultar la facturación.')
-    }).finally(() => { if (active) setLoading(false) })
+    }).finally(() => { if (active) { setLoading(false); setMethodsLoading(false) } })
     return () => { active = false }
   }, [loadBillingData])
+
+  const loadMore = async (kind: BillingKind) => {
+    const cursor = recordCursors[kind]
+    if (!cursor || loadingMore) return
+    setLoadingMore(kind); setError('')
+    try {
+      const page = await gateway<{ records: BillingRecord[]; hasMore: boolean; nextCursor?: BillingCursor | null }>('platformGateway', {
+        action: 'listBillingRecords', kind, limit: 30, cursor,
+      })
+      setRecords(current => ({ ...current, [kind]: [...current[kind], ...(page.records || [])] }))
+      setRecordsHasMore(current => ({ ...current, [kind]: page.hasMore === true }))
+      setRecordCursors(current => ({ ...current, [kind]: page.nextCursor || undefined }))
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo cargar la siguiente página.') }
+    finally { setLoadingMore(null) }
+  }
+
+  const saveMethods = async (event: FormEvent) => {
+    event.preventDefault(); setMethodsSaving(true); setError(''); setMessage('')
+    try {
+      await gateway('platformGateway', { action: 'saveManualPaymentMethods', requestId: crypto.randomUUID(), methods })
+      setMessage('La configuración oficial de cobros se guardó y auditó. Comprueba los datos antes de compartirlos con clientes.')
+      await refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar la configuración de cobros.') }
+    finally { setMethodsSaving(false) }
+  }
 
   const recordPayment = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setMessage('')
@@ -127,18 +201,25 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
     setSaving(true); setError(''); setMessage('')
     try {
       const dueAt = new Date(Date.now() + 7 * 86_400_000).toISOString()
-      const result = await gateway<{ chargeId: string; reusedPendingCharge?: boolean }>('platformGateway', { action: 'createRenewalCharge', requestId: crypto.randomUUID(), contractId: subscription.contractId, dueAt })
-      setMessage(`${result.reusedPendingCharge ? 'Se reutilizó el cargo pendiente' : 'Cargo de renovación creado'}: ${result.chargeId}.`)
+      const cycle = renewalCycleFor(subscription)
+      const choices = renewalPeriodsFor(cycle)
+      const selected = Number(planSelections[`prepay:${subscription.id}`]) || 1
+      const periodCount = choices.includes(selected) ? selected : 1
+      const result = await gateway<{ chargeId: string; renewalMode?: string; reusedPendingCharge?: boolean }>('platformGateway', { action: 'createRenewalCharge', requestId: crypto.randomUUID(), contractId: subscription.contractId, dueAt, periodCount })
+      const chargeType = periodCount > 1 ? 'prepago anticipado' : 'renovación ordinaria'
+      setMessage(`${result.reusedPendingCharge ? 'Se reutilizó el cargo pendiente' : `Cargo de ${chargeType} creado`}: ${result.chargeId} · ${periodCount} ${cycle === 'annual' ? 'año(s)' : 'mes(es)'}. El nuevo período se aplica desde el vencimiento ya pagado, sin solaparse.`)
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo crear el cargo de renovación.') }
     finally { setSaving(false) }
   }
 
   const changeStatus = async (subscription: BillingRecord, status: 'overdue' | 'suspended' | 'cancelled') => {
-    if (!subscription.contractId || !window.confirm(`¿Confirmas cambiar la suscripción a ${status}? Se registrará en auditoría.`)) return
+    if (!subscription.contractId) return
+    const reason = window.prompt(`Motivo para cambiar el estado a ${status} (mínimo 8 caracteres):`)
+    if (!reason || reason.trim().length < 8 || !window.confirm(`¿Confirmas cambiar la suscripción a ${status}? Se registrará en auditoría.`)) return
     setSaving(true); setError(''); setMessage('')
     try {
-      await gateway('platformGateway', { action: 'changeSubscriptionStatus', requestId: crypto.randomUUID(), contractId: subscription.contractId, status, reason: `Cambio manual de estado solicitado desde Admin: ${status}.` })
+      await gateway('platformGateway', { action: 'changeSubscriptionStatus', requestId: crypto.randomUUID(), contractId: subscription.contractId, status, reason })
       setMessage(`Suscripción actualizada: ${status}.`)
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo cambiar el estado.') }
@@ -146,16 +227,99 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
   }
 
   const reviewPayment = async (payment: BillingRecord, action: 'confirmManualPayment' | 'rejectManualPayment') => {
+    const rejectionReason = action === 'rejectManualPayment' ? window.prompt('Motivo del rechazo (mínimo 8 caracteres):') : null
+    if (action === 'rejectManualPayment' && (!rejectionReason || rejectionReason.trim().length < 8)) return
     if (action === 'confirmManualPayment' && !window.confirm('¿Confirmaste directamente que el dinero ingresó a la cuenta de PACHAX? La referencia o una captura no bastan.')) return
     setSaving(true); setError(''); setMessage('')
     try {
       await gateway('platformGateway', action === 'confirmManualPayment'
         ? { action, requestId: crypto.randomUUID(), paymentId: payment.id }
-        : { action, requestId: crypto.randomUUID(), paymentId: payment.id, reason: 'Referencia no conciliada con ingreso bancario verificado.' })
+        : { action, requestId: crypto.randomUUID(), paymentId: payment.id, reason: rejectionReason })
       setMessage(action === 'confirmManualPayment' ? 'Pago confirmado por operador autorizado.' : 'Referencia rechazada y saldo reservado liberado.')
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo revisar el pago.') }
     finally { setSaving(false) }
+  }
+
+  const reactivate = async (subscription: BillingRecord) => {
+    const paidRenewal = records.charges.find(charge => charge.contractId === subscription.contractId
+      && charge.kind === 'renewal' && charge.status === 'paid' && charge.paidMinor === charge.amountMinor)
+    if (!paidRenewal || !subscription.contractId) {
+      setError('Primero debe existir una renovación totalmente conciliada para esta empresa.')
+      return
+    }
+    const reason = window.prompt('Motivo de la reactivación excepcional (mínimo 12 caracteres):')
+    if (!reason || reason.trim().length < 12 || !window.confirm('¿Confirmas reactivar esta suspensión administrativa después de revisar el pago conciliado?')) return
+    setSaving(true); setError(''); setMessage('')
+    try {
+      await gateway('platformGateway', { action: 'reactivateSuspendedSubscription', requestId: crypto.randomUUID(), contractId: subscription.contractId, chargeId: paidRenewal.id, reason })
+      setMessage('Reactivación autorizada y auditada por Platform Owner.')
+      await refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo reactivar la suscripción.') }
+    finally { setSaving(false) }
+  }
+
+  const loadNotes = async (contractId: string) => {
+    try {
+      const result = await gateway<{ notes: BillingNote[] }>('platformGateway', { action: 'listBillingInternalNotes', contractId, limit: 50 })
+      setInternalNotes(current => ({ ...current, [contractId]: result.notes || [] }))
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las observaciones internas.') }
+  }
+
+  const toggleNotes = async (contractId: string) => {
+    const opening = !notesOpen[contractId]
+    setNotesOpen(current => ({ ...current, [contractId]: opening }))
+    if (opening) await loadNotes(contractId)
+  }
+
+  const addInternalNote = async (event: FormEvent, contractId: string) => {
+    event.preventDefault()
+    const note = noteDrafts[contractId]?.trim() || ''
+    if (note.length < 3) return
+    setSaving(true); setError(''); setMessage('')
+    try {
+      await gateway('platformGateway', { action: 'addBillingInternalNote', requestId: crypto.randomUUID(), contractId, note })
+      setNoteDrafts(current => ({ ...current, [contractId]: '' }))
+      setMessage('Observación interna guardada con auditoría.')
+      await loadNotes(contractId)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar la observación interna.') }
+    finally { setSaving(false) }
+  }
+
+  const correctCharge = async (event: FormEvent, chargeId: string) => {
+    event.preventDefault()
+    if (!window.confirm('¿Confirmas corregir este cargo no pagado ni reservado? El importe original y el motivo quedarán auditados.')) return
+    setSaving(true); setError(''); setMessage('')
+    try {
+      const result = await gateway<{ correctionId: string }>('platformGateway', { action: 'correctBillingCharge', requestId: crypto.randomUUID(),
+        chargeId, correctedAmount: correctionAmount, reason: correctionReason })
+      setMessage(`Cargo corregido y auditado (${result.correctionId}). El contrato aceptado no se modificó.`)
+      setCorrectionChargeId(''); setCorrectionAmount(''); setCorrectionReason('')
+      await refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo corregir el cargo.') }
+    finally { setSaving(false) }
+  }
+
+  const normalizedSearch = search.trim().toLocaleLowerCase('es')
+  const filtered = (kind: BillingKind) => records[kind].filter(record => {
+    const text = [record.id, record.contractId, record.customer?.companyName, record.customer?.email,
+      record.terms?.companyName, record.terms?.templateId, record.bankReference, record.tenantId].filter(Boolean).join(' ').toLocaleLowerCase('es')
+    const matchesSearch = !normalizedSearch || text.includes(normalizedSearch)
+    const recordStatus = kind === 'subscriptions' ? (record.effectiveStatus || record.status) : record.status
+    const matchesStatus = statusFilter === 'all' || recordStatus === statusFilter
+    const recordTemplate = record.templateId || record.businessType || record.terms?.templateId
+    const matchesTemplate = templateFilter === 'all' || recordTemplate === templateFilter
+    return matchesSearch && matchesStatus && matchesTemplate
+  })
+  const confirmedRevenue = records.payments.filter(item => item.status === 'confirmed')
+    .reduce((sum, item) => { const currency = item.currency || 'BOB'; sum[currency] = (sum[currency] || 0) + (Number(item.amountMinor) || 0); return sum }, {} as Record<string, number>)
+  const summary = {
+    active: records.subscriptions.filter(item => (item.effectiveStatus || item.status) === 'active').length,
+    expiring: records.subscriptions.filter(item => (item.effectiveStatus || item.status) === 'active' && typeof item.daysRemaining === 'number' && item.daysRemaining <= 7).length,
+    grace: records.subscriptions.filter(item => (item.effectiveStatus || item.status) === 'grace').length,
+    suspended: records.subscriptions.filter(item => ['suspended', 'cancelled', 'expired'].includes(item.effectiveStatus || item.status)).length,
+    pending: records.charges.filter(item => ['due', 'partial', 'under_review'].includes(item.status)).length,
+    review: records.payments.filter(item => item.status === 'pending_review').length,
   }
 
   if (!canView) return <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Tu rol no puede consultar la facturación comercial.</div>
@@ -167,6 +331,31 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
     </header>
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</div>}
     {message && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{message}</div>}
+    {user?.role === 'platform_owner' && <form onSubmit={saveMethods} className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+      <div><h3 className="font-bold">Métodos oficiales de cobro manual</h3><p className="mt-1 text-xs text-slate-600">Solo Platform Owner puede cambiar estos datos. No se inventan datos bancarios ni se confirma un pago por recibir una referencia.</p></div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.available} onChange={event => setMethods(value => ({ ...value, available: event.target.checked }))} /> Mostrar opciones oficiales a propietarios</label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.qrEnabled} onChange={event => setMethods(value => ({ ...value, qrEnabled: event.target.checked }))} /> Habilitar QR</label>
+        <label className="text-sm sm:col-span-2">URL HTTPS del QR oficial<input type="url" value={methods.qrImageUrl} onChange={event => setMethods(value => ({ ...value, qrImageUrl: event.target.value }))} placeholder="URL aprobada del QR; sin valor por defecto" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.transferEnabled} onChange={event => setMethods(value => ({ ...value, transferEnabled: event.target.checked }))} /> Habilitar transferencias</label>
+        <label className="text-sm">Banco / entidad<input value={methods.bankName} onChange={event => setMethods(value => ({ ...value, bankName: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+        <label className="text-sm">Titular<input value={methods.accountHolder} onChange={event => setMethods(value => ({ ...value, accountHolder: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+        <label className="text-sm">Identificador de cuenta<input value={methods.accountIdentifier} onChange={event => setMethods(value => ({ ...value, accountIdentifier: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+        <label className="text-sm">WhatsApp oficial<input type="tel" value={methods.whatsappNumber} onChange={event => setMethods(value => ({ ...value, whatsappNumber: event.target.value }))} placeholder="Formato internacional" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+        <label className="text-sm sm:col-span-2">Instrucciones para clientes<textarea maxLength={1000} value={methods.instructions} onChange={event => setMethods(value => ({ ...value, instructions: event.target.value }))} className="mt-1 min-h-20 w-full rounded-lg border bg-white p-3" /></label>
+      </div>
+      <button type="submit" disabled={methodsSaving || methodsLoading} className="min-h-10 rounded-lg bg-blue-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{methodsSaving ? 'Guardando…' : 'Guardar configuración auditada'}</button>
+      {methodsLoading && <span className="ml-3 text-xs text-slate-600">Consultando configuración…</span>}
+    </form>}
+    <section className="space-y-3 rounded-xl border bg-white p-4">
+      <h3 className="font-bold">Resumen de cobranza · registros cargados</h3>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">{[
+        ['Activas', summary.active], ['Vencen en 7 días', summary.expiring], ['En gracia', summary.grace],
+        ['Restringidas', summary.suspended], ['Cargos pendientes', summary.pending], ['Pagos por revisar', summary.review],
+      ].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-600">{label}</p><p className="mt-1 text-lg font-bold">{value}</p></div>)}</div>
+      <p className="text-xs text-slate-600">Ingresos confirmados en los pagos cargados: {Object.entries(confirmedRevenue).map(([currency, minor]) => currencyLabel(minor, currency)).join(' · ') || 'ninguno'}. No se convierten importes de otras monedas.</p>
+      <div className="grid gap-2 sm:grid-cols-3"><label className="text-xs font-semibold">Buscar<input value={search} onChange={event => setSearch(event.target.value)} placeholder="Empresa, correo, referencia…" className="mt-1 min-h-10 w-full rounded-lg border px-3 text-sm font-normal" /></label><label className="text-xs font-semibold">Estado<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3 text-sm font-normal"><option value="all">Todos</option>{['pending','active','overdue','grace','expired','suspended','cancelled','due','partial','under_review','pending_review','confirmed','rejected','paid','ready_for_activation'].map(value => <option key={value} value={value}>{value}</option>)}</select></label><label className="text-xs font-semibold">Plantilla<select value={templateFilter} onChange={event => setTemplateFilter(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3 text-sm font-normal"><option value="all">Todas</option>{['restaurant_pos','distribution','nightclub_lounge','hamburger_shop','gelateria_weight_cafe'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></div>
+    </section>
     {canConfirm && <form onSubmit={recordPayment} className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2">
       <h3 className="sm:col-span-2 font-bold">Registrar referencia recibida del cliente</h3>
       <label className="text-sm">Cargo pendiente<select required value={selectedCharge} onChange={event => setSelectedCharge(event.target.value)} className="mt-1 w-full rounded-lg border bg-white p-2"><option value="">Seleccionar cargo</option>{records.charges.filter(item => ['due', 'partial', 'under_review'].includes(item.status)).map(item => <option key={item.id} value={item.id}>{item.contractId} · {currencyLabel((item.amountMinor || 0) - (item.paidMinor || 0), item.currency)}</option>)}</select></label>
@@ -177,13 +366,14 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       <button type="submit" disabled={saving || !selectedCharge} className="rounded-lg bg-slate-900 p-2 font-bold text-white disabled:opacity-50 sm:col-span-2">{saving ? 'Guardando…' : 'Registrar para revisión'}</button>
     </form>}
     <div className="grid gap-4 xl:grid-cols-2">
-      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Contratos ({records.contracts.length})</h3>{records.contracts.length ? <ul className="divide-y">{records.contracts.map(contract => <li key={contract.id} className="py-3 text-sm"><div className="flex justify-between gap-3"><strong>{contract.customer?.companyName || contract.terms?.companyName || contract.id}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{contract.status}</span></div><p className="mt-1 text-xs text-slate-600">{contract.terms?.templateId} · {contract.terms?.plan?.name || 'Cotización a medida'} · {contract.terms?.billingCycle || '—'}</p><p className="mt-1 text-xs text-slate-700">Inicial: {currencyLabel(contract.terms?.initialDueMinor, contract.terms?.currency)} · Recurrente: {currencyLabel(contract.terms?.recurringMinor, contract.terms?.currency)}</p>{contract.status === 'ready_for_activation' && user?.role === 'platform_owner' && onActivateContract && <button type="button" onClick={() => onActivateContract({ id: contract.id, status: contract.status, businessType: contract.businessType, customer: contract.customer })} className="mt-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">Crear empresa pagada y preparar acceso</button>}</li>)}</ul> : <p className="text-sm text-slate-600">Todavía no hay contratos.</p>}</section>
-      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Cargos ({records.charges.length})</h3>{records.charges.length ? <ul className="divide-y">{records.charges.map(charge => <li key={charge.id} className="py-3 text-sm"><div className="flex items-start justify-between gap-3"><strong className="break-all">{charge.id}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{charge.status}</span></div><p className="mt-1 text-xs">{charge.kind} · vence {dateLabel(charge.dueAt)}</p><p className="mt-1 text-xs">Pagado {currencyLabel(charge.paidMinor, charge.currency)} / {currencyLabel(charge.amountMinor, charge.currency)} · reservado {currencyLabel(charge.pendingMinor, charge.currency)}</p></li>)}</ul> : <p className="text-sm text-slate-600">Todavía no hay cargos.</p>}</section>
-      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Referencias de pago ({records.payments.length})</h3>{records.payments.length ? <ul className="divide-y">{records.payments.map(payment => <li key={payment.id} className="py-3 text-sm"><div className="flex items-start justify-between gap-3"><strong>{payment.bankReference}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{payment.status}</span></div><p className="mt-1 text-xs">{currencyLabel(payment.amountMinor, payment.currency)} · {payment.method} · {payment.chargeId}</p>{payment.status === 'pending_review' && canConfirm && <div className="mt-2 flex gap-2"><button type="button" disabled={saving} onClick={() => void reviewPayment(payment, 'confirmManualPayment')} className="rounded bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Confirmar ingreso verificado</button><button type="button" disabled={saving} onClick={() => void reviewPayment(payment, 'rejectManualPayment')} className="rounded border px-3 py-2 text-xs font-bold">Rechazar</button></div>}</li>)}</ul> : <p className="text-sm text-slate-600">No hay pagos registrados.</p>}</section>
-      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Suscripciones ({records.subscriptions.length})</h3>{records.subscriptions.length ? <ul className="divide-y">{records.subscriptions.map(subscription => { const effectiveStatus = subscription.effectiveStatus || subscription.status; return <li key={subscription.id} className="py-3 text-sm"><div className="flex justify-between gap-3"><strong>{subscription.contractId}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{effectiveStatus === 'grace' ? 'Período de gracia' : effectiveStatus === 'expired' ? 'Vencida' : effectiveStatus}</span></div><p className="mt-1 text-xs text-slate-600">Tenant {subscription.tenantId || 'pendiente de activación'} · próxima renovación {dateLabel(subscription.nextRenewalAt)}</p>{subscription.billingAccessUntil && <p className="mt-1 text-xs text-slate-600">Acceso permitido hasta {dateLabel(subscription.billingAccessUntil)} (incluye hasta 7 días de gracia desde el vencimiento).</p>}{subscription.pendingPlanChange && <p className="mt-1 text-xs text-blue-800">Cambio a {subscription.pendingPlanChange.planSnapshot?.name || 'nuevo plan'} programado para la siguiente renovación.</p>}
+      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Contratos ({filtered('contracts').length} cargados)</h3>{filtered('contracts').length ? <ul className="divide-y">{filtered('contracts').map(contract => <li key={contract.id} className="py-3 text-sm"><div className="flex justify-between gap-3"><strong>{contract.customer?.companyName || contract.terms?.companyName || contract.id}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{contract.status}</span></div><p className="mt-1 text-xs text-slate-600">{contract.terms?.templateId} · {contract.terms?.plan?.name || 'Cotización a medida'} · {contract.terms?.billingCycle || '—'} · {contract.terms?.monthsCovered || 1} meses cubiertos</p><p className="mt-1 text-xs text-slate-700">Inicial: {currencyLabel(contract.terms?.initialDueMinor, contract.terms?.currency)} · Recurrente: {currencyLabel(contract.terms?.recurringMinor, contract.terms?.currency)}</p>{contract.status === 'ready_for_activation' && user?.role === 'platform_owner' && onActivateContract && <button type="button" disabled={saving} onClick={() => onActivateContract({ id: contract.id, status: contract.status, businessType: contract.businessType, customer: contract.customer })} className="mt-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">Crear empresa pagada y preparar acceso</button>}{canView && <div className="mt-2"><button type="button" onClick={() => void toggleNotes(contract.id)} className="rounded border px-3 py-2 text-xs font-semibold">{notesOpen[contract.id] ? 'Ocultar observaciones' : 'Observaciones internas auditadas'}</button>{notesOpen[contract.id] && <div className="mt-2 space-y-2 rounded-lg bg-slate-50 p-3">{(internalNotes[contract.id] || []).map(item => <p key={item.id} className="border-b pb-2 text-xs text-slate-700">{item.note} <span className="text-slate-500">· {item.actorRole} · {dateLabel(item.createdAt)}</span></p>)}{(internalNotes[contract.id] || []).length === 0 && <p className="text-xs text-slate-500">Sin observaciones internas.</p>}{['platform_owner', 'platform_admin', 'platform_finance'].includes(user?.role || '') && <form onSubmit={event => void addInternalNote(event, contract.id)} className="space-y-2"><label className="block text-xs font-semibold">Nueva observación<textarea minLength={3} maxLength={1500} required value={noteDrafts[contract.id] || ''} onChange={event => setNoteDrafts(current => ({ ...current, [contract.id]: event.target.value }))} className="mt-1 min-h-20 w-full rounded border bg-white p-2 text-sm font-normal" /></label><button type="submit" disabled={saving || (noteDrafts[contract.id] || '').trim().length < 3} className="rounded bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Guardar observación</button></form>}</div>}</div>}</li>)}</ul> : <p className="text-sm text-slate-600">No hay contratos cargados que coincidan.</p>}{recordsHasMore.contracts && <button type="button" disabled={loadingMore === 'contracts'} onClick={() => void loadMore('contracts')} className="mt-3 rounded-lg border px-3 py-2 text-sm">{loadingMore === 'contracts' ? 'Cargando…' : 'Cargar más contratos'}</button>}</section>
+      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Cargos ({filtered('charges').length} cargados)</h3>{filtered('charges').length ? <ul className="divide-y">{filtered('charges').map(charge => <li key={charge.id} className="py-3 text-sm"><div className="flex items-start justify-between gap-3"><strong className="break-all">{charge.id}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{charge.status}</span></div><p className="mt-1 text-xs">{charge.kind} · vence {dateLabel(charge.dueAt)} · {charge.monthsCovered || 1} meses prepagados</p><p className="mt-1 text-xs">Pagado {currencyLabel(charge.paidMinor, charge.currency)} / {currencyLabel(charge.amountMinor, charge.currency)} · reservado {currencyLabel(charge.pendingMinor, charge.currency)}</p>{Number.isSafeInteger(charge.originalAmountMinor) && <p className="mt-1 text-xs text-amber-800">Importe original {currencyLabel(charge.originalAmountMinor, charge.currency)} · {charge.correctionCount || 0} corrección(es) auditada(s)</p>}{user?.role === 'platform_owner' && ['due', 'partial'].includes(charge.status) && Number(charge.paidMinor || 0) === 0 && Number(charge.pendingMinor || 0) === 0 && <div className="mt-2">{correctionChargeId !== charge.id ? <button type="button" disabled={saving} onClick={() => { setCorrectionChargeId(charge.id); setCorrectionAmount((Number(charge.amountMinor || 0) / 100).toFixed(2)) }} className="rounded border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900">Corregir cargo pendiente</button> : <form onSubmit={event => void correctCharge(event, charge.id)} className="grid gap-2 rounded-lg bg-amber-50 p-3 sm:grid-cols-2"><label className="text-xs font-semibold">Nuevo importe ({charge.currency})<input required inputMode="decimal" value={correctionAmount} onChange={event => setCorrectionAmount(event.target.value)} className="mt-1 min-h-10 w-full rounded border bg-white px-2 text-sm font-normal" /></label><label className="text-xs font-semibold sm:col-span-2">Motivo obligatorio<textarea required minLength={12} maxLength={500} value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} className="mt-1 min-h-16 w-full rounded border bg-white p-2 text-sm font-normal" /></label><button type="button" onClick={() => setCorrectionChargeId('')} className="rounded border px-3 py-2 text-xs">Cancelar</button><button type="submit" disabled={saving || correctionReason.trim().length < 12 || !correctionAmount} className="rounded bg-amber-800 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Confirmar y auditar</button></form>}</div>}</li>)}</ul> : <p className="text-sm text-slate-600">No hay cargos cargados que coincidan.</p>}{recordsHasMore.charges && <button type="button" disabled={loadingMore === 'charges'} onClick={() => void loadMore('charges')} className="mt-3 rounded-lg border px-3 py-2 text-sm">{loadingMore === 'charges' ? 'Cargando…' : 'Cargar más cargos'}</button>}</section>
+      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Referencias de pago ({filtered('payments').length} cargadas)</h3>{filtered('payments').length ? <ul className="divide-y">{filtered('payments').map(payment => <li key={payment.id} className="py-3 text-sm"><div className="flex items-start justify-between gap-3"><strong>{payment.bankReference}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{payment.status}</span></div><p className="mt-1 text-xs">{currencyLabel(payment.amountMinor, payment.currency)} · {payment.method} · cargo {payment.chargeId}</p>{payment.status === 'pending_review' && canConfirm && <div className="mt-2 flex gap-2"><button type="button" disabled={saving} onClick={() => void reviewPayment(payment, 'confirmManualPayment')} className="rounded bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Confirmar ingreso verificado</button><button type="button" disabled={saving} onClick={() => void reviewPayment(payment, 'rejectManualPayment')} className="rounded border px-3 py-2 text-xs font-bold">Rechazar</button></div>}</li>)}</ul> : <p className="text-sm text-slate-600">No hay referencias cargadas que coincidan.</p>}{recordsHasMore.payments && <button type="button" disabled={loadingMore === 'payments'} onClick={() => void loadMore('payments')} className="mt-3 rounded-lg border px-3 py-2 text-sm">{loadingMore === 'payments' ? 'Cargando…' : 'Cargar más referencias'}</button>}</section>
+      <section className="rounded-xl border bg-white p-4"><h3 className="mb-3 font-bold">Suscripciones ({filtered('subscriptions').length} cargadas)</h3>{filtered('subscriptions').length ? <ul className="divide-y">{filtered('subscriptions').map(subscription => { const effectiveStatus = subscription.effectiveStatus || subscription.status; const renewalCycle = renewalCycleFor(subscription); const periodOptions = renewalPeriodsFor(renewalCycle); const rawPeriodCount = Number(planSelections[`prepay:${subscription.id}`]) || 1; const selectedPeriodCount = periodOptions.includes(rawPeriodCount) ? rawPeriodCount : 1; const planChangeInFuture = futurePlanChangeFor(subscription); return <li key={subscription.id} className="py-3 text-sm"><div className="flex justify-between gap-3"><strong>{subscription.customer?.companyName || subscription.terms?.companyName || subscription.contractId}</strong><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">{effectiveStatus === 'grace' ? 'Período de gracia' : effectiveStatus === 'expired' ? 'Vencida' : effectiveStatus}</span></div><p className="mt-1 text-xs text-slate-600">{subscription.templateId || subscription.businessType} · {subscription.tenantId || 'pendiente de activación'} · próxima renovación {dateLabel(subscription.nextRenewalAt)}</p><p className="mt-1 text-xs text-slate-600">Plan {subscription.planSnapshot?.name || subscription.planKey || 'Acuerdo personalizado'} · {subscription.billingCycle === 'annual' ? 'anual' : 'mensual'} · {subscription.periodCount || 1} período(s) · {currencyLabel(subscription.recurringMinor, subscription.currency)}</p>{subscription.billingAccessUntil && <p className="mt-1 text-xs text-slate-600">Acceso permitido hasta {dateLabel(subscription.billingAccessUntil)} (incluye hasta 7 días de gracia desde el vencimiento).</p>}{subscription.pendingPlanChange && <p className="mt-1 text-xs text-blue-800">Cambio a {subscription.pendingPlanChange.planSnapshot?.name || 'nuevo plan'} programado para {dateLabel(subscription.pendingPlanChange.effectiveAt)}.</p>}
         {subscription.status === 'active' && subscription.contractId && <div className="mt-2 flex flex-col gap-2 sm:flex-row"><select aria-label="Nuevo plan al renovar" value={planSelections[subscription.id] || ''} onChange={event => setPlanSelections(current => ({ ...current, [subscription.id]: event.target.value }))} className="min-h-10 min-w-0 flex-1 rounded border bg-white px-2 text-xs"><option value="">Programar cambio de plan…</option>{billingPlans.filter(plan => plan.templateId === subscription.templateId).flatMap(plan => [<option key={`${plan.id}|monthly`} value={`${plan.id}|monthly`}>{plan.name} · mensual {currencyLabel(plan.monthlyMinor, plan.currency)}</option>, <option key={`${plan.id}|annual`} value={`${plan.id}|annual`}>{plan.name} · anual {currencyLabel(plan.annualMinor, plan.currency)}</option>])}</select><button type="button" disabled={saving || !planSelections[subscription.id]} onClick={() => void schedulePlanChange(subscription)} className="rounded border px-3 py-2 text-xs font-semibold disabled:opacity-50">Programar</button></div>}
-        {['platform_owner', 'platform_admin'].includes(user?.role || '') && ['active', 'overdue', 'grace', 'expired'].includes(effectiveStatus) && subscription.contractId && <button type="button" disabled={saving} onClick={() => void createRenewal(subscription)} className="mt-2 rounded border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-800 disabled:opacity-50">Crear / revisar renovación</button>}
-        {['platform_owner', 'platform_admin'].includes(user?.role || '') && ['active', 'overdue'].includes(subscription.status) && <div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={saving || subscription.status === 'overdue'} onClick={() => void changeStatus(subscription, 'overdue')} className="rounded border px-3 py-2 text-xs disabled:opacity-50">Marcar vencida</button><button type="button" disabled={saving} onClick={() => void changeStatus(subscription, 'suspended')} className="rounded border px-3 py-2 text-xs">Suspender</button><button type="button" disabled={saving} onClick={() => void changeStatus(subscription, 'cancelled')} className="rounded border border-red-200 px-3 py-2 text-xs text-red-800">Cancelar</button></div>}</li>})}</ul> : <p className="text-sm text-slate-600">No hay suscripciones activas o pendientes.</p>}</section>
+        {['platform_owner', 'platform_admin'].includes(user?.role || '') && ['active', 'overdue', 'grace', 'expired', 'suspended'].includes(effectiveStatus) && subscription.contractId && <div className="mt-2 flex flex-col gap-2 sm:flex-row"><label className="text-xs">Períodos del plan efectivo<select aria-label={`Períodos de prepago ${subscription.contractId}`} value={String(selectedPeriodCount)} onChange={event => setPlanSelections(current => ({ ...current, [`prepay:${subscription.id}`]: event.target.value }))} className="mt-1 min-h-10 w-full rounded border bg-white px-2 sm:w-auto">{periodOptions.map(count => <option value={count} key={count}>{count} {renewalCycle === 'annual' ? (count === 1 ? 'año' : 'años') : (count === 1 ? 'mes' : 'meses')}</option>)}</select></label><button type="button" disabled={saving || planChangeInFuture} onClick={() => void createRenewal(subscription)} className="self-end rounded border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-800 disabled:opacity-50">{selectedPeriodCount > 1 ? 'Crear prepago anticipado' : 'Crear renovación ordinaria'}</button></div>}{planChangeInFuture && <p className="mt-1 text-xs text-amber-800">El cambio de plan entra en vigor el {dateLabel(subscription.pendingPlanChange?.effectiveAt)}. El cargo de renovación podrá crearse desde esa fecha para conservar la tarifa y las capacidades contratadas.</p>}
+        {subscription.status === 'suspended' && user?.role === 'platform_owner' && <button type="button" disabled={saving} onClick={() => void reactivate(subscription)} className="mt-2 rounded border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900 disabled:opacity-50">Reactivar tras conciliar renovación</button>}
+        {['platform_owner', 'platform_admin'].includes(user?.role || '') && ['active', 'overdue'].includes(subscription.status) && <div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={saving || subscription.status === 'overdue'} onClick={() => void changeStatus(subscription, 'overdue')} className="rounded border px-3 py-2 text-xs disabled:opacity-50">Marcar vencida</button><button type="button" disabled={saving} onClick={() => void changeStatus(subscription, 'suspended')} className="rounded border px-3 py-2 text-xs">Suspender</button><button type="button" disabled={saving} onClick={() => void changeStatus(subscription, 'cancelled')} className="rounded border border-red-200 px-3 py-2 text-xs text-red-800">Cancelar</button></div>}</li>})}</ul> : <p className="text-sm text-slate-600">No hay suscripciones cargadas que coincidan.</p>}{recordsHasMore.subscriptions && <button type="button" disabled={loadingMore === 'subscriptions'} onClick={() => void loadMore('subscriptions')} className="mt-3 rounded-lg border px-3 py-2 text-sm">{loadingMore === 'subscriptions' ? 'Cargando…' : 'Cargar más suscripciones'}</button>}</section>
     </div>
   </section>
 }
