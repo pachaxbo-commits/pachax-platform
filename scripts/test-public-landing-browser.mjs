@@ -79,7 +79,10 @@ try {
     const root = document.documentElement;
     const scrollH = root?.scrollHeight || 0;
     const footerBottom = footer ? footer.offsetTop + footer.offsetHeight : 0;
-    const tutorialButtons = [...document.querySelectorAll('#tutoriales .grid button')];
+    const tutorialButtons = [...document.querySelectorAll('#tutoriales [data-tutorial-template]')];
+    const tutorialFrame = document.querySelector('#tutoriales .pachax-tutorials-frame');
+    const tutorialWorkspace = document.querySelector('#tutoriales .pachax-tutorials-workspace');
+    const tutorialSelector = document.querySelector('#tutoriales .pachax-tutorials-selector');
     const catalogCards = [...document.querySelectorAll('#plantillas .pachax-featured-card')];
     const catalogGrid = document.querySelector('#plantillas .pachax-featured-grid');
     const catalogColumns = catalogGrid ? getComputedStyle(catalogGrid).gridTemplateColumns.split(' ').length : 0;
@@ -95,6 +98,12 @@ try {
       footerTrailingSpace: scrollH - footerBottom,
       footerBg: footer ? getComputedStyle(footer).backgroundColor : null,
       tutorialTabCount: tutorialButtons.length,
+      tutorialSelected: document.querySelector('#tutoriales [data-tutorial-template][aria-selected="true"]')?.dataset.tutorialTemplate,
+      tutorialFrameUrl: tutorialFrame?.getAttribute('src') || '',
+      tutorialFrameLoaded: tutorialFrame?.contentDocument?.readyState === 'complete',
+      tutorialWorkspaceColumns: tutorialWorkspace ? getComputedStyle(tutorialWorkspace).gridTemplateColumns.split(' ').length : 0,
+      tutorialSelectorWidth: tutorialSelector?.clientWidth || 0,
+      tutorialSelectorScrollWidth: tutorialSelector?.scrollWidth || 0,
       catalogCount: catalogCards.length,
       catalogColumns,
       catalogIds: catalogCards.map(card => card.dataset.templateId),
@@ -138,11 +147,11 @@ try {
   await send('Page.enable')
   await send('Runtime.enable')
 
-  for (const [width, height] of [[320, 740], [375, 812], [390, 844], [430, 932], [768, 1024], [1024, 768], [1440, 900], [1920, 1080]]) {
+  for (const [width, height] of [[320, 740], [360, 800], [375, 812], [390, 844], [430, 932], [768, 1024], [1024, 768], [1440, 900], [1920, 1080]]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 })
     await send('Emulation.setTouchEmulationEnabled', { enabled: width < 768, maxTouchPoints: 1 })
     await send('Page.navigate', { url: baseUrl })
-    const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2, `${width}: loaded`)
+    const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2 && res.brandLogoLoaded, `${width}: loaded`)
     const catalogState = await waitFor((res) => res.catalogCount === 6, `${width}: six catalog entries`)
     await evaluate(`document.querySelectorAll('#planes img').forEach(image=>{image.loading='eager'})`)
     const pricingImages = await waitFor((res) => res.pricingImagesLoaded, `${width}: commercial images loaded`)
@@ -152,6 +161,9 @@ try {
     assert.equal(loaded.selfServiceCount, 2, 'La fila debe conservar las dos fichas de autoservicio')
     assert.match(loaded.title || '', /Gestiona tu negocio[\s\S]*de forma inteligente/, 'El titular coincide con la referencia aprobada')
     assert.equal(loaded.brandLogoLoaded, true, 'El logotipo oficial debe estar disponible')
+    assert.equal(loaded.tutorialTabCount, 5, 'Tutoriales presenta las cinco demos públicas disponibles')
+    assert.equal(loaded.tutorialSelected, 'restaurant', 'Tutoriales inicia en Restaurante con salón')
+    if (width > 1100) assert.equal(loaded.tutorialSelectorScrollWidth, loaded.tutorialSelectorWidth, 'Las cinco plantillas quedan visibles en escritorio')
     assert.equal(loaded.overflow, false, 'No debe existir desbordamiento horizontal')
     assert.equal(loaded.footerTrailingSpace, 0, 'No debe existir espacio muerto debajo del footer')
     assert.equal(loaded.hasSparklesInBanner, false, 'No deben existir iconos Sparkles en el banner a medida')
@@ -263,7 +275,54 @@ try {
       assert.deepEqual(await evaluate(`window.__onboardingServiceRequests`), [], 'La demostración no llama Firebase, Functions ni servicios de aprovisionamiento')
       assert.deepEqual(await evaluate(`window.__onboardingErrors`), [], 'La demostración no genera errores de navegador')
 
+      await evaluate(`(() => { const section=document.querySelector('#tutoriales'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.45),behavior:'instant'}); })()`)
+      await sleep(250)
+      await screenshot(`${width}-section4-5-transition`)
+      await waitForValue(`document.querySelector('#tutoriales .pachax-tutorials-frame')?.contentDocument?.readyState`, value => value === 'complete', 'demo real de tutoriales cargada')
+      const tutorialState = await state()
+      assert.equal(tutorialState.tutorialSelected, 'restaurant')
+      assert.equal(tutorialState.tutorialFrameLoaded, true)
+      assert.equal(tutorialState.tutorialWorkspaceColumns, width > 1100 ? 2 : 1, 'El espacio real de tutorial se adapta entre escritorio y móvil')
+      assert.match(tutorialState.tutorialFrameUrl, /\/demo\/restaurant\?/)
+      await sleep(1500)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Tutorial interactivo"]'))`, value => !value, 'la introducción inicial no cubre el espacio de operación')
+      await screenshotElement('#tutoriales', `${width}-tutorials-full`)
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-open-guide]')?.click()`)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Aprender a usar PACHAX"]'))`, value => value, 'abre el Centro de aprendizaje real de Restaurante')
+      assert.match(await evaluate(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Aprender a usar PACHAX"]')?.innerText||''`), /Aprender a usar PACHAX|tutoriales disponibles/i)
+      await screenshotElement('#tutoriales', `${width}-tutorials-restaurant-learning-center`)
+      await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-reset')?.click()`)
+      assert.match(await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-feedback')?.textContent||''`), /restauró su dataset/i, 'El control propio confirma el reinicio de la demo')
+      await evaluate(`(() => { const buttons=document.querySelector('#tutoriales iframe')?.contentDocument?.querySelectorAll('[role="dialog"][aria-label="Aprender a usar PACHAX"] button[aria-label="Cerrar"]'); buttons?.item(buttons.length-1)?.click(); })()`)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Aprender a usar PACHAX"]'))`, value => !value, 'el usuario puede cerrar el Centro de aprendizaje real')
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="distribution"]')?.click()`)
+      const distributionTutorial = await waitFor((res) => res.tutorialSelected === 'distribution' && res.tutorialFrameLoaded && /\/demo\/distribution\?.*tour=start/.test(res.tutorialFrameUrl), 'abre demo y recorrido nativo de Distribución')
+      assert.match(distributionTutorial.tutorialFrameUrl, /tour=start/)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[aria-label="Centro de aprendizaje y tutoriales"]'))`, value => value, 'el recorrido soportado de Distribución abre el tutorial real')
+      await screenshotElement('#tutoriales', `${width}-tutorials-distribution-guide`)
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="nightclub"]')?.click()`)
+      await waitFor((res) => res.tutorialSelected === 'nightclub' && res.tutorialFrameLoaded, 'abre demo de Nightclub')
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('button[data-tutorial-trigger]'))`, value => value, 'aparece el acceso de tutorial de Nightclub')
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-open-guide]')?.click()`)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[data-nightclub-tutorial-panel]'))`, value => value, 'abre el tutorial contextual de Nightclub')
+      await screenshotElement('#tutoriales', `${width}-tutorials-nightclub-guide`)
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="hamburger"]')?.click()`)
+      await waitFor((res) => res.tutorialSelected === 'hamburger' && res.tutorialFrameLoaded, 'abre demo de Restaurante Rápido')
+      await sleep(1500)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Tutorial interactivo"]'))`, value => !value, 'la introducción inicial no cubre el POS de Restaurante Rápido')
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-open-guide]')?.click()`)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Aprender a usar PACHAX"]'))`, value => value, 'abre guía real de Restaurante Rápido')
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="retail"]')?.click()`)
+      const retailTutorial = await waitFor((res) => res.tutorialSelected === 'retail' && res.tutorialFrameLoaded && /\/demo\/retail\?/.test(res.tutorialFrameUrl), 'abre POS interactivo de Comercio')
+      assert.match(retailTutorial.tutorialFrameUrl, /\/demo\/retail\?/)
+      assert.match(await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-guide-note')?.innerText||''`), /Centro de tutoriales no está disponible/)
+      assert.equal(await evaluate(`Boolean(document.querySelector('#tutoriales [data-tutorial-open-guide]'))`), false, 'Comercio no anuncia un tutorial inexistente')
+
       if (width === 390) {
+        await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="restaurant"]')?.focus()`)
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 })
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 })
+        assert.equal((await state()).tutorialSelected, 'distribution', 'Las plantillas se recorren con flecha derecha')
         await evaluate(`(() => { const trigger=document.querySelector('[data-onboarding-step-trigger="2"]'); trigger?.focus(); })()`)
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })

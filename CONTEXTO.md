@@ -1,5 +1,16 @@
 # Continuidad del proyecto PACHAX
 
+## Rediseño de portada pública PACHAX Platform — fase 5 (04/11/2026)
+
+- Continúa en `codex/pachax-platform-home-redesign-20261104`, PR #23; `origin/main` permanece integrado. El cambio se limita a la sección pública Tutoriales, su CSS y el test de navegador; no cambia plantillas canónicas, backend, precios, Functions, Rules ni configuración Firebase.
+- La sección reemplaza escenas JSX editoriales por las cinco demos públicas actuales: Restaurante con salón, Producción y Distribución, Nightclub & Lounge, Restaurante Rápido y Comercio. Cada selector valida `isPublicDemoEnabled`; las rutas usan `buildDemoUrl(..., 'full')`, Distribución conserva su `tour=start` soportado y los CTA abren la demo auténtica.
+- Restaurante y Restaurante Rápido muestran el workspace sin la bienvenida de primera ejecución que lo cubre; esta se omite solo en la demo local al elegir la opción propia «Saltar por ahora». El CTA de guía abre el Centro de aprendizaje real. Distribución abre su centro real. Nightclub abre su tutorial contextual. Comercio declara claramente que tiene POS interactivo pero aún no un Centro de tutoriales integrado; no se le atribuye una guía inexistente.
+- El texto aclara que la práctica ocurre en modo demo con datos ficticios. No se presenta el demo como operación de tenant. La auditoría previa de rutas, centros reales, adaptadores y límites está en `docs/landing-tutorials-audit.md`.
+- Capturas de sección y guías reales están en `tmp/landing-regression-evidence/` (artefactos locales ignorados): `1440-tutorials-full.png`, `390-tutorials-full.png`, `1440-tutorials-restaurant-learning-center.png`, `1440-tutorials-distribution-guide.png` y `1440-tutorials-nightclub-guide.png`; transición de sección 4→5 incluida.
+- QA Fase 5: `npm run typecheck`, ESLint focal, build emulador con guard de artefacto aislado (99 archivos, 0 referencias prohibidas), guard Firebase de Preview (5/5) y `npm run test:landing-browser` en 9 anchos (320, 360, 375, 390, 430, 768, 1024, 1440, 1920) PASS. Browser comprueba navegación de los cinco demos, centros/tutoriales existentes, cierre/reinicio y overflow; se conservan las regresiones de las secciones 1–4.
+- Build estándar necesita variables Firebase que no están configuradas en este checkout, así que se usó `npm run build:emulator` con el proyecto demo autorizado. No se usaron variables ni credenciales de Production. El build conserva advertencias existentes por chunks grandes e import dinámico inefectivo.
+- Pendiente al registrar este checkpoint: commit/publicar la rama por petición de esta fase, actualizar PR #23 y confirmar Vercel Preview protegido para el SHA final. No cambiar SSO/variables compartidas, no desplegar ni alterar Production y no hacer merge.
+
 ## Rediseño de portada pública PACHAX Platform — fase 4 (04/11/2026)
 
 - Continúa en `codex/pachax-platform-home-redesign-20261104`, PR #23. `origin/main` (`72acc1649d781702fa8536061b3bdf3bdf49d24b`) es ancestro de la rama; las fases 1–3 permanecen intactas. No se hicieron cambios de backend, contratación, reglas ni Firebase.
