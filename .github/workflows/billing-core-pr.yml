@@ -10,6 +10,7 @@ on:
       - 'src/admin/views/sections/CommercialBillingSection.tsx'
       - 'src/components/billing/**'
       - 'scripts/test-billing-manual-ui-lifecycle.mjs'
+      - 'CONTEXTO.md'
       - 'package.json'
       - 'package-lock.json'
       - 'functions/package.json'
