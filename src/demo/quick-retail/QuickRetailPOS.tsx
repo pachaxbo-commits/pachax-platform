@@ -183,7 +183,7 @@ export function QuickRetailPOS({
         )}
 
         {/* Buscador y Categorías */}
-        <div data-tutorial-target="catalog" tabIndex={0} onFocus={() => tutorialAction('catalog-focus')} className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3 focus:outline-none">
+        <div data-tutorial-target="catalog" tabIndex={0} onFocus={() => tutorialAction('catalog-focus')} onClick={() => tutorialAction('catalog-focus')} className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3 focus:outline-none">
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />

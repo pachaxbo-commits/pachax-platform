@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, BookOpen, Check, CircleHelp, RotateCcw, X } from 'lucide-react'
 import { QUICK_RETAIL_TUTORIALS, type QuickRetailTutorialEvent, type QuickRetailTutorialId } from './quickRetailTutorials'
 
@@ -25,6 +25,11 @@ export function QuickRetailTutorialCenter({
   const step = tutorial?.steps[stepIndex]
   const currentKey = tutorial && step ? `${tutorial.id}:${step.id}` : null
   const currentState = currentKey ? stepStates[currentKey] || 'pending' : 'pending'
+  const activeAction = useRef<{ key: string; expectedEvent: QuickRetailTutorialEvent } | null>(null)
+
+  useLayoutEffect(() => {
+    activeAction.current = isOpen && currentKey && step ? { key: currentKey, expectedEvent: step.expectedEvent } : null
+  }, [isOpen, currentKey, step])
 
   useEffect(() => {
     if (!isOpen || !step) return
@@ -42,19 +47,28 @@ export function QuickRetailTutorialCenter({
   }, [isOpen, selectedId, stepIndex, step])
 
   useEffect(() => {
-    if (!isOpen) return
     const onEvent = (event: Event) => {
       const detail = (event as CustomEvent<{ action: QuickRetailTutorialEvent }>).detail
-      if (!step || !currentKey || detail?.action !== step.expectedEvent) return
-      setStepStates((current) => ({ ...current, [currentKey]: 'completed' }))
+      const active = activeAction.current
+      if (!active || detail?.action !== active.expectedEvent) return
+      setStepStates((current) => ({ ...current, [active.key]: 'completed' }))
     }
     window.addEventListener('quick-retail-tutorial-action', onEvent)
     return () => window.removeEventListener('quick-retail-tutorial-action', onEvent)
-  }, [isOpen, currentKey, step])
+  }, [])
 
   if (!isOpen) return null
 
+  const moveToStep = (nextIndex: number) => {
+    const nextStep = tutorial?.steps[nextIndex]
+    activeAction.current = tutorial && nextStep ? { key: `${tutorial.id}:${nextStep.id}`, expectedEvent: nextStep.expectedEvent } : null
+    setStepIndex(nextIndex)
+  }
+
   const selectTutorial = (id: QuickRetailTutorialId) => {
+    const selected = QUICK_RETAIL_TUTORIALS.find((item) => item.id === id)
+    const firstStep = selected?.steps[0]
+    activeAction.current = selected && firstStep ? { key: `${selected.id}:${firstStep.id}`, expectedEvent: firstStep.expectedEvent } : null
     setSelectedId(id)
     setStepIndex(0)
     onOpenPos()
@@ -75,8 +89,11 @@ export function QuickRetailTutorialCenter({
       tutorial.steps.forEach((item) => delete next[`${tutorial.id}:${item.id}`])
       return next
     })
+    const firstStep = tutorial.steps[0]
+    activeAction.current = firstStep ? { key: `${tutorial.id}:${firstStep.id}`, expectedEvent: firstStep.expectedEvent } : null
     setStepIndex(0)
     onOpenPos()
+    window.dispatchEvent(new CustomEvent('quick-retail-tutorial-selected'))
   }
 
   return (
@@ -109,7 +126,7 @@ export function QuickRetailTutorialCenter({
       ) : (
         <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">{tutorial.title}</p><h3 className="mt-1 text-base font-bold text-slate-900">Paso {stepIndex + 1} de {tutorial.steps.length} · {step?.title}</h3></div><button type="button" onClick={() => setSelectedId(null)} className="min-h-11 rounded-lg px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100">Cambiar recorrido</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">{tutorial.title}</p><h3 className="mt-1 text-base font-bold text-slate-900">Paso {stepIndex + 1} de {tutorial.steps.length} · {step?.title}</h3></div><button type="button" onClick={() => { activeAction.current = null; setSelectedId(null) }} className="min-h-11 rounded-lg px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100">Cambiar recorrido</button></div>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700" aria-live="polite">{step?.instruction}</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <div className="h-2 min-w-36 flex-1 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Progreso del recorrido" aria-valuemin={0} aria-valuemax={tutorial.steps.length} aria-valuenow={resolvedCount}><div className="h-full rounded-full bg-sky-600 transition-[width]" style={{ width: `${progressPercent}%` }} /></div>
@@ -119,9 +136,9 @@ export function QuickRetailTutorialCenter({
             </div>
           </div>
           <nav aria-label="Navegación del recorrido" className="flex flex-wrap items-center gap-2 lg:justify-end">
-            <button type="button" onClick={() => setStepIndex((index) => Math.max(0, index - 1))} disabled={stepIndex === 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"><ArrowLeft size={16} /> Anterior</button>
-            {currentState === 'pending' && <button type="button" onClick={() => setCurrentState('skipped')} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-slate-600 underline decoration-slate-300 underline-offset-4">Omitir paso</button>}
-            {stepIndex < tutorial.steps.length - 1 ? <button type="button" onClick={() => setStepIndex((index) => Math.min(tutorial.steps.length - 1, index + 1))} disabled={currentState === 'pending'} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">Siguiente <ArrowRight size={16} /></button> : <button type="button" onClick={() => setSelectedId(null)} disabled={currentState === 'pending'} className="min-h-11 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-40">Finalizar</button>}
+            <button type="button" onClick={() => moveToStep(Math.max(0, stepIndex - 1))} disabled={stepIndex === 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-semibold text-slate-700 disabled:opacity-40"><ArrowLeft size={16} /> Anterior</button>
+            {currentState === 'pending' && <button type="button" onClick={() => { activeAction.current = null; setCurrentState('skipped') }} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-slate-600 underline decoration-slate-300 underline-offset-4">Omitir paso</button>}
+            {stepIndex < tutorial.steps.length - 1 ? <button type="button" onClick={() => moveToStep(Math.min(tutorial.steps.length - 1, stepIndex + 1))} disabled={currentState === 'pending'} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">Siguiente <ArrowRight size={16} /></button> : <button type="button" onClick={() => { activeAction.current = null; setSelectedId(null) }} disabled={currentState === 'pending'} className="min-h-11 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-40">Finalizar</button>}
             <button type="button" onClick={restart} className="grid min-h-11 min-w-11 place-items-center rounded-lg border border-slate-300 text-slate-700" aria-label="Reiniciar recorrido" title="Reiniciar recorrido"><RotateCcw size={16} /></button>
           </nav>
         </div>

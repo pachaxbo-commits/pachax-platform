@@ -43,7 +43,7 @@ export const QUICK_RETAIL_TUTORIALS: readonly QuickRetailTutorial[] = [
     steps: [
       { id: 'catalog', title: 'Catálogo', instruction: 'Enfoca el área del catálogo para ubicar dónde aparecen los productos disponibles.', target: 'catalog', expectedEvent: 'catalog-focus' },
       { id: 'search', title: 'Búsqueda', instruction: 'Enfoca la búsqueda. Puedes filtrar productos escribiendo su nombre o rubro.', target: 'search', expectedEvent: 'search-focus' },
-      { id: 'product', title: 'Productos', instruction: 'Enfoca el catálogo para reconocer dónde aparecen los artículos. Puedes continuar sin agregar uno a la venta.', target: 'catalog', expectedEvent: 'catalog-focus' },
+      { id: 'product', title: 'Productos', instruction: 'Selecciona un artículo para ver cómo aparece en la venta actual. Si el catálogo está vacío, puedes omitir este paso.', target: 'product', expectedEvent: 'product-added' },
       { id: 'cart', title: 'Carrito', instruction: 'Enfoca la venta actual. Aquí aparecen las líneas agregadas, su cantidad y subtotal.', target: 'cart', expectedEvent: 'cart-focus' },
       { id: 'total', title: 'Total', instruction: 'Enfoca el total para identificar el importe que se revisa antes de cobrar.', target: 'total', expectedEvent: 'total-focus' },
     ],
@@ -70,6 +70,7 @@ export const QUICK_RETAIL_TUTORIALS: readonly QuickRetailTutorial[] = [
   {
     id: 'payment', title: 'Cobro demostrativo', description: 'Practica un cobro local con métodos ficticios, sin transacciones bancarias.', requiresProducts: true,
     steps: [
+      { id: 'add-payment-product', title: 'Prepara un artículo', instruction: 'Agrega un producto marcado “Por Unidad”, por ejemplo Café Latte. El cobro requiere al menos un artículo en el carrito. Si ya agregaste uno, puedes omitir este paso.', target: 'product', expectedEvent: 'product-added' },
       { id: 'review-cart', title: 'Revisa el carrito', instruction: 'Enfoca el carrito y revisa los productos y cantidades antes de cobrar.', target: 'cart', expectedEvent: 'cart-focus' },
       { id: 'open-checkout', title: 'Abre el cobro', instruction: 'Pulsa “Cobrar Venta” para abrir el formulario de pago de demostración.', target: 'checkout', expectedEvent: 'checkout-opened' },
       { id: 'select-method', title: 'Identifica los métodos', instruction: 'Selecciona Efectivo, QR o Mixto. La selección solo afecta esta práctica local.', target: 'payment-method', expectedEvent: 'payment-method-selected' },
