@@ -1,5 +1,13 @@
 # Continuidad del proyecto PACHAX
 
+## Seguimiento posterior al merge de Fase B — 06/11/2026
+
+- PR #29 quedó fusionado a `main` en `94fb4b64163efbc0bf00383e8385dfd6f7f58ebb`; el deployment de Vercel Production asociado está READY. La demo de Comercio carga desde la sección pública y el Centro abre con cinco recorridos.
+- En una comprobación real con puntero del recorrido por peso se detectó que el panel sticky podía cubrir el primer producto en el POS embebido. El código del Centro también quedaba por debajo del campo modal al desplazarse a ese producto. La corrección elimina la adhesión que superponía el catálogo y fortalece la prueba para usar un puntero real y verificar el foco del campo de gramos.
+- La corrección está aislada en `codex/pachax-retail-tutorial-production-followup-20261106`, basada en `origin/main` del merge de PR #29. TypeScript, ESLint focal, build de emulador, rutas demo, contrato de integración, guard de runtime aislado, aislamiento Firebase y cinco recorridos de la demo pasan; el runner informa 0 solicitudes a Firebase Production.
+- La regresión de landing no concluyó: el servidor local no pudo verificar el estado de ofertas porque los emuladores/comercial config no estaban disponibles (`ERR_CONNECTION_REFUSED`); la prueba terminó en una aserción de precios ajena al runtime aislado. No se ejecutó ninguna escritura.
+- Se prepara un PR correctivo separado para revisión; no se hizo merge ni despliegue de este follow-up. Billing Core, Firebase, Auth, App Check, Functions, Rules y otras plantillas permanecen sin cambios. El rediseño de mapas de Restaurante sigue pendiente y no se inició.
+
 # Hotfix: demos aisladas embebibles solo same-origin (06/11/2026)
 
 - Tras integrar PR #27 (`69c77d9`) y revisar `https://platform.pachax.net`, las demos Hamburger/Retail cargaban por ruta independiente, pero la landing recibía el rechazo de conexión dentro de Tutoriales. Los encabezados de `/demo/hamburger`, `/demo/retail` y `/demo-isolated.html` imponían `frame-ancestors 'none'` y `X-Frame-Options: DENY`; el marcador runtime nunca podía llegar al host.

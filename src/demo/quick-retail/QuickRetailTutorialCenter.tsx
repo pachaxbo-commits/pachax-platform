@@ -97,7 +97,7 @@ export function QuickRetailTutorialCenter({
   }
 
   return (
-    <section className={`mx-3 mb-4 overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm sm:mx-5 ${tutorial ? 'sticky top-[calc(13rem+env(safe-area-inset-top))] z-40 sm:top-[calc(5rem+env(safe-area-inset-top))] lg:static' : ''}`} aria-label="Centro de tutoriales de Comercio">
+    <section className="mx-3 mb-4 overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm sm:mx-5" aria-label="Centro de tutoriales de Comercio">
       <style>{`.quick-retail-tutorial-highlight{position:relative!important;z-index:8!important;outline:3px solid #0ea5e9!important;outline-offset:3px!important;box-shadow:0 0 0 6px rgb(14 165 233 / .14)!important;scroll-margin:1rem!important}`}</style>
       <header className="flex flex-nowrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">

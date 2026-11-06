@@ -80,6 +80,13 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
     return result.result.value
   }
+  const clickWithPointer = async (selector, text = '') => {
+    const point = await evaluate(`(() => { const element=[...document.querySelectorAll(${JSON.stringify(selector)})].find(item => !${JSON.stringify(text)} || item.innerText.includes(${JSON.stringify(text)})); if (!element) return null; const rect=element.getBoundingClientRect(); return {x:rect.left+rect.width/2,y:rect.top+rect.height/2} })()`)
+    assert.ok(point, `Pointer target ${selector}${text ? ` (${text})` : ''} exists`)
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+  }
   const captureScreenshot = async (label, selector = null) => {
     const clip = selector ? await evaluate(`(() => { const rect=document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return rect ? {x:rect.x,y:rect.y,width:rect.width,height:rect.height,scale:1} : null })()`) : null
     const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: Boolean(clip), ...(clip ? { clip } : {}) })
@@ -219,11 +226,12 @@ try {
         assert.equal(await progress(), '4', 'unit tutorial can be completed again after restart')
 
         await startFreshTutorial('Venta por peso')
-        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Helado artesanal'))?.click())()`)
+        await clickWithPointer('[data-tutorial-target="product"]', 'Helado artesanal')
+        assert.ok((await evaluate(`window.__retailTutorialEvents||[]`)).includes('weight-opened'), 'A real pointer click opens the selected weight product')
         await completeCurrentStep('Weight product open')
         if (width === 390) {
-          const guideVisible = await evaluate(`(() => { const rect=document.querySelector('[aria-label="Centro de tutoriales de Comercio"]')?.getBoundingClientRect(); return Boolean(rect && rect.top >= 170 && rect.top < innerHeight && rect.bottom < innerHeight) })()`)
-          assert.equal(guideVisible, true, 'At 390px the active tutorial panel stays visible while the weight input is open')
+          const inputBounds = await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="weight-input"]'); const rect=input?.getBoundingClientRect(); const hit=rect&&document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2); return {viewport:innerHeight,input:rect&&{top:rect.top,bottom:rect.bottom},isTopHit:hit===input} })()`)
+          assert.equal(Boolean(inputBounds.input && inputBounds.input.top >= 0 && inputBounds.input.bottom <= inputBounds.viewport && inputBounds.isTopHit), true, `At 390px the manual weight input remains visible and receives pointer input: ${JSON.stringify(inputBounds)}`)
           await captureScreenshot(`${evidencePrefix}-weight-input`)
         }
         await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="weight-input"]'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'250'); input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'250'})); })()`)
