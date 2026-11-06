@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Corrección de scroll inicial de la portada (05/11/2026)
+
+- Al montar Tutoriales, el tab activo llamaba `scrollIntoView` para centrarse horizontalmente. Como el navegador también alineaba el eje vertical, la página se deslizaba sola hasta la sección 5 al entrar a la home.
+- La selección ahora ajusta el `scrollLeft` de su propio contenedor; no mueve el scroll vertical del documento. Las acciones de navegación que sí deben llevar a una sección mantienen su comportamiento explícito.
+- Se agregó una regresión de navegador que verifica que la home permanezca en `scrollY = 0` después de montar. `npm run test:landing-browser` pasó en 320–1920 px, junto con `npm run typecheck`, ESLint focal, `npm run build:emulator`, `npm run test:preview-firebase-isolation` (5/5) y `git diff --check`.
+
 ## Rediseño de portada pública PACHAX Platform — fase 6 (05/11/2026)
 
 - Trabajo en `codex/pachax-platform-home-redesign-20261104`, PR #23; inicio `3e42434292adf03041e0effd14cfeae28154d126`, `origin/main` ya integrado. Alcance: sección 6 de servicios, footer, fotografía editorial optimizada y documentación de roadmap interno. No se modifican las plantillas canónicas, backend, Firebase ni las secciones 1–5.

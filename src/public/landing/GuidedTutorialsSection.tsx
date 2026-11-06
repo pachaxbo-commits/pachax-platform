@@ -167,7 +167,17 @@ export function GuidedTutorialsSection() {
 
   useEffect(() => {
     const activeTab = document.querySelector<HTMLButtonElement>(`[data-tutorial-template="${selectedTemplate}"]`)
-    activeTab?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    const selector = activeTab?.closest<HTMLElement>('.pachax-tutorials-selector')
+    if (!activeTab || !selector) return
+
+    const tabRect = activeTab.getBoundingClientRect()
+    const selectorRect = selector.getBoundingClientRect()
+    const tabCenter = tabRect.left + tabRect.width / 2
+    const selectorCenter = selectorRect.left + selector.clientWidth / 2
+    selector.scrollTo({
+      left: selector.scrollLeft + tabCenter - selectorCenter,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    })
   }, [selectedTemplate])
 
   const selectTemplate = (templateId: PublicTemplateId) => {

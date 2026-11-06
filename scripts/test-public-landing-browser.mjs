@@ -157,11 +157,20 @@ try {
   await send('Page.enable')
   await send('Runtime.enable')
 
+  // The tutorials tab selector must stay within its own scroller on initial load.
+  await send('Page.navigate', { url: baseUrl })
+  await waitFor((res) => res.count === 5 && res.brandLogoLoaded, 'scroll reset: landing loaded')
+  await sleep(400)
+  const initialScrollY = await evaluate('window.scrollY')
+  assert(initialScrollY <= 1, `La home no debe desplazarse al cargar; scrollY=${initialScrollY}`)
+
   for (const [width, height] of [[320, 740], [360, 800], [375, 812], [390, 844], [430, 932], [768, 1024], [1024, 768], [1440, 900], [1920, 1080]]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 })
     await send('Emulation.setTouchEmulationEnabled', { enabled: width < 768, maxTouchPoints: 1 })
     await send('Page.navigate', { url: baseUrl })
     const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2 && res.brandLogoLoaded, `${width}: loaded`)
+    const pageScrollY = await evaluate('window.scrollY')
+    assert(pageScrollY <= 1, `${width}: la landing no debe desplazarse al cargar; scrollY=${pageScrollY}`)
     const catalogState = await waitFor((res) => res.catalogCount === 6, `${width}: six catalog entries`)
     await evaluate(`document.querySelectorAll('#planes img').forEach(image=>{image.loading='eager'})`)
     const pricingImages = await waitFor((res) => res.pricingImagesLoaded, `${width}: commercial images loaded`)
