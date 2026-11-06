@@ -24,6 +24,11 @@ assert.ok(hamburgerIndex < catchAllDemoIndex && retailIndex < catchAllDemoIndex,
 assert.equal(routeRewrites[hamburgerIndex].destination, '/demo-isolated.html')
 assert.equal(routeRewrites[retailIndex].destination, '/demo-isolated.html')
 for (const route of ['/demo/hamburger', '/demo/retail', '/demo-isolated.html']) {
-  assert.ok(config.headers.some(({ source, headers }) => source === route && headers.some(({ key, value }) => key === 'Content-Security-Policy' && value.includes("connect-src 'none'"))), `${route} must receive the isolated CSP`)
+  const routeHeaders = config.headers.find(({ source }) => source === route)?.headers || []
+  const csp = routeHeaders.find(({ key }) => key === 'Content-Security-Policy')?.value || ''
+  assert.ok(csp.includes("connect-src 'none'"), `${route} must retain its network-denying CSP`)
+  assert.ok(csp.includes("frame-ancestors 'self'"), `${route} may only be embedded by a same-origin landing`)
+  assert.ok(!csp.includes("frame-ancestors 'none'"), `${route} must remain embeddable by public tutorials`)
+  assert.equal(routeHeaders.find(({ key }) => key === 'X-Frame-Options')?.value, 'SAMEORIGIN', `${route} must block cross-origin framing`)
 }
 console.log('Main-app demo integration artifact and Vercel route checks passed.')

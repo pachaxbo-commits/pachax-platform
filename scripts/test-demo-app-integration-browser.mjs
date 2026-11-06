@@ -14,7 +14,7 @@ assert.ok(existsSync(join(root, 'demo-isolated.html')), 'Run npm run build:emula
 mkdirSync(evidenceDir, { recursive: true })
 
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json' }
-const csp = "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; media-src 'self' blob:"
+const csp = "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; frame-ancestors 'self'; form-action 'self'; media-src 'self' blob:"
 const requests = []
 const server = createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1')
@@ -38,7 +38,7 @@ const server = createServer((req, res) => {
   }
   const isIsolatedHtml = filePath === join(root, 'demo-isolated.html')
   const headers = { 'content-type': types[extname(filePath)] || 'application/octet-stream', 'x-content-type-options': 'nosniff' }
-  if (isIsolatedHtml) Object.assign(headers, { 'content-security-policy': csp, 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY', 'cache-control': 'no-store' })
+  if (isIsolatedHtml) Object.assign(headers, { 'content-security-policy': csp, 'referrer-policy': 'no-referrer', 'x-frame-options': 'SAMEORIGIN', 'cache-control': 'no-store' })
   else if (pathname.startsWith('/demo-assets/')) headers['cache-control'] = 'public, max-age=31536000, immutable'
   res.writeHead(200, headers)
   res.end(readFileSync(filePath))
@@ -98,6 +98,8 @@ try {
     const response = await fetch(`http://127.0.0.1:${port}${route}`)
     assert.equal(response.status, 200, `${route} must resolve directly`)
     assert.match(response.headers.get('content-security-policy') || '', /connect-src 'none'/)
+    assert.match(response.headers.get('content-security-policy') || '', /frame-ancestors 'self'/)
+    assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN')
     assert.equal(response.headers.get('cache-control'), 'no-store')
     browserRequests.length = 0
     await send('Page.navigate', { url: `http://127.0.0.1:${port}${route}` }); await ready()
@@ -160,6 +162,23 @@ try {
     await send('Page.navigate', { url: `http://127.0.0.1:${port}/` }); await wait(1200)
   }
 
+  await evaluate(`document.querySelector('#tutoriales')?.scrollIntoView({ block: 'start' })`)
+  const embeddedTutorials = []
+  for (const item of [{ templateId: 'hamburger', marker: 'Servicio Rápido Demo' }, { templateId: 'retail', marker: 'Comercio / Venta Rápida' }]) {
+    const clicked = await evaluate(`(() => { const tab = document.querySelector('#tutoriales [data-tutorial-template="${item.templateId}"]'); tab?.click(); return Boolean(tab) })()`)
+    assert.equal(clicked, true, `Landing tutorial tab missing for ${item.templateId}`)
+    let embeddedState
+    for (let attempt = 0; attempt < 150; attempt++) {
+      await wait(100)
+      embeddedState = await evaluate(`(() => { const frame = document.querySelector('#tutoriales iframe'); const child = frame?.contentDocument; return { ready: Boolean(child?.querySelector('[data-demo-only-ready="true"], [data-demo-runtime-ready="true"]')), status: document.querySelector('#tutoriales [role="status"]')?.innerText || '', title: frame?.title || '', body: child?.body?.innerText || '' } })()`)
+      if (embeddedState.ready && embeddedState.status === 'Demo lista' && embeddedState.body.includes(item.marker)) break
+    }
+    assert.equal(embeddedState.ready, true, `Landing iframe runtime did not become ready for ${item.templateId}: ${embeddedState.status}`)
+    assert.equal(embeddedState.status, 'Demo lista', `Landing did not report ready for ${item.templateId}`)
+    assert.ok(embeddedState.body.includes(item.marker), `Landing embedded the wrong demo for ${item.templateId}`)
+    embeddedTutorials.push({ templateId: item.templateId, sameOriginCsp: true, runtimeReady: true, result: 'PASS' })
+  }
+
   for (const [route, expectedFile] of [['/demo/restaurant', 'demo.html'], ['/studio', 'studio.html'], ['/admin/login', 'index.html']]) {
     const response = await fetch(`http://127.0.0.1:${port}${route}`)
     assert.equal(response.status, 200, `${route} legacy route should remain available`)
@@ -173,7 +192,7 @@ try {
   assert.deepEqual(productionRequests, [], `Firebase Production request detected: ${productionRequests.join(', ')}`)
 
   const landingErrors = browserErrors.slice(demoBrowserErrors.length)
-  const report = { result: 'PASS', server: `127.0.0.1:${port}`, routes: routeResults, landingNavigation, otherEntrypoints: 'demo.html, studio.html, and app fallback served', missingAsset: '404', isolatedDemoExternalRequests: nonDemoNetwork.length, isolatedDemoBrowserErrors: demoBrowserErrors.length, productionFirebaseRequests: productionRequests.length, landingConsoleErrorsWithEmulatorsStopped: landingErrors }
+  const report = { result: 'PASS', server: `127.0.0.1:${port}`, routes: routeResults, landingNavigation, embeddedTutorials, otherEntrypoints: 'demo.html, studio.html, and app fallback served', missingAsset: '404', isolatedDemoExternalRequests: nonDemoNetwork.length, isolatedDemoBrowserErrors: demoBrowserErrors.length, productionFirebaseRequests: productionRequests.length, landingConsoleErrorsWithEmulatorsStopped: landingErrors }
   writeFileSync(resolve(evidenceDir, 'integration-browser.json'), `${JSON.stringify(report, null, 2)}\n`)
   console.log(JSON.stringify(report, null, 2))
 } finally {

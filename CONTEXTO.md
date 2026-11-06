@@ -1,5 +1,12 @@
 # Continuidad del proyecto PACHAX
 
+# Hotfix: demos aisladas embebibles solo same-origin (06/11/2026)
+
+- Tras integrar PR #27 (`69c77d9`) y revisar `https://platform.pachax.net`, las demos Hamburger/Retail cargaban por ruta independiente, pero la landing recibía el rechazo de conexión dentro de Tutoriales. Los encabezados de `/demo/hamburger`, `/demo/retail` y `/demo-isolated.html` imponían `frame-ancestors 'none'` y `X-Frame-Options: DENY`; el marcador runtime nunca podía llegar al host.
+- Hotfix aislado desde `origin/main` `69c77d9`, rama `codex/pachax-public-demo-iframe-csp-20261106`. El cambio acota el permiso de framing a mismo origen (`frame-ancestors 'self'` + `SAMEORIGIN`). Conserva `connect-src 'none'`, `frame-src 'none'`, el guard de red, assets aislados, `no-store`, `no-referrer` y `nosniff`. No habilita peticiones externas, no toca Firebase ni modifica la experiencia de demos independientes.
+- Prueba nueva: `test:demos-app-integration` comprueba los headers y carga ambos runtimes aislados dentro de la sección Tutoriales, verificando status `Demo lista` y el producto correcto. Build emulador, TypeScript, ESLint focal, guards de aislamiento y rutas, integración responsive (Hamburger/Retail completo y vacío en escritorio y móvil, navegación y montaje embebido), landing browser en nueve resoluciones (320–1920 px) y `git diff --check` pasan en esta rama.
+- Deployment Production de PR #27 `dpl_6k7FrZ7QLBG3JEHA3c9USpDwZSNh` quedó READY en SHA `69c77d9`. La prueba de esa versión confirmó: Restaurante Rápido abre como ruta independiente, el Centro de aprendizaje se abre y el recorrido avanza; Comercio permite agregar Helado artesanal a 325 g y Café Latte, total local ficticio Bs 37.50, confirmar el cobro, mostrar comprobante `TCK-4302` y reiniciar. Comercio aún no tiene Centro de tutoriales. La falla estaba solo en el embedding de la landing.
+
 # PACHAX — confiabilidad de demos públicas y tutoriales (06/11/2026)
 
 - Trabajo aislado en `C:\PACHAX-worktrees\pachax-public-demo-tutorial-reliability-20261106`, rama `codex/pachax-public-demo-tutorial-reliability-20261106`. Inició desde `origin/main` `0a2fabd559b167abd8757775102c1b0d6a8459fa`; antes de entregar se avanzó por fast-forward, sin conflictos, hasta `66bb907` (PR #25). No se modificaron otros worktrees, Billing Core, precios, Auth, Functions ni Rules.
