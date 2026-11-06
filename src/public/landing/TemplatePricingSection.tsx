@@ -82,8 +82,8 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
   const activePlan: TemplateTierPlan | undefined = activeQuickPlans.find((plan) => plan.tierLevel === selectedTierLevel)
     || activeQuickPlans.find((plan) => plan.tierLevel === 2)
     || activeQuickPlans[0]
-  const activePlanHasAnnualPrice = Boolean(activePlan && Number.isFinite(activePlan.annualPriceUSD) && activePlan.annualPriceUSD > 0)
-  const hasAnnualPrice = activeQuickPlans.some((plan) => Number.isFinite(plan.annualPriceUSD) && plan.annualPriceUSD > 0)
+  const activePlanHasAnnualPrice = Boolean(activePlan && activePlan.annualPriceUnit === 'annual_total_12_months' && Number.isFinite(activePlan.annualPriceUSD) && activePlan.annualPriceUSD > 0)
+  const hasAnnualPrice = activeQuickPlans.some((plan) => plan.annualPriceUnit === 'annual_total_12_months' && Number.isFinite(plan.annualPriceUSD) && plan.annualPriceUSD > 0)
   const calculatedPrice = activePlan
     ? (billingCycle === 'annual' && activePlanHasAnnualPrice ? activePlan.annualPriceUSD : activePlan.monthlyPriceUSD)
     : null
@@ -275,7 +275,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
                   <div className="pachax-pricing-tier-picker" aria-label="Niveles de planes">
                     {activeQuickPlans.map((plan) => <button key={plan.id} type="button" data-plan-tier={plan.tierLevel} aria-pressed={activePlan?.id === plan.id} onClick={() => {
                       setSelectedTierLevel(plan.tierLevel || 1)
-                      if (!(Number.isFinite(plan.annualPriceUSD) && plan.annualPriceUSD > 0)) setBillingCycle('monthly')
+                      if (!(plan.annualPriceUnit === 'annual_total_12_months' && Number.isFinite(plan.annualPriceUSD) && plan.annualPriceUSD > 0)) setBillingCycle('monthly')
                     }}>
                       <span>Nivel {plan.tierLevel}</span><strong>{plan.name}</strong>
                     </button>)}
@@ -287,6 +287,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
                       : <><strong>{currencySymbol(activePlan.currency)}{calculatedPrice}</strong><span>{activePlan.currency} / {billingCycle === 'annual' && activePlanHasAnnualPrice ? 'año' : 'mes'}</span></>}
                     </p>
                     {activePlan.adsRequired && <p className="pachax-pricing-price-note">Este plan incluye publicidad.</p>}
+                    {billingCycle === 'annual' && activePlanHasAnnualPrice && <p className="pachax-pricing-price-note">Total por 12 meses. Equivalente informativo: {currencySymbol(activePlan.currency)}{(activePlan.annualPriceUSD / 12).toFixed(2)} {activePlan.currency}/mes.</p>}
                     <ul>{activePlan.includedFeatures.map((feature) => <li key={feature}><Check aria-hidden="true" />{feature}</li>)}</ul>
                     <p className="pachax-pricing-price-note">Precio publicado. La consulta no activa contratación ni cobro.</p>
                   </div>}

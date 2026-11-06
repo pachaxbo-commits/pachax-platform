@@ -498,8 +498,10 @@ export async function updatePlanInStore(
     if (updated.status === 'published' && (!updated.capabilitiesV1 || updated.capabilitiesV1.version !== 1)) {
       return { success: false, error: 'Completa el contrato de capacidades V1 antes de publicar el plan.' }
     }
-    if (updated.status === 'published' && updated.planKind !== 'free' && (!(Number(updated.monthlyPriceUSD) > 0) || !(Number(updated.annualPriceUSD) > 0))) {
-      return { success: false, error: 'Completa precios mensual y anual mayores que cero antes de publicar el plan de pago.' }
+    if (updated.status === 'published' && updated.planKind !== 'free'
+      && (!(Number(updated.monthlyPriceUSD) > 0) || !(Number(updated.annualPriceUSD) > 0)
+        || updated.annualPriceUnit !== 'annual_total_12_months')) {
+      return { success: false, error: 'Completa el precio mensual y confirma que el importe anual es el total de 12 meses antes de publicar.' }
     }
 
     // Validación límite de planes activos por template (máx 1 gratuito, máx 3 de pago)
@@ -569,8 +571,9 @@ export async function togglePublishPlanInStore(
       }
       if (targetPlan.planKind === 'free') return { success: false, error: 'Plan Free sigue sin publicación hasta completar el flujo seguro, anuncios y controles antiabuso.' }
       if (!targetPlan.capabilitiesV1 || targetPlan.capabilitiesV1.version !== 1) return { success: false, error: 'Completa el contrato de capacidades V1 antes de publicar el plan.' }
-      if (!(targetPlan.monthlyPriceUSD > 0) || !(targetPlan.annualPriceUSD > 0)) {
-        return { success: false, error: 'Completa precios mensual y anual mayores que cero antes de publicar el plan de pago.' }
+      if (!(targetPlan.monthlyPriceUSD > 0) || !(targetPlan.annualPriceUSD > 0)
+        || targetPlan.annualPriceUnit !== 'annual_total_12_months') {
+        return { success: false, error: 'Completa el precio mensual y confirma que el importe anual es el total de 12 meses antes de publicar.' }
       }
       const publishedPaidCount = current.plans.filter(
         (p) => p.templateId === targetPlan.templateId && p.id !== planId && p.status === 'published' && p.planKind !== 'free',
