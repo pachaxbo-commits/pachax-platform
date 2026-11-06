@@ -979,6 +979,7 @@
 .pachax-extras-contact-actions { z-index: 1; grid-column: 2; display: grid; gap: 12px; }
 .pachax-contact-action,.pachax-proposal-action { display: grid; min-height: 54px; grid-template-columns: 24px minmax(0,1fr) 18px; align-items: center; gap: 11px; padding: 0 16px; border: 1px solid rgba(0,194,255,.9); border-radius: 13px; color: #f5f8fd; text-align: left; background: rgba(2,18,34,.79); font: inherit; font-size: 13px; font-weight: 740; cursor: pointer; transition: border-color .18s ease,background .18s ease,transform .18s ease; }
 .pachax-contact-action:hover,.pachax-proposal-action:hover { transform: translateY(-1px); border-color: #c8f1ff; background: rgba(0,115,188,.22); }
+.pachax-contact-action:disabled,.pachax-proposal-action:disabled { transform: none; border-color: rgba(165,190,218,.28); color: #94a4b7; opacity: .62; cursor: not-allowed; }
 .pachax-contact-action > svg:first-child,.pachax-proposal-action > svg:first-child { width: 21px; height: 21px; color: var(--pachax-cyan); }
 .pachax-contact-action > svg:last-child,.pachax-proposal-action > svg:last-child { width: 17px; height: 17px; color: var(--pachax-cyan); }
 .pachax-contact-action span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }

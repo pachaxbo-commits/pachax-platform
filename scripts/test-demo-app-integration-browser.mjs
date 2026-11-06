@@ -5,8 +5,9 @@ import { createServer as createTcpServer } from 'node:net'
 import { createServer } from 'node:http'
 import { extname, join, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
+import { createLandingCatalogAdapterScript, getLandingCatalogFixture } from './landingCommercialTestFixture.mjs'
 
-const chrome = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].filter(Boolean).find(existsSync)
+const chrome = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'].filter(Boolean).find(existsSync)
 assert.ok(chrome, 'Chrome not found')
 const root = resolve('dist')
 const evidenceDir = resolve('docs/demo-app-integration-evidence')
@@ -57,6 +58,7 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms))
 let socket
 const browserErrors = []
 const browserRequests = []
+let activeViewportWidth = 1440
 try {
   let tab
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -80,12 +82,19 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
     return result.result.value
   }
-  const clickWithPointer = async (selector, text = '') => {
-    const point = await evaluate(`(() => { const element=[...document.querySelectorAll(${JSON.stringify(selector)})].find(item => !${JSON.stringify(text)} || item.innerText.includes(${JSON.stringify(text)})); if (!element) return null; const rect=element.getBoundingClientRect(); return {x:rect.left+rect.width/2,y:rect.top+rect.height/2} })()`)
+  const clickWithPointer = async (selector, text = '', index = 0) => {
+    await evaluate(`(() => { const element=[...document.querySelectorAll(${JSON.stringify(selector)})].filter(item => !${JSON.stringify(text)} || item.innerText.includes(${JSON.stringify(text)}))[${index}]; element?.scrollIntoView({block:'center',behavior:'instant'}); })()`)
+    await wait(60)
+    const point = await evaluate(`(() => { const element=[...document.querySelectorAll(${JSON.stringify(selector)})].filter(item => !${JSON.stringify(text)} || item.innerText.includes(${JSON.stringify(text)}))[${index}]; if (!element) return null; const rect=element.getBoundingClientRect(); return {x:rect.left+rect.width/2,y:rect.top+rect.height/2} })()`)
     assert.ok(point, `Pointer target ${selector}${text ? ` (${text})` : ''} exists`)
-    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
-    await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
-    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+    if (activeViewportWidth < 500) {
+      await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 1, ...point }] })
+      await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    } else {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+    }
   }
   const captureScreenshot = async (label, selector = null) => {
     const clip = selector ? await evaluate(`(() => { const rect=document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return rect ? {x:rect.x,y:rect.y,width:rect.width,height:rect.height,scale:1} : null })()`) : null
@@ -106,9 +115,15 @@ try {
   await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable'); await send('Network.enable')
 
   const routeResults = []
-  for (const template of ['hamburger', 'retail']) for (const dataset of ['full', 'empty']) for (const width of [320, 360, 375, 390, 430, 768, 1024, 1440, 1920]) {
+  const allWidths = [320, 360, 375, 390, 430, 768, 1024, 1440, 1920]
+  const selectedWidth = process.env.DEMO_INTEGRATION_WIDTH ? Number(process.env.DEMO_INTEGRATION_WIDTH) : null
+  assert(selectedWidth === null || allWidths.includes(selectedWidth), `Unsupported DEMO_INTEGRATION_WIDTH: ${selectedWidth}`)
+  const viewportWidths = selectedWidth === null ? allWidths : [selectedWidth]
+  for (const template of ['hamburger', 'retail']) for (const dataset of ['full', 'empty']) for (const width of viewportWidths) {
     const viewport = { width, height: width < 500 ? 844 : 1000 }
+    activeViewportWidth = width
     await send('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 500 })
+    await send('Emulation.setTouchEmulationEnabled', { enabled: viewport.width < 500, maxTouchPoints: 1 })
     const route = `/demo/${template}?data=${dataset}`
     const response = await fetch(`http://127.0.0.1:${port}${route}`)
     assert.equal(response.status, 200, `${route} must resolve directly`)
@@ -189,11 +204,11 @@ try {
         await clickText('Omitir paso')
         assert.equal(await progress(), '2', 'orientation records one completed action and one omitted step')
         await clickText('Siguiente')
-        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+        await clickWithPointer('[data-tutorial-target="product"]', 'Café Latte')
         await completeCurrentStep('Orientation product selection')
-        await evaluate(`document.querySelector('[data-tutorial-target="cart"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="cart"]')
         await completeCurrentStep('Orientation cart')
-        await evaluate(`document.querySelector('[data-tutorial-target="total"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="total"]')
         await wait(120)
         assert.equal(await progress(), '5', 'orientation resolves all five steps, including one explicit skip')
         await captureScreenshot(`${evidencePrefix}-orientation`)
@@ -203,25 +218,29 @@ try {
         await startFreshTutorial('Venta por unidad')
         if (width === 390) await captureScreenshot(`${evidencePrefix}-selected-tutorial`)
         await wait(100)
-        await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="search"]'); input.focus(); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'Café Latte'); input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'Café Latte'})); })()`)
+        await clickWithPointer('[data-tutorial-target="search"]')
+        await send('Input.insertText', { text: 'Café Latte' })
+        assert.equal(await evaluate(`document.querySelector('[data-tutorial-target="search"]')?.value`), 'Café Latte', 'Unit sale product search uses browser keyboard input')
         await completeCurrentStep('Unit sale search')
-        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+        await clickWithPointer('[data-tutorial-target="product"]', 'Café Latte')
         await completeCurrentStep('Unit product add')
-        await evaluate(`document.querySelector('[data-tutorial-target="quantity"] button[aria-label^="Aumentar"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="quantity"] button[aria-label^="Aumentar"]')
         await completeCurrentStep('Unit quantity update')
-        await evaluate(`document.querySelector('[data-tutorial-target="total"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="total"]')
         await wait(150)
         assert.equal(await progress(), '4', 'Unit sale tutorial records four real actions')
         await captureScreenshot(`${evidencePrefix}-unit-sale`)
         await evaluate(`document.querySelector('[aria-label="Reiniciar recorrido"]')?.click()`)
         assert.equal(await progress(), '0', 'unit tutorial restart clears its resolved progress')
-        await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="search"]'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'Café Latte'); input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'Café Latte'})); })()`)
+        await clickWithPointer('[data-tutorial-target="search"]')
+        await send('Input.insertText', { text: 'Café Latte' })
+        assert.equal(await evaluate(`document.querySelector('[data-tutorial-target="search"]')?.value`), 'Café Latte')
         await completeCurrentStep('Unit sale search after restart')
-        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+        await clickWithPointer('[data-tutorial-target="product"]', 'Café Latte')
         await completeCurrentStep('Unit product after restart')
-        await evaluate(`document.querySelector('[data-tutorial-target="quantity"] button[aria-label^="Aumentar"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="quantity"] button[aria-label^="Aumentar"]')
         await completeCurrentStep('Unit quantity after restart')
-        await evaluate(`document.querySelector('[data-tutorial-target="total"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="total"]')
         await wait(150)
         assert.equal(await progress(), '4', 'unit tutorial can be completed again after restart')
 
@@ -232,49 +251,58 @@ try {
         if (width === 390) {
           const inputBounds = await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="weight-input"]'); const rect=input?.getBoundingClientRect(); const hit=rect&&document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2); return {viewport:innerHeight,input:rect&&{top:rect.top,bottom:rect.bottom},isTopHit:hit===input} })()`)
           assert.equal(Boolean(inputBounds.input && inputBounds.input.top >= 0 && inputBounds.input.bottom <= inputBounds.viewport && inputBounds.isTopHit), true, `At 390px the manual weight input remains visible and receives pointer input: ${JSON.stringify(inputBounds)}`)
-          await captureScreenshot(`${evidencePrefix}-weight-input`)
         }
-        await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="weight-input"]'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'250'); input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'250'})); })()`)
+        await clickWithPointer('[data-tutorial-target="weight-input"]')
+        await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="weight-input"]'); input?.focus(); input?.select(); })()`)
+        await send('Input.insertText', { text: '250' })
+        assert.equal(await evaluate(`document.querySelector('[data-tutorial-target="weight-input"]')?.value`), '250', 'Manual grams are entered through browser keyboard input')
+        if (width === 390) await captureScreenshot(`${evidencePrefix}-weight-input`)
         await completeCurrentStep('Manual grams entry')
-        await evaluate(`document.querySelector('[data-tutorial-target="weight-subtotal"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="weight-subtotal"]')
         await completeCurrentStep('Weight calculation review')
-        await evaluate(`document.querySelector('[data-tutorial-target="weight-add"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="weight-add"]')
         await completeCurrentStep('Weight item add')
-        await evaluate(`document.querySelector('[data-tutorial-target="total"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="total"]')
         assert.equal(await progress(), '5', 'Weight tutorial records five real actions')
         await captureScreenshot(`${evidencePrefix}-weight-sale`)
-        if (width === 390) await captureScreenshot(`${evidencePrefix}-cart`)
+        if (width === 390) {
+          await evaluate(`document.querySelector('[data-tutorial-target="cart"]')?.scrollIntoView({block:'center',behavior:'instant'})`)
+          await captureScreenshot(`${evidencePrefix}-cart`)
+        }
         assert.equal(await evaluate(`Boolean(document.querySelector('[data-tutorial-target="checkout"]')?.disabled)`), false, 'weight tutorial leaves a usable cart before leaving its fresh run')
 
         await startFreshTutorial('Cobro demostrativo')
         assert.equal(await evaluate(`Boolean(document.querySelector('[data-tutorial-target="checkout"]')?.disabled)`), true, 'a freshly started payment tutorial begins with the expected empty cart')
-        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+        await clickWithPointer('[data-tutorial-target="product"]', 'Café Latte')
         await completeCurrentStep('Payment product added from empty cart')
         assert.equal(await evaluate(`Boolean(document.querySelector('[data-tutorial-target="checkout"]')?.disabled)`), false, 'adding an item enables checkout')
-        await evaluate(`document.querySelector('[data-tutorial-target="cart"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="cart"]')
         await completeCurrentStep('Payment cart review')
-        await evaluate(`document.querySelector('[data-tutorial-target="checkout"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="checkout"]')
         await completeCurrentStep('Payment checkout open')
-        await evaluate(`document.querySelectorAll('[data-tutorial-target="payment-method"]')[1]?.click()`)
+        await clickWithPointer('[data-tutorial-target="payment-method"]', '', 1)
         await completeCurrentStep('Payment method selection')
-        await evaluate(`document.querySelector('[data-tutorial-target="confirm-payment"]')?.click()`)
-        assert.equal(await progress(), '5', 'Payment tutorial records item preparation, cart, checkout, method and local confirmation')
         await captureScreenshot(`${evidencePrefix}-demo-payment`)
+        await clickWithPointer('[data-tutorial-target="confirm-payment"]')
+        assert.equal(await progress(), '5', 'Payment tutorial records item preparation, cart, checkout, method and local confirmation')
+        await captureScreenshot(`${evidencePrefix}-demo-payment-confirmed`)
 
         await startFreshTutorial('Comprobante y nueva venta')
-        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+        await clickWithPointer('[data-tutorial-target="product"]', 'Café Latte')
         await completeCurrentStep('Receipt sale setup')
-        await evaluate(`document.querySelector('[data-tutorial-target="checkout"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="checkout"]')
         await completeCurrentStep('Receipt checkout')
-        await evaluate(`document.querySelector('[data-tutorial-target="payment-method"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="payment-method"]')
         await completeCurrentStep('Receipt payment method')
-        await evaluate(`document.querySelector('[data-tutorial-target="confirm-payment"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="confirm-payment"]')
         await completeCurrentStep('Receipt generated')
         assert.match(await evaluate(`document.querySelector('[data-tutorial-target="receipt"]')?.innerText||''`), /Comprobante TCK-\d{4}[\s\S]*Total: Bs/, 'local receipt summary contains a folio and total')
+        await evaluate(`document.querySelector('[data-tutorial-target="receipt"]')?.scrollIntoView({block:'center',behavior:'instant'})`)
+        await wait(100)
         await captureScreenshot(`${evidencePrefix}-receipt`)
-        await evaluate(`document.querySelector('[data-tutorial-target="receipt"] button')?.click()`)
+        await clickWithPointer('[data-tutorial-target="receipt"] button')
         await completeCurrentStep('Receipt review')
-        await evaluate(`document.querySelector('[data-tutorial-target="new-sale"]')?.click()`)
+        await clickWithPointer('[data-tutorial-target="new-sale"]')
         assert.equal(await progress(), '6', 'Receipt tutorial reaches the start-new-sale action')
         await captureScreenshot(`${evidencePrefix}-receipt-new-sale`)
       }
@@ -306,6 +334,9 @@ try {
 
   await send('Emulation.clearDeviceMetricsOverride')
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  await send('Page.addScriptToEvaluateOnNewDocument', {
+    source: createLandingCatalogAdapterScript({ scenario: 'synthetic', fixture: getLandingCatalogFixture('synthetic'), functionsPort: 5101 }),
+  })
   await send('Page.navigate', { url: `http://127.0.0.1:${port}/` })
   let landingButtons = []
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -314,6 +345,31 @@ try {
     await wait(100)
   }
   assert.ok(landingButtons.length > 0, `Landing catalog details actions missing: ${landingButtons}; browserErrors=${JSON.stringify(browserErrors)}`)
+  let landingFixtureState
+  let landingCatalogStatus = ''
+  for (let attempt = 0; attempt < 80; attempt++) {
+    landingFixtureState = await evaluate('window.__PACHAX_LANDING_TEST_CATALOG__')
+    landingCatalogStatus = await evaluate(`document.querySelector('#plantillas [data-catalog-state]')?.dataset.catalogState || ''`)
+    if (landingFixtureState?.calls > 0 || landingCatalogStatus === 'error') break
+    await wait(100)
+  }
+  assert.equal(landingFixtureState?.scenario, 'synthetic', 'Landing commercial state comes only from the isolated synthetic fixture')
+  assert.deepEqual(landingFixtureState.blocked, [], 'No unsupported or external callable reached the landing test adapter')
+  const landingCommercialState = await evaluate(`(() => ({
+    prices: [...document.querySelectorAll('#plantillas, #planes, #extras')].some(section => /(?:Bs\\s?\\d|\\$\\s?\\d)/.test(section.innerText)),
+    planSelectors: document.querySelectorAll('[data-plan-template], [data-plan-tier]').length,
+    registerLinks: [...document.querySelectorAll('#plantillas, #planes, #extras')].some(section => section.querySelector('a[href^="/register"]')),
+    extraCards: document.querySelectorAll('#extras .pachax-extra-card').length,
+    catalogState: document.querySelector('#plantillas [data-catalog-state]')?.dataset.catalogState || '',
+    catalogStatus: document.querySelector('#plantillas [data-catalog-state]')?.innerText || '',
+  }))()`)
+  assert(landingFixtureState.calls > 0 || landingCatalogStatus === 'error',
+    `Landing either consumed the synthetic API fixture or rendered the authorized unavailable-catalog editorial fallback; calls=${landingFixtureState.calls}, state=${JSON.stringify(landingCommercialState)}`)
+  if (landingFixtureState.calls === 0) assert.match(landingCommercialState.catalogStatus, /No pudimos verificar el catálogo/)
+  assert.equal(landingCommercialState.prices, false, 'Demo integration never invents a public price')
+  assert.equal(landingCommercialState.planSelectors, 0, 'Demo integration does not expose an offer without opening an authorized detail')
+  assert.equal(landingCommercialState.registerLinks, false, 'Demo integration cannot activate self-service enrollment')
+  assert.equal(landingCommercialState.extraCards, 0, 'Draft extras stay unpublished in the local integration environment')
   const landingNavigation = []
   for (const item of [{ label: 'Hamburger', templateId: 'hamburger', route: '/demo/hamburger?data=full', marker: 'Restaurante Rápido' }, { label: 'Retail', templateId: 'retail', route: '/demo/retail?data=full', marker: 'Comercio / Venta Rápida' }]) {
     const detail = await evaluate(`(() => { const button = document.querySelector('#plantillas [data-template-id="${item.templateId}"] .pachax-card-detail-button'); button?.click(); return Boolean(button) })()`)
@@ -359,7 +415,7 @@ try {
   assert.deepEqual(productionRequests, [], `Firebase Production request detected: ${productionRequests.join(', ')}`)
 
   const landingErrors = browserErrors.slice(demoBrowserErrors.length)
-  const report = { result: 'PASS', server: `127.0.0.1:${port}`, routes: routeResults, landingNavigation, embeddedTutorials, otherEntrypoints: 'demo.html, studio.html, and app fallback served', missingAsset: '404', isolatedDemoExternalRequests: nonDemoNetwork.length, isolatedDemoBrowserErrors: demoBrowserErrors.length, productionFirebaseRequests: productionRequests.length, landingConsoleErrorsWithEmulatorsStopped: landingErrors }
+  const report = { result: 'PASS', server: `127.0.0.1:${port}`, routes: routeResults, landingCatalogMode: landingFixtureState.calls > 0 ? 'synthetic API fixture' : 'editorial fallback (API unavailable)', landingCatalogAdapterCalls: landingFixtureState.calls, landingCommercialState, landingNavigation, embeddedTutorials, otherEntrypoints: 'demo.html, studio.html, and app fallback served', missingAsset: '404', isolatedDemoExternalRequests: nonDemoNetwork.length, isolatedDemoBrowserErrors: demoBrowserErrors.length, productionFirebaseRequests: productionRequests.length, landingConsoleErrorsWithEmulatorsStopped: landingErrors }
   writeFileSync(resolve(evidenceDir, 'integration-browser.json'), `${JSON.stringify(report, null, 2)}\n`)
   console.log(JSON.stringify(report, null, 2))
 } finally {

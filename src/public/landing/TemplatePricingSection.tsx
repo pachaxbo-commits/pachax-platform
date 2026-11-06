@@ -31,6 +31,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
   const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<QuickServiceId>(initialQuickServiceId)
   const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2)
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
+  const hasOfficialContact = Boolean(landingContent.officialWhatsAppNumber.replace(/\D/g, ''))
   const dialogRef = useRef<HTMLDivElement>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
 
@@ -243,12 +244,12 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
                 {activeSpecializedPlans.length > 0 && <div className="pachax-pricing-offers"><h4>Ofertas publicadas</h4>{activeSpecializedPlans.map((plan) => <div key={plan.id} className="pachax-pricing-offer-row"><span><strong>{plan.name}</strong><small>{plan.clientProfile}</small></span><span>{currencySymbol(plan.currency)}{plan.monthlyPriceUSD} <small>{plan.currency} / mes</small></span></div>)}</div>}
                 {renderStatus() && <p className="pachax-pricing-detail-status" role="status">{renderStatus()}</p>}
                 <div className="pachax-pricing-detail-actions">
-                  <button type="button" className="pachax-pricing-action" onClick={handleSpecializedInquiry}>Consultar implementación <MessageSquare aria-hidden="true" /></button>
+                  <button type="button" className="pachax-pricing-action" disabled={!hasOfficialContact} title={!hasOfficialContact ? 'El contacto comercial no está configurado.' : undefined} onClick={handleSpecializedInquiry}>Consultar implementación <MessageSquare aria-hidden="true" /></button>
                   {activeSpecializedDemoEnabled && <button type="button" className="pachax-pricing-action pachax-pricing-action-secondary" onClick={() => window.location.assign(activeSpecialized.demoRoute)}><Play aria-hidden="true" /> Ver demostración</button>}
                 </div>
               </div>}
             </> : <div className="pachax-pricing-empty" role="status">{publicCatalogStatus === 'loading' ? 'Verificando soluciones publicadas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las soluciones.' : 'No hay soluciones de implementación publicadas en este momento.'}</div>}
-            {publishedTemplates.some((template) => template.id === 'custom') && <div className="pachax-pricing-custom-quote"><span><strong>{CUSTOM_DEVELOPMENT_CONFIG.title}</strong>{CUSTOM_DEVELOPMENT_CONFIG.description}</span><button type="button" className="pachax-pricing-action pachax-pricing-action-secondary" onClick={handleCustomDevWhatsApp}>Cotizar a medida <ArrowRight aria-hidden="true" /></button></div>}
+            {publishedTemplates.some((template) => template.id === 'custom') && <div className="pachax-pricing-custom-quote"><span><strong>{CUSTOM_DEVELOPMENT_CONFIG.title}</strong>{CUSTOM_DEVELOPMENT_CONFIG.description}</span><button type="button" className="pachax-pricing-action pachax-pricing-action-secondary" disabled={!hasOfficialContact} title={!hasOfficialContact ? 'El contacto comercial no está configurado.' : undefined} onClick={handleCustomDevWhatsApp}>Cotizar a medida <ArrowRight aria-hidden="true" /></button></div>}
           </div> : <div className="pachax-pricing-detail">
             <p className="pachax-pricing-detail-intro">Consulta las soluciones estandarizadas y las ofertas confirmadas para tu negocio. La consulta no crea una cuenta, activa una empresa ni inicia un cobro.</p>
             {publishedQuickTemplates.length > 0 ? <>
@@ -300,7 +301,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
                 {renderStatus() && <p className="pachax-pricing-detail-status" role="status">{renderStatus()}</p>}
                 <div className="pachax-pricing-detail-actions">
                   {activeQuickDemoPath && <button type="button" data-quick-demo={activeQuickServiceId} className="pachax-pricing-action pachax-pricing-action-secondary" onClick={() => navigate(activeQuickDemoPath)}><Play aria-hidden="true" /> Probar demo <ExternalLink aria-hidden="true" /></button>}
-                  <button type="button" data-quick-plans-inquiry={activeQuickServiceId} className="pachax-pricing-action" onClick={() => handleQuickInquiry(activePlan)}>Consultar planes <MessageSquare aria-hidden="true" /></button>
+                  <button type="button" data-quick-plans-inquiry={activeQuickServiceId} className="pachax-pricing-action" disabled={!hasOfficialContact} title={!hasOfficialContact ? 'El contacto comercial no está configurado.' : undefined} onClick={() => handleQuickInquiry(activePlan)}>Consultar planes <MessageSquare aria-hidden="true" /></button>
                 </div>
               </div>
             </> : <div className="pachax-pricing-empty" role="status">{publicCatalogStatus === 'loading' ? 'Verificando soluciones publicadas…' : publicCatalogStatus === 'error' ? 'No se pudieron verificar las soluciones.' : 'No hay soluciones de activación directa publicadas en este momento.'}</div>}

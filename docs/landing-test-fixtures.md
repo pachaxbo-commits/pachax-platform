@@ -1,0 +1,14 @@
+# Fixtures locales para QA de la landing
+
+`npm run test:landing-browser` ejecuta la regresión del navegador en dos escenarios, en los nueve tamaños definidos por `scripts/test-public-landing-browser.mjs`:
+
+1. **empty**: respuesta legítima del catálogo público con listas vacías y contacto no configurado. Comprueba estado vacío, ausencia de tarjetas/ofertas/precios y que las acciones que dependen de WhatsApp queden deshabilitadas. Las rutas de demos se validan por la disponibilidad técnica independiente del catálogo.
+2. **synthetic**: seis fichas editoriales de los IDs oficiales, con `coming_soon`, etiqueta `SOLO QA · SIN OFERTA`, sin precios, planes ni extras. Incluye el número reservado `+1 202 555 0100` para verificar los dos mensajes distintos; el navegador sustituye `window.open` y ningún enlace sale del equipo.
+
+El runner levanta Vite en modo `emulator` sobre loopback y agrega un adaptador CDP a Chrome antes de cargar el código de la landing. El adaptador responde exclusivamente a `publicCommercialGateway` con `action: getCatalog`, bajo el contrato proyectado que devuelve el servicio público. Rechaza cualquier otra callable y bloquea, sin reenviarlas, las solicitudes Firebase/Google fuera del endpoint local permitido. No arranca Cloud Functions, no conecta Firebase, no escribe Firestore y no consulta Secret Manager.
+
+El 403 observado anteriormente se debía a que Firebase Emulator Suite intentó resolver `PUBLIC_COMMERCIAL_RATE_LIMIT_SECRET`, enlazado a `publicCommercialGateway`, al iniciar esa Function. La regresión visual solo necesita leer una respuesta del catálogo; por eso usa el adaptador local de lectura. Las pruebas del contrato de Functions continúan separadas y no reciben ni copian secretos reales.
+
+La fixture está bajo `scripts/` y solo la importan runners de prueba. `scripts/tests/landingCommercialTestFixture.test.mjs` comprueba su forma, la ausencia de ofertas y precios, el contacto reservado y que el código de `src/` no importe ni active el adaptador. El runner además rechaza hosts que no sean `localhost` o `127.0.0.1`. Al terminar se cierran Vite y Chrome; el estado vive únicamente en memoria del test. Para usar un escenario aislado, establece explícitamente `LANDING_TEST_CATALOG_SCENARIO=empty` o `synthetic` y ejecuta `npm run test:landing-browser:scenario` contra un servidor local en modo emulator.
+
+La matriz de landing es la verificación que requiere ambos catálogos y prueba de forma completa la respuesta sintética y la vacía. El test de integración de demos puede correr sin un emulador de Functions: si la callable no está activa, exige el fallback editorial visible, cero precios/planes/extras y ausencia de rutas de registro, y sigue verificando la navegación a las demos. Si la callable local responde, el adaptador entrega el catálogo sintético. Las rutas `/demo/retail` y `/demo/hamburger` quedan fuera del adaptador; así sus guardas `connect-src 'none'` no se enmascaran.
