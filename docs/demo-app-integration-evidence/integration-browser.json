@@ -1,6 +1,6 @@
 {
   "result": "PASS",
-  "server": "127.0.0.1:59803",
+  "server": "127.0.0.1:58269",
   "routes": [
     {
       "route": "/demo/hamburger?data=full",
@@ -399,6 +399,16 @@
       "ready": true
     }
   ],
+  "landingCatalogMode": "synthetic API fixture",
+  "landingCatalogAdapterCalls": 1,
+  "landingCommercialState": {
+    "prices": false,
+    "planSelectors": 0,
+    "registerLinks": false,
+    "extraCards": 0,
+    "catalogState": "",
+    "catalogStatus": ""
+  },
   "landingNavigation": [
     {
       "label": "Hamburger",
@@ -430,9 +440,5 @@
   "isolatedDemoExternalRequests": 0,
   "isolatedDemoBrowserErrors": 0,
   "productionFirebaseRequests": 0,
-  "landingConsoleErrorsWithEmulatorsStopped": [
-    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
-    "Failed to load resource: net::ERR_CONNECTION_REFUSED",
-    "Failed to load resource: net::ERR_CONNECTION_REFUSED"
-  ]
+  "landingConsoleErrorsWithEmulatorsStopped": []
 }

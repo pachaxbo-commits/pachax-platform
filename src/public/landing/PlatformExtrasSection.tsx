@@ -50,6 +50,7 @@ export function PlatformExtrasSection() {
   const { landingContent, publishedExtras } = useCommercialConfig()
 
   const contactNumber = landingContent.officialWhatsAppNumber
+  const hasContactNumber = Boolean(contactNumber.replace(/\D/g, ''))
   const customDevelopment = publishedExtras.find((extra) => extra.id === 'extra_custom_dev')
   const services = customDevelopment
     ? [customDevelopment, ...publishedExtras.filter((extra) => extra.id !== customDevelopment.id)]
@@ -98,7 +99,7 @@ export function PlatformExtrasSection() {
                   <p className="pachax-extra-scope">Aplica a: {getTemplateScope(extra)}</p>
                   <div className="pachax-extra-meta">
                     <span>{extra.referencePriceLabel}</span>
-                    <button type="button" onClick={() => handleServiceInquiry(extra)}>
+                    <button type="button" disabled={!hasContactNumber} onClick={() => handleServiceInquiry(extra)}>
                       Consultar <ArrowRight aria-hidden="true" />
                     </button>
                   </div>
@@ -132,17 +133,18 @@ export function PlatformExtrasSection() {
             <p>Habla con nuestro equipo de ingeniería y producto para revisar procesos de cobro, básculas, almacenes o reglas de negocio.</p>
           </div>
           <div className="pachax-extras-contact-actions">
-            <button className="pachax-contact-action" type="button" onClick={handleWhatsAppContact}>
+            <button className="pachax-contact-action" type="button" disabled={!hasContactNumber} aria-describedby={!hasContactNumber ? 'pachax-contact-unavailable' : undefined} onClick={handleWhatsAppContact}>
               <MessageCircle aria-hidden="true" />
               <span>Contactar por WhatsApp <small>{landingContent.officialWhatsAppDisplay}</small></span>
               <ArrowRight aria-hidden="true" />
             </button>
-            <button className="pachax-proposal-action" type="button" onClick={handleProposalRequest}>
+            <button className="pachax-proposal-action" type="button" disabled={!hasContactNumber} aria-describedby={!hasContactNumber ? 'pachax-contact-unavailable' : undefined} onClick={handleProposalRequest}>
               <CalendarDays aria-hidden="true" />
               <span>Solicitar propuesta</span>
               <ArrowRight aria-hidden="true" />
             </button>
           </div>
+          {!hasContactNumber && <p id="pachax-contact-unavailable" className="pachax-extras-contact-unavailable" role="status">El contacto comercial no está configurado.</p>}
           <i className="pachax-extras-contact-corner" aria-hidden="true" />
         </aside>
       </div>

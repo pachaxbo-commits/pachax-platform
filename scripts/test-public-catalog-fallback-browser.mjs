@@ -9,7 +9,7 @@ import { createServer } from 'node:net'
 import { previewFirebaseConfigFingerprint } from './preview-firebase-isolation.mjs'
 
 const root = process.cwd()
-const chrome = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].filter(Boolean).find(existsSync)
+const chrome = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'].filter(Boolean).find(existsSync)
 assert(chrome, 'Chrome not found; set CHROME_BIN.')
 Object.assign(process.env, {
   VERCEL_ENV: 'preview',

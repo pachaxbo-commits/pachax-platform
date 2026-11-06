@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { resolve, join } from 'node:path'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
+import { createLandingCatalogAdapterScript, getLandingCatalogFixture, LANDING_TEST_CONTACT } from './landingCommercialTestFixture.mjs'
 
 const chromeCandidates = [
   process.env.CHROME_BIN,
@@ -18,13 +19,19 @@ const chrome = chromeCandidates.find(existsSync)
 if (!chrome) throw new Error('Chrome/Chromium no encontrado. Define CHROME_BIN.')
 const baseUrl = process.env.LANDING_TEST_URL || 'http://localhost:5190/'
 const target = new URL(baseUrl)
+assert.equal(target.protocol, 'http:', 'Landing regression only runs against the local emulator-mode server.')
+assert(['localhost', '127.0.0.1'].includes(target.hostname), 'Landing regression refuses non-local hosts to prevent Production requests.')
+const scenario = process.env.LANDING_TEST_CATALOG_SCENARIO || 'synthetic'
+const fixture = getLandingCatalogFixture(scenario)
+const functionsPort = Number(process.env.LANDING_TEST_FUNCTIONS_PORT || 5101)
+assert(Number.isInteger(functionsPort) && functionsPort > 0 && functionsPort < 65536)
 const response = await fetch(baseUrl)
 assert.equal(response.status, 200, `El servidor local no responde: ${baseUrl}`)
 const probe = createServer()
 await new Promise((done) => probe.listen(0, '127.0.0.1', done))
 const port = probe.address().port
 await new Promise((done) => probe.close(done))
-const output = resolve('tmp/landing-regression-evidence')
+const output = resolve('tmp/landing-regression-evidence', scenario)
 const viewportCases = [[320, 740], [360, 800], [375, 812], [390, 844], [430, 932], [768, 1024], [1024, 768], [1440, 900], [1920, 1080]]
   .filter(([width]) => !process.env.LANDING_TEST_WIDTH || width === Number(process.env.LANDING_TEST_WIDTH))
 mkdirSync(output, { recursive: true })
@@ -33,7 +40,7 @@ const browser = spawn(chrome, [
   '--headless=new', '--disable-gpu', '--no-sandbox',
   `--remote-debugging-port=${port}`, '--remote-allow-origins=*',
   `--user-data-dir=${profile}`,
-  baseUrl,
+  'about:blank',
 ], { stdio: 'ignore' })
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
@@ -45,7 +52,7 @@ try {
     await sleep(200)
     try {
       const tabs = await (await fetch(`http://127.0.0.1:${port}/json`)).json()
-      tab = tabs.find((item) => item.type === 'page' && new URL(item.url).hostname === target.hostname)
+      tab = tabs.find((item) => item.type === 'page')
       if (tab?.webSocketDebuggerUrl) break
     } catch { /* Chrome is starting. */ }
   }
@@ -54,6 +61,7 @@ try {
   await new Promise((done, fail) => { socket.onopen = done; socket.onerror = fail })
   let sequence = 1
   const pending = new Map()
+  const browserRequests = []
   socket.onmessage = (event) => {
     const payload = JSON.parse(event.data)
     if (!pending.has(payload.id)) return
@@ -61,6 +69,10 @@ try {
     pending.delete(payload.id)
     payload.error ? fail(new Error(JSON.stringify(payload.error))) : done(payload.result)
   }
+  socket.addEventListener('message', ({ data }) => {
+    const message = JSON.parse(data)
+    if (message.method === 'Network.requestWillBeSent') browserRequests.push(message.params.request.url)
+  })
   send = (method, params = {}) => new Promise((done, fail) => {
     const id = sequence++
     pending.set(id, { done, fail })
@@ -70,6 +82,31 @@ try {
     const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
     return result.result.value
+  }
+  const clickInFrameWithPointer = async (frameSelector, targetSelector) => {
+    await evaluate(`(() => {
+      const frame=document.querySelector(${JSON.stringify(frameSelector)});
+      const target=frame?.contentDocument?.querySelector(${JSON.stringify(targetSelector)});
+      frame?.scrollIntoView({block:'center',behavior:'instant'});
+      target?.scrollIntoView({block:'center',behavior:'instant'});
+    })()`)
+    await sleep(100)
+    const point = await evaluate(`(() => {
+      const frame=document.querySelector(${JSON.stringify(frameSelector)});
+      const target=frame?.contentDocument?.querySelector(${JSON.stringify(targetSelector)});
+      const frameRect=frame?.getBoundingClientRect();
+      const targetRect=target?.getBoundingClientRect();
+      if (!frameRect || !targetRect) return null;
+      const localX=targetRect.left+targetRect.width/2, localY=targetRect.top+targetRect.height/2;
+      const x=frameRect.left+frame.clientLeft+localX, y=frameRect.top+frame.clientTop+localY;
+      const hit=document.elementFromPoint(x,y);
+      const innerHit=frame.contentDocument?.elementFromPoint(localX,localY);
+      return {x,y,pointValid:hit===frame && Boolean(innerHit && (innerHit===target || target.contains(innerHit)))};
+    })()`)
+    assert(point?.pointValid, `El punto calculado no alcanza ${targetSelector} dentro de ${frameSelector}: ${JSON.stringify(point)}`)
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
   }
 
   const state = () => evaluate(`(() => {
@@ -109,6 +146,7 @@ try {
       tutorialSelectorWidth: tutorialSelector?.clientWidth || 0,
       tutorialSelectorScrollWidth: tutorialSelector?.scrollWidth || 0,
       catalogCount: catalogCards.length,
+      catalogEmpty: Boolean(document.querySelector('#plantillas [data-catalog-state="empty"]')),
       catalogColumns,
       catalogIds: catalogCards.map(card => card.dataset.templateId),
       hasSparklesInBanner: !!document.querySelector('#planes .rounded-3xl.bg-slate-900 svg.lucide-sparkles'),
@@ -121,7 +159,7 @@ try {
   })()`)
 
   const waitFor = async (predicate, label) => {
-    for (let attempt = 0; attempt < 40; attempt++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
       const result = await state()
       if (predicate(result)) return result
       await sleep(150)
@@ -129,7 +167,7 @@ try {
     throw new Error(`Tiempo agotado: ${label}; estado ${JSON.stringify(await state())}`)
   }
   const waitForValue = async (expression, predicate, label) => {
-    for (let attempt = 0; attempt < 40; attempt++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
       const value = await evaluate(expression)
       if (predicate(value)) return value
       await sleep(150)
@@ -158,12 +196,22 @@ try {
     const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { ...rect, scale: 1 } })
     writeFileSync(resolve(output, `${label}.png`), Buffer.from(capture.data, 'base64'))
   }
+  await send('Network.enable')
   await send('Page.enable')
   await send('Runtime.enable')
+  await send('Page.addScriptToEvaluateOnNewDocument', {
+    source: createLandingCatalogAdapterScript({ scenario, fixture, functionsPort }),
+  })
 
   // The tutorials tab selector must stay within its own scroller on initial load.
   await send('Page.navigate', { url: baseUrl })
-  await waitFor((res) => res.count === 5 && res.brandLogoLoaded, 'scroll reset: landing loaded')
+  await waitForValue('document.querySelectorAll("#hero [data-pachax-template-card]").length', value => value === 5, 'scroll reset: landing cards mounted')
+  await waitForValue('Boolean(document.querySelector(".pachax-brand-lockup img")?.naturalWidth)', value => value === true, 'landing brand asset loaded')
+  await waitForValue('window.__PACHAX_LANDING_TEST_CATALOG__?.calls || 0', value => value > 0, 'la landing consulta el contrato público por el adaptador local')
+  const initialFixtureState = await evaluate('window.__PACHAX_LANDING_TEST_CATALOG__')
+  assert.equal(initialFixtureState?.scenario, scenario, 'El adaptador local reporta el escenario solicitado')
+  assert(initialFixtureState.calls > 0, 'La landing consultó el contrato público mediante el adaptador local')
+  assert.deepEqual(initialFixtureState.blocked, [], 'La landing no intenta llamar servicios externos o acciones de escritura')
   await sleep(400)
   const initialScrollY = await evaluate('window.scrollY')
   assert(initialScrollY <= 1, `La home no debe desplazarse al cargar; scrollY=${initialScrollY}`)
@@ -174,16 +222,30 @@ try {
     const viewportUrl = new URL(baseUrl)
     viewportUrl.searchParams.set('__landingTestWidth', String(width))
     await send('Page.navigate', { url: viewportUrl.toString() })
-    const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2 && res.brandLogoLoaded, `${width}: loaded`)
+    const loaded = scenario === 'synthetic'
+      ? await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2 && res.brandLogoLoaded, `${width}: loaded synthetic catalog`)
+      : await waitFor((res) => res.count === 0 && res.catalogEmpty && res.brandLogoLoaded, `${width}: loaded confirmed empty catalog`)
     const pageScrollY = await evaluate('window.scrollY')
     assert(pageScrollY <= 1, `${width}: la landing no debe desplazarse al cargar; scrollY=${pageScrollY}`)
-    const catalogState = await waitFor((res) => res.catalogCount === 6, `${width}: six catalog entries`)
+    const catalogState = scenario === 'synthetic'
+      ? await waitFor((res) => res.catalogCount === 6, `${width}: synthetic catalog entries`)
+      : await waitFor((res) => res.catalogCount === 0 && res.catalogEmpty, `${width}: confirmed empty catalog`)
+    const fixtureState = await evaluate('window.__PACHAX_LANDING_TEST_CATALOG__')
+    assert.equal(fixtureState?.scenario, scenario)
+    // Chromium can restore the same document between viewport navigations, so
+    // the adapter counter is asserted on the initial document above. Each
+    // viewport still verifies the exact scenario-specific catalog projection.
+    assert.deepEqual(fixtureState.blocked, [], `${width}: no se intentaron funciones ni endpoints externos`)
     await evaluate(`document.querySelectorAll('#planes img').forEach(image=>{image.loading='eager'})`)
     const pricingImages = await waitFor((res) => res.pricingImagesLoaded, `${width}: commercial images loaded`)
     await sleep(400)
 
-    assert.equal(loaded.specializedCount, 3, 'La fila debe conservar las tres fichas especializadas')
-    assert.equal(loaded.selfServiceCount, 2, 'La fila debe conservar las dos fichas de autoservicio')
+    if (scenario === 'synthetic') {
+      assert.equal(loaded.specializedCount, 3, 'La fila debe conservar las tres fichas especializadas')
+      assert.equal(loaded.selfServiceCount, 2, 'La fila debe conservar las dos fichas de autoservicio')
+    } else {
+      assert.equal(loaded.specializedCount + loaded.selfServiceCount, 0, 'El catálogo vacío no publica ofertas en el hero')
+    }
     assert.match(loaded.title || '', /Gestiona tu negocio[\s\S]*de forma inteligente/, 'El titular coincide con la referencia aprobada')
     assert.equal(loaded.brandLogoLoaded, true, 'El logotipo oficial debe estar disponible')
     assert.equal(loaded.tutorialTabCount, 5, 'Tutoriales presenta las cinco demos públicas disponibles')
@@ -197,8 +259,13 @@ try {
     assert.match(loaded.pricingHeading, /Planes adaptados a la escala real de tu empresa/)
     assert(loaded.pricingCardHeights.every(height => height > 200), 'Las dos tarjetas deben conservar una altura legible')
     assert(loaded.pricingCardCopy.every(text => !text.includes('…')), 'Las descripciones de las modalidades no se recortan')
-    assert.deepEqual(catalogState.catalogIds, ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom'])
-    assert.equal(catalogState.catalogColumns, width <= 680 ? 1 : width <= 1100 ? 2 : 3, 'El catálogo debe adaptarse como grilla, sin carrusel móvil')
+    if (scenario === 'synthetic') {
+      assert.deepEqual(catalogState.catalogIds, ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom'])
+      assert.equal(catalogState.catalogColumns, width <= 680 ? 1 : width <= 1100 ? 2 : 3, 'El catálogo debe adaptarse como grilla, sin carrusel móvil')
+    } else {
+      assert.equal(catalogState.catalogEmpty, true, 'El catálogo confirma el estado vacío sin sembrar ofertas')
+      assert.equal(catalogState.catalogCount, 0, 'Un catálogo vacío no genera fichas comerciales')
+    }
 
     if ([320, 375].includes(width)) {
       await evaluate(`(() => { const section=document.querySelector('#tutoriales'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.4),behavior:'instant'}); })()`)
@@ -213,6 +280,7 @@ try {
         empty: section?.querySelector('.pachax-extras-empty')?.innerText || '',
         photoLoaded: Boolean(section?.querySelector('.pachax-extras-contact-photo')?.naturalWidth),
         contactActions: section?.querySelectorAll('.pachax-extras-contact-actions button').length || 0,
+        contactActionsDisabled: [...section?.querySelectorAll('.pachax-extras-contact-actions button') || []].every(button => button.disabled),
         footerLinks: [...document.querySelectorAll('.pachax-footer-navigation a')].map(link=>link.getAttribute('href')),
         registerLinks: document.querySelectorAll('.pachax-trust-footer a[href^="/register"], .pachax-trust-footer button[data-register]').length,
       };
@@ -222,6 +290,8 @@ try {
     if (extrasState.services === 0) assert.match(extrasState.empty, /Servicios en preparación/, 'No se muestran servicios de borrador')
     assert.equal(extrasState.photoLoaded, true, 'El asset editorial del cierre se carga')
     assert.equal(extrasState.contactActions, 2, 'El cierre separa WhatsApp y solicitud de propuesta')
+    if (scenario === 'empty') assert.equal(extrasState.contactActionsDisabled, true, 'Sin número publicable, las acciones de contacto permanecen deshabilitadas')
+    else assert.equal(extrasState.contactActionsDisabled, false, 'El fixture habilita las acciones para probarlas sin abrir servicios externos')
     assert.deepEqual(extrasState.footerLinks, ['#plantillas', '#planes', '#tutoriales', '#extras'])
     assert.equal(extrasState.registerLinks, 0, 'El footer no anuncia alta autónoma pausada')
 
@@ -232,9 +302,13 @@ try {
       document.querySelector('.pachax-proposal-action')?.click();
     })()`)
     const extrasContactUrls = await evaluate(`window.__extrasContactUrls`)
-    assert.equal(extrasContactUrls.length, 2)
-    assert(extrasContactUrls.every(url=>/wa\.me\/59177987776/.test(url)), 'Ambas acciones usan el WhatsApp oficial')
-    assert.notEqual(new URL(extrasContactUrls[0]).searchParams.get('text'), new URL(extrasContactUrls[1]).searchParams.get('text'), 'WhatsApp y propuesta tienen mensajes distintos')
+    if (scenario === 'empty') {
+      assert.equal(extrasContactUrls.length, 0, 'El estado vacío no abre consultas sin número configurado')
+    } else {
+      assert.equal(extrasContactUrls.length, 2)
+      assert(extrasContactUrls.every(url => new URL(url).pathname === `/${LANDING_TEST_CONTACT.number}`), 'Ambas acciones usan exclusivamente el contacto reservado para QA')
+      assert.notEqual(new URL(extrasContactUrls[0]).searchParams.get('text'), new URL(extrasContactUrls[1]).searchParams.get('text'), 'WhatsApp y propuesta tienen mensajes distintos')
+    }
 
     await screenshot(`${width}-hero`)
     if ([320, 375, 390, 1440, 1920].includes(width)) await screenshotFullPage(`${width}-landing-full`)
@@ -249,10 +323,20 @@ try {
       await screenshotElement('#planes', `${width}-section3-full`)
       await evaluate(`document.querySelector('#planes [data-pricing-mode="assisted"] button')?.click()`)
       await waitForValue(`document.querySelector('[role="dialog"] h3')?.textContent.trim()`, value => value === 'Implementación Asistida', 'abre detalle implementación')
+      if (scenario === 'empty') {
+        assert.equal(await evaluate(`document.querySelectorAll('[data-specialized-template]').length`), 0, 'El detalle vacío no inventa soluciones de implementación')
+        assert.match(await evaluate(`document.querySelector('[role="dialog"]')?.innerText||''`), /No hay soluciones de implementación publicadas/)
+      }
       await screenshot(`${width}-implementation-details`)
       await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
       await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
       await waitForValue(`document.querySelector('[role="dialog"] h3')?.textContent.trim()`, value => value === 'Activación Directa', 'abre detalle activación')
+      if (scenario === 'empty') {
+        const emptyPricing = await evaluate(`document.querySelector('[role="dialog"]')?.innerText||''`)
+        assert.match(emptyPricing, /No hay soluciones de activación directa publicadas/)
+        assert.equal(await evaluate(`document.querySelectorAll('[data-plan-template]').length`), 0, 'Sin catálogo no se habilita la selección de una plantilla comercial')
+        assert.equal(/(?:Bs\s?\d|\$\s?\d)/.test(emptyPricing), false, 'El catálogo vacío no muestra precios')
+      }
       await screenshot(`${width}-direct-details-no-published-plans`)
       await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
 
@@ -276,7 +360,7 @@ try {
       assert.equal(onboardingState.steps, 4, 'La sección conserva los cuatro pasos navegables')
       assert.equal(onboardingState.activeStep, 1, 'La demostración inicia en el primer paso')
       assert.equal(onboardingState.progress, 'Paso 1 de 4', 'El dispositivo muestra el paso activo')
-      assert.match(onboardingState.cta, /wa\.me\/59177987776/, 'El CTA dirige a consulta asistida por el canal oficial')
+      assert.match(onboardingState.cta, /^https:\/\/wa\.me\/\d+\?/, 'El CTA conserva un enlace WhatsApp válido; el runner nunca lo abre')
       assert(onboardingState.deviceWidth > 200 && onboardingState.deviceHeight > 300, 'El dispositivo conserva proporciones visibles')
       assert.equal(await evaluate(`document.querySelectorAll('#onboarding a[href^="/register"]').length`), 0, 'La demostración no inicia el registro autónomo pausado')
       if (width <= 1100) assert.match(onboardingState.layoutAreas, /"intro" "steps" "device" "action"/, 'En móvil/tablet, el recorrido precede al teléfono y al CTA')
@@ -393,8 +477,8 @@ try {
       await screenshotElement('#tutoriales', `${width}-tutorials-retail-center`)
       await evaluate(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[aria-label="Recorridos disponibles"] button')?.click()`)
       await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('h3')?.innerText.includes('Catálogo'))`, value => value, 'inicia el recorrido interactivo de orientación de Comercio')
-      await evaluate(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[data-tutorial-target="catalog"]')?.focus()`)
-      await waitForValue(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="progressbar"][aria-label="Progreso del recorrido"]')?.getAttribute('aria-valuenow')`, value => value === '1', 'el paso avanza al enfocar un control real del POS')
+      await clickInFrameWithPointer('#tutoriales iframe', '[data-tutorial-target="catalog"]')
+      await waitForValue(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="progressbar"][aria-label="Progreso del recorrido"]')?.getAttribute('aria-valuenow')`, value => value === '1', 'un clic real en el POS completa el primer paso del recorrido de Comercio')
       await screenshotElement('#tutoriales', `${width}-tutorials-retail-orientation`)
       if (width === 390) {
         await evaluate(`document.querySelector('#tutoriales iframe').src='/__tutorial_failure_no_runtime__'`)
@@ -431,6 +515,7 @@ try {
       await evaluate(`window.scrollTo({top:0,behavior:'instant'})`)
     }
 
+    if (scenario === 'synthetic') {
     // Commercial actions stay informational and select the requested public plan.
     const detailActions = {}
     for (const id of ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom']) {
@@ -450,7 +535,7 @@ try {
     }
     for (const [id, expectedName] of [['restaurant', 'Restaurante con salón'], ['distribution', 'Producción y Distribución'], ['nightclub', 'Nightclub & Lounge']]) {
       assert.equal(detailActions[id].title, expectedName, `${id} abre detalles completos`)
-      assert.match(detailActions[id].url || '', /wa\.me\/59177987776/)
+      assert.match(detailActions[id].url || '', /^https:\/\/wa\.me\/\d+\?text=/, `${id} conserva una URL WhatsApp bien formada; window.open está interceptado`)
       assert(decodeURIComponent(detailActions[id].url).includes(expectedName), `${id} conserva el contacto personalizado`)
     }
     assert.equal(detailActions.hamburger.title, 'Restaurante Rápido')
@@ -458,7 +543,7 @@ try {
     assert.equal(detailActions.retail.title, 'Comercio / Venta rápida')
     assert.match(detailActions.retail.primary, /Ver planes/)
     assert.match(detailActions.custom.primary, /Cotizar a medida/)
-    assert.match(detailActions.custom.url || '', /wa\.me\/59177987776/)
+    assert.match(detailActions.custom.url || '', /^https:\/\/wa\.me\/\d+\?text=/, 'La ficha personalizada conserva una URL WhatsApp bien formada; window.open está interceptado')
     assert.equal(await evaluate(`document.querySelectorAll('a[href^="/register"]').length`), 0, 'Ver planes nunca debe abrir /register')
     const catalogRetailSelection = await waitForValue(`document.querySelector('#planes')?.dataset.selectedQuickService`, value => value === 'retail', 'Comercio conserva la selección al navegar desde el catálogo')
     assert.equal(catalogRetailSelection, 'retail')
@@ -505,8 +590,17 @@ try {
       document.querySelector('[data-quick-plans-inquiry="retail"]')?.click();
     })()`)
     const plansInquiryUrl = await evaluate(`window.__plansInquiryUrl`)
-    assert.match(plansInquiryUrl || '', /wa\.me\/59177987776/, 'El estado sin oferta permite consulta por WhatsApp')
+    assert((plansInquiryUrl || '').includes(`wa.me/${LANDING_TEST_CONTACT.number}`), 'El estado sin oferta usa el contacto reservado del escenario sintético')
     await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+    } else {
+      assert.equal(await evaluate(`document.querySelectorAll('#plantillas .pachax-featured-card').length`), 0, 'Sin datos publicados no se fabrican fichas ni acciones de detalle')
+      assert.equal(await evaluate(`document.querySelectorAll('a[href^="/register"]').length`), 0, 'El escenario vacío nunca habilita contratación')
+      await evaluate(`document.querySelector('#planes [data-pricing-mode="direct"] button')?.click()`)
+      await waitForValue(`document.querySelector('[role="dialog"] h3')?.textContent.trim()`, value => value === 'Activación Directa', 'el detalle vacío se puede consultar')
+      assert.equal(await evaluate(`document.querySelectorAll('[data-plan-template], [data-plan-tier], [data-quick-plans-inquiry]').length`), 0, 'No se habilitan selección de planes ni consultas sin configuración')
+      assert.equal(await evaluate(`document.querySelector('[role="dialog"] .pachax-pricing-editorial')?.textContent || ''`), '', 'No se presenta contenido editorial como oferta publicada')
+      await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+    }
 
     if (width === 390) {
       await evaluate(`document.querySelector('.pachax-menu-toggle')?.click()`)
@@ -518,6 +612,19 @@ try {
 
     console.log(`PASS ${width}×${height}: carrusel unificado, CTA, navegación móvil y sin overflow`)
   }
+
+  const finalFixtureState = await evaluate('window.__PACHAX_LANDING_TEST_CATALOG__')
+  assert.equal(finalFixtureState?.scenario, scenario)
+  assert(finalFixtureState.calls > 0)
+  assert.deepEqual(finalFixtureState.blocked, [])
+  const productionRequests = browserRequests.filter(url => /(?:googleapis\.com|cloudfunctions\.net|firebaseio\.com|firebaseapp\.com)/i.test(url))
+  const unexpectedExternalRequests = browserRequests.filter(url => {
+    if (/^(?:data:|blob:|about:)/i.test(url)) return false
+    return !['localhost', '127.0.0.1'].includes(new URL(url).hostname)
+  })
+  assert.deepEqual(productionRequests, [], `Landing must not request Firebase Production: ${productionRequests.join(', ')}`)
+  assert.deepEqual(unexpectedExternalRequests, [], `Landing test must remain offline: ${unexpectedExternalRequests.join(', ')}`)
+  console.log(`Landing browser regression passed · ${scenario} catalog · ${viewportCases.length} viewport(s) · local callable calls=${finalFixtureState.calls} · Firebase Production requests=${productionRequests.length} · external requests=${unexpectedExternalRequests.length} · blocked unsupported calls=${finalFixtureState.blocked.length}`)
 
 } finally {
   if (socket?.readyState === WebSocket.OPEN) {
