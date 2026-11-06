@@ -99,14 +99,15 @@ const TUTORIAL_TEMPLATES: readonly TutorialTemplate[] = [
     title: 'Comercio / Venta rápida',
     icon: Store,
     summary: 'Catálogo, venta por unidad o peso, comprobante y Caja.',
-    guideIntro: 'La demo tiene un POS interactivo, pero esta plantilla todavía no cuenta con un Centro de tutoriales integrado.',
+    guideIntro: 'El Centro integrado ofrece recorridos prácticos de catálogo, venta por unidad o peso, cobro ficticio y comprobante local.',
     topics: [
       { title: 'Productos', description: 'Busca el catálogo de ejemplo y revisa los artículos por unidad o peso.' },
       { title: 'Carrito y comprobante', description: 'El POS de demo permite armar una venta ficticia y ver su resultado local.' },
       { title: 'Peso manual', description: 'La práctica usa gramos ingresados en pantalla; no conecta una balanza física.' },
     ],
-    builtInGuide: false,
-    demoKind: 'interactive',
+    learningTrigger: 'button[data-tutorial-target="tutorial-trigger-btn"]',
+    builtInGuide: true,
+    demoKind: 'guided',
   },
 ]
 

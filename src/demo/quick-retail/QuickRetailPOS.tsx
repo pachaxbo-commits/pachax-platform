@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Scale,
   Package,
@@ -36,6 +36,20 @@ export function QuickRetailPOS({
   const [customerName, setCustomerName] = useState<string>('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successReceipt, setSuccessReceipt] = useState<string | null>(null)
+  const [lastCompletedSale, setLastCompletedSale] = useState<CompletedRetailSale | null>(null)
+
+  const tutorialAction = (action: string) => {
+    window.dispatchEvent(new CustomEvent('quick-retail-tutorial-action', { detail: { action } }))
+  }
+
+  useEffect(() => {
+    const resetCatalogFilters = () => {
+      setSearchTerm('')
+      setSelectedCategory('all')
+    }
+    window.addEventListener('quick-retail-tutorial-selected', resetCatalogFilters)
+    return () => window.removeEventListener('quick-retail-tutorial-selected', resetCatalogFilters)
+  }, [])
 
   const categories = Array.from(new Set(products.map((p) => p.category)))
 
@@ -61,8 +75,10 @@ export function QuickRetailPOS({
         }
         return [...prev, newLine]
       })
-    } catch (err: any) {
-      alert(err.message)
+      return true
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : 'No se pudo agregar el producto')
+      return false
     }
   }
 
@@ -73,8 +89,9 @@ export function QuickRetailPOS({
       setCart((prev) => [...prev, newLine])
       setWeightModalProduct(null)
       setInputGrams(325)
-    } catch (err: any) {
-      alert(err.message)
+      tutorialAction('weight-added')
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : 'No se pudo agregar el peso')
     }
   }
 
@@ -82,8 +99,20 @@ export function QuickRetailPOS({
     setCart((prev) => prev.filter((_, idx) => idx !== index))
   }
 
+  const changeUnitQuantity = (index: number, delta: number) => {
+    setCart((prev) => prev.flatMap((line, lineIndex) => {
+      if (lineIndex !== index || line.soldBy !== 'unit') return [line]
+      const quantity = line.enteredQuantity + delta
+      if (quantity <= 0) return []
+      const product = products.find((item) => item.id === line.productId)
+      return product ? [createSaleLine(product, quantity)] : [line]
+    }))
+    tutorialAction('quantity-changed')
+  }
+
   const handleOpenCheckout = () => {
     if (!cart.length) return
+    tutorialAction('checkout-opened')
     setPaymentKind('cash')
     setCashInput((cartTotalMinor / 100).toFixed(2))
     setQrInput('0.00')
@@ -94,19 +123,11 @@ export function QuickRetailPOS({
   const handleProcessPayment = () => {
     setErrorMessage(null)
     const totalMinor = cartTotalMinor
-    let cashMinor = 0
-    let qrMinor = 0
-
-    if (paymentKind === 'cash') {
-      cashMinor = totalMinor
-      qrMinor = 0
-    } else if (paymentKind === 'qr') {
-      cashMinor = 0
-      qrMinor = totalMinor
-    } else {
-      cashMinor = Math.round((parseFloat(cashInput) || 0) * 100)
-      qrMinor = Math.round((parseFloat(qrInput) || 0) * 100)
-    }
+    const { cashMinor, qrMinor } = paymentKind === 'cash'
+      ? { cashMinor: totalMinor, qrMinor: 0 }
+      : paymentKind === 'qr'
+        ? { cashMinor: 0, qrMinor: totalMinor }
+        : { cashMinor: Math.round((parseFloat(cashInput) || 0) * 100), qrMinor: Math.round((parseFloat(qrInput) || 0) * 100) }
 
     try {
       // Reutiliza la validación pura de src/core/sales.ts
@@ -127,12 +148,14 @@ export function QuickRetailPOS({
       }
 
       onCompleteSale(newSale)
+      setLastCompletedSale(newSale)
       setCart([])
       setIsCheckoutOpen(false)
       setSuccessReceipt(receiptNumber)
+      tutorialAction('sale-completed')
       setTimeout(() => setSuccessReceipt(null), 4000)
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Error al validar importes de pago')
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : 'Error al validar importes de pago')
     }
   }
 
@@ -149,9 +172,18 @@ export function QuickRetailPOS({
             </span>
           </div>
         )}
+        {lastCompletedSale && (
+          <section data-tutorial-target="receipt" tabIndex={0} className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 focus:outline-none">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Resultado local de demostración</p><h3 className="mt-1 font-bold">Comprobante {lastCompletedSale.receiptNumber}</h3><p className="mt-1 text-xs">{lastCompletedSale.lines.map((line) => `${line.productNameSnapshot} × ${line.enteredQuantity}${line.soldBy === 'weight' ? ' g' : ''}`).join(' · ')}</p><p className="mt-1 text-sm font-extrabold">Total: Bs {(lastCompletedSale.totalMinor / 100).toFixed(2)} · {lastCompletedSale.paymentKind === 'qr' ? 'QR' : lastCompletedSale.paymentKind === 'mixed' ? 'Mixto' : 'Efectivo'}</p></div>
+              <div className="flex gap-2"><button type="button" onClick={() => tutorialAction('receipt-reviewed')} className="min-h-11 rounded-lg border border-emerald-300 bg-white px-3 text-xs font-semibold">Revisar comprobante</button><button type="button" data-tutorial-target="new-sale" onClick={() => { setLastCompletedSale(null); tutorialAction('new-sale-started') }} className="min-h-11 rounded-lg bg-emerald-800 px-3 text-xs font-semibold text-white">Nueva venta</button></div>
+            </div>
+            <p className="mt-2 text-[11px] text-emerald-800">Folio y resumen guardados solo en esta sesión de práctica. No se imprimió ni envió un comprobante.</p>
+          </section>
+        )}
 
         {/* Buscador y Categorías */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
+        <div data-tutorial-target="catalog" tabIndex={0} onFocus={() => tutorialAction('catalog-focus')} onClick={() => tutorialAction('catalog-focus')} className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3 focus:outline-none">
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -159,7 +191,9 @@ export function QuickRetailPOS({
                 type="text"
                 placeholder="Buscar por nombre o rubro..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                data-tutorial-target="search"
+                onFocus={() => tutorialAction('search-focus')}
+                onChange={(e) => { setSearchTerm(e.target.value); tutorialAction('search-used') }}
                 className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400"
               />
             </div>
@@ -201,11 +235,14 @@ export function QuickRetailPOS({
             return (
               <button
                 key={p.id}
+                data-tutorial-target="product"
+                onFocus={() => tutorialAction('catalog-focus')}
                 onClick={() => {
                   if (isWeight) {
+                    tutorialAction('weight-opened')
                     setWeightModalProduct(p)
                   } else {
-                    handleAddUnitProduct(p)
+                    if (handleAddUnitProduct(p)) tutorialAction('product-added')
                   }
                 }}
                 className="p-4 bg-white rounded-2xl border border-slate-200/80 hover:border-slate-400 hover:shadow-xs text-left transition flex flex-col justify-between group"
@@ -245,7 +282,7 @@ export function QuickRetailPOS({
       </div>
 
       {/* Columna Derecha: Carrito Mixto */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col h-full min-h-[500px]">
+      <div data-tutorial-target="cart" tabIndex={0} onFocus={() => tutorialAction('cart-focus')} onClick={() => tutorialAction('cart-focus')} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col h-full min-h-[500px] focus:outline-none">
         {/* Header Carrito */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 rounded-t-2xl">
           <div>
@@ -293,7 +330,8 @@ export function QuickRetailPOS({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    {line.soldBy === 'unit' && <div data-tutorial-target="quantity" className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5"><button type="button" aria-label={`Disminuir ${line.productNameSnapshot}`} onClick={() => changeUnitQuantity(idx, -1)} className="grid min-h-9 min-w-9 place-items-center rounded-md hover:bg-slate-100">−</button><span className="min-w-5 text-center font-semibold">{line.enteredQuantity}</span><button type="button" aria-label={`Aumentar ${line.productNameSnapshot}`} onClick={() => changeUnitQuantity(idx, 1)} className="grid min-h-9 min-w-9 place-items-center rounded-md hover:bg-slate-100">+</button></div>}
                     <span className="font-extrabold text-slate-900">Bs {subtotalBs}</span>
                     <button
                       onClick={() => handleRemoveLine(idx)}
@@ -316,13 +354,15 @@ export function QuickRetailPOS({
             <span className="font-semibold text-slate-800">{cart.length}</span>
           </div>
 
-          <div className="flex items-baseline justify-between pt-1">
+          <div data-tutorial-target="total" tabIndex={0} onFocus={() => tutorialAction('total-focus')} onClick={() => tutorialAction('total-focus')} className="flex items-baseline justify-between pt-1 focus:outline-none">
             <span className="text-sm font-bold text-slate-700">Total a Pagar:</span>
             <span className="text-2xl font-black text-slate-900">Bs {cartTotalBs}</span>
           </div>
 
           <button
+            data-tutorial-target="checkout"
             onClick={handleOpenCheckout}
+            onFocus={() => tutorialAction('total-focus')}
             disabled={cart.length === 0}
             className={`w-full py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-sm ${
               cart.length > 0
@@ -339,7 +379,7 @@ export function QuickRetailPOS({
       {/* MODAL PARA INGRESAR PESO (GRAMOS) */}
       {weightModalProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm space-y-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Scale className="w-5 h-5 text-amber-600" />
@@ -356,6 +396,7 @@ export function QuickRetailPOS({
             <div className="text-xs text-slate-500">
               Precio unitario: <strong>Bs {(weightModalProduct.priceMinor / 100).toFixed(2)} / kg</strong>
             </div>
+            <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-950">Práctica: ingresa gramos manualmente. Esta demostración no conecta una balanza física.</p>
 
             {/* Input en gramos */}
             <div>
@@ -368,7 +409,10 @@ export function QuickRetailPOS({
                   min="1"
                   step="1"
                   value={inputGrams}
-                  onChange={(e) => setInputGrams(parseInt(e.target.value) || 0)}
+                  data-tutorial-target="weight-input"
+                  onChange={(e) => { setInputGrams(parseInt(e.target.value) || 0); tutorialAction('weight-changed') }}
+                  inputMode="numeric"
+                  autoFocus
                   className="w-full text-xl font-bold px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-400 text-right pr-10"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
@@ -396,8 +440,8 @@ export function QuickRetailPOS({
             </div>
 
             {/* Subtotal estimado en vivo */}
-            <div className="p-3 bg-slate-50 rounded-xl flex items-center justify-between text-xs">
-              <span className="text-slate-600">Subtotal exacto:</span>
+            <div data-tutorial-target="weight-subtotal" tabIndex={0} onFocus={() => tutorialAction('weight-calc-reviewed')} onClick={() => tutorialAction('weight-calc-reviewed')} className="p-3 bg-slate-50 rounded-xl flex items-center justify-between gap-3 text-xs focus:outline-none">
+              <span className="text-slate-600">Subtotal según gramos y precio por kg:</span>
               <span className="text-base font-bold text-slate-900">
                 Bs{' '}
                 {(
@@ -418,6 +462,7 @@ export function QuickRetailPOS({
               </button>
               <button
                 type="button"
+                data-tutorial-target="weight-add"
                 onClick={handleConfirmWeight}
                 className="flex-1 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs"
               >
@@ -431,7 +476,7 @@ export function QuickRetailPOS({
       {/* MODAL DE COBRO / CHECKOUT */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Confirmar Pago</h3>
@@ -453,6 +498,7 @@ export function QuickRetailPOS({
               <span className="text-xs text-slate-300 uppercase tracking-wider font-semibold">Total Venta</span>
               <span className="text-2xl font-black">Bs {cartTotalBs}</span>
             </div>
+            <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-950">Práctica local con datos ficticios. No se generan transacciones bancarias ni ventas productivas.</p>
 
             {/* Nombre del cliente opcional */}
             <div>
@@ -476,7 +522,9 @@ export function QuickRetailPOS({
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
+                  data-tutorial-target="payment-method"
                   onClick={() => setPaymentKind('cash')}
+                  onClickCapture={() => tutorialAction('payment-method-selected')}
                   className={`p-2.5 rounded-xl border text-xs font-bold transition flex flex-col items-center gap-1.5 ${
                     paymentKind === 'cash'
                       ? 'bg-teal-50 border-teal-400 text-teal-900 ring-2 ring-teal-400/30'
@@ -488,7 +536,9 @@ export function QuickRetailPOS({
                 </button>
                 <button
                   type="button"
+                  data-tutorial-target="payment-method"
                   onClick={() => setPaymentKind('qr')}
+                  onClickCapture={() => tutorialAction('payment-method-selected')}
                   className={`p-2.5 rounded-xl border text-xs font-bold transition flex flex-col items-center gap-1.5 ${
                     paymentKind === 'qr'
                       ? 'bg-teal-50 border-teal-400 text-teal-900 ring-2 ring-teal-400/30'
@@ -500,7 +550,9 @@ export function QuickRetailPOS({
                 </button>
                 <button
                   type="button"
+                  data-tutorial-target="payment-method"
                   onClick={() => setPaymentKind('mixed')}
+                  onClickCapture={() => tutorialAction('payment-method-selected')}
                   className={`p-2.5 rounded-xl border text-xs font-bold transition flex flex-col items-center gap-1.5 ${
                     paymentKind === 'mixed'
                       ? 'bg-teal-50 border-teal-400 text-teal-900 ring-2 ring-teal-400/30'
@@ -552,6 +604,7 @@ export function QuickRetailPOS({
               </button>
               <button
                 type="button"
+                data-tutorial-target="confirm-payment"
                 onClick={handleProcessPayment}
                 className="flex-1 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs"
               >
