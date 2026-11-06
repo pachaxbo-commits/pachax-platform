@@ -10,8 +10,10 @@ const chrome = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Applicat
 assert.ok(chrome, 'Chrome not found')
 const root = resolve('dist')
 const evidenceDir = resolve('docs/demo-app-integration-evidence')
+const retailEvidenceDir = resolve('docs/retail-learning-center-evidence')
 assert.ok(existsSync(join(root, 'demo-isolated.html')), 'Run npm run build:emulator first')
 mkdirSync(evidenceDir, { recursive: true })
+mkdirSync(retailEvidenceDir, { recursive: true })
 
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.json': 'application/json' }
 const csp = "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; frame-ancestors 'self'; form-action 'self'; media-src 'self' blob:"
@@ -78,6 +80,11 @@ try {
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
     return result.result.value
   }
+  const captureScreenshot = async (label, selector = null) => {
+    const clip = selector ? await evaluate(`(() => { const rect=document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return rect ? {x:rect.x,y:rect.y,width:rect.width,height:rect.height,scale:1} : null })()`) : null
+    const capture = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: Boolean(clip), ...(clip ? { clip } : {}) })
+    writeFileSync(join(retailEvidenceDir, `${label}.png`), Buffer.from(capture.data, 'base64'))
+  }
   const selectValue = async (label, value) => evaluate(`(() => { const select = document.querySelector('select[aria-label=${JSON.stringify(label)}]'); if (!select) return false; const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(select, ${JSON.stringify(value)}); select.dispatchEvent(new Event('change', { bubbles: true })); return true })()`)
   const ready = async () => {
     for (let attempt = 0; attempt < 100; attempt++) { await wait(100); if (await evaluate("Boolean(document.querySelector('[data-demo-only-ready=\\\"true\\\"]'))")) return }
@@ -92,7 +99,8 @@ try {
   await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable'); await send('Network.enable')
 
   const routeResults = []
-  for (const template of ['hamburger', 'retail']) for (const dataset of ['full', 'empty']) for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const template of ['hamburger', 'retail']) for (const dataset of ['full', 'empty']) for (const width of [320, 360, 375, 390, 430, 768, 1024, 1440, 1920]) {
+    const viewport = { width, height: width < 500 ? 844 : 1000 }
     await send('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: viewport.width < 500 })
     const route = `/demo/${template}?data=${dataset}`
     const response = await fetch(`http://127.0.0.1:${port}${route}`)
@@ -113,6 +121,94 @@ try {
     assert.deepEqual(externalRequests, [], `${route}: browser requested external services: ${externalRequests.join(', ')}`)
     const marker = template === 'hamburger' ? 'Hamburguesa clásica' : 'Helado artesanal'
     assert.equal(state.text.includes(marker), dataset === 'full', `${route}: wrong dataset state`)
+    if (template === 'retail') {
+      await evaluate(`(() => [...document.querySelectorAll('button')].find(button => button.innerText.includes('Abrir Centro de tutoriales'))?.click())()`)
+      assert.match(await evaluate(`document.querySelector('[aria-label="Centro de tutoriales de Comercio"]')?.innerText||''`), /Centro de tutoriales/)
+      const availableTours = await evaluate(`(() => [...document.querySelectorAll('[aria-label="Recorridos disponibles"] button')].map(button => ({ title: button.querySelector('span')?.innerText || '', disabled: button.disabled })) )()`)
+      assert.equal(availableTours.length, 5, `${route}: all five guides are visible`)
+      assert.equal(availableTours[0].disabled, false, `${route}: orientation stays available with any dataset`)
+      assert.equal(availableTours.slice(1).every((tour) => tour.disabled === (dataset === 'empty')), true, `${route}: sale guides respect empty catalog state`)
+      if (width === 390 || width === 320) await captureScreenshot(`${width}-${dataset}-tutorial-center`, '[aria-label="Centro de tutoriales de Comercio"]')
+      if (width === 390 && dataset === 'full') {
+        await selectValue('Rol simulado', 'inventory')
+        assert.match(await evaluate(`document.querySelector('[aria-label="Centro de tutoriales de Comercio"]')?.innerText||''`), /El rol actual no tiene acceso/)
+        await selectValue('Rol simulado', 'admin')
+        assert.match(await evaluate(`document.querySelector('[aria-label="Recorridos disponibles"]')?.innerText||''`), /Venta por unidad/)
+      }
+      if (dataset === 'full' && (width === 1440 || width === 390)) {
+        const evidencePrefix = `${width}`
+        const clickText = async (text) => evaluate(`(() => { const button=[...document.querySelectorAll('button')].find(item => item.innerText.trim().includes(${JSON.stringify(text)})); button?.click(); return Boolean(button) })()`)
+        const progress = async () => evaluate(`document.querySelector('[role="progressbar"][aria-label="Progreso del recorrido"]')?.getAttribute('aria-valuenow') || ''`)
+        const completeCurrentStep = async (label) => { await wait(120); const state = await evaluate(`(() => ({ completed:Boolean([...document.querySelectorAll('span')].some(node => node.innerText.trim() === 'Acción completada')), step:document.querySelector('[aria-label="Centro de tutoriales de Comercio"] h3')?.innerText||'', dialogs:[...document.querySelectorAll('[role="dialog"]')].map(node=>node.innerText.slice(0,120)), events:window.__retailTutorialEvents||[], visibleText:document.body.innerText.slice(-300) }))()`); assert.equal(state.completed, true, `${label}: action event completes the current step; ${JSON.stringify(state)}`); assert.ok(await clickText('Siguiente'), `${label}: next is enabled after the real action`) }
+
+        await clickText('Venta por unidad')
+        if (width === 390) await captureScreenshot(`${evidencePrefix}-selected-tutorial`)
+        await wait(100)
+        await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="search"]'); input.focus(); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'Café Latte'); input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'Café Latte'})); })()`)
+        await completeCurrentStep('Unit sale search')
+        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+        await completeCurrentStep('Unit product add')
+        await evaluate(`document.querySelector('[data-tutorial-target="quantity"] button[aria-label^="Aumentar"]')?.click()`)
+        await completeCurrentStep('Unit quantity update')
+        await evaluate(`document.querySelector('[data-tutorial-target="total"]')?.click()`)
+        await wait(150)
+        assert.equal(await progress(), '4', 'Unit sale tutorial records four real actions')
+        await captureScreenshot(`${evidencePrefix}-unit-sale`)
+        await evaluate(`document.querySelector('[aria-label="Reiniciar recorrido"]')?.click()`)
+
+        await clickText('Cambiar recorrido')
+        await clickText('Venta por peso')
+        await wait(180)
+        await evaluate(`window.__retailTutorialEvents=[];window.addEventListener('quick-retail-tutorial-action',event=>window.__retailTutorialEvents.push(event.detail.action))`)
+        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Helado artesanal'))?.click())()`)
+        await completeCurrentStep('Weight product open')
+        if (width === 390) {
+          const guideVisible = await evaluate(`(() => { const rect=document.querySelector('[aria-label="Centro de tutoriales de Comercio"]')?.getBoundingClientRect(); return Boolean(rect && rect.top >= 170 && rect.top < innerHeight && rect.bottom < innerHeight) })()`)
+          assert.equal(guideVisible, true, 'At 390px the active tutorial panel stays visible while the weight input is open')
+          await captureScreenshot(`${evidencePrefix}-weight-input`)
+        }
+        await evaluate(`(() => { const input=document.querySelector('[data-tutorial-target="weight-input"]'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'250'); input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'250'})); })()`)
+        await completeCurrentStep('Manual grams entry')
+        await evaluate(`document.querySelector('[data-tutorial-target="weight-subtotal"]')?.click()`)
+        await completeCurrentStep('Weight calculation review')
+        await evaluate(`document.querySelector('[data-tutorial-target="weight-add"]')?.click()`)
+        await completeCurrentStep('Weight item add')
+        await evaluate(`document.querySelector('[data-tutorial-target="total"]')?.click()`)
+        assert.equal(await progress(), '5', 'Weight tutorial records five real actions')
+        await captureScreenshot(`${evidencePrefix}-weight-sale`)
+        if (width === 390) await captureScreenshot(`${evidencePrefix}-cart`)
+        await clickText('Cambiar recorrido')
+        await clickText('Cobro demostrativo')
+        await evaluate(`document.querySelector('[data-tutorial-target="cart"]')?.click()`)
+        await completeCurrentStep('Payment cart review')
+        await evaluate(`document.querySelector('[data-tutorial-target="checkout"]')?.click()`)
+        await completeCurrentStep('Payment checkout open')
+        await evaluate(`document.querySelectorAll('[data-tutorial-target="payment-method"]')[1]?.click()`)
+        await completeCurrentStep('Payment method selection')
+        await evaluate(`document.querySelector('[data-tutorial-target="confirm-payment"]')?.click()`)
+        assert.equal(await progress(), '4', 'Payment tutorial records cart, checkout, method and local confirmation')
+        await captureScreenshot(`${evidencePrefix}-demo-payment`)
+
+        await clickText('Cambiar recorrido')
+        await clickText('Comprobante y nueva venta')
+        await evaluate(`(() => [...document.querySelectorAll('[data-tutorial-target="product"]')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+        await completeCurrentStep('Receipt sale setup')
+        await evaluate(`document.querySelector('[data-tutorial-target="checkout"]')?.click()`)
+        await completeCurrentStep('Receipt checkout')
+        await evaluate(`document.querySelector('[data-tutorial-target="payment-method"]')?.click()`)
+        await completeCurrentStep('Receipt payment method')
+        await evaluate(`document.querySelector('[data-tutorial-target="confirm-payment"]')?.click()`)
+        await completeCurrentStep('Receipt generated')
+        assert.match(await evaluate(`document.querySelector('[data-tutorial-target="receipt"]')?.innerText||''`), /Comprobante TCK-\d{4}[\s\S]*Total: Bs/, 'local receipt summary contains a folio and total')
+        await captureScreenshot(`${evidencePrefix}-receipt`)
+        await evaluate(`document.querySelector('[data-tutorial-target="receipt"] button')?.click()`)
+        await completeCurrentStep('Receipt review')
+        await evaluate(`document.querySelector('[data-tutorial-target="new-sale"]')?.click()`)
+        assert.equal(await progress(), '6', 'Receipt tutorial reaches the start-new-sale action')
+        await captureScreenshot(`${evidencePrefix}-receipt-new-sale`)
+      }
+      await evaluate(`document.querySelector('[aria-label="Cerrar Centro de tutoriales"]')?.click()`)
+    }
     assert.equal(await selectValue('Rol simulado', 'cashier'), true, `${route}: role selector missing`)
     assert.equal(await selectValue('Rol simulado', 'admin'), true, `${route}: role selector could not restore admin`)
     const reset = await evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(item => item.innerText.trim() === 'Reiniciar'); button?.click(); return Boolean(button) })()`)

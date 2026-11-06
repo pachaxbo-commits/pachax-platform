@@ -382,8 +382,20 @@ try {
       const retailTutorial = await waitFor((res) => res.tutorialSelected === 'retail' && res.tutorialFrameLoaded && res.tutorialAppReady && /\/demo\/retail\?/.test(res.tutorialFrameUrl), 'abre POS interactivo de Comercio')
       assert.equal(retailTutorial.tutorialErrorVisible, false, 'Comercio no muestra fallo de carga')
       assert.match(retailTutorial.tutorialFrameUrl, /\/demo\/retail\?/)
-      assert.match(await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-guide-note')?.innerText||''`), /Centro de tutoriales no está disponible/)
-      assert.equal(await evaluate(`Boolean(document.querySelector('#tutoriales [data-tutorial-open-guide]'))`), false, 'Comercio no anuncia un tutorial inexistente')
+      assert.equal(await evaluate(`Boolean(document.querySelector('#tutoriales [data-tutorial-open-guide]'))`), true, 'Comercio anuncia el Centro integrado')
+      await waitForValue(`document.querySelector('#tutoriales [data-tutorial-open-guide]')?.disabled`, value => value === false, 'el acceso se habilita cuando la demo está lista')
+      await evaluate(`document.querySelector('#tutoriales [data-tutorial-open-guide]')?.click()`)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[aria-label="Centro de tutoriales de Comercio"]'))`, value => value, 'abre el Centro de tutoriales de Comercio').catch(async error => {
+        const details = await evaluate(`(() => { const child=document.querySelector('#tutoriales iframe')?.contentDocument; return {feedback:document.querySelector('#tutoriales .pachax-tutorials-feedback')?.innerText||'', buttonDisabled:document.querySelector('#tutoriales [data-tutorial-open-guide]')?.disabled, trigger:child?.querySelector('button[data-tutorial-target="tutorial-trigger-btn"]')?.getAttribute('aria-expanded')} })()`)
+        throw new Error(`${error.message}; Retail guide debug=${JSON.stringify(details)}`)
+      })
+      assert.match(await evaluate(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[aria-label="Recorridos disponibles"]')?.innerText||''`), /Venta por unidad[\s\S]*Venta por peso[\s\S]*Cobro demostrativo/)
+      await screenshotElement('#tutoriales', `${width}-tutorials-retail-center`)
+      await evaluate(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[aria-label="Recorridos disponibles"] button')?.click()`)
+      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('h3')?.innerText.includes('Catálogo'))`, value => value, 'inicia el recorrido interactivo de orientación de Comercio')
+      await evaluate(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[data-tutorial-target="catalog"]')?.focus()`)
+      await waitForValue(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="progressbar"][aria-label="Progreso del recorrido"]')?.getAttribute('aria-valuenow')`, value => value === '1', 'el paso avanza al enfocar un control real del POS')
+      await screenshotElement('#tutoriales', `${width}-tutorials-retail-orientation`)
       if (width === 390) {
         await evaluate(`document.querySelector('#tutoriales iframe').src='/__tutorial_failure_no_runtime__'`)
         let loadStatus = ''

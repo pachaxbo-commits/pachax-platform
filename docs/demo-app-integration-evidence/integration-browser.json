@@ -1,10 +1,32 @@
 {
   "result": "PASS",
-  "server": "127.0.0.1:62683",
+  "server": "127.0.0.1:51745",
   "routes": [
     {
       "route": "/demo/hamburger?data=full",
-      "viewport": "1440x900",
+      "viewport": "320x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "360x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "375x844",
       "refresh": "PASS",
       "roleChange": "PASS",
       "reset": "PASS",
@@ -25,8 +47,52 @@
       "ready": true
     },
     {
-      "route": "/demo/hamburger?data=empty",
-      "viewport": "1440x900",
+      "route": "/demo/hamburger?data=full",
+      "viewport": "430x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "768x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "1024x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "1440x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=full",
+      "viewport": "1920x1000",
       "refresh": "PASS",
       "roleChange": "PASS",
       "reset": "PASS",
@@ -37,6 +103,138 @@
     },
     {
       "route": "/demo/hamburger?data=empty",
+      "viewport": "320x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "360x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "375x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "390x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "430x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "768x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "1024x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "1440x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/hamburger?data=empty",
+      "viewport": "1920x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "320x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "360x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "375x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
       "viewport": "390x844",
       "refresh": "PASS",
       "roleChange": "PASS",
@@ -48,7 +246,7 @@
     },
     {
       "route": "/demo/retail?data=full",
-      "viewport": "1440x900",
+      "viewport": "430x844",
       "refresh": "PASS",
       "roleChange": "PASS",
       "reset": "PASS",
@@ -59,6 +257,83 @@
     },
     {
       "route": "/demo/retail?data=full",
+      "viewport": "768x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "1024x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "1440x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=full",
+      "viewport": "1920x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "320x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "360x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "375x844",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
       "viewport": "390x844",
       "refresh": "PASS",
       "roleChange": "PASS",
@@ -70,7 +345,7 @@
     },
     {
       "route": "/demo/retail?data=empty",
-      "viewport": "1440x900",
+      "viewport": "430x844",
       "refresh": "PASS",
       "roleChange": "PASS",
       "reset": "PASS",
@@ -81,7 +356,40 @@
     },
     {
       "route": "/demo/retail?data=empty",
-      "viewport": "390x844",
+      "viewport": "768x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "1024x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "1440x1000",
+      "refresh": "PASS",
+      "roleChange": "PASS",
+      "reset": "PASS",
+      "csp": "connect-src none",
+      "noStore": true,
+      "overflow": false,
+      "ready": true
+    },
+    {
+      "route": "/demo/retail?data=empty",
+      "viewport": "1920x1000",
       "refresh": "PASS",
       "roleChange": "PASS",
       "reset": "PASS",
@@ -100,6 +408,20 @@
     {
       "label": "Retail",
       "route": "/demo/retail?data=full",
+      "result": "PASS"
+    }
+  ],
+  "embeddedTutorials": [
+    {
+      "templateId": "hamburger",
+      "sameOriginCsp": true,
+      "runtimeReady": true,
+      "result": "PASS"
+    },
+    {
+      "templateId": "retail",
+      "sameOriginCsp": true,
+      "runtimeReady": true,
       "result": "PASS"
     }
   ],

@@ -3,7 +3,7 @@
   "buildCommand": "npm run build:demos-only",
   "outputDirectory": "dist-demo-isolated",
   "totalFiles": 100,
-  "totalBytes": 24489894,
+  "totalBytes": 24510350,
   "files": [
     {
       "path": "aviso-privacidad-solicitud-comercial.html",
@@ -291,19 +291,19 @@
       "sha256": "e17cabe5e25f3c66777c529f01df0ae562f11671a8506eb583d8799eaceeb149"
     },
     {
-      "path": "demo-assets/datasets-BXa1HW4G.js",
-      "bytes": 21718,
-      "sha256": "6fa69f06600def0e17983b64b075036f5dc7af13a3af72e1edfbbf3d179df686"
+      "path": "demo-assets/datasets-BCwgxdEj.js",
+      "bytes": 22117,
+      "sha256": "8aa43dabbddcbfd67bef30ab20156d77c6a786f5f784342e800e5c7f17187272"
     },
     {
-      "path": "demo-assets/demo-7zwkGgCP.css",
-      "bytes": 136262,
-      "sha256": "00243a195996abf3dcc0971bb9005f76f678be7ca077ac2a5fa354c69c2f62bc"
-    },
-    {
-      "path": "demo-assets/demo-B13kLFGL.js",
+      "path": "demo-assets/demo-Bw1YSgoh.js",
       "bytes": 208063,
-      "sha256": "9f7a207a1d8cf111b8245c0baf5c2a32024160d43723eb0dd42b9432dcb9521d"
+      "sha256": "578e2e124977c105492a9ba0ca53854253218995ded17fb53eec3e1c0040fd58"
+    },
+    {
+      "path": "demo-assets/demo-Ci6MD-dD.css",
+      "bytes": 137655,
+      "sha256": "c8ce3e40dc592038f0a612a53b2b14bad60b2bee43a8ccfdf2f2851c41e0a96b"
     },
     {
       "path": "demo-assets/dist-BcvA-GRa.js",
@@ -311,14 +311,14 @@
       "sha256": "f4d084abb55d5e2f8b9f0a0f604c11caab2b9d3e9eac9854addf254df5903b65"
     },
     {
-      "path": "demo-assets/esm-C40Yl7mi.js",
-      "bytes": 345,
-      "sha256": "ec755100a7fdd5f4608b6f856037373f87a5bd59d7e2cc51c0d2341949f26c79"
+      "path": "demo-assets/esm-Bab_jIsE.js",
+      "bytes": 1389,
+      "sha256": "8b7ad56d282dfe4cca359d6ee60ce3af0279c809b523f7b9f0c45cc1f3f5a25c"
     },
     {
-      "path": "demo-assets/esm-CANuYjsb.js",
-      "bytes": 1389,
-      "sha256": "2caa75b4a6b444233a17786f18fe95bf68766d215593165c1a4b35cfbff09c18"
+      "path": "demo-assets/esm-CaIhm8F5.js",
+      "bytes": 345,
+      "sha256": "9289eec2ca1ae439543e0980985e106ddf53b0849a32965d28b1c12aebda980b"
     },
     {
       "path": "demo-assets/exceljs.min-DXOFVt0i.js",
@@ -336,9 +336,9 @@
       "sha256": "158c0db513d2607dfb1b57cb748ba34631b0a70cc960cb40aa32b5ec3dc1d626"
     },
     {
-      "path": "demo-assets/jspdf.es.min-CxeKZ2Fl.js",
+      "path": "demo-assets/jspdf.es.min-B9qm2ZJB.js",
       "bytes": 399686,
-      "sha256": "31989ce28c16180c3515013ddc5ee0f3912e04720a1b00adbf98f1011b83c584"
+      "sha256": "59adf08727a0a6525ae81336bc0427851508389f72803c1c0e0169a863e3a2da"
     },
     {
       "path": "demo-assets/jspdf.plugin.autotable-GudEMuKW.js",
@@ -351,19 +351,19 @@
       "sha256": "b242a72dc734e1e0001337c1ab362ad94fd3a5e2f94fe5bb89f09dc98bcb903a"
     },
     {
-      "path": "demo-assets/QuickRetailDemo-U2HkoBmy.js",
-      "bytes": 47708,
-      "sha256": "d3ed4a1fcda564834c85ae6b498e358cc4c5102d9ed7acce5a84607d3e2e4052"
+      "path": "demo-assets/QuickRetailDemo-DhPdg3po.js",
+      "bytes": 66732,
+      "sha256": "c0c6be91dd0b977663352fcfa5f7d06e34cde9162c222743ff8873e39a4dec50"
+    },
+    {
+      "path": "demo-assets/RestaurantDemo-BG478Hgv.js",
+      "bytes": 586482,
+      "sha256": "e14421acd714363b82820d8ddc589c8c294bf351fd0f40c0a605e495fe6ed1d7"
     },
     {
       "path": "demo-assets/RestaurantDemo-BLO4p97i.css",
       "bytes": 16666,
       "sha256": "9b714f73af6d40396970e6e48f76a7bed914f61ab8a73da3669a9bd975e53711"
-    },
-    {
-      "path": "demo-assets/RestaurantDemo-DlkvmJjj.js",
-      "bytes": 586842,
-      "sha256": "b8b3cc440f4ec5c9059f752ae2becb9803957af1b0d487e3526dd744fc9c2f12"
     },
     {
       "path": "demo-assets/typeof-B5XbjTb1.js",
@@ -376,19 +376,19 @@
       "sha256": "289f83e5a73a4355a6b27d021ba666e210c1fea436247d90431a8e487732b841"
     },
     {
+      "path": "demo-assets/web-CsT7cv4Q.js",
+      "bytes": 8492,
+      "sha256": "412b97009ae1ea56a590a6892fb5df1f887413c31adb377f26bfaa0ddbbb45a6"
+    },
+    {
       "path": "demo-assets/web-CTN4TO-D.js",
       "bytes": 843,
       "sha256": "78e59e7e9126afc07a60c408b11f4bd89a511e54d6442c381355f02fe4c55bba"
     },
     {
-      "path": "demo-assets/web-En8-Q2oj.js",
-      "bytes": 8492,
-      "sha256": "cf6baea042f5d6fbbbe280c7efeb798afdd880de042941ca81a4ffb851262a15"
-    },
-    {
       "path": "demo-isolated.html",
       "bytes": 941,
-      "sha256": "7bdaca91a62f5866772db3482d6172c28034eb3ac013bb6c3a6250e874ba07bf"
+      "sha256": "2daee8d2113c8a5bf1ce681f0327aafb549ed3def1aac8b0216fa8f71a3ae54e"
     },
     {
       "path": "demo-isolation-network-guard.js",

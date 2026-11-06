@@ -27,6 +27,7 @@ import { QuickRetailCustomers } from './QuickRetailCustomers'
 import { QuickRetailUsers } from './QuickRetailUsers'
 import { QuickRetailReports } from './QuickRetailReports'
 import { QuickRetailSettings } from './QuickRetailSettings'
+import { QuickRetailTutorialCenter } from './QuickRetailTutorialCenter'
 
 export type QuickRetailModuleId =
   | 'dashboard'
@@ -76,6 +77,7 @@ export function QuickRetailDemo({
   const [activeModule, setActiveModule] = useState<QuickRetailModuleId>('dashboard')
   const [products] = useState<RetailProduct[]>(() => createRetailDataset(datasetMode).products)
   const [sales, setSales] = useState<CompletedRetailSale[]>(() => createRetailDataset(datasetMode).sales)
+  const [tutorialOpen, setTutorialOpen] = useState(false)
 
 
 
@@ -85,6 +87,7 @@ export function QuickRetailDemo({
   })
 
   const effectiveModule: QuickRetailModuleId = visibleModules.some(m => m.id === activeModule) ? activeModule : (visibleModules[0]?.id || 'dashboard')
+  const canUsePos = mode === 'team' || (QUICK_RETAIL_MODULES.find((module) => module.id === 'pos')?.roles as readonly string[]).includes(simulatedRole)
 
   const handleCompleteSale = (newSale: CompletedRetailSale) => {
     setSales((prev) => [newSale, ...prev])
@@ -92,9 +95,10 @@ export function QuickRetailDemo({
 
   return (
     <div className={`w-full flex flex-col space-y-5 ${isStudioEmbed ? 'p-3 sm:p-5' : ''}`}>
-        {companyName && !isStudioEmbed && (
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">{companyName}</div>
-        )}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3 sm:px-5">
+          {companyName && !isStudioEmbed ? <div className="text-xs font-bold uppercase tracking-wider text-slate-500">{companyName}</div> : <span className="text-xs text-slate-500">Comercio · entorno de práctica</span>}
+          <button type="button" data-tutorial-target="tutorial-trigger-btn" data-tutorial-trigger onClick={() => setTutorialOpen((open) => !open)} aria-expanded={tutorialOpen} className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-slate-800 shadow-xs transition hover:border-sky-500 hover:bg-sky-50 focus-visible:outline-2 focus-visible:outline-sky-600">{tutorialOpen ? 'Cerrar tutoriales' : 'Abrir Centro de tutoriales'}</button>
+        </div>
       {/* Barra horizontal de módulos */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-2 shadow-xs overflow-x-auto no-scrollbar">
         <div className="flex items-center gap-1 min-w-max">
@@ -118,6 +122,14 @@ export function QuickRetailDemo({
           })}
         </div>
       </div>
+
+      <QuickRetailTutorialCenter
+        isOpen={tutorialOpen}
+        hasProducts={products.length > 0}
+        canUsePos={canUsePos}
+        onClose={() => setTutorialOpen(false)}
+        onOpenPos={() => setActiveModule('pos')}
+      />
 
       {/* Contenido del Módulo */}
       <div className="w-full">
