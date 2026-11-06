@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Corrección de scroll inicial de la portada (05/11/2026)
+
+- Al montar Tutoriales, el tab activo llamaba `scrollIntoView` para centrarse horizontalmente. Como el navegador también alineaba el eje vertical, la página se deslizaba sola hasta la sección 5 al entrar a la home.
+- La selección ahora ajusta el `scrollLeft` de su propio contenedor; no mueve el scroll vertical del documento. Las acciones de navegación que sí deben llevar a una sección mantienen su comportamiento explícito.
+- Se agregó una regresión de navegador que verifica que la home permanezca en `scrollY = 0` después de montar. `npm run test:landing-browser` pasó en 320–1920 px, junto con `npm run typecheck`, ESLint focal, `npm run build:emulator`, `npm run test:preview-firebase-isolation` (5/5) y `git diff --check`.
+
 ## Rediseño de portada pública PACHAX Platform — fase 6 (05/11/2026)
 
 - Trabajo en `codex/pachax-platform-home-redesign-20261104`, PR #23; inicio `3e42434292adf03041e0effd14cfeae28154d126`, `origin/main` ya integrado. Alcance: sección 6 de servicios, footer, fotografía editorial optimizada y documentación de roadmap interno. No se modifican las plantillas canónicas, backend, Firebase ni las secciones 1–5.
@@ -2024,8 +2030,24 @@ Rama `codex/restaurante-turnos-mesas`. Trabajo acotado a la plantilla Restaurant
 - El recorrido autenticado completo se ejecutó dos veces con Node 22.23.4, Auth/Firestore/Functions Emulator y `demo-pachax-platform`; ambos finalizaron con código 0, incluida creación asistida, contrato/suscripción, regularización y restauración del acceso. Los fixtures se eliminan al terminar; no se conectó a Production.
 - La corrección y el registro se publicaron con push normal en `47e1774844686398c91490cecda3a6a9dc9923a2`. CI `41961279992` terminó SUCCESS para ese SHA: instalación limpia, Node 22, typecheck, builds Functions/Rules, Platform, Billing Emulator, recorrido UI autenticado y ESLint. El fallo de `41959690331` queda como antecedente corregido; no hay checks fallidos pendientes en el HEAD actual. PR #22 sigue abierta, draft y mergeable; base `main` `72acc1649d781702fa8536061b3bdf3bdf49d24b`. No se realizó merge, deploy ni cambio de Firebase/Vercel.
 
-### Habilitación comercial — actualización sobre unidad anual (05/11/2026)
+### Habilitación comercial — actualización sobre unidad anual (05/11/2026, checkpoint histórico)
 
-- `origin/main` de referencia al actualizar los borradores: `1e9b8d5ee10c5948c13c81f65bc8caef6cd45daf`. PR #24 mantiene su alcance documental. Se actualizaron únicamente la matriz, el SOP de cobro manual y el borrador de términos para reflejar la convención técnica propuesta en PR #25: anual = total por doce meses, equivalente mensual = total/12; no implica que existan importes aprobados ni autoriza publicar tarifas. PR #25 continúa pendiente de revisión/integración.
-- Se retiró de los documentos la afirmación de que la discrepancia técnica sigue sin resolverse, y se conservó explícitamente que los montos, moneda, descuentos, beneficios, implementación y cláusulas legales siguen pendientes de aprobación. Todos los textos siguen marcados como borradores internos; no se añadieron datos personales, bancarios ni precios.
-- Sin cambios a Production, Firebase, Vercel, PR #23 ni otros worktrees. PR #24 sigue draft independiente; esta actualización requiere commit/push normal a su rama. `git diff --check` pasó antes del commit.
+- En ese corte, `origin/main` era `1e9b8d5ee10c5948c13c81f65bc8caef6cd45daf` y PR #25 seguía pendiente. La matriz, el SOP y el borrador de términos reflejaban entonces la convención candidata: anual = total por doce meses y equivalente mensual = total/12; esto no aprobaba importes ni autorizaba publicar tarifas.
+- Los montos, moneda, descuentos, beneficios, implementación y cláusulas legales seguían pendientes de aprobación. Los textos eran borradores internos, sin datos personales, bancarios ni precios añadidos.
+- Este checkpoint fue actualizado por la integración documental posterior; no representa el estado actual de PR #25.
+
+### Corrección de unidad del precio anual — candidata de revisión (05/11/2026, checkpoint histórico)
+
+- Rama aislada: `codex/commercial-annual-price-unit-20261105`, basada en `origin/main` `1e9b8d5ee10c5948c13c81f65bc8caef6cd45daf`. Convención: mensual = total mensual; anual = total de 12 meses; equivalente informativo = total anual / 12. Se añadió `annualPriceUnit: annual_total_12_months` como confirmación explícita para planes publicados. No se multiplican, convierten ni reescriben datos ambiguos; planes heredados sin confirmación conservan el precio mensual y no exponen el importe anual como oficial. No se recalculan snapshots, contratos ni cargos históricos.
+- Admin presenta «Total anual por 12 meses», permite al Platform Owner confirmar explícitamente la unidad y muestra el equivalente /12 solo como información. Publicar un plan pagado requiere importe anual positivo y unidad confirmada. La landing presenta el total anual aprobado y el equivalente /12, y no ofrece el ciclo anual para planes sin marcador. No se alteró el diseño aprobado ni se publicaron precios.
+- Functions validan y conservan el marcador en catálogo/plan. Contrataciones y cambios de plan a anualidad fallan cerrados para planes ambiguos; los ciclos mensuales heredados permanecen utilizables. Cotizaciones manuales anuales mantienen el total ingresado sin conversión, y las mensuales no requieren anualidad. Las pruebas cubren USD/BOB, publicación, catálogo, anualidad ambigua, anticipos, extras/descuentos, renovaciones y cambios de plan.
+- Verificación final local Node `22.23.4`: `typecheck`, `build:functions-core`, `build:emulator`, ESLint focal, `test:commercial-catalog-contract`, `test:commercial-presentation`, `test:admin-control-center`, `test:billing-core` (34 grupos de aserciones) y `test:commercial-catalog-init` PASS. Los emuladores usaron exclusivamente `demo-pachax-platform` y `demo-commercial-catalog-hotfix`. El build de demos reportó 100 archivos, 0 sourcemaps y 0 referencias prohibidas. Persisten avisos de bundle grande/import dinámico en Expreso Punata; no se modificó ese módulo.
+- Sin escrituras Production ni cambios de datos bancarios, Functions, Rules, índices, tenants, IAM o Vercel. No hubo sesión autenticada disponible para comprobar Admin Production; el Platform Owner debe revisarlo manualmente. Métodos bancarios permanecen deshabilitados y sin datos oficiales.
+- En ese corte, los borradores seguían en la rama documental independiente y PR #24 estaba draft. Los métodos bancarios permanecían sin datos oficiales; quedaban pendientes aprobaciones comerciales y revisión legal/tributaria. Este estado es histórico: PR #25 ya está publicada según el estado confirmado para esta tarea.
+
+### PR #24 — actualización documental posterior a PR #25 (06/11/2026)
+
+- Se reconcilió la rama documental con `origin/main` `66bb907dd87c44cfd458368226ba1304bdb862e6`, conservando el historial previo de Billing Core, el rediseño público, las correcciones de scroll y la convención anual.
+- Los borradores ahora describen el comportamiento publicado: importe anual como total por doce meses; equivalente mensual solo informativo; planes anuales sujetos a confirmación expresa de unidad y aprobación del precio; cotizaciones manuales mensuales pueden omitir anualidad; cobro manual sujeto a conciliación, sin pasarela ni pago automático; avisos de vencimiento internos, sin prometer notificaciones externas.
+- Métodos oficiales de cobro, precios y condiciones siguen pendientes de aprobación. El registro autónomo y el formulario comercial público permanecen cerrados. Ningún documento de esta carpeta se sirve como condición pública aprobada; los cuatro continúan rotulados como borrador interno no vinculante.
+- No se modificaron Production, Firebase, Vercel, Rules, índices, Functions ni otros worktrees. Solo se actualizaron documentos comerciales y este contexto en la rama de PR #24.

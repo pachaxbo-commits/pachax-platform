@@ -1,6 +1,6 @@
 # Privacidad y revisión legal/comercial — lista de aprobación
 
-**No es un aviso final ni dictamen jurídico.** El aviso público existente [`public/aviso-privacidad-solicitud-comercial.html`](../../public/aviso-privacidad-solicitud-comercial.html) conserva el rótulo BORRADOR. Esta tarea no lo publicó, no lo editó y no abrió el formulario.
+**ESTADO: BORRADOR INTERNO NO VINCULANTE.** No es un aviso final ni dictamen jurídico. El aviso público existente [`public/aviso-privacidad-solicitud-comercial.html`](../../public/aviso-privacidad-solicitud-comercial.html) conserva el rótulo BORRADOR. PR #22 (Billing), PR #23 (rediseño) y PR #25 (unidad anual) están publicadas, pero esta tarea no publicó ni editó el aviso ni habilitó el formulario comercial.
 
 ## Datos que deben confirmarse en el aviso bajo control del propietario
 
@@ -25,3 +25,4 @@
 - Existe un aviso de privacidad para la solicitud comercial, pero está en estado borrador y no es base para habilitar recepción hasta su aprobación y despliegue autorizado.
 - Existe `docs/BILLING-CORE-MANUAL-2.md`, que describe comportamiento técnico y controles; no sustituye términos contractuales.
 - No se encontró un contrato SaaS aprobado, política final de devolución/cancelación, SLA aprobado, factura fiscal del sistema ni procedimiento aprobado de exportación al cierre. Los documentos de esta carpeta son borradores internos.
+- El registro autónomo de empresas y el formulario comercial público permanecen cerrados. La recepción comercial no debe habilitarse por la publicación de estos borradores.

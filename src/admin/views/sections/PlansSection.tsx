@@ -366,8 +366,8 @@ export function PlansSection() {
                     </>
                   ) : (
                     <>
-                      <span className="text-xl font-black">${p.monthlyPriceUSD}</span>
-                      <span className="text-xs text-slate-500">USD/mes (anual: ${p.annualPriceUSD})</span>
+                      <span className="text-xl font-black">{p.currency} {p.monthlyPriceUSD}</span>
+                      <span className="text-xs text-slate-500">{p.currency}/mes · {p.annualPriceUnit === 'annual_total_12_months' ? `total anual: ${p.currency} ${p.annualPriceUSD}` : 'importe anual sin confirmar'}</span>
                     </>
                   )}
                 </div>
@@ -607,7 +607,7 @@ export function PlansSection() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Precio anual equivalente ({formData.currency}/mes)
+                    Total anual por 12 meses ({formData.currency})
                   </label>
                   <input
                     type="number"
@@ -621,6 +621,24 @@ export function PlansSection() {
                     }`}
                   />
                 </div>
+
+                <label className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  <input
+                    type="checkbox"
+                    checked={formData.annualPriceUnit === 'annual_total_12_months'}
+                    disabled={!canApprovePrice || formData.planKind === 'free'}
+                    onChange={(event) => setFormData({
+                      ...formData,
+                      annualPriceUnit: event.target.checked ? 'annual_total_12_months' : null,
+                      priceApproval: 'pending',
+                    })}
+                    className="mt-0.5"
+                  />
+                  <span><strong>Confirmación de unidad:</strong> confirmo que el valor guardado es el importe total que se cobra por 12 meses, en la moneda indicada. Los registros antiguos sin esta confirmación no se convierten automáticamente. Solo Platform Owner puede confirmarlo.</span>
+                </label>
+                {formData.annualPriceUnit === 'annual_total_12_months' && Number(formData.annualPriceUSD) > 0 && (
+                  <p className="sm:col-span-2 text-xs text-slate-600">Equivalente informativo: {(Number(formData.annualPriceUSD) / 12).toFixed(2)} {formData.currency}/mes. Billing conserva el total anual de {Number(formData.annualPriceUSD).toFixed(2)} {formData.currency}; no se convierte de moneda.</p>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">

@@ -1,6 +1,6 @@
 # Procedimiento interno de cobranza manual — borrador
 
-**BORRADOR INTERNO.** Solo personal expresamente autorizado. No es una autorización de cobrar ni una guía para marcar pagos como recibidos sin conciliación.
+**ESTADO: BORRADOR INTERNO NO VINCULANTE.** Solo personal expresamente autorizado. No es una autorización de cobrar ni una guía para marcar pagos como recibidos sin conciliación. Billing Core Manual 2.0 (PR #22), el rediseño público (PR #23) y la corrección anual (PR #25) están publicados; este SOP no activa métodos, precios o condiciones comerciales.
 
 ## Roles y controles existentes
 
@@ -13,17 +13,17 @@ Los permisos de cada acción deben comprobarse en la versión desplegada del bac
 
 ## Flujo obligatorio
 
-1. **Solicitud inicial.** Atender por WhatsApp comercial aprobado u otro canal humano confirmado. No abrir formulario público. Registrar solo datos necesarios y no pedir credenciales bancarias completas, contraseñas ni códigos de autenticación.
+1. **Solicitud inicial.** Atender por el canal humano que el propietario haya confirmado para contacto comercial. No asumir un canal de cobranza habilitado ni abrir el formulario público. Registrar solo datos necesarios y no pedir credenciales bancarias completas, contraseñas ni códigos de autenticación.
 2. **Selección de plantilla y alcance.** Confirmar empresa, plantilla técnicamente disponible, cantidad de sucursales y capacidades implementadas. No prometer capacidades futuras, no publicar Free y no usar un precio editorial como tarifa.
-3. **Cotización en Admin.** Seleccionar ciclo, moneda y períodos admitidos; detallar implementación, mensualidad/anualidad, extras, límites, vencimiento de oferta y descuento con motivo/permiso. Para una cotización mensual, la anualidad puede quedar vacía. La cotización manual anual conserva el total anual ingresado. Para usar un plan anual, esperar a que PR #25 esté integrada y confirmar que el importe aprobado es el total de doce meses con `annualPriceUnit` confirmado; no convertir precios históricos.
+3. **Cotización en Admin.** Seleccionar ciclo, moneda y períodos admitidos; detallar implementación, mensualidad/anualidad, extras, límites, vencimiento de oferta y descuento con motivo/permiso. Una cotización manual mensual puede dejar vacía la anualidad. Una cotización manual anual conserva el total ingresado por doce meses, sin conversión automática. Para ofrecer un plan anual, confirmar el significado original, el marcador `annualPriceUnit: annual_total_12_months` y la aprobación expresa del precio; no reinterpretar precios históricos ambiguos.
 4. **Aceptación y contrato.** Recibir aceptación documentada de la versión exacta de cotización; generar contrato/cargo desde la misma versión. Verificar importes, moneda, nombre legal, plantilla, capacidades, fecha y autorización. No crear empresa aún.
-5. **Instrucciones de pago.** Enviar únicamente datos oficiales guardados por Owner y marcados disponibles. Verificar que el cliente ve banco/titular/cuenta o QR correctos, moneda, importe y concepto. El texto bancario debe coincidir con cuenta receptora real de PACHAX.
+5. **Instrucciones de pago.** Los métodos oficiales siguen pendientes de aprobación. No enviar datos bancarios, QR o instrucciones hasta que el propietario confirme y configure los datos oficiales y el método aparezca disponible en el sistema. Después, verificar banco/titular/cuenta o QR, moneda, importe y concepto contra el canal receptor real de PACHAX. Billing no ejecuta pagos automáticos.
 6. **Referencia reportada.** Guardar método, referencia, cargo e importe reclamado. La aplicación deja el reporte en `pending_review`; referencia, comprobante adjunto o captura no confirma pago ni activa servicio.
 7. **Conciliación bancaria.** El operador autorizado contrasta el movimiento en el canal bancario oficial (no solo la imagen): titular receptor, importe abonado, moneda, fecha, referencia, cuenta origen cuando el extracto lo permita, cargo correcto, pagos previos y duplicidad. Restringir acceso a extractos y eliminar copias innecesarias.
 8. **Resolución.** Confirmar solo la suma que aparece abonada y que coincide. Si falta saldo, registrar pago parcial manteniendo saldo/cargo pendiente; si no puede identificarse, dejar pendiente o rechazar con razón precisa; no editar registros financieros confirmados ni borrar auditoría.
 9. **Activación.** Solo tras la condición de pago verificado, activar el contrato/tenant mediante el flujo asistido autorizado. Confirmar plantilla, capacidades, propietario, sucursal y fecha. La activación no concede Free, pago automático ni capacidades no contratadas.
 10. **Acceso y seguimiento.** Entregar acceso mediante el mecanismo seguro existente de establecimiento de contraseña/enlace temporal. Nunca enviar contraseña por WhatsApp. Verificar login del propietario con el cliente y registrar fecha de inicio, ciclo y próxima renovación.
-11. **Renovación y vencimiento.** Emitir cargo e instrucciones manuales. Avisos 7/3/0 son visibles en el portal, no notificaciones externas garantizadas. Mantener gracia de 7 días según Billing. Después de gracia puede aplicarse restricción operativa donde `billingEnforcement` esté activo. Datos no se eliminan por vencimiento.
+11. **Renovación y vencimiento.** Emitir cargo e instrucciones manuales. Los avisos 7/3/0 son internos y visibles en la aplicación; no se prometen notificaciones externas. Mantener la gracia de 7 días según Billing. Después de la gracia pueden aplicarse restricciones operativas donde `billingEnforcement` esté activo. Datos no se eliminan por vencimiento.
 12. **Cierre y archivo.** Conservar contrato, aceptación, cargo, conciliación y auditoría según la política aprobada. Restringir documentos bancarios a los roles necesarios.
 
 ## Casos de excepción

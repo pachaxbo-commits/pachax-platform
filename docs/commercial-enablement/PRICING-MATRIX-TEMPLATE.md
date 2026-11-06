@@ -1,6 +1,8 @@
 # Matriz comercial para aprobación — PACHAX
 
-**BORRADOR INTERNO.** No es una oferta, tarifa ni autorización para publicar planes. Todos los importes están pendientes de decisión expresa del propietario.
+**ESTADO: BORRADOR INTERNO NO VINCULANTE.** No es una oferta, tarifa ni autorización para publicar planes. Todos los importes están pendientes de decisión expresa del propietario.
+
+Billing Core Manual 2.0 (PR #22), el rediseño público (PR #23) y la corrección de unidad anual (PR #25) están publicados. Esta matriz no constituye contenido público aprobado. La publicación efectiva de planes depende del estado administrado y confirmado en el catálogo; estos documentos no publican ofertas.
 
 ## Campos que admite el sistema
 
@@ -14,9 +16,9 @@
 
 ## Unidad técnica del precio anual y aprobación de importes
 
-La candidata técnica de PR #25 establece `annualPriceUSD` como el **total por doce meses**; el equivalente mensual es únicamente informativo (`total anual / 12`). Billing cobra el total anual aprobado por cada período anual y no convierte entre USD y BOB. El ciclo anual de un plan requiere el marcador explícito `annualPriceUnit: annual_total_12_months`; un importe histórico sin marcador no se interpreta como anual y se mantiene disponible solo para la mensualidad si cumple las demás validaciones. No se multiplican, convierten ni reescriben registros ambiguos, snapshots contractuales o cargos previos.
+La convención publicada por PR #25 establece que el importe de ciclo anual es el **total por doce meses**; el equivalente mensual es únicamente informativo (`total anual / 12`). Billing registra y concilia manualmente el total anual aprobado por período, sin convertir entre USD y BOB ni realizar pagos automáticos. Un plan anual requiere confirmación expresa de `annualPriceUnit: annual_total_12_months` y aprobación del precio. Un importe histórico sin marcador no se interpreta ni se ofrece como precio anual. No se multiplican, convierten ni reescriben registros ambiguos, snapshots contractuales o cargos previos.
 
-La implementación está propuesta en PR #25 y aún requiere revisión e integración. Esto define la unidad del campo, no una tarifa ni una decisión comercial: el propietario debe aprobar importes mensuales/anuales, descuentos, moneda, implementación y beneficios antes de configurar/publicar ofertas. No cargar importes en planes anuales hasta que PR #25 esté integrada y el propietario haya aprobado el monto total correspondiente.
+La publicación de PR #25 define la unidad técnica, no una tarifa ni una decisión comercial. El propietario debe aprobar expresamente los importes mensuales/anuales, descuentos, moneda, implementación y beneficios antes de configurar o publicar ofertas. El Admin no debe publicar una anualidad hasta confirmar el significado original del importe y aprobar el total por doce meses. Los métodos oficiales de cobro siguen pendientes de aprobación y configuración.
 
 ## Matriz pendiente
 
@@ -42,4 +44,4 @@ Rellénese únicamente después de acordar moneda, condiciones de alcance y vali
 
 ## Procedimiento para completar en Admin
 
-Platform Owner configura/actualiza el plan y revisa características, capacidades, límites, moneda e importes. Debe confirmar explícitamente la unidad anual y la aprobación comercial antes de publicar. No usar el catálogo editorial o precios de ejemplo como tarifas. Para acuerdos mensuales personalizados, Admin puede cotizar sin anualidad; para una oferta anual desde un plan se requiere la unidad anual confirmada y un importe total de doce meses aprobado. PR #25 debe integrarse antes de configurar anualidades.
+Platform Owner configura/actualiza el plan y revisa características, capacidades, límites, moneda e importes. Debe confirmar explícitamente la unidad anual y la aprobación comercial antes de publicar. No usar el catálogo editorial o precios de ejemplo como tarifas. Para una cotización manual mensual, Admin permite dejar la anualidad vacía. Para una oferta anual basada en plan se requiere unidad confirmada, total de doce meses aprobado y método manual de cobro aprobado. El registro autónomo y el formulario comercial público continúan cerrados.

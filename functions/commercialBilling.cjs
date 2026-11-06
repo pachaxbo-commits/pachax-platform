@@ -262,10 +262,17 @@ async function createManualCommercialIntent(db, request) {
         || plan.templateId !== template.id || (plan.technicalEntitlements || []).length) {
         throw new HttpsError('failed-precondition', 'El plan no está publicado y aprobado para esta plantilla. Puedes continuar como cotización a medida.');
       }
+      const annualPriceUnit = plan.annualPriceUnit === 'annual_total_12_months'
+        && Number.isFinite(Number(plan.annualPriceUSD)) && Number(plan.annualPriceUSD) > 0
+        ? plan.annualPriceUnit : null;
+      if (billingCycle === 'annual' && !annualPriceUnit) {
+        throw new HttpsError('failed-precondition', 'La anualidad de esta oferta requiere confirmación del importe total por 12 meses.');
+      }
       planSnapshot = {
         planId, name: cleanText(plan.name, 'Plan', 1, 120),
         version: Number(plan.commercialVersion) || 1, currency: currencyCode(plan.currency),
-        monthlyPrice: Number(plan.monthlyPriceUSD), annualPrice: Number(plan.annualPriceUSD),
+        monthlyPrice: Number(plan.monthlyPriceUSD), annualPrice: annualPriceUnit ? Number(plan.annualPriceUSD) : 0,
+        annualPriceUnit,
         includedFeatures: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.filter(x => typeof x === 'string').slice(0, 100) : [],
         technicalEntitlements: [],
         capabilitiesV1: normalizeCapabilitiesV1(plan.capabilitiesV1, template.businessType),
@@ -879,11 +886,16 @@ async function listPublishedBillingPlans(db, request) {
       || !Array.isArray(plan.technicalEntitlements) || plan.technicalEntitlements.length !== 0) return [];
     try {
       const monthlyMinor = moneyMinor(Number(plan.monthlyPriceUSD).toFixed(2), 'Mensualidad', { allowZero: false });
-      const annualMinor = moneyMinor(Number(plan.annualPriceUSD).toFixed(2), 'Anualidad', { allowZero: false });
+      const annualPriceUnit = plan.annualPriceUnit === 'annual_total_12_months'
+        && Number.isFinite(Number(plan.annualPriceUSD)) && Number(plan.annualPriceUSD) > 0
+        ? plan.annualPriceUnit : null;
+      const annualMinor = annualPriceUnit
+        ? moneyMinor(Number(plan.annualPriceUSD).toFixed(2), 'Anualidad', { allowZero: false })
+        : 0;
       const template = templateFor(plan.templateId);
       const capabilitiesV1 = normalizeCapabilitiesV1(plan.capabilitiesV1, template.businessType);
       return [{ id: document.id, name: cleanText(plan.name, 'Plan', 1, 120), templateId: plan.templateId,
-        version: Number(plan.commercialVersion) || 1, currency: currencyCode(plan.currency), monthlyMinor, annualMinor,
+        version: Number(plan.commercialVersion) || 1, currency: currencyCode(plan.currency), monthlyMinor, annualMinor, annualPriceUnit,
         includedFeatures: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.filter(value => typeof value === 'string').slice(0, 50) : [],
         capabilitiesV1 }];
     } catch { return []; }
@@ -922,10 +934,18 @@ async function requestSubscriptionPlanChange(db, request) {
       throw new HttpsError('failed-precondition', 'El plan destino no corresponde a la plantilla y capacidades del contrato.');
     }
     const monthlyMinor = moneyMinor(Number(plan.monthlyPriceUSD).toFixed(2), 'Mensualidad', { allowZero: false });
-    const annualMinor = moneyMinor(Number(plan.annualPriceUSD).toFixed(2), 'Anualidad', { allowZero: false });
+    const annualPriceUnit = plan.annualPriceUnit === 'annual_total_12_months'
+      && Number.isFinite(Number(plan.annualPriceUSD)) && Number(plan.annualPriceUSD) > 0
+      ? plan.annualPriceUnit : null;
+    if (cycle === 'annual' && !annualPriceUnit) {
+      throw new HttpsError('failed-precondition', 'La anualidad del plan destino requiere confirmación del importe total por 12 meses.');
+    }
+    const annualMinor = annualPriceUnit
+      ? moneyMinor(Number(plan.annualPriceUSD).toFixed(2), 'Anualidad', { allowZero: false })
+      : 0;
     const planSnapshot = {
       planId, name: cleanText(plan.name, 'Plan', 1, 120), version: Number(plan.commercialVersion) || 1,
-      templateId: plan.templateId, currency: currencyCode(plan.currency), monthlyMinor, annualMinor,
+      templateId: plan.templateId, currency: currencyCode(plan.currency), monthlyMinor, annualMinor, annualPriceUnit,
       includedFeatures: Array.isArray(plan.includedFeatures) ? plan.includedFeatures.filter(value => typeof value === 'string').slice(0, 50) : [],
       capabilitiesV1: (contract.terms?.extras || []).reduce(
         (current, extra) => applyCapabilityAdjustments(current, normalizeCapabilityAdjustments(extra.capabilityAdjustments)),

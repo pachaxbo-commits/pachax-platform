@@ -1,6 +1,6 @@
 # Borrador de condiciones comerciales — PACHAX SaaS manual
 
-**ESTADO: BORRADOR NO VINCULANTE.** No publicar ni usar para aceptar pagos hasta aprobación del propietario y revisión legal/contable boliviana. No sustituye asesoramiento profesional.
+**ESTADO: BORRADOR INTERNO NO VINCULANTE.** No publicar ni usar para aceptar pagos hasta aprobación del propietario y revisión legal/contable boliviana. No sustituye asesoramiento profesional. PR #22, PR #23 y PR #25 están publicadas; esta condición sigue siendo un borrador y no se sirve como término público aprobado.
 
 ## Datos que debe completar PACHAX
 
@@ -20,13 +20,13 @@ Capacidades se consideran incluidas solo cuando constan en el acuerdo y están a
 
 ## 2. Cotización, aceptación e inicio
 
-La cotización especifica importe de implementación, importe recurrente, ciclo mensual/anual, moneda, períodos adelantados, extras y descuento autorizado. La vigencia de la oferta es `[PLAZO A APROBAR]`. La aceptación se registra antes de crear el contrato. Un contrato/cargo pendiente no significa que el servicio se encuentre activado.
+La cotización especifica importe de implementación, importe recurrente, ciclo mensual/anual, moneda, períodos adelantados, extras y descuento autorizado. Una cotización manual mensual puede no incluir anualidad. Si se cotiza un ciclo anual, su importe es el total correspondiente a doce meses; el equivalente mensual es informativo y el precio requiere confirmación expresa de unidad y aprobación del propietario. La vigencia de la oferta es `[PLAZO A APROBAR]`. La aceptación se registra antes de crear el contrato. Un contrato/cargo pendiente no significa que el servicio se encuentre activado.
 
 La puesta en marcha requiere pago efectivamente recibido y conciliado por personal autorizado, seguido de la activación/alta asistida. Una captura, referencia, mensaje bancario no verificado o estado “pendiente” no constituye confirmación de cobro.
 
 ## 3. Pagos, moneda y recibos
 
-Los medios manuales publicados serán únicamente los que PACHAX habilite con datos oficiales. Se paga exactamente al titular, cuenta, QR, moneda, importe y referencia de la instrucción vigente. No se hace conversión USD/BOB automática: la cotización y cargo indican la moneda debida.
+El flujo actualmente publicado es de cobro manual y conciliación humana; no procesa pagos automáticos. Los métodos oficiales (QR, banco, titular, transferencia, WhatsApp e instrucciones) siguen pendientes de aprobación y configuración, por lo que este borrador no proporciona datos para pagar. Una vez aprobados, los medios ofrecidos serán únicamente los que PACHAX habilite con datos oficiales. Se paga exactamente al titular, cuenta, QR, moneda, importe y referencia de la instrucción vigente. No se hace conversión USD/BOB automática: la cotización y cargo indican la moneda debida.
 
 Los comprobantes o recibos generados por PACHAX para control interno del cargo/pago no se describen como factura fiscal ni sustituyen documentos tributarios. PACHAX debe determinar con asesoría contable la obligación y momento de emisión fiscal aplicable antes de iniciar cobros.
 
@@ -38,7 +38,7 @@ Pago anticipado y pago dentro del período de gracia preservan el tiempo ya paga
 
 ## 5. Avisos, atraso, suspensión y reactivación
 
-El portal puede mostrar avisos de vencimiento a 7, 3 y 0 días y el estado derivado de la suscripción. Son avisos dentro de la aplicación; no se promete que WhatsApp, correo o SMS se envíen automáticamente.
+Billing puede mostrar avisos internos de vencimiento a 7, 3 y 0 días y el estado derivado de la suscripción. No se prometen ni están implicadas notificaciones externas automáticas por WhatsApp, correo o SMS.
 
 El sistema contempla 7 días de gracia tras vencimiento. Durante esa gracia el acceso operativo continúa para tenants sujetos a `billingEnforcement`. Después, las operaciones protegidas pueden restringirse; la información y el historial no se borran. Los siete tenants legacy no reciben enforcement automáticamente. Suspensión administrativa es distinta del atraso: pagar no reactiva por sí solo una suspensión o cancelación. Una reactivación excepcional requiere validación de cargo de renovación conciliado, decisión Platform Owner, motivo y auditoría.
 

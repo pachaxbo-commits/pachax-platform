@@ -79,7 +79,7 @@ assert.equal(getQuickServicePricingState('error', true, false), 'unverified')
 assert.equal(getQuickServicePricingState('ready', false, false), 'unavailable', 'A valid empty catalog must not publish disabled templates')
 const approvedQuickPlan = filterPublicCommercialPlans([{
   id: 'qa-hamburger-plan', templateId: 'hamburger', name: 'Plan aprobado QA', status: 'published',
-  planKind: 'paid', monthlyPriceUSD: 25, annualPriceUSD: 250, currency: 'USD', priceApproval: 'approved',
+  planKind: 'paid', monthlyPriceUSD: 25, annualPriceUSD: 250, annualPriceUnit: 'annual_total_12_months', currency: 'USD', priceApproval: 'approved',
   includedFeatures: ['Caja y ventas'], technicalEntitlements: [],
 }])
 assert.equal(approvedQuickPlan.length, 1, 'A complete approved plan must be accepted by the public catalog contract')

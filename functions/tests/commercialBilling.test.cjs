@@ -61,11 +61,11 @@ async function signInOwner(email, password) {
   return payload;
 }
 
-async function seedPlan(id, name, monthly, annual) {
+async function seedPlan(id, name, monthly, annual, currency = 'USD') {
   const ref = db.doc(`platformPlans/${id}`);
   createdPaths.push(ref.path);
   await ref.set({ id, templateId: 'distribution', name, planKind: 'paid', status: 'published', priceApproval: 'approved',
-    monthlyPriceUSD: monthly, annualPriceUSD: annual, currency: 'USD', commercialVersion: 1,
+    monthlyPriceUSD: monthly, annualPriceUSD: annual, annualPriceUnit: 'annual_total_12_months', currency, commercialVersion: 1,
     includedFeatures: ['Inventario y rutas'], technicalEntitlements: [], capabilitiesV1: distributionCapabilities, createdAt: Timestamp.now() });
 }
 
@@ -152,8 +152,38 @@ async function run() {
     originalMethods = previousMethods.exists ? previousMethods.data() : null;
     await seedPlan(planId, 'Plan Distribución QA', 20, 200);
     await seedPlan(nextPlanId, 'Plan Distribución QA Renovación', 30, 300);
+    const bobPlanId = `billing-bob-plan-${suffix}`;
+    await seedPlan(bobPlanId, 'Plan BOB QA', 150, 1500, 'BOB');
     const listedPlans = await platformCall(ownerUid, { action: 'listPublishedBillingPlans' });
     assert.deepEqual(listedPlans.plans.find(plan => plan.id === planId).capabilitiesV1, distributionCapabilities);
+    assert.equal(listedPlans.plans.find(plan => plan.id === bobPlanId).annualMinor, 150000,
+      'an approved BOB annual total is converted only to minor units, not multiplied by 12 or converted to USD');
+    const bobIntentResult = await platformCall(ownerUid, { action: 'createManualCommercialIntent', requestId: opId(),
+      contactName: 'Cliente BOB QA', companyName: `Distribuidora BOB anual ${suffix}`, email: `bob-plan-${suffix}@example.test`,
+      contactPhone: '+591 70000003', templateId: 'distribution', planId: bobPlanId, extraIds: [], billingCycle: 'annual',
+      needs: 'Prueba ficticia de unidad anual BOB.' });
+    const bobIntentRef = db.doc(`platformCommercialIntents/${bobIntentResult.intentId}`);
+    createdPaths.push(bobIntentRef.path);
+    const bobPlanSnapshot = (await bobIntentRef.get()).data().planSnapshot;
+    assert.equal(bobPlanSnapshot.annualPrice, 1500);
+    assert.equal(bobPlanSnapshot.currency, 'BOB');
+    assert.equal(bobPlanSnapshot.annualPriceUnit, 'annual_total_12_months');
+    const legacyPlanId = `billing-legacy-annual-${suffix}`;
+    createdPaths.push(`platformPlans/${legacyPlanId}`);
+    await db.doc(`platformPlans/${legacyPlanId}`).set({ id: legacyPlanId, templateId: 'distribution', name: 'Plan legacy mensual QA',
+      planKind: 'paid', status: 'published', priceApproval: 'approved', monthlyPriceUSD: 25, annualPriceUSD: 250, currency: 'USD',
+      commercialVersion: 1, includedFeatures: ['Operación base'], technicalEntitlements: [], capabilitiesV1: distributionCapabilities });
+    const legacyBillingPlans = await platformCall(ownerUid, { action: 'listPublishedBillingPlans' });
+    const legacyBillingPlan = legacyBillingPlans.plans.find(plan => plan.id === legacyPlanId);
+    assert.equal(legacyBillingPlan.monthlyMinor, 2500);
+    assert.equal(legacyBillingPlan.annualMinor, 0, 'legacy annual amount without confirmed unit is not offered for billing');
+    assert.equal(legacyBillingPlan.annualPriceUnit, null);
+    await assert.rejects(platformCall(ownerUid, { action: 'createManualCommercialIntent', requestId: opId(),
+      contactName: 'Cliente anual legacy QA', companyName: `Distribuidora anual ambigua ${suffix}`,
+      email: `legacy-annual-${suffix}@example.test`, contactPhone: '+591 70000002', templateId: 'distribution',
+      planId: legacyPlanId, extraIds: [], billingCycle: 'annual', needs: 'No debe cotizar anual sin unidad confirmada.' }),
+    error => error.code === 'failed-precondition');
+    pass('planes legacy conservan mensualidad y bloquean anualidad ambigua sin convertir ni alterar datos');
     await db.doc(`platformExtras/${extraId}`).set({ id: extraId, title: 'Configuración QA', pricingType: 'one_time',
       capabilityAdjustments: { activeUsers: 1, activeProducts: 1 },
       applicableTemplates: ['distribution'], status: 'published', commercialVersion: 1 });
@@ -561,9 +591,11 @@ async function run() {
     await Promise.all([
       db.doc(`platformPlans/${planId}`).update({ status: 'draft' }),
       db.doc(`platformPlans/${nextPlanId}`).update({ status: 'draft' }),
+      db.doc(`platformPlans/${bobPlanId}`).update({ status: 'draft' }),
     ]);
     const remainingPublishedPlans = await db.collection('platformPlans').where('status', '==', 'published').get();
-    assert.equal(remainingPublishedPlans.docs.some(item => item.data().templateId === 'distribution'), false);
+    assert.deepEqual(remainingPublishedPlans.docs.filter(item => item.data().templateId === 'distribution').map(item => item.id), [legacyPlanId],
+      'the legacy fixture remains published only to verify monthly-only legacy compatibility below');
 
     const monthlyOnlyEmail = `billing-monthly-only-${suffix}@example.test`;
     const monthlyOnlyIntake = {
@@ -988,10 +1020,13 @@ async function run() {
     assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.limits.activeUsers, 6,
       'Contract extras are applied once to the destination plan.')
     assert.equal((await db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`).get()).data().pendingPlanChange.planSnapshot.capabilitiesV1.limits.activeProducts, 4)
+    await assert.rejects(platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: opId(),
+      contractId: monthlyOnlyContract.contractId, planId: legacyPlanId, billingCycle: 'annual' }),
+    error => error.code === 'failed-precondition', 'an ambiguous legacy annual amount cannot be scheduled as an annual plan change')
     const wrongBusinessPlanId = `billing-wrong-business-${suffix}`
     createdPaths.push(`platformPlans/${wrongBusinessPlanId}`)
     await db.doc(`platformPlans/${wrongBusinessPlanId}`).set({ id: wrongBusinessPlanId, templateId: 'retail', name: 'Plan Comercio QA',
-      planKind: 'paid', status: 'published', priceApproval: 'approved', monthlyPriceUSD: 20, annualPriceUSD: 200, currency: 'BOB',
+      planKind: 'paid', status: 'published', priceApproval: 'approved', monthlyPriceUSD: 20, annualPriceUSD: 200, annualPriceUnit: 'annual_total_12_months', currency: 'BOB',
       commercialVersion: 1, includedFeatures: [], technicalEntitlements: [],
       capabilitiesV1: { ...distributionCapabilities, businessType: 'gelateria_weight_cafe' } })
     await assert.rejects(platformCall(ownerUid, { action: 'requestSubscriptionPlanChange', requestId: opId(),
