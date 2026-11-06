@@ -116,6 +116,20 @@ try {
     const reset = await evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(item => item.innerText.trim() === 'Reiniciar'); button?.click(); return Boolean(button) })()`)
     assert.equal(reset, true, `${route}: reset control missing`)
     await wait(150)
+    if (template === 'retail' && dataset === 'full' && viewport.width === 1440) {
+      await evaluate(`(() => [...document.querySelectorAll('button')].find(button => button.innerText.includes('Nueva venta / POS'))?.click())()`)
+      await wait(100)
+      await evaluate(`(() => [...document.querySelectorAll('button')].find(button => button.innerText.includes('Café Latte'))?.click())()`)
+      await evaluate(`(() => [...document.querySelectorAll('button')].find(button => button.innerText.includes('Helado artesanal'))?.click())()`)
+      assert.match(await evaluate(`document.body.innerText`), /Peso en balanza \(Gramos\)/, 'Retail abre el diálogo de peso')
+      await evaluate(`(() => [...document.querySelectorAll('button')].find(button => button.innerText.trim() === 'Agregar al Carrito')?.click())()`)
+      assert.match(await evaluate(`document.body.innerText`), /Total a Pagar:[\s\S]*Bs 37\.50/, 'Retail suma artículos por unidad y peso manual')
+      await evaluate(`(() => [...document.querySelectorAll('button')].find(button => button.innerText.includes('Cobrar Venta'))?.click())()`)
+      assert.match(await evaluate(`document.body.innerText`), /Confirmar Pago/, 'Retail abre el cobro de demostración')
+      await evaluate(`(() => [...document.querySelectorAll('button')].find(button => button.innerText.trim() === 'Confirmar Cobro')?.click())()`)
+      const receipt = await evaluate(`document.body.innerText`)
+      assert.match(receipt, /Venta registrada con éxito! Comprobante: TCK-\d{4}/, 'Retail completa el cobro local y genera comprobante')
+    }
     routeResults.push({ route, viewport: `${viewport.width}x${viewport.height}`, refresh: 'PASS', roleChange: 'PASS', reset: 'PASS', csp: 'connect-src none', noStore: true, overflow: state.overflow, ready: true })
   }
   const demoBrowserErrors = [...browserErrors]
@@ -124,19 +138,20 @@ try {
   await send('Emulation.clearDeviceMetricsOverride')
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await send('Page.navigate', { url: `http://127.0.0.1:${port}/` })
-  await wait(1600)
-  await wait(1200)
-  const landingButtons = await evaluate(`(() => [...document.querySelectorAll('button')].map(button => button.innerText.trim()).filter(text => text === 'Probar demo'))()`)
-  assert.ok(landingButtons.length > 0, `Landing CTA missing: ${landingButtons}`)
+  let landingButtons = []
+  for (let attempt = 0; attempt < 100; attempt++) {
+    landingButtons = await evaluate(`(() => [...document.querySelectorAll('#plantillas [data-template-id] .pachax-card-detail-button')].map(button => button.getAttribute('aria-label')) )()`)
+    if (landingButtons.length) break
+    await wait(100)
+  }
+  assert.ok(landingButtons.length > 0, `Landing catalog details actions missing: ${landingButtons}; browserErrors=${JSON.stringify(browserErrors)}`)
   const landingNavigation = []
-  for (const item of [{ label: 'Hamburger', route: '/demo/hamburger?data=full', marker: 'Restaurante Rápido' }, { label: 'Retail', route: '/demo/retail?data=full', marker: 'Comercio / Venta Rápida' }]) {
-    if (item.label === 'Retail') {
-      const next = await evaluate(`(() => { const region = document.querySelector('[aria-label="Carrusel de soluciones autoservicio"]'); const button = region?.querySelector('button[aria-label="Siguiente plantilla"]'); button?.click(); return Boolean(button) })()`)
-      assert.equal(next, true, 'Self-service carousel could not select the Retail card')
-      await wait(250)
-    }
-    const click = await evaluate(`(() => { const button = [...document.querySelectorAll('button')].find(candidate => candidate.innerText.trim() === 'Probar demo'); if (!button) return false; button.scrollIntoView(); button.click(); return true })()`)
-    assert.equal(click, true, `Landing click missing for ${item.label}`)
+  for (const item of [{ label: 'Hamburger', templateId: 'hamburger', route: '/demo/hamburger?data=full', marker: 'Restaurante Rápido' }, { label: 'Retail', templateId: 'retail', route: '/demo/retail?data=full', marker: 'Comercio / Venta Rápida' }]) {
+    const detail = await evaluate(`(() => { const button = document.querySelector('#plantillas [data-template-id="${item.templateId}"] .pachax-card-detail-button'); button?.click(); return Boolean(button) })()`)
+    assert.equal(detail, true, `Landing details action missing for ${item.label}`)
+    await wait(100)
+    const click = await evaluate(`(() => { const button = document.querySelector('[role="dialog"] .pachax-details-secondary'); button?.click(); return Boolean(button) })()`)
+    assert.equal(click, true, `Landing demo action missing for ${item.label}`)
     await ready()
     assert.equal(await evaluate('location.pathname + location.search'), item.route, `${item.label} routed incorrectly`)
     const activeDemoHeading = await evaluate("document.querySelector('header p.truncate')?.innerText || ''")

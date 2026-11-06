@@ -207,6 +207,7 @@ export function DemoRuntime({
   if (isStudioEmbed) {
     return (
       <div
+        data-demo-runtime-ready="true"
         className="w-full min-h-screen text-slate-900 font-sans"
         style={{ backgroundColor: branding?.backgroundColor || 'var(--background)' }}
       >
@@ -297,7 +298,7 @@ export function DemoRuntime({
   }
 
   return (
-    <div className="w-full flex flex-col min-h-screen bg-slate-50 text-slate-900 font-sans">
+    <div data-demo-runtime-ready="true" className="w-full flex flex-col min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* Barra superior exclusiva para demos públicas (/demo/...) */}
       {isPublicDemo && (
         <>

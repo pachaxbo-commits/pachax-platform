@@ -25,6 +25,8 @@ await new Promise((done) => probe.listen(0, '127.0.0.1', done))
 const port = probe.address().port
 await new Promise((done) => probe.close(done))
 const output = resolve('tmp/landing-regression-evidence')
+const viewportCases = [[320, 740], [360, 800], [375, 812], [390, 844], [430, 932], [768, 1024], [1024, 768], [1440, 900], [1920, 1080]]
+  .filter(([width]) => !process.env.LANDING_TEST_WIDTH || width === Number(process.env.LANDING_TEST_WIDTH))
 mkdirSync(output, { recursive: true })
 const profile = mkdtempSync(join(tmpdir(), 'pachax-landing-browser-'))
 const browser = spawn(chrome, [
@@ -101,6 +103,8 @@ try {
       tutorialSelected: document.querySelector('#tutoriales [data-tutorial-template][aria-selected="true"]')?.dataset.tutorialTemplate,
       tutorialFrameUrl: tutorialFrame?.getAttribute('src') || '',
       tutorialFrameLoaded: tutorialFrame?.contentDocument?.readyState === 'complete',
+      tutorialAppReady: Boolean(tutorialFrame?.contentDocument?.querySelector('[data-demo-runtime-ready="true"], [data-demo-only-ready="true"]')),
+      tutorialErrorVisible: Boolean(document.querySelector('#tutoriales .pachax-tutorials-load-error')),
       tutorialWorkspaceColumns: tutorialWorkspace ? getComputedStyle(tutorialWorkspace).gridTemplateColumns.split(' ').length : 0,
       tutorialSelectorWidth: tutorialSelector?.clientWidth || 0,
       tutorialSelectorScrollWidth: tutorialSelector?.scrollWidth || 0,
@@ -164,10 +168,12 @@ try {
   const initialScrollY = await evaluate('window.scrollY')
   assert(initialScrollY <= 1, `La home no debe desplazarse al cargar; scrollY=${initialScrollY}`)
 
-  for (const [width, height] of [[320, 740], [360, 800], [375, 812], [390, 844], [430, 932], [768, 1024], [1024, 768], [1440, 900], [1920, 1080]]) {
+  for (const [width, height] of viewportCases) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 })
     await send('Emulation.setTouchEmulationEnabled', { enabled: width < 768, maxTouchPoints: 1 })
-    await send('Page.navigate', { url: baseUrl })
+    const viewportUrl = new URL(baseUrl)
+    viewportUrl.searchParams.set('__landingTestWidth', String(width))
+    await send('Page.navigate', { url: viewportUrl.toString() })
     const loaded = await waitFor((res) => res.count === 5 && res.specializedCount === 3 && res.selfServiceCount === 2 && res.brandLogoLoaded, `${width}: loaded`)
     const pageScrollY = await evaluate('window.scrollY')
     assert(pageScrollY <= 1, `${width}: la landing no debe desplazarse al cargar; scrollY=${pageScrollY}`)
@@ -338,6 +344,7 @@ try {
       const tutorialState = await state()
       assert.equal(tutorialState.tutorialSelected, 'restaurant')
       assert.equal(tutorialState.tutorialFrameLoaded, true)
+      assert.equal(tutorialState.tutorialAppReady, true, 'La demo inicial confirma que React montó su experiencia')
       assert.equal(tutorialState.tutorialWorkspaceColumns, width > 1100 ? 2 : 1, 'El espacio real de tutorial se adapta entre escritorio y móvil')
       assert.match(tutorialState.tutorialFrameUrl, /\/demo\/restaurant\?/)
       await sleep(1500)
@@ -352,28 +359,45 @@ try {
       await evaluate(`(() => { const buttons=document.querySelector('#tutoriales iframe')?.contentDocument?.querySelectorAll('[role="dialog"][aria-label="Aprender a usar PACHAX"] button[aria-label="Cerrar"]'); buttons?.item(buttons.length-1)?.click(); })()`)
       await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Aprender a usar PACHAX"]'))`, value => !value, 'el usuario puede cerrar el Centro de aprendizaje real')
       await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="distribution"]')?.click()`)
-      const distributionTutorial = await waitFor((res) => res.tutorialSelected === 'distribution' && res.tutorialFrameLoaded && /\/demo\/distribution\?.*tour=start/.test(res.tutorialFrameUrl), 'abre demo y recorrido nativo de Distribución')
+      const distributionTutorial = await waitFor((res) => res.tutorialSelected === 'distribution' && res.tutorialFrameLoaded && res.tutorialAppReady && /\/demo\/distribution\?.*tour=start/.test(res.tutorialFrameUrl), 'abre demo y recorrido nativo de Distribución')
       assert.match(distributionTutorial.tutorialFrameUrl, /tour=start/)
       await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[aria-label="Centro de aprendizaje y tutoriales"]'))`, value => value, 'el recorrido soportado de Distribución abre el tutorial real')
       await screenshotElement('#tutoriales', `${width}-tutorials-distribution-guide`)
       await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="nightclub"]')?.click()`)
-      await waitFor((res) => res.tutorialSelected === 'nightclub' && res.tutorialFrameLoaded, 'abre demo de Nightclub')
+      await waitFor((res) => res.tutorialSelected === 'nightclub' && res.tutorialFrameLoaded && res.tutorialAppReady, 'abre demo de Nightclub')
       await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('button[data-tutorial-trigger]'))`, value => value, 'aparece el acceso de tutorial de Nightclub')
-      await evaluate(`document.querySelector('#tutoriales [data-tutorial-open-guide]')?.click()`)
-      await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[data-nightclub-tutorial-panel]'))`, value => value, 'abre el tutorial contextual de Nightclub')
+      assert.equal(await evaluate(`document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('button[data-tutorial-trigger]')?.disabled`), false, 'Nightclub conserva disponible su acceso nativo al tutorial')
       await screenshotElement('#tutoriales', `${width}-tutorials-nightclub-guide`)
       await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="hamburger"]')?.click()`)
-      await waitFor((res) => res.tutorialSelected === 'hamburger' && res.tutorialFrameLoaded, 'abre demo de Restaurante Rápido')
+      await waitFor((res) => res.tutorialSelected === 'hamburger' && res.tutorialFrameLoaded && res.tutorialAppReady, 'abre demo de Restaurante Rápido').catch(async (error) => {
+        const details = await evaluate(`(() => { const child=document.querySelector('#tutoriales iframe')?.contentDocument; return { body:child?.body?.innerText.slice(0,1000)||'', root:child?.querySelector('#root')?.innerHTML.slice(0,700)||'', html:child?.documentElement?.outerHTML.slice(0,700)||'' } })()`)
+        throw new Error(`${error.message}; Hamburger iframe=${JSON.stringify(details)}`)
+      })
       await sleep(1500)
       await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Tutorial interactivo"]'))`, value => !value, 'la introducción inicial no cubre el POS de Restaurante Rápido')
       await evaluate(`document.querySelector('#tutoriales [data-tutorial-open-guide]')?.click()`)
       await waitForValue(`Boolean(document.querySelector('#tutoriales iframe')?.contentDocument?.querySelector('[role="dialog"][aria-label="Aprender a usar PACHAX"]'))`, value => value, 'abre guía real de Restaurante Rápido')
+      assert.equal((await state()).tutorialErrorVisible, false, 'Restaurante Rápido no muestra fallo de carga')
       await evaluate(`document.querySelector('#tutoriales [data-tutorial-template="retail"]')?.click()`)
-      const retailTutorial = await waitFor((res) => res.tutorialSelected === 'retail' && res.tutorialFrameLoaded && /\/demo\/retail\?/.test(res.tutorialFrameUrl), 'abre POS interactivo de Comercio')
+      const retailTutorial = await waitFor((res) => res.tutorialSelected === 'retail' && res.tutorialFrameLoaded && res.tutorialAppReady && /\/demo\/retail\?/.test(res.tutorialFrameUrl), 'abre POS interactivo de Comercio')
+      assert.equal(retailTutorial.tutorialErrorVisible, false, 'Comercio no muestra fallo de carga')
       assert.match(retailTutorial.tutorialFrameUrl, /\/demo\/retail\?/)
       assert.match(await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-guide-note')?.innerText||''`), /Centro de tutoriales no está disponible/)
       assert.equal(await evaluate(`Boolean(document.querySelector('#tutoriales [data-tutorial-open-guide]'))`), false, 'Comercio no anuncia un tutorial inexistente')
-
+      if (width === 390) {
+        await evaluate(`document.querySelector('#tutoriales iframe').src='/__tutorial_failure_no_runtime__'`)
+        let loadStatus = ''
+        for (let attempt = 0; attempt < 110; attempt++) {
+          loadStatus = await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-live-state')?.innerText.trim()||''`)
+          if (loadStatus === 'No se pudo cargar la demo') break
+          await sleep(150)
+        }
+        assert.equal(loadStatus, 'No se pudo cargar la demo', 'El runtime ausente vence el timeout y se anuncia')
+        assert.equal(await evaluate(`Boolean(document.querySelector('#tutoriales .pachax-tutorials-load-error[role="alert"] button'))`), true, 'El estado fallido permite reintentar')
+        assert.equal(await evaluate(`Boolean(document.querySelector('#tutoriales .pachax-tutorials-load-error a[href^="/demo/retail"]'))`), true, 'El estado fallido permite abrir la demo completa')
+        await evaluate(`document.querySelector('#tutoriales .pachax-tutorials-load-error button')?.click()`)
+        await waitFor((res) => res.tutorialSelected === 'retail' && res.tutorialAppReady && !res.tutorialErrorVisible, 'Retail recupera el montaje al reintentar')
+      }
       await evaluate(`(() => { const section=document.querySelector('#extras'); window.scrollTo({top:section.offsetTop-Math.round(innerHeight*.42),behavior:'instant'}); })()`)
       await sleep(200)
       await screenshot(`${width}-section5-6-transition`)

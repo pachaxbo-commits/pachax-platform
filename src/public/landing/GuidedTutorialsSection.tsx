@@ -131,28 +131,39 @@ function dismissPublicDemoWelcome(frame: HTMLIFrameElement | null, attempt = 0) 
   const previewDocument = getCurrentDemoDocument(frame)
   const welcome = previewDocument?.querySelector('[role="dialog"][aria-label="Tutorial interactivo"]')
   if (!welcome) {
-    if (frame?.contentWindow && attempt < 30) {
-      frame.contentWindow.setTimeout(() => dismissPublicDemoWelcome(frame, attempt + 1), 100)
+    if (frame && attempt < 100) {
+      window.setTimeout(() => dismissPublicDemoWelcome(frame, attempt + 1), 150)
     }
     return
   }
 
   const skip = [...welcome.querySelectorAll<HTMLButtonElement>('button')]
-    .find((button) => button.textContent?.trim() === 'Saltar por ahora')
-  if (!skip || !frame?.contentWindow) return
+    .find((button) => button.textContent?.replace(/\s+/g, ' ').trim() === 'Saltar por ahora')
+  if (!skip || !frame) {
+    if (frame && attempt < 100) {
+      window.setTimeout(() => dismissPublicDemoWelcome(frame, attempt + 1), 150)
+    }
+    return
+  }
   skip.click()
-  frame.contentWindow.setTimeout(() => {
+  const dismissConfirmation = (confirmationAttempt = 0) => {
     const confirmation = getCurrentDemoDocument(frame)
     const understood = [...(confirmation?.querySelectorAll<HTMLButtonElement>('[role="dialog"] button') || [])]
-      .find((button) => button.textContent?.trim() === 'Entendido')
-    understood?.click()
-  }, 120)
+      .find((button) => button.textContent?.replace(/\s+/g, ' ').trim() === 'Entendido')
+    if (understood) {
+      understood.click()
+      return
+    }
+    if (confirmationAttempt < 20) window.setTimeout(() => dismissConfirmation(confirmationAttempt + 1), 120)
+  }
+  window.setTimeout(() => dismissConfirmation(), 120)
 }
 
 export function GuidedTutorialsSection() {
   const [selectedTemplate, setSelectedTemplate] = useState<PublicTemplateId>('restaurant')
   const [demoRevision, setDemoRevision] = useState(0)
   const [loadedDemoKey, setLoadedDemoKey] = useState('')
+  const [failedDemoKey, setFailedDemoKey] = useState('')
   const [guideOpenedKey, setGuideOpenedKey] = useState('')
   const [feedbackState, setFeedbackState] = useState<{ key: string; message: string }>({ key: '', message: '' })
   const frameRef = useRef<HTMLIFrameElement>(null)
@@ -160,6 +171,7 @@ export function GuidedTutorialsSection() {
   const demoEnabled = isPublicDemoEnabled(activeTemplate.id)
   const demoKey = `${activeTemplate.id}:${demoRevision}`
   const demoReady = loadedDemoKey === demoKey
+  const demoFailed = failedDemoKey === demoKey
   const guideOpened = guideOpenedKey === demoKey
   const feedback = feedbackState.key === demoKey ? feedbackState.message : ''
   const Icon = activeTemplate.icon
@@ -179,6 +191,27 @@ export function GuidedTutorialsSection() {
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
     })
   }, [selectedTemplate])
+
+  useEffect(() => {
+    const frame = frameRef.current
+    if (!frame || !demoEnabled || demoReady) return
+    let timeout: number | undefined
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      observer.disconnect()
+      timeout = window.setTimeout(() => {
+        if (frameRef.current === frame && loadedDemoKey !== demoKey) {
+          setLoadedDemoKey('')
+          setFailedDemoKey(demoKey)
+        }
+      }, 15_000)
+    }, { rootMargin: '120px' })
+    observer.observe(frame)
+    return () => {
+      observer.disconnect()
+      if (timeout !== undefined) window.clearTimeout(timeout)
+    }
+  }, [demoKey, demoEnabled, demoReady, loadedDemoKey])
 
   const selectTemplate = (templateId: PublicTemplateId) => {
     if (!isPublicDemoEnabled(templateId)) return
@@ -225,6 +258,33 @@ export function GuidedTutorialsSection() {
     }
     setDemoRevision((revision) => revision + 1)
     setFeedbackState({ key: demoKey, message: 'Se volvió a cargar la vista de demostración. El estado local depende de las reglas de almacenamiento de esta plantilla.' })
+  }
+
+  const confirmDemoReady = (frame: HTMLIFrameElement, key: string, attempt = 0) => {
+    if (frameRef.current !== frame || key !== demoKey) return
+    const previewDocument = getCurrentDemoDocument(frame)
+    if (previewDocument?.querySelector('[data-demo-runtime-ready="true"], [data-demo-only-ready="true"]')) {
+      setLoadedDemoKey(key)
+      setFailedDemoKey('')
+      if (activeTemplate.id === 'distribution') setGuideOpenedKey(key)
+      if (activeTemplate.id === 'restaurant' || activeTemplate.id === 'hamburger') {
+        // Close only the demo-local first-run welcome so the landing shows the real workspace.
+        dismissPublicDemoWelcome(frame)
+      }
+      return
+    }
+    if (attempt >= 80) {
+      setLoadedDemoKey('')
+      setFailedDemoKey(key)
+      return
+    }
+    window.setTimeout(() => confirmDemoReady(frame, key, attempt + 1), 150)
+  }
+
+  const retryDemo = () => {
+    setFailedDemoKey('')
+    setLoadedDemoKey('')
+    setDemoRevision((revision) => revision + 1)
   }
 
   return (
@@ -274,7 +334,7 @@ export function GuidedTutorialsSection() {
               </div>
               <div className="pachax-tutorials-live-state" role="status" aria-live="polite">
                 <span className={demoReady && demoEnabled ? 'is-live' : ''} aria-hidden="true" />
-                {demoEnabled ? (demoReady ? 'Demo lista' : 'Cargando demo') : 'Demo deshabilitada'}
+                {demoEnabled ? (demoReady ? 'Demo lista' : demoFailed ? 'No se pudo cargar la demo' : 'Cargando demo') : 'Demo deshabilitada'}
               </div>
             </div>
             {demoEnabled ? (
@@ -287,13 +347,12 @@ export function GuidedTutorialsSection() {
                 loading="lazy"
                 referrerPolicy="same-origin"
                 onLoad={() => {
-                  setLoadedDemoKey(demoKey)
-                  if (activeTemplate.id === 'distribution') setGuideOpenedKey(demoKey)
-                  if (activeTemplate.id === 'restaurant' || activeTemplate.id === 'hamburger') {
-                    // Public demos start with a first-run welcome that covers the operating UI.
-                    // Close only that demo-local introduction so the landing can show the real workspace.
-                    dismissPublicDemoWelcome(frameRef.current)
-                  }
+                  const frame = frameRef.current
+                  if (frame) confirmDemoReady(frame, demoKey)
+                }}
+                onError={() => {
+                  setLoadedDemoKey('')
+                  setFailedDemoKey(demoKey)
                 }}
               />
             ) : (
@@ -301,6 +360,13 @@ export function GuidedTutorialsSection() {
                 <BookOpen aria-hidden="true" />
                 <h3>El acceso a esta demo está deshabilitado</h3>
                 <p>La disponibilidad administrativa se respeta también dentro de esta sección.</p>
+              </div>
+            )}
+            {demoFailed && (
+              <div className="pachax-tutorials-load-error" role="alert">
+                <p>No pudimos iniciar esta demostración. Puedes intentarlo otra vez o abrirla completa.</p>
+                <button type="button" onClick={retryDemo}>Reintentar</button>
+                <a href={launchUrl} target="_blank" rel="noopener noreferrer">Abrir demo completa <ArrowRight aria-hidden="true" /></a>
               </div>
             )}
             <div className="pachax-tutorials-demo-footer">

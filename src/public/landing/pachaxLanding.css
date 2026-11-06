@@ -823,6 +823,11 @@
 .pachax-tutorials-live-state > span { width: 7px; height: 7px; border-radius: 50%; background: #71839a; }
 .pachax-tutorials-live-state > span.is-live { background: #29ce9b; box-shadow: 0 0 9px rgba(41,206,155,.3); }
 .pachax-tutorials-frame { display: block; width: 100%; min-width: 0; height: clamp(470px, 42vw, 604px); border: 1px solid rgba(113,145,176,.24); border-radius: 13px 0 0 13px; background: #f7f9fc; }
+.pachax-tutorials-load-error { z-index: 2; grid-row: 2; align-self: center; justify-self: center; display: flex; width: min(92%, 460px); flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; padding: 20px; border: 1px solid rgba(0,194,255,.44); border-radius: 14px; color: #e8f1fb; background: rgba(4,15,28,.96); text-align: center; box-shadow: 0 12px 34px rgba(0,0,0,.34); }
+.pachax-tutorials-load-error p { flex-basis: 100%; margin: 0; color: #afc2d7; font-size: 13px; line-height: 1.5; }
+.pachax-tutorials-load-error button, .pachax-tutorials-load-error a { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid rgba(0,194,255,.55); border-radius: 8px; color: #f1f7fd; background: rgba(0,104,155,.18); font: inherit; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.pachax-tutorials-load-error button:hover, .pachax-tutorials-load-error a:hover { background: rgba(0,147,206,.26); }
+.pachax-tutorials-load-error button:focus-visible, .pachax-tutorials-load-error a:focus-visible { outline: 2px solid #78dcff; outline-offset: 3px; }
 .pachax-tutorials-disabled { display: grid; min-height: 470px; align-content: center; justify-items: center; gap: 13px; padding: 30px; color: #dbe8f7; text-align: center; }
 .pachax-tutorials-disabled svg { width: 30px; height: 30px; color: var(--pachax-cyan); }
 .pachax-tutorials-disabled h3 { margin: 0; font-size: 18px; }
