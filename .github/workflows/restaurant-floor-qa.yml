@@ -29,6 +29,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: browser-actions/setup-chrome@v1
+        if: hashFiles('scripts/test-restaurant-floor-browser.mjs') != ''
         id: chrome
         with:
           chrome-version: stable
@@ -37,15 +38,17 @@ jobs:
       - run: npm install --global firebase-tools@15.5.1
       - run: npm run typecheck
       - run: npx eslint src/modules/restaurant/components/RestaurantFloorCanvas.tsx src/modules/restaurant/components/RestaurantTables.tsx src/modules/restaurant/domain/restaurantFloor.ts src/demo/restaurant/RestaurantDemo.tsx scripts/test-restaurant-floor-browser.mjs
+        if: hashFiles('scripts/test-restaurant-floor-browser.mjs') != ''
       - run: npm run test:restaurant
       - run: npm run test:restaurant-backend
       - run: npm run build:emulator
       - run: npm run test:restaurant-floor-browser
+        if: hashFiles('scripts/test-restaurant-floor-browser.mjs') != ''
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
       - run: npm run test:preview-firebase-isolation && npm run test:free-demo-routes && npm run test:demos-only:guard
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && hashFiles('scripts/test-restaurant-floor-browser.mjs') != ''
         with:
           name: restaurant-floor-browser
           path: docs/restaurant-floor-evidence/

@@ -138,6 +138,61 @@ try {
   await assert.rejects(() => call('admin_user','floorAction','layout-tenant',{action:layoutAction},otherTenantId), err => ['permission-denied','not-found'].includes(err.code))
   console.log('PASS Layout persistente, revisión, coordenadas, idempotencia, permisos y aislamiento.')
 
+  for (const id of ['race-a', 'race-b']) {
+    await call('admin_user', 'floorAction', `create-${id}`, {
+      action: { type: 'table.create', id, name: id, sectorId: 'sec-main', capacity: 4, shape: 'square', active: true },
+    })
+  }
+  const savePositions = (uid, operationId, positions) => call(uid, 'floorAction', operationId, {
+    action: { type: 'layout.save', positions: positions.map(p => ({ ...p, y: 400, expectedSectorId: 'sec-main' })) },
+  })
+  const contenders = await Promise.allSettled([
+    savePositions('admin_user', 'race-admin', [{ id: 'race-a', x: 400, expectedRevision: 0 }]),
+    savePositions('owner_user', 'race-owner', [{ id: 'race-b', x: 420, expectedRevision: 0 }]),
+  ])
+  const winnerIndex = contenders.findIndex(result => result.status === 'fulfilled')
+  assert.notEqual(winnerIndex, -1)
+  const rejected = contenders[1 - winnerIndex]
+  assert.equal(rejected.status, 'rejected')
+  assert.equal(rejected.reason.code, 'failed-precondition')
+  assert.match(rejected.reason.message, /superponen/)
+  const [winnerId, loserId] = winnerIndex === 0 ? ['race-a', 'race-b'] : ['race-b', 'race-a']
+  const winnerX = (await data(`restaurantTables/${winnerId}`)).layout.x
+  assert.equal((await data(`restaurantTables/${loserId}`)).layout, undefined)
+  await savePositions('admin_user', 'race-edge-touch', [{ id: loserId, x: winnerX + 180, expectedRevision: 0 }])
+  await savePositions('admin_user', 'race-atomic-swap', [
+    { id: winnerId, x: winnerX + 180, expectedRevision: 1 },
+    { id: loserId, x: winnerX, expectedRevision: 1 },
+  ])
+  assert.equal((await data(`restaurantTables/${winnerId}`)).layout.x, winnerX + 180)
+  const swapped = await data(`restaurantTables/${loserId}`)
+  assert.equal(swapped.layout.x, winnerX)
+  assert.equal(swapped.status, 'available')
+  console.log('PASS Colisión concurrente entre mesas distintas, contacto de borde e intercambio atómico.')
+
+  await call('admin_user', 'floorAction', 'layout-sector-other', {
+    action: { type: 'sector.create', id: 'sec-other', name: 'Terraza QA' },
+  })
+  for (const sectorId of ['sec-other', 'sec-main']) {
+    await call('admin_user', 'floorAction', `layout-transfer-${sectorId}`, {
+      action: { type: 'table.update', id: loserId, name: loserId, sectorId, capacity: 6, shape: 'round', active: false },
+    })
+  }
+  const moved = await data(`restaurantTables/${loserId}`)
+  assert.equal(moved.layout.sectorId, undefined)
+  assert.equal(moved.layout.revision, 4)
+  assert.equal(moved.capacity, 6)
+  assert.equal(moved.shape, 'round')
+  assert.equal(moved.active, false)
+  assert.equal(moved.status, 'available')
+  await assert.rejects(() => savePositions('admin_user', 'layout-before-transfer', [
+    { id: loserId, x: winnerX, expectedRevision: 2 },
+  ]), err => err.code === 'aborted')
+  await call('admin_user', 'floorAction', 'layout-archive', { action: { type: 'table.archive', id: loserId } })
+  await assert.rejects(() => savePositions('admin_user', 'layout-archived', [
+    { id: loserId, x: winnerX, expectedRevision: 4 },
+  ]), err => err.code === 'failed-precondition')
+
   // 4. Crear Producto
   await call('admin_user', 'saveProduct', 'prod-pizza-op', {
     product: {

@@ -1840,6 +1840,12 @@ async function applyRestaurantCommand(context) {
   throw new HttpsError('invalid-argument', 'Comando Restaurante no implementado.')
 }
 
+function invalidateFloorPosition(table) {
+  const layout = table.layout
+  if (layout?.version !== 1) return {}
+  return { layout: { version: 1, x: layout.x, y: layout.y, revision: layout.revision + 1 } }
+}
+
 async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
   if (!action || typeof action.type !== 'string') throw new HttpsError('invalid-argument', 'Acción de plano inválida.')
 
@@ -1857,13 +1863,30 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
   if (action.type === 'layout.save') {
     const positions = action.positions
     if (!Array.isArray(positions) || !positions.length || positions.length > 200 || new Set(positions.map(p => p?.id)).size !== positions.length) throw new HttpsError('invalid-argument', 'Distribución inválida.')
+    const branchTables = new Map(tables.filter(t => t.branchId === branchId && !t.archivedAt).map(t => [t.id, t]))
+    const pending = new Map()
     for (const p of positions) {
-      const table = tables.find(t => t.id === p?.id && t.branchId === branchId && !t.archivedAt)
+      const table = branchTables.get(p?.id)
       if (!table || table.sectorId !== p.expectedSectorId || !sectors.some(s => s.id === table.sectorId && s.branchId === branchId && s.active !== false)) throw new HttpsError('failed-precondition', 'Mesa o sector no disponible en esta sucursal.')
       if (![p.x, p.y, p.expectedRevision].every(Number.isInteger) || p.expectedRevision < 0 || p.x < 0 || p.y < 0 || p.x > 2400 || p.y > 2400) throw new HttpsError('invalid-argument', 'Coordenadas inválidas.')
       if ((table.layout?.revision || 0) !== p.expectedRevision) throw new HttpsError('aborted', 'El plano cambió. Recarga antes de guardar.')
+      pending.set(table.id, { version: 1, sectorId: table.sectorId, x: p.x, y: p.y, revision: p.expectedRevision + 1 })
     }
-    for (const p of positions) { const table = tables.find(t => t.id === p.id); tx.update(root.collection('restaurantTables').doc(p.id), { layout: { version: 1, sectorId: table.sectorId, x: p.x, y: p.y, revision: p.expectedRevision + 1 }, updatedAt: now }) }
+    // Compare the final arrangement inside the transaction, including moves in this batch.
+    // Tables without a current saved position are placed automatically by the client.
+    for (const [tableId, layout] of pending) {
+      for (const table of branchTables.values()) {
+        if (table.id === tableId || table.sectorId !== layout.sectorId) continue
+        const other = pending.get(table.id) || table.layout
+        if (other?.version !== 1 || other.sectorId !== layout.sectorId) continue
+        if (Math.abs(layout.x - other.x) < 180 && Math.abs(layout.y - other.y) < 160) {
+          throw new HttpsError('failed-precondition', 'Dos mesas se superponen en el sector. Ajusta sus posiciones.')
+        }
+      }
+    }
+    for (const [tableId, layout] of pending) {
+      tx.update(root.collection('restaurantTables').doc(tableId), { layout, updatedAt: now })
+    }
     return { ok: true }
   }
 
@@ -1920,7 +1943,11 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
       const destId = id(action.transferToId)
       if (destId === sectorId) throw new HttpsError('invalid-argument', 'Selecciona otro sector para transferir.')
       for (const t of activeMembers) {
-        tx.update(root.collection('restaurantTables').doc(t.id), { sectorId: destId, updatedAt: now })
+        tx.update(root.collection('restaurantTables').doc(t.id), {
+          sectorId: destId,
+          ...invalidateFloorPosition(t),
+          updatedAt: now,
+        })
       }
     }
     tx.update(root.collection('restaurantSectors').doc(sectorId), { active: false, updatedAt: now })
@@ -1982,6 +2009,7 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
       sectorId,
       shape: action.shape || current.shape || 'square',
       active: action.active !== false,
+      ...(sectorId === current.sectorId ? {} : invalidateFloorPosition(current)),
       updatedAt: now,
     })
     return { ok: true, tableId }
