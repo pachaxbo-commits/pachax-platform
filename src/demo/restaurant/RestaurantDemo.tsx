@@ -555,7 +555,7 @@ export function RestaurantDemo({
       updateTables(() => next.tables)
       setSectors(next.sectors)
       persist('sectors', next.sectors)
-      record({ type: `floor_${action.type}`, tableId: action.type.startsWith('table.') ? action.id : undefined, details: { ...action } })
+      record({ type: `floor_${action.type}`, tableId: 'id' in action && action.type.startsWith('table.') ? action.id : undefined, details: { ...action } })
       return { ok: true }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'No se pudo actualizar el salón.' }

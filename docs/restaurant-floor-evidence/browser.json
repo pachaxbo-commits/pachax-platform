@@ -1,0 +1,69 @@
+{
+  "result": "PASS",
+  "viewports": [
+    {
+      "width": 320,
+      "selection": true,
+      "touch": true,
+      "layoutSaved": true
+    },
+    {
+      "width": 360,
+      "selection": true,
+      "touch": true,
+      "layoutSaved": true
+    },
+    {
+      "width": 375,
+      "selection": true,
+      "touch": true,
+      "layoutSaved": true
+    },
+    {
+      "width": 390,
+      "selection": true,
+      "touch": true,
+      "layoutSaved": true
+    },
+    {
+      "width": 430,
+      "selection": true,
+      "touch": true,
+      "layoutSaved": true
+    },
+    {
+      "width": 768,
+      "selection": true,
+      "touch": false,
+      "layoutSaved": true
+    },
+    {
+      "width": 1024,
+      "selection": true,
+      "touch": false,
+      "layoutSaved": true
+    },
+    {
+      "width": 1440,
+      "selection": true,
+      "touch": false,
+      "layoutSaved": true
+    },
+    {
+      "width": 1920,
+      "selection": true,
+      "touch": false,
+      "layoutSaved": true
+    },
+    {
+      "scenario": "large floor, mixed shapes, inactive/archived, high capacity, tutorial, waiter permissions",
+      "result": "PASS"
+    },
+    {
+      "scenario": "empty company, no sectors, closed shift",
+      "result": "PASS"
+    }
+  ],
+  "productionRequests": [],
+  "browserErrors": []
+}

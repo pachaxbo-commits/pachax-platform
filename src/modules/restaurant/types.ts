@@ -7,6 +7,7 @@ export interface RestaurantTable {
   sectorId?: string
   shape?: 'square' | 'rectangle' | 'round'
   sortOrder?: number
+  layout?: { version: 1; sectorId?: string; x: number; y: number; revision: number }
   active?: boolean
   createdAt?: string
   updatedAt?: string

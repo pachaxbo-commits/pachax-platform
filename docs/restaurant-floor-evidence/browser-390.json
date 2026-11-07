@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "viewports": [
+    {
+      "width": 390,
+      "selection": true,
+      "touch": true,
+      "layoutSaved": true
+    }
+  ],
+  "productionRequests": [],
+  "browserErrors": []
+}
