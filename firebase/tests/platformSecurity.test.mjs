@@ -324,7 +324,8 @@ try {
 
   const publishedAdminPlan = {
     ...hamburgerPlan, id: `hamb_public_${suffix}`, name: 'Hamburger aprobado QA',
-    status: 'published', priceApproval: 'approved', monthlyPriceUSD: 35, annualPriceUSD: 30,
+    status: 'published', priceApproval: 'approved', monthlyPriceUSD: 35, annualPriceUSD: 360,
+    annualPriceUnit: 'annual_total_12_months',
     includedFeatures: ['Ventas y caja verificadas'], technicalEntitlements: [],
   }
   await callAdminAction('savePlan', ids.owner, { action: 'savePlan', plan: publishedAdminPlan })
