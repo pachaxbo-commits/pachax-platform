@@ -125,6 +125,9 @@ try {
     await clickWithPointer('button','Ver plano completo')
     await waitFor("Boolean(document.querySelector('.restaurant-floor-table'))")
     await evaluate("document.querySelector('.restaurant-floor').scrollIntoView({block:'start',behavior:'instant'})")
+    await clickWithPointer('button','Ajustar vista')
+    assert(await evaluate("document.querySelector('.restaurant-floor-space').getBoundingClientRect().width <= document.querySelector('.restaurant-floor-scroll').clientWidth"),'Fit view contains the floor at every width')
+    await clickWithPointer('button[aria-label="Restablecer zoom"]')
     await captureScreenshot(`${width}-floor`,'.restaurant-floor')
     assert(await evaluate("document.documentElement.scrollWidth<=innerWidth+1"),`No page overflow at ${width}`)
     const state=await evaluate("document.querySelector('.restaurant-floor-table').getAttribute('aria-label')")
@@ -194,10 +197,24 @@ try {
       await clickWithPointer('button','Reabrir')
       await waitFor("Boolean(document.querySelector('[data-tour=table-add-product]'))")
       await clickWithPointer('[data-floor-details] button[aria-label="Cerrar"]')
+      if(await evaluate("Boolean(document.querySelector('[role=dialog][aria-label^=\"PRECUENTA\"]'))")) await clickWithPointer('[role=dialog][aria-label^="PRECUENTA"] header button[aria-label="Cerrar"]')
+      if(width===390){
+        await clickWithPointer('[data-tour="tables-start-tour"]')
+        await waitFor("Boolean(document.querySelector('[aria-label^=\"Tutorial Mesas:\"]'))")
+        await captureScreenshot('390-tutorial')
+        await clickWithPointer('[data-tour="restaurant-menu-toggle"]')
+        await waitFor("Boolean(document.querySelector('[data-tour=restaurant-mobile-nav-tables]'))")
+        await clickWithPointer('[data-tour="restaurant-mobile-nav-tables"]')
+        await waitFor("Boolean(document.querySelector('.restaurant-floor-table'))")
+        await captureScreenshot('390-tutorial-map')
+        await clickWithPointer('button[aria-label="Cerrar tutorial"]')
+      }
+
     }
 
   }
 
+  if (!process.env.FLOOR_WIDTH) {
   // Local demo-only data exercises large, legacy and mixed-shape floors.
   await evaluate(`(()=>{const key=Object.keys(sessionStorage).find(k=>k.endsWith(':tables'));const tables=JSON.parse(sessionStorage.getItem(key));const sectorId=tables[0].sectorId;const extras=Array.from({length:30},(_,i)=>({id:'qa-floor-'+i,name:'QA Mesa '+i,sectorId,capacity:i===2?100:(i%8)+1,shape:['round','rectangle','square'][i%3],status:'available',active:i!==1,sortOrder:100+i,...(i===0?{archivedAt:'2026-11-06T00:00:00Z'}:{})}));sessionStorage.setItem(key,JSON.stringify([...tables,...extras]));})()`)
   await send('Page.reload',{ignoreCache:true})
@@ -210,6 +227,8 @@ try {
   await captureScreenshot('1920-mixed-shapes-large-floor','.restaurant-floor')
   await clickWithPointer('[data-tour="tables-start-tour"]')
   await waitFor("Boolean(document.querySelector('[aria-label^=\"Tutorial Mesas:\"]'))")
+  await clickWithPointer('[data-tour="restaurant-nav-tables"]')
+  await waitFor("Boolean(document.querySelector('.restaurant-floor-table'))")
   await captureScreenshot('1920-tutorial')
   await clickWithPointer('button[aria-label="Cerrar tutorial"]')
   await clickWithPointer('button','Mesero')
@@ -230,9 +249,10 @@ try {
   assert(await evaluate("document.body.innerText.includes('Debes iniciar un turno')"),'Closed shift guard remains visible')
   await captureScreenshot('1920-empty-floor','.restaurant-floor')
   reports.push({scenario:'empty company, no sectors, closed shift',result:'PASS'})
+  }
   const production=browserRequests.filter(u=>/(googleapis\.com|cloudfunctions\.net|firebaseio\.com|firebaseapp\.com)/i.test(u))
   assert.deepEqual(production,[],'No Firebase Production requests')
   const report={result:'PASS',viewports:reports,productionRequests:production,browserErrors}
-  writeFileSync(join(retailEvidenceDir,'browser.json'),JSON.stringify(report,null,2))
+  writeFileSync(join(retailEvidenceDir,process.env.FLOOR_WIDTH ? `browser-${process.env.FLOOR_WIDTH}.json` : 'browser.json'),JSON.stringify(report,null,2))
   console.log(JSON.stringify(report,null,2)); completed = true
-} finally { if (!completed) writeFileSync(join(retailEvidenceDir,'browser.json'),JSON.stringify({result:'FAIL',message:'See command output; no successful completion was recorded.'},null,2)); socket?.close(); browser.kill(); await new Promise(done=>server.close(done)) }
+} finally { if (!completed) writeFileSync(join(retailEvidenceDir,process.env.FLOOR_WIDTH ? `browser-${process.env.FLOOR_WIDTH}.json` : 'browser.json'),JSON.stringify({result:'FAIL',message:'See command output; no successful completion was recorded.'},null,2)); socket?.close(); browser.kill(); await new Promise(done=>server.close(done)) }

@@ -76,7 +76,7 @@ export function RestaurantFloorCanvas({ tables, sectors, canEdit, selectedId, on
         <button type="button" aria-label="Alejar plano" onClick={() => setZoom(v => Math.max(.6, v - .1))}>−</button>
         <button type="button" onClick={() => setZoom(1)} aria-label="Restablecer zoom">{Math.round(zoom * 100)}%</button>
         <button type="button" aria-label="Acercar plano" onClick={() => setZoom(v => Math.min(1.5, v + .1))}>+</button>
-        <button type="button" onClick={() => setZoom(Math.max(.35, Math.min(1, ((viewport.current?.clientWidth || 820) - 40) / Math.max(820, ...groups.flatMap(g => g.tables.map((t,i) => point(t,i).x + 200))))))}>Ajustar vista</button>
+        <button type="button" onClick={() => setZoom(Math.max(.25, Math.min(1, ((viewport.current?.clientWidth || 820) - 40) / Math.max(820, ...groups.flatMap(g => g.tables.map((t,i) => point(t,i).x + 200))))))}>Ajustar vista</button>
         {canEdit && !editing && <button type="button" onClick={() => { sectorIds.current = Object.fromEntries(tables.map(t => [t.id, t.sectorId || ''])); revisions.current = Object.fromEntries(tables.map(t => [t.id, t.layout?.revision || 0])); setEditing(true); onEditingChange(true); setList(false) }}>Editar distribución</button>}
       </div>
     </header>
