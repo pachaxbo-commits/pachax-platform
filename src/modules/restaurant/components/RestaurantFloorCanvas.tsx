@@ -20,11 +20,15 @@ export const RestaurantVisualTable = memo(function RestaurantVisualTable({ table
   return <svg viewBox="0 0 180 130" aria-hidden="true" className="restaurant-table-vector">
     {Array.from({ length: count }, (_, i) => {
       const angle = (i / count) * Math.PI * 2 - Math.PI / 2
-      const x = round ? 90 + Math.cos(angle) * 51 : i < Math.ceil(count / 2) ? 42 + i * (96 / Math.max(1, Math.ceil(count / 2) - 1)) : 42 + (i - Math.ceil(count / 2)) * (96 / Math.max(1, Math.floor(count / 2) - 1))
-      const y = round ? 61 + Math.sin(angle) * 49 : i < Math.ceil(count / 2) ? 16 : 105
-      return <rect key={i} x={x - 9} y={y - 6} width="18" height="12" rx="4" className="restaurant-table-chair" transform={round ? `rotate(${angle * 180 / Math.PI + 90} ${x} ${y})` : undefined} />
+      const topCount = Math.ceil(count / 2)
+      const rowCount = i < topCount ? topCount : count - topCount
+      const rowIndex = i < topCount ? i : i - topCount
+      const edge = Math.max(Math.abs(Math.cos(angle)), Math.abs(Math.sin(angle)))
+      const x = round ? 90 + Math.cos(angle) * 51 : rectangle ? (rowCount === 1 ? 90 : 42 + rowIndex * 96 / (rowCount - 1)) : 90 + Math.cos(angle) / edge * 50
+      const y = round ? 61 + Math.sin(angle) * 49 : rectangle ? (i < topCount ? 16 : 105) : 61 + Math.sin(angle) / edge * 49
+      return <rect key={i} x={x - 9} y={y - 6} width="18" height="12" rx="4" className="restaurant-table-chair" transform={!rectangle ? `rotate(${angle * 180 / Math.PI + 90} ${x} ${y})` : undefined} />
     })}
-    {round ? <circle cx="90" cy="61" r="37" className="restaurant-table-top" /> : <rect x={rectangle ? 25 : 50} y="29" width={rectangle ? 130 : 80} height="64" rx="12" className="restaurant-table-top" />}
+    {round ? <circle cx="90" cy="61" r="37" className="restaurant-table-top" /> : <rect x={rectangle ? 25 : 50} y={rectangle ? 29 : 21} width={rectangle ? 130 : 80} height={rectangle ? 64 : 80} rx="12" className="restaurant-table-top" />}
     <text x="90" y="58" textAnchor="middle" className="restaurant-table-name">{table.name.length > 17 ? `${table.name.slice(0, 15)}…` : table.name}</text>
     <text x="90" y="78" textAnchor="middle" className="restaurant-table-capacity">{table.capacity} plazas</text>
   </svg>
@@ -72,7 +76,7 @@ export function RestaurantFloorCanvas({ tables, sectors, canEdit, selectedId, on
     <header className="restaurant-floor-toolbar">
       <div><strong>Plano del salón</strong><span>{editing ? 'Edición de distribución' : 'Selecciona una mesa para consultar su cuenta'}</span></div>
       <div className="restaurant-floor-controls">
-        <button type="button" aria-pressed={list} onClick={() => setList(!list)}>{list ? 'Ver plano' : 'Ver lista'}</button>
+        <button type="button" disabled={editing} aria-pressed={list} onClick={() => setList(!list)}>{list ? 'Ver plano' : 'Ver lista'}</button>
         <button type="button" aria-label="Alejar plano" onClick={() => setZoom(v => Math.max(.6, v - .1))}>−</button>
         <button type="button" onClick={() => setZoom(1)} aria-label="Restablecer zoom">{Math.round(zoom * 100)}%</button>
         <button type="button" aria-label="Acercar plano" onClick={() => setZoom(v => Math.min(1.5, v + .1))}>+</button>
@@ -96,9 +100,9 @@ export function RestaurantFloorCanvas({ tables, sectors, canEdit, selectedId, on
           <h2>{group.name}<small>{group.tables.length} mesas</small></h2>
           <div className={list ? 'restaurant-floor-list' : 'restaurant-floor-space'} style={list ? undefined : { width: width * zoom, height: height * zoom }}>
             <div className={list ? undefined : 'restaurant-floor-plane'} style={list ? undefined : { width, height, transform: `scale(${zoom})` }}>
-              {group.tables.map((table,index) => { const p = point(table,index); const inactive = table.active === false; return <button key={table.id} type="button" data-table-id={table.id} data-tour={table.status === 'occupied' || table.status === 'bill_requested' ? 'tables-active' : table.status === 'available' ? 'tables-available' : undefined} disabled={inactive && !editing} aria-label={`${table.name}, ${table.capacity} plazas, ${inactive ? 'Desactivada' : labels[table.status]}`} aria-pressed={editing ? editId === table.id : selectedId === table.id} className={`restaurant-floor-table ${inactive ? 'inactive' : table.status} ${editing ? 'is-editing' : ''}`} style={list ? undefined : { left:p.x, top:p.y }}
+              {group.tables.map((table,index) => { const p = point(table,index); const inactive = table.active === false; return <button key={table.id} type="button" data-table-id={table.id} data-tour={inactive ? undefined : table.status === 'occupied' || table.status === 'bill_requested' ? 'tables-active' : table.status === 'available' ? 'tables-available' : undefined} disabled={inactive && !editing} aria-label={`${table.name}, ${table.capacity} plazas, ${inactive ? 'Desactivada' : labels[table.status]}`} aria-pressed={editing ? editId === table.id : selectedId === table.id} className={`restaurant-floor-table ${inactive ? 'inactive' : table.status} ${editing ? 'is-editing' : ''}`} style={list ? undefined : { left:p.x, top:p.y }}
                 onClick={() => editing ? setEditId(table.id) : onSelect(table)}
-                onKeyDown={event => { if (!editing || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return; event.preventDefault(); move(table.id,{x:p.x+(event.key==='ArrowLeft'?-20:event.key==='ArrowRight'?20:0),y:p.y+(event.key==='ArrowUp'?-20:event.key==='ArrowDown'?20:0)}) }}
+                onKeyDown={event => { if (!editing || busy || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return; event.preventDefault(); move(table.id,{x:p.x+(event.key==='ArrowLeft'?-20:event.key==='ArrowRight'?20:0),y:p.y+(event.key==='ArrowUp'?-20:event.key==='ArrowDown'?20:0)}) }}
                 onPointerDown={event => { if (!editing || busy || event.pointerType === 'touch') return; setEditId(table.id); event.currentTarget.setPointerCapture(event.pointerId); drag.current={id:table.id,x:event.clientX,y:event.clientY,start:p} }}
                 onPointerMove={event => { const d=drag.current; if (!d || d.id!==table.id || !editing) return; move(table.id,{x:d.start.x+(event.clientX-d.x)/zoom,y:d.start.y+(event.clientY-d.y)/zoom}) }}
                 onPointerUp={event => { drag.current=null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }} onPointerCancel={() => { drag.current=null }}>

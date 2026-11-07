@@ -130,6 +130,7 @@ try {
     await clickWithPointer('button[aria-label="Restablecer zoom"]')
     await captureScreenshot(`${width}-floor`,'.restaurant-floor')
     assert(await evaluate("document.documentElement.scrollWidth<=innerWidth+1"),`No page overflow at ${width}`)
+    assert(await evaluate("[...document.querySelectorAll('.restaurant-table-top')].filter(e=>e.tagName.toLowerCase()==='rect').some(e=>e.getAttribute('width')===e.getAttribute('height'))"),'Square tables have equal sides')
     const state=await evaluate("document.querySelector('.restaurant-floor-table').getAttribute('aria-label')")
     await clickWithPointer('.restaurant-floor-table')
     await waitFor("Boolean(document.querySelector('[role=dialog]'))")
