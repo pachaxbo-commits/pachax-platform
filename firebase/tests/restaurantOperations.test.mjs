@@ -133,10 +133,26 @@ try {
   assert.equal((await data('restaurantTables/tbl-1')).status,'available')
   await assert.rejects(() => call('admin_user','floorAction','layout-stale',{action:layoutAction}), err => err.code === 'aborted')
   await assert.rejects(() => call('admin_user','floorAction','layout-coordinate',{action:{...layoutAction,positions:[{id:'tbl-1',x:-10,y:0,expectedSectorId:'sec-main',expectedRevision:1}]}}), err => err.code === 'invalid-argument')
-  await root.collection('restaurantTables').doc('foreign-branch').set({...tblData,id:'foreign-branch',branchId:'other'})
+  await root.collection('restaurantTables').doc('foreign-branch').set({...tblData,id:'foreign-branch',name:'Mesa sucursal alterna',branchId:'other'})
   await assert.rejects(() => call('admin_user','floorAction','layout-branch',{action:{...layoutAction,positions:[{id:'foreign-branch',x:0,y:0,expectedSectorId:'sec-main',expectedRevision:0}]}}), err => err.code === 'failed-precondition')
   await assert.rejects(() => call('admin_user','floorAction','layout-tenant',{action:layoutAction},otherTenantId), err => ['permission-denied','not-found'].includes(err.code))
   console.log('PASS Layout persistente, revisión, coordenadas, idempotencia, permisos y aislamiento.')
+
+  await root.collection('restaurantSectors').doc('foreign-sector').set({ ...secData, id: 'foreign-sector', branchId: 'other' })
+  const foreignFloorActions = [
+    { type: 'table.update', id: 'foreign-branch', name: 'Mesa ajena', sectorId: 'sec-main', capacity: 4 },
+    { type: 'table.update', id: 'tbl-1', name: 'Mesa 1', sectorId: 'foreign-sector', capacity: 4 },
+    { type: 'table.archive', id: 'foreign-branch' },
+    { type: 'table.reorder', id: 'foreign-branch' },
+    { type: 'sector.update', id: 'foreign-sector', name: 'Sector ajeno' },
+    { type: 'sector.reorder', id: 'foreign-sector' },
+    { type: 'sector.archive', id: 'sec-main', transferToId: 'foreign-sector' },
+  ]
+  for (const [index, action] of foreignFloorActions.entries()) {
+    await assert.rejects(() => call('admin_user', 'floorAction', `floor-foreign-${index}`, { action }), err => err.code === 'not-found')
+  }
+  assert.equal((await data('restaurantTables/foreign-branch')).name, 'Mesa sucursal alterna')
+  assert.equal((await data('restaurantTables/tbl-1')).sectorId, 'sec-main')
 
   for (const id of ['race-a', 'race-b']) {
     await call('admin_user', 'floorAction', `create-${id}`, {

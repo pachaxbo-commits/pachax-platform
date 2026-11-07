@@ -8,6 +8,8 @@ La transacción lee las mesas del tenant, valida las revisiones y compara las po
 
 Las revisiones detectan una edición anterior de la misma mesa. La lectura transaccional detecta cambios de otras mesas y la validación espacial rechaza un nuevo solapamiento. El comando permite intercambiar dos posiciones en un lote. La idempotencia existente protege reintentos con el mismo identificador de operación. El coste de la lectura transaccional depende del tamaño del salón y de los cambios concurrentes del tenant.
 
+La auditoría también encontró que varias acciones de salón anteriores resolvían el ID objetivo a nivel de tenant tras autorizar la sucursal solicitada. Las búsquedas para editar, transferir, archivar y reordenar quedan limitadas a esa sucursal. Se mantienen las reglas de unicidad existentes y la administración dentro de la misma sucursal. Un registro anterior sin `layout` sigue funcionando si tiene su sucursal canónica. Los registros sin `branchId` requieren revisión de datos antes de permitir ediciones.
+
 ## Etapa 1. Backend
 
 1. Obtener autorización y comprobar el diff, los checks y el SHA aprobado. El PR backend parte de `main` y solo introduce el contrato y sus pruebas. Fusionarlo antes de integrar la interfaz. Mantener el PR #31 en borrador.

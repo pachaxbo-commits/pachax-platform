@@ -1859,15 +1859,18 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
 
   const sectors = sectorsSnap.docs.map(doc => doc.data())
   const tables = tablesSnap.docs.map(doc => doc.data())
+  const branchSectors = sectors.filter(sector => sector.branchId === branchId)
+  const branchTables = tables.filter(table => table.branchId === branchId)
+  const activeSector = sectorId => branchSectors.find(sector => sector.id === sectorId && sector.active !== false)
 
   if (action.type === 'layout.save') {
     const positions = action.positions
     if (!Array.isArray(positions) || !positions.length || positions.length > 200 || new Set(positions.map(p => p?.id)).size !== positions.length) throw new HttpsError('invalid-argument', 'Distribución inválida.')
-    const branchTables = new Map(tables.filter(t => t.branchId === branchId && !t.archivedAt).map(t => [t.id, t]))
+    const currentTables = new Map(branchTables.filter(t => !t.archivedAt).map(t => [t.id, t]))
     const pending = new Map()
     for (const p of positions) {
-      const table = branchTables.get(p?.id)
-      if (!table || table.sectorId !== p.expectedSectorId || !sectors.some(s => s.id === table.sectorId && s.branchId === branchId && s.active !== false)) throw new HttpsError('failed-precondition', 'Mesa o sector no disponible en esta sucursal.')
+      const table = currentTables.get(p?.id)
+      if (!table || table.sectorId !== p.expectedSectorId || !activeSector(table.sectorId)) throw new HttpsError('failed-precondition', 'Mesa o sector no disponible en esta sucursal.')
       if (![p.x, p.y, p.expectedRevision].every(Number.isInteger) || p.expectedRevision < 0 || p.x < 0 || p.y < 0 || p.x > 2400 || p.y > 2400) throw new HttpsError('invalid-argument', 'Coordenadas inválidas.')
       if ((table.layout?.revision || 0) !== p.expectedRevision) throw new HttpsError('aborted', 'El plano cambió. Recarga antes de guardar.')
       pending.set(table.id, { version: 1, sectorId: table.sectorId, x: p.x, y: p.y, revision: p.expectedRevision + 1 })
@@ -1875,7 +1878,7 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
     // Compare the final arrangement inside the transaction, including moves in this batch.
     // Tables without a current saved position are placed automatically by the client.
     for (const [tableId, layout] of pending) {
-      for (const table of branchTables.values()) {
+      for (const table of currentTables.values()) {
         if (table.id === tableId || table.sectorId !== layout.sectorId) continue
         const other = pending.get(table.id) || table.layout
         if (other?.version !== 1 || other.sectorId !== layout.sectorId) continue
@@ -1916,7 +1919,7 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
 
   if (action.type === 'sector.update') {
     const sectorId = id(action.id)
-    const current = sectors.find(s => s.id === sectorId && s.active !== false)
+    const current = activeSector(sectorId)
     if (!current) throw new HttpsError('not-found', 'Sector no encontrado.')
     const name = clean(action.name)
     if (!name) throw new HttpsError('invalid-argument', 'El nombre del sector es requerido.')
@@ -1933,15 +1936,16 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
 
   if (action.type === 'sector.archive') {
     const sectorId = id(action.id)
-    const current = sectors.find(s => s.id === sectorId && s.active !== false)
+    const current = activeSector(sectorId)
     if (!current) throw new HttpsError('not-found', 'Sector no encontrado.')
-    const activeMembers = tables.filter(t => t.sectorId === sectorId && !t.archivedAt && t.active !== false)
+    const activeMembers = branchTables.filter(t => t.sectorId === sectorId && !t.archivedAt && t.active !== false)
     if (activeMembers.length > 0 && !action.transferToId) {
       throw new HttpsError('failed-precondition', `El sector contiene ${activeMembers.length} mesas activas. Transfiérelas a otro sector primero.`)
     }
     if (action.transferToId) {
       const destId = id(action.transferToId)
       if (destId === sectorId) throw new HttpsError('invalid-argument', 'Selecciona otro sector para transferir.')
+      if (!activeSector(destId)) throw new HttpsError('not-found', 'Sector de destino no encontrado.')
       for (const t of activeMembers) {
         tx.update(root.collection('restaurantTables').doc(t.id), {
           sectorId: destId,
@@ -1963,7 +1967,7 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
       throw new HttpsError('already-exists', 'Ya existe una mesa con ese nombre.')
     }
     const sectorId = id(action.sectorId)
-    const sector = sectors.find(s => s.id === sectorId && s.active !== false)
+    const sector = activeSector(sectorId)
     if (!sector) throw new HttpsError('not-found', 'Sector no encontrado.')
 
     const capacity = Math.max(1, Math.min(100, Number(action.capacity) || 4))
@@ -1989,7 +1993,7 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
 
   if (action.type === 'table.update') {
     const tableId = id(action.id)
-    const current = tables.find(t => t.id === tableId && !t.archivedAt)
+    const current = branchTables.find(t => t.id === tableId && !t.archivedAt)
     if (!current) throw new HttpsError('not-found', 'Mesa no encontrada.')
     const name = clean(action.name)
     if (!name) throw new HttpsError('invalid-argument', 'El nombre de la mesa es requerido.')
@@ -1997,6 +2001,7 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
       throw new HttpsError('already-exists', 'Ya existe una mesa con ese nombre.')
     }
     const sectorId = id(action.sectorId)
+    if (sectorId !== current.sectorId && !activeSector(sectorId)) throw new HttpsError('not-found', 'Sector de destino no encontrado.')
     const capacity = Math.max(1, Math.min(100, Number(action.capacity) || 4))
 
     if (action.active === false && (current.status === 'occupied' || current.status === 'bill_requested' || current.activeOrderId)) {
@@ -2017,7 +2022,7 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
 
   if (action.type === 'table.archive') {
     const tableId = id(action.id)
-    const current = tables.find(t => t.id === tableId && !t.archivedAt)
+    const current = branchTables.find(t => t.id === tableId && !t.archivedAt)
     if (!current) throw new HttpsError('not-found', 'Mesa no encontrada.')
     if (current.status === 'occupied' || current.status === 'bill_requested' || current.activeOrderId) {
       throw new HttpsError('failed-precondition', 'No puedes archivar una mesa con pedidos activos.')
@@ -2035,8 +2040,8 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
     const targetId = id(action.id)
     const direction = action.direction === -1 ? -1 : 1
     const list = isSector
-      ? sectors.filter(s => s.active !== false).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-      : tables.filter(t => !t.archivedAt && t.active !== false).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      ? branchSectors.filter(s => s.active !== false).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      : branchTables.filter(t => !t.archivedAt && t.active !== false).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
 
     const idx = list.findIndex(item => item.id === targetId)
     if (idx < 0) throw new HttpsError('not-found', 'Elemento no encontrado para reordenar.')
