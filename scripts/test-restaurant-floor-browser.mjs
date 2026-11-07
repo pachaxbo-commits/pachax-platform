@@ -212,20 +212,32 @@ try {
       await clickWithPointer(`${payment} button`, 'Bs')
       await clickWithPointer(`${payment} button`, 'CONFIRMAR PAGO')
       await waitFor(`document.querySelector(${JSON.stringify(`[data-table-id="${occupiedId}"]`)})?.classList.contains('available')`)
-      await captureScreenshot(`${width}-paid-table`)
       if(await evaluate("Boolean(document.querySelector('[role=dialog][aria-label^=\"PRECUENTA\"]'))")) await clickWithPointer('[role=dialog][aria-label^="PRECUENTA"] header button[aria-label="Cerrar"]')
+      await captureScreenshot(`${width}-paid-table`)
+      const tutorial = '[aria-label^="Tutorial Mesas:"]'
+      const waitForTutorialTitle = title => waitFor(`document.querySelector(${JSON.stringify(tutorial)})?.innerText.includes(${JSON.stringify(title)})`)
+      await clickWithPointer('[data-tour="tables-start-tour"]')
+      await waitFor(`Boolean(document.querySelector(${JSON.stringify(tutorial)}))`)
       if(width===390){
-        await clickWithPointer('[data-tour="tables-start-tour"]')
-        await waitFor("Boolean(document.querySelector('[aria-label^=\"Tutorial Mesas:\"]'))")
         await captureScreenshot('390-tutorial')
         await clickWithPointer('[data-tour="restaurant-menu-toggle"]')
         await waitFor("Boolean(document.querySelector('[data-tour=restaurant-mobile-nav-tables]'))")
         await clickWithPointer('[data-tour="restaurant-mobile-nav-tables"]')
-        await waitFor("Boolean(document.querySelector('.restaurant-floor-table'))")
-        await captureScreenshot('390-tutorial-map')
-        await clickWithPointer('button[aria-label="Cerrar tutorial"]')
+      } else await clickWithPointer('[data-tour="restaurant-nav-tables"]')
+      await waitForTutorialTitle('Elige un sector')
+      await clickWithPointer('[data-tour="tables-sector-option"]')
+      await captureScreenshot(`${width}-tutorial-map`)
+      for (const title of ['Lee el estado del salón', 'Identifica una mesa disponible', 'Abre una mesa']) {
+        await clickWithPointer(`${tutorial} button`, 'Siguiente')
+        await waitForTutorialTitle(title)
       }
-
+      await clickWithPointer('[data-tour="tables-active"]')
+      await waitForTutorialTitle('Añade productos')
+      for (const title of ['Envía la comanda a Cocina', 'Solicita la cuenta', 'Libera la mesa después del cobro']) {
+        await clickWithPointer(`${tutorial} button`, 'Siguiente')
+        await waitForTutorialTitle(title)
+      }
+      await clickWithPointer(`${tutorial} button`, 'Finalizar')
     }
 
   }
