@@ -204,6 +204,8 @@ try {
       await captureScreenshot(`${width}-order-actions`)
       await clickWithPointer('[data-tour="table-send-kitchen"]')
       await waitFor("document.querySelector('[data-floor-details]')?.innerText.includes('1 comanda enviada')")
+      // The demo keeps the order locked for 800 ms after submitting a kitchen batch.
+      await wait(900)
       await clickWithPointer('[data-tour="table-request-bill"]')
       await waitFor("Boolean([...document.querySelectorAll('button')].find(b=>b.innerText.includes('Reabrir'))) ")
       await captureScreenshot(`${width}-bill-requested`)
@@ -220,6 +222,7 @@ try {
       await waitFor(`Boolean(document.querySelector(${JSON.stringify(payment)}))`)
       await captureScreenshot(`${width}-payment`)
       await clickWithPointer(`${payment} button`, 'Bs')
+      await waitFor(`[...document.querySelectorAll(${JSON.stringify(`${payment} button`)})].some(button => button.innerText.includes('CONFIRMAR PAGO') && !button.disabled)`)
       await clickWithPointer(`${payment} button`, 'CONFIRMAR PAGO')
       await waitFor(`document.querySelector(${JSON.stringify(`[data-table-id="${occupiedId}"]`)})?.classList.contains('available')`)
       if(await evaluate("Boolean(document.querySelector('[role=dialog][aria-label^=\"PRECUENTA\"]'))")) await clickWithPointer('[role=dialog][aria-label^="PRECUENTA"] header button[aria-label="Cerrar"]')
