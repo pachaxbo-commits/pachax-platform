@@ -41,12 +41,22 @@ outline-offset:3px}
 .restaurant-floor-controls button:disabled{
 opacity:.45}
 .restaurant-floor-scroll{
+--floor-gutter:20px;
 overflow:auto;
 max-height:70vh;
 overscroll-behavior:contain;
-padding:20px}
+padding:var(--floor-gutter)}
 .restaurant-floor-sector{
 margin-bottom:24px}
+.restaurant-floor-sector:has(.restaurant-floor-space){
+width:max-content;
+min-width:100%}
+.restaurant-floor-sector:has(.restaurant-floor-space) h2{
+position:sticky;
+left:var(--floor-gutter);
+width:max-content;
+max-width:min(65vw,440px);
+overflow-wrap:anywhere}
 .restaurant-floor-sector h2{
 font-size:13px;
 letter-spacing:.12em;
@@ -163,7 +173,7 @@ width:180px}
 .restaurant-floor-toolbar{
 padding:14px}
 .restaurant-floor-scroll{
-padding:12px;
+--floor-gutter:12px;
 max-height:65vh}
 .restaurant-floor-editor{
 padding:14px}

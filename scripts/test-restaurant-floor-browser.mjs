@@ -129,6 +129,16 @@ try {
     assert(await evaluate("document.querySelector('.restaurant-floor-space').getBoundingClientRect().width <= document.querySelector('.restaurant-floor-scroll').clientWidth"),'Fit view contains the floor at every width')
     await clickWithPointer('button[aria-label="Restablecer zoom"]')
     await captureScreenshot(`${width}-floor`,'.restaurant-floor')
+    if(width<500) {
+      assert(await evaluate(`(() => {
+        const viewport = document.querySelector('.restaurant-floor-scroll')
+        const heading = viewport.querySelector('h2')
+        viewport.scrollLeft = 150
+        const visible = viewport.scrollLeft > 0 && heading.getBoundingClientRect().left >= viewport.getBoundingClientRect().left
+        viewport.scrollLeft = 0
+        return visible
+      })()`), 'Sector label remains visible while panning the floor')
+    }
     assert(await evaluate("document.documentElement.scrollWidth<=innerWidth+1"),`No page overflow at ${width}`)
     assert(await evaluate("[...document.querySelectorAll('.restaurant-table-top')].filter(e=>e.tagName.toLowerCase()==='rect').some(e=>e.getAttribute('width')===e.getAttribute('height'))"),'Square tables have equal sides')
     const state=await evaluate("document.querySelector('.restaurant-floor-table').getAttribute('aria-label')")
@@ -215,7 +225,11 @@ try {
       if(await evaluate("Boolean(document.querySelector('[role=dialog][aria-label^=\"PRECUENTA\"]'))")) await clickWithPointer('[role=dialog][aria-label^="PRECUENTA"] header button[aria-label="Cerrar"]')
       await captureScreenshot(`${width}-paid-table`)
       const tutorial = '[aria-label^="Tutorial Mesas:"]'
-      const waitForTutorialTitle = title => waitFor(`document.querySelector(${JSON.stringify(tutorial)})?.innerText.includes(${JSON.stringify(title)})`)
+      const waitForTutorialTitle = async title => {
+        await waitFor(`document.querySelector(${JSON.stringify(tutorial)})?.innerText.includes(${JSON.stringify(title)})`)
+        // Let the spotlight finish following the target before dispatching pointer input.
+        await wait(400)
+      }
       await clickWithPointer('[data-tour="tables-start-tour"]')
       await waitFor(`Boolean(document.querySelector(${JSON.stringify(tutorial)}))`)
       if(width===390){
@@ -226,6 +240,7 @@ try {
       } else await clickWithPointer('[data-tour="restaurant-nav-tables"]')
       await waitForTutorialTitle('Elige un sector')
       await clickWithPointer('[data-tour="tables-sector-option"]')
+      await waitFor("document.querySelector('[data-tour=tables-sector-option]')?.getAttribute('aria-pressed') === 'true'")
       await captureScreenshot(`${width}-tutorial-map`)
       for (const title of ['Lee el estado del salón', 'Identifica una mesa disponible', 'Abre una mesa']) {
         await clickWithPointer(`${tutorial} button`, 'Siguiente')
