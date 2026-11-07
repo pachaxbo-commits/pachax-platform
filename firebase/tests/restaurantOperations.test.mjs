@@ -125,6 +125,90 @@ try {
   assert.equal(tblData.status, 'available')
   console.log('PASS Sector y mesa creados con validaciones y permisos.')
 
+  const layoutAction = { type: 'layout.save', positions: [{ id: 'tbl-1', x: 200, y: 180, expectedSectorId:'sec-main', expectedRevision: 0 }] }
+  await assert.rejects(() => call('waiter_user','floorAction','layout-permission',{ action:layoutAction }), err => err.code === 'permission-denied')
+  await call('admin_user','floorAction','layout-save',{action:layoutAction})
+  await call('admin_user','floorAction','layout-save',{action:layoutAction})
+  assert.equal((await data('restaurantTables/tbl-1')).layout.revision,1)
+  assert.equal((await data('restaurantTables/tbl-1')).status,'available')
+  await assert.rejects(() => call('admin_user','floorAction','layout-stale',{action:layoutAction}), err => err.code === 'aborted')
+  await assert.rejects(() => call('admin_user','floorAction','layout-coordinate',{action:{...layoutAction,positions:[{id:'tbl-1',x:-10,y:0,expectedSectorId:'sec-main',expectedRevision:1}]}}), err => err.code === 'invalid-argument')
+  await root.collection('restaurantTables').doc('foreign-branch').set({...tblData,id:'foreign-branch',name:'Mesa sucursal alterna',branchId:'other'})
+  await assert.rejects(() => call('admin_user','floorAction','layout-branch',{action:{...layoutAction,positions:[{id:'foreign-branch',x:0,y:0,expectedSectorId:'sec-main',expectedRevision:0}]}}), err => err.code === 'failed-precondition')
+  await assert.rejects(() => call('admin_user','floorAction','layout-tenant',{action:layoutAction},otherTenantId), err => ['permission-denied','not-found'].includes(err.code))
+  console.log('PASS Layout persistente, revisión, coordenadas, idempotencia, permisos y aislamiento.')
+
+  await root.collection('restaurantSectors').doc('foreign-sector').set({ ...secData, id: 'foreign-sector', branchId: 'other' })
+  const foreignFloorActions = [
+    { type: 'table.update', id: 'foreign-branch', name: 'Mesa ajena', sectorId: 'sec-main', capacity: 4 },
+    { type: 'table.update', id: 'tbl-1', name: 'Mesa 1', sectorId: 'foreign-sector', capacity: 4 },
+    { type: 'table.archive', id: 'foreign-branch' },
+    { type: 'table.reorder', id: 'foreign-branch' },
+    { type: 'sector.update', id: 'foreign-sector', name: 'Sector ajeno' },
+    { type: 'sector.reorder', id: 'foreign-sector' },
+    { type: 'sector.archive', id: 'sec-main', transferToId: 'foreign-sector' },
+  ]
+  for (const [index, action] of foreignFloorActions.entries()) {
+    await assert.rejects(() => call('admin_user', 'floorAction', `floor-foreign-${index}`, { action }), err => err.code === 'not-found')
+  }
+  assert.equal((await data('restaurantTables/foreign-branch')).name, 'Mesa sucursal alterna')
+  assert.equal((await data('restaurantTables/tbl-1')).sectorId, 'sec-main')
+
+  for (const id of ['race-a', 'race-b']) {
+    await call('admin_user', 'floorAction', `create-${id}`, {
+      action: { type: 'table.create', id, name: id, sectorId: 'sec-main', capacity: 4, shape: 'square', active: true },
+    })
+  }
+  const savePositions = (uid, operationId, positions) => call(uid, 'floorAction', operationId, {
+    action: { type: 'layout.save', positions: positions.map(p => ({ ...p, y: 400, expectedSectorId: 'sec-main' })) },
+  })
+  const contenders = await Promise.allSettled([
+    savePositions('admin_user', 'race-admin', [{ id: 'race-a', x: 400, expectedRevision: 0 }]),
+    savePositions('owner_user', 'race-owner', [{ id: 'race-b', x: 420, expectedRevision: 0 }]),
+  ])
+  const winnerIndex = contenders.findIndex(result => result.status === 'fulfilled')
+  assert.notEqual(winnerIndex, -1)
+  const rejected = contenders[1 - winnerIndex]
+  assert.equal(rejected.status, 'rejected')
+  assert.equal(rejected.reason.code, 'failed-precondition')
+  assert.match(rejected.reason.message, /superponen/)
+  const [winnerId, loserId] = winnerIndex === 0 ? ['race-a', 'race-b'] : ['race-b', 'race-a']
+  const winnerX = (await data(`restaurantTables/${winnerId}`)).layout.x
+  assert.equal((await data(`restaurantTables/${loserId}`)).layout, undefined)
+  await savePositions('admin_user', 'race-edge-touch', [{ id: loserId, x: winnerX + 180, expectedRevision: 0 }])
+  await savePositions('admin_user', 'race-atomic-swap', [
+    { id: winnerId, x: winnerX + 180, expectedRevision: 1 },
+    { id: loserId, x: winnerX, expectedRevision: 1 },
+  ])
+  assert.equal((await data(`restaurantTables/${winnerId}`)).layout.x, winnerX + 180)
+  const swapped = await data(`restaurantTables/${loserId}`)
+  assert.equal(swapped.layout.x, winnerX)
+  assert.equal(swapped.status, 'available')
+  console.log('PASS Colisión concurrente entre mesas distintas, contacto de borde e intercambio atómico.')
+
+  await call('admin_user', 'floorAction', 'layout-sector-other', {
+    action: { type: 'sector.create', id: 'sec-other', name: 'Terraza QA' },
+  })
+  for (const sectorId of ['sec-other', 'sec-main']) {
+    await call('admin_user', 'floorAction', `layout-transfer-${sectorId}`, {
+      action: { type: 'table.update', id: loserId, name: loserId, sectorId, capacity: 6, shape: 'round', active: false },
+    })
+  }
+  const moved = await data(`restaurantTables/${loserId}`)
+  assert.equal(moved.layout.sectorId, undefined)
+  assert.equal(moved.layout.revision, 4)
+  assert.equal(moved.capacity, 6)
+  assert.equal(moved.shape, 'round')
+  assert.equal(moved.active, false)
+  assert.equal(moved.status, 'available')
+  await assert.rejects(() => savePositions('admin_user', 'layout-before-transfer', [
+    { id: loserId, x: winnerX, expectedRevision: 2 },
+  ]), err => err.code === 'aborted')
+  await call('admin_user', 'floorAction', 'layout-archive', { action: { type: 'table.archive', id: loserId } })
+  await assert.rejects(() => savePositions('admin_user', 'layout-archived', [
+    { id: loserId, x: winnerX, expectedRevision: 4 },
+  ]), err => err.code === 'failed-precondition')
+
   // 4. Crear Producto
   await call('admin_user', 'saveProduct', 'prod-pizza-op', {
     product: {

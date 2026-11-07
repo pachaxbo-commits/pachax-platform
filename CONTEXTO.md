@@ -1,5 +1,13 @@
 # Continuidad del proyecto PACHAX
 
+## Fase C.2
+
+- La suite Platform pasó sus 77 comprobaciones en Node 22 con el fixture anual corregido y un secreto ficticio temporal del emulador. El PR backend #32 permanece separado de #31. La promoción automática de Vercel desde `main` impide conservar el deployment productivo actual si se integra el backend con la configuración vigente.
+
+## Preparación de Fase C.1
+
+- El contrato backend del plano de Restaurante comprueba colisiones dentro de la transacción y conserva la compatibilidad de las mesas sin posición. La publicación requiere autorización independiente para backend e interfaz. El [procedimiento de despliegue y reversión](docs/RESTAURANT-FLOOR-RELEASE.md) identifica el gateway, el orden de publicación y las verificaciones de cada etapa.
+
 ## Checkpoint Fase B.2 / PR #30 — 06/11/2026
 
 - La matriz de landing ya cubre catálogo confirmado vacío y catálogo sintético con seis IDs oficiales, `coming_soon`, sin planes, precios ni extras. Las fichas sintéticas usan imágenes locales existentes y contacto reservado solo donde el contrato lo permite; el adaptador CDP responde solo a `getCatalog` en loopback, rechaza otras callables y nunca llega a `src` ni a un build de Production.
