@@ -82,3 +82,22 @@ test('layout versionado preserva cuentas y rechaza coordenadas, IDs y revisiones
   assert.throws(() => applyRestaurantFloorAction([table],[{...sector,active:false}],action,at))
   assert.equal(migrateRestaurantFloor(saved.tables,[sector]).tables[0].layout.revision,1)
 })
+
+test('layout de demo rechaza colisiones persistidas y permite intercambiar posiciones', () => {
+  const second = { ...table, id: 't2', name: 'Mesa 2' }
+  const save = (tables: typeof table[], positions: Array<{ id: string; x: number; expectedRevision: number }>) =>
+    applyRestaurantFloorAction(tables, [sector], {
+      type: 'layout.save',
+      positions: positions.map(position => ({ ...position, y: 0, expectedSectorId: 's1' })),
+    }, at)
+  const initial = save([table, second], [
+    { id: table.id, x: 0, expectedRevision: 0 },
+    { id: second.id, x: 180, expectedRevision: 0 },
+  ])
+  assert.throws(() => save(initial.tables, [{ id: second.id, x: 179, expectedRevision: 1 }]), /superponen/)
+  const swapped = save(initial.tables, [
+    { id: table.id, x: 180, expectedRevision: 1 },
+    { id: second.id, x: 0, expectedRevision: 1 },
+  ])
+  assert.deepEqual(swapped.tables.map(item => item.layout?.x), [180, 0])
+})
