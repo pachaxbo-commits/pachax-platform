@@ -125,6 +125,19 @@ try {
   assert.equal(tblData.status, 'available')
   console.log('PASS Sector y mesa creados con validaciones y permisos.')
 
+  const layoutAction = { type: 'layout.save', positions: [{ id: 'tbl-1', x: 200, y: 180, expectedSectorId:'sec-main', expectedRevision: 0 }] }
+  await assert.rejects(() => call('waiter_user','floorAction','layout-permission',{ action:layoutAction }), err => err.code === 'permission-denied')
+  await call('admin_user','floorAction','layout-save',{action:layoutAction})
+  await call('admin_user','floorAction','layout-save',{action:layoutAction})
+  assert.equal((await data('restaurantTables/tbl-1')).layout.revision,1)
+  assert.equal((await data('restaurantTables/tbl-1')).status,'available')
+  await assert.rejects(() => call('admin_user','floorAction','layout-stale',{action:layoutAction}), err => err.code === 'aborted')
+  await assert.rejects(() => call('admin_user','floorAction','layout-coordinate',{action:{...layoutAction,positions:[{id:'tbl-1',x:-10,y:0,expectedSectorId:'sec-main',expectedRevision:1}]}}), err => err.code === 'invalid-argument')
+  await root.collection('restaurantTables').doc('foreign-branch').set({...tblData,id:'foreign-branch',branchId:'other'})
+  await assert.rejects(() => call('admin_user','floorAction','layout-branch',{action:{...layoutAction,positions:[{id:'foreign-branch',x:0,y:0,expectedSectorId:'sec-main',expectedRevision:0}]}}), err => err.code === 'failed-precondition')
+  await assert.rejects(() => call('admin_user','floorAction','layout-tenant',{action:layoutAction},otherTenantId), err => ['permission-denied','not-found'].includes(err.code))
+  console.log('PASS Layout persistente, revisión, coordenadas, idempotencia, permisos y aislamiento.')
+
   // 4. Crear Producto
   await call('admin_user', 'saveProduct', 'prod-pizza-op', {
     product: {

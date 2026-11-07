@@ -65,3 +65,20 @@ test('mesa desactivada sale de operación y puede reactivarse', () => {
   const enabled = applyRestaurantFloorAction(disabled.tables, [sector], { type: 'table.update', id: 't1', name: table.name, sectorId: 's1', capacity: 4, shape: 'square', active: true }, at)
   assert.equal(visibleTables(enabled.tables).length, 1)
 })
+
+
+test('layout versionado preserva cuentas y rechaza coordenadas, IDs y revisiones inválidas', () => {
+  const occupied = { ...table, status: 'occupied', activeOrderId: 'o1', diners: 3 }
+  const action = { type: 'layout.save', positions: [{ id: table.id, x: 200, y: 360, expectedSectorId: 's1', expectedRevision: 0 }] }
+  const saved = applyRestaurantFloorAction([occupied], [sector], action, at)
+  assert.deepEqual(saved.tables[0].layout, {version: 1, sectorId: 's1', x:200, y:360, revision:1})
+  assert.equal(saved.tables[0].activeOrderId, 'o1')
+  assert.equal(saved.tables[0].diners, 3)
+  assert.throws(() => applyRestaurantFloorAction(saved.tables,[sector],action,at), /cambió/)
+  for (const patch of [{expectedSectorId:'other'},{x:-1},{x:NaN},{y:2401},{x:1.5},{expectedRevision:-1},{id:'unknown'}]) {
+    assert.throws(() => applyRestaurantFloorAction([occupied],[sector],{...action, positions:[{...action.positions[0],...patch}]},at))
+  }
+  assert.throws(() => applyRestaurantFloorAction([table],[sector],{...action,positions:[...action.positions,...action.positions]},at))
+  assert.throws(() => applyRestaurantFloorAction([table],[{...sector,active:false}],action,at))
+  assert.equal(migrateRestaurantFloor(saved.tables,[sector]).tables[0].layout.revision,1)
+})

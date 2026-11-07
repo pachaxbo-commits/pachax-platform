@@ -1854,6 +1854,19 @@ async function applyFloorAction({ tx, root, actor, branchId, action, now }) {
   const sectors = sectorsSnap.docs.map(doc => doc.data())
   const tables = tablesSnap.docs.map(doc => doc.data())
 
+  if (action.type === 'layout.save') {
+    const positions = action.positions
+    if (!Array.isArray(positions) || !positions.length || positions.length > 200 || new Set(positions.map(p => p?.id)).size !== positions.length) throw new HttpsError('invalid-argument', 'Distribución inválida.')
+    for (const p of positions) {
+      const table = tables.find(t => t.id === p?.id && t.branchId === branchId && !t.archivedAt)
+      if (!table || table.sectorId !== p.expectedSectorId || !sectors.some(s => s.id === table.sectorId && s.branchId === branchId && s.active !== false)) throw new HttpsError('failed-precondition', 'Mesa o sector no disponible en esta sucursal.')
+      if (![p.x, p.y, p.expectedRevision].every(Number.isInteger) || p.expectedRevision < 0 || p.x < 0 || p.y < 0 || p.x > 2400 || p.y > 2400) throw new HttpsError('invalid-argument', 'Coordenadas inválidas.')
+      if ((table.layout?.revision || 0) !== p.expectedRevision) throw new HttpsError('aborted', 'El plano cambió. Recarga antes de guardar.')
+    }
+    for (const p of positions) { const table = tables.find(t => t.id === p.id); tx.update(root.collection('restaurantTables').doc(p.id), { layout: { version: 1, sectorId: table.sectorId, x: p.x, y: p.y, revision: p.expectedRevision + 1 }, updatedAt: now }) }
+    return { ok: true }
+  }
+
   if (action.type === 'sector.create') {
     const sectorId = id(action.id)
     if (sectors.some(s => s.id === sectorId)) throw new HttpsError('already-exists', 'Sector ya existe.')

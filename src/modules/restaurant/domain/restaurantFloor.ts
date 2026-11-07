@@ -2,6 +2,7 @@ import type { RestaurantSector, RestaurantTable } from '../types.ts'
 import { DEFAULT_RESTAURANT_SECTORS } from '../types.ts'
 
 export type FloorAction =
+  | { type: 'layout.save'; positions: Array<{ id: string; x: number; y: number; expectedSectorId: string; expectedRevision: number }> }
   | { type: 'sector.create'; id: string; name: string; description?: string }
   | { type: 'sector.update'; id: string; name: string; description?: string }
   | { type: 'sector.archive'; id: string; transferToId?: string }
@@ -34,6 +35,16 @@ export function migrateRestaurantFloor(tables: RestaurantTable[], savedSectors?:
 }
 
 export function applyRestaurantFloorAction(tables: RestaurantTable[], sectors: RestaurantSector[], action: FloorAction, at: string) {
+  if (action.type === 'layout.save') {
+    if (!action.positions.length || action.positions.length > 200 || new Set(action.positions.map(p => p.id)).size !== action.positions.length) throw new Error('Distribución inválida.')
+    for (const p of action.positions) {
+      const table = tables.find(t => t.id === p.id && !t.archivedAt)
+      if (!table || table.sectorId !== p.expectedSectorId || !sectors.some(s => s.id === table.sectorId && s.active)) throw new Error('Mesa o sector no disponible.')
+      if (![p.x, p.y, p.expectedRevision].every(Number.isInteger) || p.expectedRevision < 0 || p.x < 0 || p.y < 0 || p.x > 2400 || p.y > 2400) throw new Error('Coordenadas inválidas.')
+      if ((table.layout?.revision || 0) !== p.expectedRevision) throw new Error('El plano cambió. Recarga antes de guardar.')
+    }
+    return { sectors, tables: tables.map(t => { const p = action.positions.find(p => p.id === t.id); return p ? { ...t, layout: { version: 1 as const, sectorId: t.sectorId, x: p.x, y: p.y, revision: p.expectedRevision + 1 }, updatedAt: at } : t }) }
+  }
   const fail = (message: string): never => { throw new Error(message) }
   const targetSector = (id: string) => sectors.find(sector => sector.id === id && sector.active) || fail('Selecciona un sector activo.')
   const tableById = (id: string) => tables.find(table => table.id === id && !table.archivedAt) || fail('La mesa ya no está disponible.')
