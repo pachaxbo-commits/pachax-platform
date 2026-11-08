@@ -1,0 +1,203 @@
+.restaurant-floor{
+border:1px solid #284358;
+border-radius:22px;
+background:#0b1724;
+color:#edf5fa;
+overflow:hidden;
+min-width:0}
+.restaurant-floor-toolbar{
+display:flex;
+justify-content:space-between;
+gap:16px;
+flex-wrap:wrap;
+padding:20px;
+border-bottom:1px solid #263c4d}
+.restaurant-floor-toolbar strong{
+display:block;
+font-size:18px}
+.restaurant-floor-toolbar span{
+display:block;
+color:#a3b7c7;
+font-size:12px;
+margin-top:4px}
+.restaurant-floor-controls{
+display:flex;
+gap:7px;
+flex-wrap:wrap;
+align-items:center}
+.restaurant-floor-controls button{
+min-height:44px;
+min-width:44px;
+padding:8px 12px;
+border:1px solid #436178;
+border-radius:10px;
+background:#142b3c;
+color:#e4f4fc;
+font-size:12px;
+font-weight:600}
+.restaurant-floor button:focus-visible{
+outline:3px solid #38c9ff;
+outline-offset:3px}
+.restaurant-floor-controls button:disabled{
+opacity:.45}
+.restaurant-floor-scroll{
+--floor-gutter:20px;
+overflow:auto;
+max-height:70vh;
+overscroll-behavior:contain;
+padding:var(--floor-gutter)}
+.restaurant-floor-sector{
+margin-bottom:24px}
+.restaurant-floor-sector:has(.restaurant-floor-space){
+width:max-content;
+min-width:100%}
+.restaurant-floor-sector:has(.restaurant-floor-space) h2{
+position:sticky;
+left:var(--floor-gutter);
+width:max-content;
+max-width:min(65vw,440px);
+overflow-wrap:anywhere}
+.restaurant-floor-sector h2{
+font-size:13px;
+letter-spacing:.12em;
+text-transform:uppercase;
+margin:0 0 14px;
+display:flex;
+gap:14px;
+align-items:center}
+.restaurant-floor-sector h2 small{
+font-size:11px;
+color:#8ca5b7;
+letter-spacing:0;
+text-transform:none}
+.restaurant-floor-space{
+position:relative;
+border:1px solid #2c4253;
+border-radius:16px;
+background-color:#101f2d;
+background-image:radial-gradient(#3b4b5d 1px,transparent 1px);
+background-size:20px 20px}
+.restaurant-floor-plane{
+position:absolute;
+transform-origin:top left}
+.restaurant-floor-table{
+position:absolute;
+width:180px;
+height:160px;
+border:0;
+background:transparent;
+color:#d9e9f5;
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+border-radius:18px;
+transition:background .15s}
+.restaurant-floor-table:hover,.restaurant-floor-table[aria-pressed=true]{
+background:#213b50;
+outline:2px solid #19b9f3}
+.restaurant-table-vector{
+width:180px;
+height:130px;
+overflow:visible}
+.restaurant-table-chair{
+fill:#566779;
+stroke:#718399;
+stroke-width:1.5}
+.restaurant-table-top{
+fill:#173c35;
+stroke:#4cae8e;
+stroke-width:2;
+filter:drop-shadow(0 5px 5px #0006)}
+.occupied .restaurant-table-top{
+fill:#15466e;
+stroke:#2dabea}
+.bill_requested .restaurant-table-top{
+fill:#60471e;
+stroke:#efb55e}
+.reserved .restaurant-table-top{
+fill:#493960;
+stroke:#aa91d3}
+.inactive .restaurant-table-top{
+fill:#38434e;
+stroke:#7a8792}
+.inactive{
+opacity:.6}
+.restaurant-table-name{
+fill:#f1f7fa;
+font-size:11px;
+font-weight:700}
+.restaurant-table-capacity{
+fill:#bed0dd;
+font-size:10px}
+.restaurant-floor-table-status{
+font-size:11px;
+color:#b8d0df;
+text-align:center;
+max-width:174px}
+.restaurant-floor-legend{
+padding:12px 20px;
+border-top:1px solid #263c4d;
+font-size:11px;
+color:#9fb7c9;
+display:flex;
+flex-wrap:wrap;
+justify-content:space-between;
+gap:10px}
+.restaurant-floor-editor{
+padding:16px 20px;
+background:#112c3f}
+.restaurant-floor-editor p{
+font-size:12px;
+color:#c4dbe9;
+margin:0 0 12px}
+.restaurant-floor-table.is-editing{
+touch-action:pan-x pan-y;
+cursor:grab}
+.restaurant-floor-error{
+padding:14px;
+color:#ffd0bf}
+.restaurant-floor-empty{
+padding:30px;
+color:#b6c9d6}
+.restaurant-floor-list>div{
+display:flex;
+flex-wrap:wrap;
+gap:12px}
+.restaurant-floor-list .restaurant-floor-table{
+position:relative;
+background:#142b3c}
+.restaurant-floor-list .restaurant-floor-table{
+width:180px}
+@media(max-width:600px){
+.restaurant-floor-toolbar{
+padding:14px}
+.restaurant-floor-scroll{
+--floor-gutter:12px;
+max-height:65vh}
+.restaurant-floor-editor{
+padding:14px}
+.restaurant-floor-legend{
+padding:12px}
+.restaurant-floor-toolbar strong{
+font-size:16px}
+}
+@media(prefers-reduced-motion:reduce){
+.restaurant-floor *{
+transition:none!important;
+scroll-behavior:auto!important}
+}
+
+
+.restaurant-floor{
+scroll-margin-top:160px}
+
+
+.restaurant-floor-controls button{
+touch-action:manipulation}
+
+
+@media(hover:hover){
+.restaurant-floor-table.is-editing{
+touch-action:none}
+}

@@ -2,6 +2,7 @@ import type { RestaurantSector, RestaurantTable } from '../types.ts'
 import { DEFAULT_RESTAURANT_SECTORS } from '../types.ts'
 
 export type FloorAction =
+  | { type: 'layout.save'; positions: Array<{ id: string; x: number; y: number; expectedSectorId: string; expectedRevision: number }> }
   | { type: 'sector.create'; id: string; name: string; description?: string }
   | { type: 'sector.update'; id: string; name: string; description?: string }
   | { type: 'sector.archive'; id: string; transferToId?: string }
@@ -15,6 +16,15 @@ const clean = (value: string) => value.trim().replace(/\s+/g, ' ')
 const key = (value: string) => clean(value).toLocaleLowerCase('es-BO')
 const operational = (table: RestaurantTable) => Boolean(table.activeOrderId || table.status === 'occupied' || table.status === 'bill_requested')
 export const visibleTables = (tables: RestaurantTable[]) => tables.filter(table => !table.archivedAt && table.active !== false)
+type FloorPoint = { x: number; y: number }
+export const floorPositionsOverlap = (a: FloorPoint, b: FloorPoint) => Math.abs(a.x - b.x) < 180 && Math.abs(a.y - b.y) < 160
+export const savedFloorPosition = (table: RestaurantTable) => {
+  const layout = table.layout
+  return layout?.version === 1 && layout.sectorId === table.sectorId && Number.isFinite(layout.x) && Number.isFinite(layout.y) ? layout : undefined
+}
+const invalidateFloorPosition = (table: RestaurantTable) => table.layout?.version === 1
+  ? { layout: { ...table.layout, sectorId: undefined, revision: table.layout.revision + 1 } }
+  : {}
 
 export function migrateRestaurantFloor(tables: RestaurantTable[], savedSectors?: RestaurantSector[]) {
   const sectors = savedSectors?.length || tables.length === 0 ? (savedSectors || DEFAULT_RESTAURANT_SECTORS.map(sector => ({ ...sector }))) : DEFAULT_RESTAURANT_SECTORS.map(sector => ({ ...sector }))
@@ -34,6 +44,25 @@ export function migrateRestaurantFloor(tables: RestaurantTable[], savedSectors?:
 }
 
 export function applyRestaurantFloorAction(tables: RestaurantTable[], sectors: RestaurantSector[], action: FloorAction, at: string) {
+  if (action.type === 'layout.save') {
+    if (!action.positions.length || action.positions.length > 200 || new Set(action.positions.map(p => p.id)).size !== action.positions.length) throw new Error('Distribución inválida.')
+    for (const p of action.positions) {
+      const table = tables.find(t => t.id === p.id && !t.archivedAt)
+      if (!table || table.sectorId !== p.expectedSectorId || !sectors.some(s => s.id === table.sectorId && s.active)) throw new Error('Mesa o sector no disponible.')
+      if (![p.x, p.y, p.expectedRevision].every(Number.isInteger) || p.expectedRevision < 0 || p.x < 0 || p.y < 0 || p.x > 2400 || p.y > 2400) throw new Error('Coordenadas inválidas.')
+      if ((table.layout?.revision || 0) !== p.expectedRevision) throw new Error('El plano cambió. Recarga antes de guardar.')
+    }
+    const positions = new Map(action.positions.map(p => [p.id, p]))
+    for (const p of positions.values()) {
+      const collision = tables.some(table => {
+        if (table.id === p.id || table.archivedAt || table.sectorId !== p.expectedSectorId) return false
+        const other = positions.get(table.id) ?? savedFloorPosition(table)
+        return other !== undefined && floorPositionsOverlap(p, other)
+      })
+      if (collision) throw new Error('Dos mesas se superponen en el sector. Ajusta sus posiciones.')
+    }
+    return { sectors, tables: tables.map(t => { const p = positions.get(t.id); return p ? { ...t, layout: { version: 1 as const, sectorId: t.sectorId, x: p.x, y: p.y, revision: p.expectedRevision + 1 }, updatedAt: at } : t }) }
+  }
   const fail = (message: string): never => { throw new Error(message) }
   const targetSector = (id: string) => sectors.find(sector => sector.id === id && sector.active) || fail('Selecciona un sector activo.')
   const tableById = (id: string) => tables.find(table => table.id === id && !table.archivedAt) || fail('La mesa ya no está disponible.')
@@ -69,7 +98,7 @@ export function applyRestaurantFloorAction(tables: RestaurantTable[], sectors: R
     if (members.length && action.transferToId === action.id) fail('Selecciona otro sector.')
     if (members.length) targetSector(action.transferToId!)
     return {
-      tables: members.length ? tables.map(table => table.sectorId === action.id && !table.archivedAt ? { ...table, sectorId: action.transferToId, updatedAt: at } : table) : tables,
+      tables: members.length ? tables.map(table => table.sectorId === action.id && !table.archivedAt ? { ...table, sectorId: action.transferToId, ...invalidateFloorPosition(table), updatedAt: at } : table) : tables,
       sectors: sectors.map(sector => sector.id === action.id ? { ...sector, active: false, updatedAt: at } : sector),
     }
   }
@@ -88,7 +117,7 @@ export function applyRestaurantFloorAction(tables: RestaurantTable[], sectors: R
     const name = validateName(action.name, action.id)
     const capacity = validateCapacity(action.capacity)
     const nextOrder = current.sectorId === action.sectorId ? current.sortOrder : Math.max(-1, ...tables.filter(table => table.sectorId === action.sectorId).map(table => table.sortOrder || 0)) + 1
-    return { tables: tables.map(table => table.id === action.id ? { ...table, name, sectorId: action.sectorId, capacity, shape: action.shape || 'square', active: action.active, sortOrder: nextOrder, updatedAt: at } : table), sectors }
+    return { tables: tables.map(table => table.id === action.id ? { ...table, name, sectorId: action.sectorId, ...(table.sectorId === action.sectorId ? {} : invalidateFloorPosition(table)), capacity, shape: action.shape || 'square', active: action.active, sortOrder: nextOrder, updatedAt: at } : table), sectors }
   }
   if (action.type === 'table.archive') {
     const current = tableById(action.id)

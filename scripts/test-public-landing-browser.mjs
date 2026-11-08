@@ -507,10 +507,17 @@ try {
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 })
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 })
         assert.equal((await state()).tutorialSelected, 'distribution', 'Las plantillas se recorren con flecha derecha')
-        await evaluate(`(() => { const trigger=document.querySelector('[data-onboarding-step-trigger="2"]'); trigger?.focus(); })()`)
+        // The new iframe may autofocus during mounting; finish that navigation before testing the parent document keyboard control.
+        await waitFor((res) => res.tutorialSelected === 'distribution' && res.tutorialAppReady, 'Distribución termina de montar antes de probar el teclado del onboarding')
+        await send('DOM.enable')
+        const documentNode = await send('DOM.getDocument')
+        const triggerNode = await send('DOM.querySelector', { nodeId: documentNode.root.nodeId, selector: '[data-onboarding-step-trigger="2"]' })
+        assert.ok(triggerNode.nodeId, 'Existe el control de paso 2')
+        await send('DOM.focus', { nodeId: triggerNode.nodeId })
+        assert.equal(await evaluate(`document.activeElement?.getAttribute('data-onboarding-step-trigger')`), '2', 'El foco del navegador está en el control de paso 2')
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' })
         await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
-        assert.equal(await evaluate(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`), '2', 'Los pasos se pueden seleccionar con teclado')
+        await waitForValue(`document.querySelector('.pachax-onboarding-device')?.getAttribute('data-onboarding-step')`, value => value === '2', 'Los pasos se pueden seleccionar con teclado')
       }
       await evaluate(`window.scrollTo({top:0,behavior:'instant'})`)
     }
