@@ -37,7 +37,7 @@ jobs:
       - run: npm ci && npm ci --prefix functions
       - run: npm install --global firebase-tools@15.5.1
       - run: npm run typecheck
-      - run: npx eslint src/modules/restaurant/components/RestaurantFloorCanvas.tsx src/modules/restaurant/components/RestaurantTables.tsx src/modules/restaurant/domain/restaurantFloor.ts src/demo/restaurant/RestaurantDemo.tsx scripts/test-restaurant-floor-browser.mjs
+      - run: npx eslint src/modules/restaurant/components/RestaurantFloorCanvas.tsx src/modules/restaurant/components/RestaurantTables.tsx src/modules/restaurant/domain/restaurantFloor.ts src/modules/restaurant/domain/restaurantFloorEditorPolicy.ts src/modules/restaurant/domain/__tests__/restaurantFloorEditorPolicy.test.ts src/demo/restaurant/RestaurantDemo.tsx scripts/test-restaurant-floor-browser.mjs
         if: hashFiles('scripts/test-restaurant-floor-browser.mjs') != ''
       - run: npm run test:restaurant
       - run: npm run test:restaurant-backend

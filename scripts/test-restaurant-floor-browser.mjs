@@ -127,6 +127,8 @@ try {
     await evaluate("document.querySelector('.restaurant-floor').scrollIntoView({block:'start',behavior:'instant'})")
     await clickWithPointer('button','Ajustar vista')
     assert(await evaluate("document.querySelector('.restaurant-floor-space').getBoundingClientRect().width <= document.querySelector('.restaurant-floor-scroll').clientWidth"),'Fit view contains the floor at every width')
+    const floorFit = await evaluate("(() => { const viewport=document.querySelector('.restaurant-floor-scroll').getBoundingClientRect(),space=document.querySelector('.restaurant-floor-space').getBoundingClientRect(),plane=document.querySelector('.restaurant-floor-plane').getBoundingClientRect(); return { centered:Math.abs((space.left+space.width/2)-(plane.left+plane.width/2)), space:space.width, viewport:viewport.width, client:document.querySelector('.restaurant-floor-scroll').clientWidth } })()")
+    assert(floorFit.centered <= 4 && (width<600 || floorFit.space >= (floorFit.client-40)*.95),`Floor is centered and uses the available desktop width: ${JSON.stringify(floorFit)}`)
     await clickWithPointer('button[aria-label="Restablecer zoom"]')
     await captureScreenshot(`${width}-floor`,'.restaurant-floor')
     if(width<500) {

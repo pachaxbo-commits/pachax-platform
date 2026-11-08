@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { RestaurantSector, RestaurantTable } from '../types'
 import { floorPositionsOverlap, savedFloorPosition, type FloorAction } from '../domain/restaurantFloor'
 import './restaurantFloorCanvas.css'
@@ -42,11 +42,25 @@ export function RestaurantFloorCanvas({ tables, sectors, canEdit, selectedId, on
   const [editId, setEditId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(820)
   const viewport = useRef<HTMLDivElement>(null)
   const sectorIds = useRef<Record<string, string>>({})
   const revisions = useRef<Record<string, number>>({})
   const drag = useRef<{ id: string; x: number; y: number; start: Point } | null>(null)
   const groups = [...new Set(tables.map(t => t.sectorId || 'unassigned'))].map(id => ({ id, name: sectors.find(s => s.id === id)?.name || 'Sin sector', tables: tables.filter(t => (t.sectorId || 'unassigned') === id) }))
+  useEffect(() => {
+    const element = viewport.current
+    if (!element) return
+    const updateWidth = () => setViewportWidth(current => current === element.clientWidth ? current : element.clientWidth)
+    updateWidth()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth)
+      return () => window.removeEventListener('resize', updateWidth)
+    }
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   const points = new Map<string, Point>()
   for (const group of groups) {
     const occupied: Point[] = []
@@ -97,7 +111,7 @@ export function RestaurantFloorCanvas({ tables, sectors, canEdit, selectedId, on
         <button type="button" aria-label="Alejar plano" onClick={() => setZoom(v => Math.max(.6, v - .1))}>−</button>
         <button type="button" onClick={() => setZoom(1)} aria-label="Restablecer zoom">{Math.round(zoom * 100)}%</button>
         <button type="button" aria-label="Acercar plano" onClick={() => setZoom(v => Math.min(1.5, v + .1))}>+</button>
-        <button type="button" onClick={() => setZoom(Math.max(.25, Math.min(1, ((viewport.current?.clientWidth || 820) - 40) / Math.max(820, ...groups.flatMap(g => g.tables.map(t => point(t).x + 200))))))}>Ajustar vista</button>
+        <button type="button" onClick={() => setZoom(Math.max(.25, Math.min(1, (viewportWidth - 40) / Math.max(820, ...groups.flatMap(g => g.tables.map(t => point(t).x + 200))))))}>Ajustar vista</button>
         {canEdit && !editing && <button type="button" onClick={() => { sectorIds.current = Object.fromEntries(tables.map(t => [t.id, t.sectorId || ''])); revisions.current = Object.fromEntries(tables.map(t => [t.id, t.layout?.revision || 0])); setEditing(true); onEditingChange(true); setList(false) }}>Editar distribución</button>}
       </div>
     </header>
@@ -111,12 +125,14 @@ export function RestaurantFloorCanvas({ tables, sectors, canEdit, selectedId, on
     <div ref={viewport} data-tour="tables-grid" className="restaurant-floor-scroll">
       {!groups.length && <p className="restaurant-floor-empty">Este sector todavía no tiene mesas.</p>}
       {groups.map(group => {
-        const width = Math.max(820, ...group.tables.map(t => point(t).x + 200))
+        const contentWidth = Math.max(820, ...group.tables.map(t => point(t).x + 200))
+        const width = Math.max(contentWidth, (viewportWidth - 40) / zoom)
         const height = Math.max(220, ...group.tables.map(t => point(t).y + 180))
+        const centeredOffset = Math.max(0, (width - contentWidth) * zoom / 2)
         return <section className="restaurant-floor-sector" key={group.id} aria-label={group.name}>
           <h2>{group.name}<small>{group.tables.length} mesas</small></h2>
           <div className={list ? 'restaurant-floor-list' : 'restaurant-floor-space'} style={list ? undefined : { width: width * zoom, height: height * zoom }}>
-            <div className={list ? undefined : 'restaurant-floor-plane'} style={list ? undefined : { width, height, transform: `scale(${zoom})` }}>
+            <div className={list ? undefined : 'restaurant-floor-plane'} style={list ? undefined : { left: centeredOffset, width: contentWidth, height, transform: `scale(${zoom})` }}>
               {group.tables.map(table => { const p = point(table); const inactive = table.active === false; return <button key={table.id} type="button" data-table-id={table.id} data-tour={inactive ? undefined : table.status === 'occupied' || table.status === 'bill_requested' ? 'tables-active' : table.status === 'available' ? 'tables-available' : undefined} disabled={inactive && !editing} aria-label={`${table.name}, ${table.capacity} plazas, ${inactive ? 'Desactivada' : labels[table.status]}`} aria-pressed={editing ? editId === table.id : selectedId === table.id} className={`restaurant-floor-table ${inactive ? 'inactive' : table.status} ${editing ? 'is-editing' : ''}`} style={list ? undefined : { left:p.x, top:p.y }}
                 onClick={() => editing ? setEditId(table.id) : onSelect(table)}
                 onKeyDown={event => { if (!editing || busy || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return; event.preventDefault(); move(table.id,{x:p.x+(event.key==='ArrowLeft'?-20:event.key==='ArrowRight'?20:0),y:p.y+(event.key==='ArrowUp'?-20:event.key==='ArrowDown'?20:0)}) }}
