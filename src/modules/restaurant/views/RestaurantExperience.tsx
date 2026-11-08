@@ -28,6 +28,7 @@ import { RestaurantTables } from '../components/RestaurantTables'
 import type { RestaurantSector, RestaurantTable } from '../types'
 import type { FloorAction } from '../domain/restaurantFloor'
 import { visibleTables } from '../domain/restaurantFloor'
+import { canEditRestaurantFloorLayout } from '../domain/restaurantFloorEditorPolicy'
 import type { InventoryCount, InventoryShiftSnapshot, InventoryMovement, InventoryMovementType, InventoryShiftRow } from '../domain/inventoryEngine'
 import { stockAwareProducts } from '../domain/inventoryEngine'
 import type { CashMovement } from '../domain/cashEngine'
@@ -419,6 +420,8 @@ export function RestaurantExperience({
   const moreDropdownRef = useRef<HTMLDivElement>(null)
   const saleProducts = useMemo(() => stockAwareProducts(products), [products])
   const fallbackCustomerManager = ['owner', 'admin', 'team'].includes(session.role)
+  const canManageFloor = session.can ? session.can('settings.manage') : ['owner', 'admin', 'team'].includes(session.role)
+  const canEditFloorLayout = canEditRestaurantFloorLayout(isDemo, canManageFloor)
   const canViewCustomerHistory = session.can ? session.can('orders.read') || session.can('sales.read') || session.can('cash.close') : fallbackCustomerManager
   const canManageCustomers = session.can ? session.can('customers.manage') : fallbackCustomerManager
   const canCreateCustomer = Boolean(onSaveCustomer) && (session.can ? session.can('sales.create') : true)
@@ -1124,7 +1127,8 @@ export function RestaurantExperience({
             <RestaurantTables
               tables={tables}
               sectors={sectors}
-              canManageFloor={session.can ? session.can('settings.manage') : ['owner', 'admin', 'team'].includes(session.role)}
+              canManageFloor={canManageFloor}
+              canEditLayout={canEditFloorLayout}
               onStartTour={canRunTablesTour ? startTablesTour : undefined}
               onFloorAction={onFloorAction}
               orders={orders}

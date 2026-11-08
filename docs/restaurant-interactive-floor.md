@@ -30,6 +30,14 @@ No se cambian motores de pedidos, inventario, caja, pagos, Billing Core, Authent
 - node scripts/test-restaurant-floor-browser.mjs: navegador real sobre build emulador, mouse/touch CDP, nueve anchos, selección sin mutación, cancelación, edición, arrastre y recarga. Capturas y reporte en docs/restaurant-floor-evidence. Los datos sintéticos de salón grande solo se cargan en sessionStorage del navegador local de prueba.
 - Regresión de landing con fixture vacío y sintético de Fase B.2, integración Hamburger/Retail y guards de aislamiento.
 
+## Cierre de publicación: editor de posiciones
+
+La política de disponibilidad del editor visual está centralizada en `restaurantFloorEditorPolicy.ts`. La edición requiere permiso de administración y una sesión demo/Studio; para tenants reales `REAL_TENANT_FLOOR_LAYOUT_EDITING_ENABLED` permanece en `false`. El editor no se anuncia en la interfaz productiva y `layout.save` se rechaza de nuevo en el callback antes de llamar al adaptador. Las funciones convencionales de administración del salón siguen sujetas a su permiso existente. Este bloqueo de interfaz no reemplaza la autorización del comando backend.
+
+La prueba de navegador con Chrome real usa puntero y touch emulado en 320, 360, 375, 390, 430, 768, 1024, 1440 y 1920 px. Comprueba selección, operaciones del salón en datos demo, editor autorizado, guardado y recarga local, sectores, tutorial, permisos y roles; el reporte registra cero solicitudes de red productivas. A 1440 y 1920 px el lienzo se ajusta al ancho útil y centra la distribución sin cambiar coordenadas persistidas; en móvil se conserva el paneo horizontal táctil.
+
+Para volver a habilitar la persistencia de posiciones en tenants reales se requiere certificación separada con una empresa QA autorizada, seguida de una revisión explícita del gate. No se habilita mediante query params, `localStorage` ni permisos por sí solos.
+
 ## Límites de revisión
 No se certifica impresión física, hardware ni conectividad entre dispositivos físicos; el contrato transaccional y la concurrencia se comprueban en emuladores. Las coordenadas soportan hasta 200 mesas por guardado, con límites espaciales explícitos; los salones que excedan el área requieren revisión de dimensiones. El plano admite pan nativo; el zoom se controla con botones, no con gestos de pinza. No se ha iniciado el mapa de Nightclub.
 
