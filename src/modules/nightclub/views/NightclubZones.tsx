@@ -1,8 +1,8 @@
 import { CalendarClock, Check, Clock, LayoutGrid, List, MapPin, Minus, Plus, ReceiptText, RotateCcw, Save, UserRound, Users, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { NightclubDataset } from '../domain/nightclubAccounts'
 import { nightclubAccountLabel, nightclubBalance, nightclubPaidTotal } from '../domain/nightclubAccounts'
-import { canEditNightclubFloorLayout, createAutomaticNightclubLayout, createNightclubLayoutStorageKey, findNightclubLayoutCollisions, mergeNightclubLayout, normalizeNightclubLayout, type NightclubFloorLayout } from '../domain/nightclubFloorLayout'
+import { calculateNightclubFitZoom, canEditNightclubFloorLayout, createAutomaticNightclubLayout, createNightclubLayoutStorageKey, findNightclubLayoutCollisionsByZone, loadNightclubLayout, mergeNightclubLayout, normalizeNightclubLayout, type NightclubFloorLayout } from '../domain/nightclubFloorLayout'
 import type { ReservationDraft } from '../domain/nightclubFloor'
 import { NightclubNumberInput } from './NightclubNumberInput'
 import { NightclubFloorCanvas } from './NightclubFloorCanvas'
@@ -37,22 +37,23 @@ export function NightclubZones({ data, onOpenAccount, onGoToPOS, onFinishAccount
   const [selectedZoneId, setSelectedZoneId] = useState('all')
   const [view, setView] = useState<'map' | 'list'>('map')
   const [zoom, setZoom] = useState(1)
+  const [fitRevision, setFitRevision] = useState(0)
   const [editing, setEditing] = useState(false)
   const [draftLayout, setDraftLayout] = useState<NightclubFloorLayout>(automaticLayout)
   const [savedSnapshot, setSavedSnapshot] = useState<{ key: string; layout: NightclubFloorLayout } | null>(null)
   const [reserving, setReserving] = useState(false)
   const [opening, setOpening] = useState(false)
   const [reservationDraft, setReservationDraft] = useState<ReservationDraft>({ id: '', tableId: '', customerName: '', time: '22:00', guests: 2, reservationDate: localDay() })
+  const floorMapRef = useRef<HTMLDivElement>(null)
+  const didMountZoom = useRef(false)
 
   const savedLayout = useMemo(() => {
     let restored: NightclubFloorLayout = safeEditor && savedSnapshot?.key === layoutKey ? savedSnapshot.layout : {}
     if (safeEditor) {
-      try {
-        if (savedSnapshot?.key !== layoutKey) restored = normalizeNightclubLayout(JSON.parse(localStorage.getItem(layoutKey) || '{}'), data.tables.map(table => table.id))
-      } catch { restored = {} }
+      try { if (savedSnapshot?.key !== layoutKey) restored = loadNightclubLayout(localStorage, mode === 'studio' ? 'studio' : 'demo', zones, data.tables, layoutNamespace) } catch { restored = {} }
     }
     return mergeNightclubLayout(automaticLayout, restored)
-  }, [automaticLayout, data.tables, layoutKey, safeEditor, savedSnapshot])
+  }, [automaticLayout, data.tables, layoutKey, layoutNamespace, mode, safeEditor, savedSnapshot, zones])
 
   const table = editing ? undefined : data.tables.find(item => item.id === selectedId)
   const account = data.accounts.find(item => item.id === table?.activeAccountId && item.status !== 'closed')
@@ -60,8 +61,7 @@ export function NightclubZones({ data, onOpenAccount, onGoToPOS, onFinishAccount
   const visibleZones = selectedZoneId === 'all' ? zones : zones.filter(zone => zone.id === selectedZoneId)
   const visibleTables = data.tables.filter(item => selectedZoneId === 'all' || item.zoneId === selectedZoneId)
   const layout = editing ? draftLayout : savedLayout
-  const tableIdsByZone = useMemo(() => Object.fromEntries(zones.map(zone => [zone.id, data.tables.filter(item => item.zoneId === zone.id).map(item => item.id)])), [zones, data.tables])
-  const collisions = useMemo(() => visibleZones.flatMap(zone => findNightclubLayoutCollisions(layout, tableIdsByZone[zone.id] || []).map(pair => pair.join(' · '))), [layout, tableIdsByZone, visibleZones])
+  const collisions = useMemo(() => findNightclubLayoutCollisionsByZone(layout, data.tables).map(pair => pair.join(' · ')), [layout, data.tables])
   const counts = useMemo(() => ({ total: data.tables.length, available: data.tables.filter(item => item.status === 'available').length, occupied: data.tables.filter(item => item.status === 'occupied').length, reserved: data.tables.filter(item => item.status === 'reserved').length, bill: data.tables.filter(item => item.status === 'bill_requested').length }), [data.tables])
 
   const startReservation = () => {
@@ -101,11 +101,62 @@ export function NightclubZones({ data, onOpenAccount, onGoToPOS, onFinishAccount
   const beginLayoutEdit = () => { if (!isFloorLayoutEditingAllowed()) return; setDraftLayout(savedLayout); setEditing(true) }
   const resetLayout = () => setDraftLayout(automaticLayout)
 
+  const centerFloorMaps = useCallback(() => {
+    const root = floorMapRef.current
+    if (!root) return
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    for (const scroll of root.querySelectorAll<HTMLElement>('[data-floor-zone-scroll]')) {
+      const svg = scroll.querySelector<SVGSVGElement>('svg[data-floor-zone-svg]')
+      if (!svg) continue
+      const boxes = [...svg.querySelectorAll<SVGGElement>('[data-floor-table]')].map(group => group.getBBox())
+      if (!boxes.length) continue
+      const left = Math.min(...boxes.map(box => box.x))
+      const top = Math.min(...boxes.map(box => box.y))
+      const right = Math.max(...boxes.map(box => box.x + box.width))
+      const bottom = Math.max(...boxes.map(box => box.y + box.height))
+      const targetLeft = Math.max(0, ((left + right) / 2) * zoom - scroll.clientWidth / 2)
+      const targetTop = Math.max(0, ((top + bottom) / 2) * zoom - scroll.clientHeight / 2)
+      scroll.scrollTo({ left: targetLeft, top: targetTop, behavior: reducedMotion ? 'auto' : 'smooth' })
+    }
+  }, [zoom])
+
+  useEffect(() => {
+    if (!didMountZoom.current) { didMountZoom.current = true; return }
+    requestAnimationFrame(centerFloorMaps)
+  }, [centerFloorMaps, fitRevision])
+
+  const fitFloorView = useCallback(() => {
+    const root = floorMapRef.current
+    if (!root) return
+    let fittedZoom = 1.5
+    let hasContent = false
+    for (const scroll of root.querySelectorAll<HTMLElement>('[data-floor-zone-scroll]')) {
+      const svg = scroll.querySelector<SVGSVGElement>('svg[data-floor-zone-svg]')
+      if (!svg) continue
+      const boxes = [...svg.querySelectorAll<SVGGElement>('[data-floor-table]')].map(group => group.getBBox())
+      if (!boxes.length) continue
+      const left = Math.min(...boxes.map(box => box.x))
+      const top = Math.min(...boxes.map(box => box.y))
+      const right = Math.max(...boxes.map(box => box.x + box.width))
+      const bottom = Math.max(...boxes.map(box => box.y + box.height))
+      fittedZoom = Math.min(fittedZoom, calculateNightclubFitZoom(right - left, bottom - top, scroll.clientWidth, scroll.clientHeight))
+      hasContent = true
+    }
+    setZoom(hasContent ? fittedZoom : 1)
+    setFitRevision(revision => revision + 1)
+  }, [])
+
+  const handleFloorKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape' || event.target instanceof HTMLElement && event.target.closest('[role="dialog"]')) return
+    if (editing) { event.preventDefault(); cancelLayout(); return }
+    if (selectedId) { event.preventDefault(); setSelectedId(null) }
+  }
+
   const surface = isLight ? 'border-slate-200 bg-white text-slate-900' : 'border-slate-700/70 bg-[#09141f] text-slate-100'
   const muted = isLight ? 'text-slate-600' : 'text-slate-400'
   const control = isLight ? 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50' : 'border-white/10 bg-white/[.03] text-slate-200 hover:bg-white/[.07]'
 
-  return <div className="space-y-5" data-tour="section-floor">
+  return <div className="space-y-5" data-tour="section-floor" onKeyDown={handleFloorKeyDown}>
     <header className="flex flex-wrap items-end justify-between gap-3">
       <div><p className={`text-[10px] font-bold uppercase tracking-[.22em] ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>Nightclub · plano operativo</p><h1 className={`mt-1 text-3xl font-semibold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>Zonas y mesas</h1><p className={`mt-1 max-w-2xl text-sm ${muted}`}>Consulta ocupación, reservas y cuentas abiertas por sector.</p></div>
       {safeEditor && !editing && <button type="button" data-tour="floor-editor-entry" data-tutorial-target="floor-editor-entry" onClick={beginLayoutEdit} className={`inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 ${control}`}><LayoutGrid size={16} />Editar plano</button>}
@@ -137,8 +188,8 @@ export function NightclubZones({ data, onOpenAccount, onGoToPOS, onFinishAccount
     </section>}
 
     <section className={`min-w-0 max-w-full overflow-hidden rounded-2xl border p-3 sm:p-4 ${surface}`}>
-      <div className="mb-3 flex flex-wrap items-center gap-2"><div className="mr-auto"><h2 className="text-sm font-bold">Plano del establecimiento</h2><p className={`mt-0.5 text-xs ${muted}`}>{editing ? 'Arrastra una mesa o selecciónala y muévela con los controles.' : 'Selecciona una mesa para consultar su reserva o cuenta.'}</p></div>{view === 'map' && <div className={`inline-flex items-center gap-1 rounded-xl border p-1 ${control}`} aria-label="Controles de zoom"><button type="button" aria-label="Alejar plano" disabled={zoom <= 0.8} onClick={() => setZoom(current => Math.max(0.8, Number((current - 0.1).toFixed(1))))} className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"><Minus size={15} /></button><span className="min-w-12 text-center text-[11px] tabular-nums" aria-live="polite">{Math.round(zoom * 100)}%</span><button type="button" aria-label="Acercar plano" disabled={zoom >= 1.5} onClick={() => setZoom(current => Math.min(1.5, Number((current + 0.1).toFixed(1))))} className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"><Plus size={15} /></button><button type="button" aria-label="Restablecer zoom" disabled={zoom === 1} onClick={() => setZoom(1)} className="min-h-9 rounded-lg px-2 text-[10px] font-semibold disabled:opacity-40">Ajustar</button></div>}<div className={`inline-flex rounded-xl border p-1 ${control}`}><button type="button" aria-label="Vista de plano" aria-pressed={view === 'map'} onClick={() => setView('map')} className={`grid h-9 w-10 place-items-center rounded-lg ${view === 'map' ? 'bg-amber-300 text-slate-950' : ''}`}><LayoutGrid size={16} /></button><button type="button" aria-label="Vista de lista" aria-pressed={view === 'list'} onClick={() => setView('list')} className={`grid h-9 w-10 place-items-center rounded-lg ${view === 'list' ? 'bg-amber-300 text-slate-950' : ''}`}><List size={16} /></button></div></div>
-      {view === 'map' ? <NightclubFloorCanvas zones={visibleZones} tables={visibleTables} layout={layout} accounts={data.accounts} selectedId={selectedId} zoom={zoom} isLight={isLight} editing={editing} onSelect={setSelectedId} onMove={(id, position) => { setSelectedId(id); setDraftLayout(current => ({ ...current, [id]: position })) }} /> : visibleTables.length ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" data-tour="floor-list">{visibleTables.map(item => <button key={item.id} type="button" data-tour="floor-table" aria-pressed={selectedId === item.id} onClick={() => setSelectedId(item.id)} className={`flex min-h-16 items-center gap-3 rounded-xl border p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 ${control} ${selectedId === item.id ? 'border-amber-400' : ''}`}><span className={`h-3 w-3 shrink-0 rounded-full ${statusColor[item.status]}`} /><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{item.name}</strong><span className={`block truncate text-xs ${muted}`}>{zones.find(zone => zone.id === item.zoneId)?.name} · {item.capacity} plazas · {statusLabel[item.status]}</span></span>{item.activeAccountId && <span className="rounded-full border border-current px-2 py-1 text-[9px]">Cuenta</span>}</button>)}</div> : <p className={`rounded-xl border border-dashed p-6 text-center text-sm ${isLight ? 'border-slate-300 text-slate-500' : 'border-slate-600 text-slate-500'}`} data-tour="floor-list">{zones.length ? 'Esta zona todavía no tiene mesas.' : 'Todavía no hay zonas configuradas.'}</p>}
+      <div className="mb-3 flex flex-wrap items-center gap-2"><div className="mr-auto"><h2 className="text-sm font-bold">Plano del establecimiento</h2><p className={`mt-0.5 text-xs ${muted}`}>{editing ? 'Arrastra una mesa o selecciónala y muévela con los controles.' : 'Selecciona una mesa para consultar su reserva o cuenta.'}</p></div>{view === 'map' && <div className={`inline-flex items-center gap-1 rounded-xl border p-1 ${control}`} aria-label="Controles de zoom"><button type="button" aria-label="Alejar plano" disabled={zoom <= 0.8} onClick={() => setZoom(current => Math.max(0.8, Number((current - 0.1).toFixed(1))))} className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"><Minus size={15} /></button><span className="min-w-12 text-center text-[11px] tabular-nums" aria-live="polite">{Math.round(zoom * 100)}%</span><button type="button" aria-label="Acercar plano" disabled={zoom >= 1.5} onClick={() => setZoom(current => Math.min(1.5, Number((current + 0.1).toFixed(1))))} className="grid h-9 w-9 place-items-center rounded-lg disabled:opacity-40"><Plus size={15} /></button><button type="button" aria-label="Ajustar plano a las mesas" onClick={fitFloorView} className="min-h-9 rounded-lg px-2 text-[10px] font-semibold">Ajustar</button></div>}<div className={`inline-flex rounded-xl border p-1 ${control}`}><button type="button" aria-label="Vista de plano" aria-pressed={view === 'map'} onClick={() => setView('map')} className={`grid h-9 w-10 place-items-center rounded-lg ${view === 'map' ? 'bg-amber-300 text-slate-950' : ''}`}><LayoutGrid size={16} /></button><button type="button" aria-label="Vista de lista" aria-pressed={view === 'list'} onClick={() => setView('list')} className={`grid h-9 w-10 place-items-center rounded-lg ${view === 'list' ? 'bg-amber-300 text-slate-950' : ''}`}><List size={16} /></button></div></div>
+      {view === 'map' ? <div ref={floorMapRef}><NightclubFloorCanvas zones={visibleZones} tables={visibleTables} layout={layout} accounts={data.accounts} selectedId={selectedId} zoom={zoom} isLight={isLight} editing={editing} onSelect={setSelectedId} onNudge={moveTable} onMove={(id, position) => { setSelectedId(id); setDraftLayout(current => ({ ...current, [id]: position })) }} /></div> : visibleTables.length ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" data-tour="floor-list">{visibleTables.map(item => <button key={item.id} type="button" data-tour="floor-table" aria-pressed={selectedId === item.id} onClick={() => setSelectedId(item.id)} className={`flex min-h-16 items-center gap-3 rounded-xl border p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 ${control} ${selectedId === item.id ? 'border-amber-400' : ''}`}><span className={`h-3 w-3 shrink-0 rounded-full ${statusColor[item.status]}`} /><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{item.name}</strong><span className={`block truncate text-xs ${muted}`}>{zones.find(zone => zone.id === item.zoneId)?.name} · {item.capacity} plazas · {statusLabel[item.status]}</span></span>{item.activeAccountId && <span className="rounded-full border border-current px-2 py-1 text-[9px]">Cuenta</span>}</button>)}</div> : <p className={`rounded-xl border border-dashed p-6 text-center text-sm ${isLight ? 'border-slate-300 text-slate-500' : 'border-slate-600 text-slate-500'}`} data-tour="floor-list">{zones.length ? 'Esta zona todavía no tiene mesas.' : 'Todavía no hay zonas configuradas.'}</p>}
     </section>
 
     {table && <div className="fixed inset-0 z-50 bg-black/70" onClick={() => setSelectedId(null)}><aside role="dialog" aria-modal="true" aria-label={`Detalle de ${table.name}`} data-tutorial-target="floor-table-detail" className={`absolute inset-x-0 bottom-0 max-h-[88dvh] overflow-y-auto rounded-t-3xl border p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-md sm:rounded-none sm:rounded-l-2xl ${isLight ? 'border-slate-200 bg-white text-slate-900' : 'border-white/10 bg-[#07111a] text-white'}`} onClick={event => event.stopPropagation()}>
