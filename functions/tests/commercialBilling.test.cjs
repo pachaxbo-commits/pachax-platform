@@ -693,7 +693,7 @@ async function run() {
     assert(monthlySubscription.currentPeriodEnd.toMillis() > monthlySubscription.currentPeriodStart.toMillis() + 80 * 86_400_000,
       'Three confirmed monthly periods cover at least 80 calendar days.');
     const fakeMethods = { available: true, qrEnabled: false, transferEnabled: true, qrImageUrl: '', bankName: 'Banco QA Emulador',
-      accountHolder: 'PACHAX QA Ficticio', accountIdentifier: 'CUENTA-QA-000', instructions: 'Datos ficticios. No transferir.', whatsappNumber: '+59170000000' };
+      accountHolder: 'PACHAX QA Ficticio', accountIdentifier: 'CUENTA-QA-000', transferCurrency: 'BOB', instructions: 'Datos ficticios. No transferir.', whatsappNumber: '+59170000000' };
     await assert.rejects(platformCall(adminUid, { action: 'saveManualPaymentMethods', requestId: opId(), methods: fakeMethods }), error => error.code === 'permission-denied');
     const methodsSaved = await platformCall(ownerUid, { action: 'saveManualPaymentMethods', requestId: opId(), methods: fakeMethods });
     assert.equal(methodsSaved.success, true);

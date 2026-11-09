@@ -1,0 +1,60 @@
+name: Commercial QR private storage QA
+
+on:
+  pull_request:
+    paths:
+      - 'functions/commercialBilling.cjs'
+      - 'functions/tests/commercialQrStorage.test.cjs'
+      - 'src/admin/views/sections/CommercialBillingSection.tsx'
+      - 'src/components/billing/TenantBillingPortal.tsx'
+      - 'firebase/storage.rules'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/commercial-qr-private-storage.yml'
+      - 'docs/commercial-enablement/QR-IMAGE-SECURITY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commercial-qr-private-storage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qr-private-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java for Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools@15.5.1
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Focused ESLint
+        run: npx eslint functions/commercialBilling.cjs functions/tests/commercialQrStorage.test.cjs src/admin/views/sections/CommercialBillingSection.tsx src/components/billing/TenantBillingPortal.tsx
+
+      - name: Private QR storage and authorization on demo emulators
+        run: npm run test:commercial-qr-storage

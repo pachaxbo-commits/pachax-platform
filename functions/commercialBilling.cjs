@@ -1,6 +1,7 @@
 const { createHash } = require('node:crypto');
 const { HttpsError } = require('firebase-functions/v2/https');
 const { FieldPath, FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
 const { platformActor, cleanText, auditPlatform } = require('./platformAuthorization.cjs');
 const { authenticated } = require('./authorization.cjs');
 const { PUBLIC_TEMPLATES, isTemplateProvisioningAvailable } = require('./generated/publicTemplates.js');
@@ -12,6 +13,9 @@ const {
 const { normalizeCapabilitiesV1, normalizeCapabilityAdjustments, applyCapabilityAdjustments } = require('./commercialCapabilities.cjs');
 
 const BILLING_STATUSES = Object.freeze(['pending', 'active', 'overdue', 'suspended', 'cancelled']);
+const PRIVATE_QR_PREFIX = 'platformBilling/manualMethods/qr/';
+const MAX_QR_BYTES = 512 * 1024;
+const QR_MIME_EXTENSIONS = Object.freeze({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' });
 const addGracePeriod = periodEnd => Timestamp.fromMillis(billingAccessUntilMillis(periodEnd.toMillis()));
 const moneyMinor = (value, label, { allowZero = true } = {}) => {
   const raw = typeof value === 'string' ? value.trim() : String(value);
@@ -108,7 +112,10 @@ async function tenantBillingActor(db, request) {
 
 function sanitizeManualPaymentMethods(value = {}) {
   const qrImageUrl = typeof value.qrImageUrl === 'string' ? value.qrImageUrl.trim() : '';
-  if (value.qrEnabled === true && !qrImageUrl) throw new HttpsError('invalid-argument', 'Agrega el QR oficial antes de habilitar pagos QR.');
+  const qrImagePath = typeof value.qrImagePath === 'string' ? value.qrImagePath.trim() : '';
+  if (qrImageUrl && qrImagePath) throw new HttpsError('invalid-argument', 'Usa una URL aprobada o una imagen privada, no ambas.');
+  if (qrImagePath && !isPrivateQrPath(qrImagePath)) throw new HttpsError('invalid-argument', 'La ruta de la imagen QR no es válida.');
+  if (value.qrEnabled === true && !qrImageUrl && !qrImagePath) throw new HttpsError('invalid-argument', 'Agrega el QR oficial antes de habilitar pagos QR.');
   if (qrImageUrl) {
     let parsed;
     try { parsed = new URL(qrImageUrl); } catch { throw new HttpsError('invalid-argument', 'La URL del QR debe ser válida.'); }
@@ -117,18 +124,19 @@ function sanitizeManualPaymentMethods(value = {}) {
   const whatsappNumber = typeof value.whatsappNumber === 'string' ? value.whatsappNumber.replace(/[^+\d]/g, '').trim() : '';
   if (whatsappNumber && !/^\+?[1-9]\d{7,14}$/.test(whatsappNumber)) throw new HttpsError('invalid-argument', 'El WhatsApp de cobranza debe usar formato internacional.');
   const methods = {
-    qrEnabled: value.qrEnabled === true && Boolean(qrImageUrl),
+    qrEnabled: value.qrEnabled === true && Boolean(qrImageUrl || qrImagePath),
     transferEnabled: value.transferEnabled === true,
-    qrImageUrl,
+    qrImageUrl, qrImagePath,
     bankName: value.bankName ? cleanText(value.bankName, 'Banco', 2, 100) : '',
     accountHolder: value.accountHolder ? cleanText(value.accountHolder, 'Titular', 2, 120) : '',
     accountIdentifier: value.accountIdentifier ? cleanText(value.accountIdentifier, 'Dato de transferencia', 3, 120) : '',
+    transferCurrency: value.transferCurrency === 'BOB' || value.transferCurrency === 'USD' ? value.transferCurrency : '',
     instructions: value.instructions ? cleanText(value.instructions, 'Instrucciones de pago', 2, 1000) : '',
     whatsappNumber,
     available: value.available === true,
   };
-  if (methods.transferEnabled && (!methods.bankName || !methods.accountHolder || !methods.accountIdentifier)) {
-    throw new HttpsError('invalid-argument', 'Completa banco, titular e identificador antes de habilitar transferencias.');
+  if (methods.transferEnabled && (!methods.bankName || !methods.accountHolder || !methods.accountIdentifier || !methods.transferCurrency)) {
+    throw new HttpsError('invalid-argument', 'Completa banco, titular, identificador y moneda antes de habilitar transferencias.');
   }
   if (methods.available && !methods.qrEnabled && !methods.transferEnabled) throw new HttpsError('invalid-argument', 'Habilita al menos un método antes de activar la cobranza.');
   return methods;
@@ -138,30 +146,120 @@ async function getManualPaymentMethods(db, request) {
   const actor = await platformActor(db, request);
   if (!['platform_owner', 'platform_finance'].includes(actor.operator.role)) throw new HttpsError('permission-denied', 'El operador no puede consultar la configuración de cobros.');
   const snapshot = await db.doc('platformBillingConfig/manualMethods').get();
-  return { methods: snapshot.exists ? snapshot.data() : { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', bankName: '', accountHolder: '', accountIdentifier: '', instructions: '', whatsappNumber: '' } };
+  const methods = snapshot.exists ? snapshot.data() : { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', qrImagePath: '', bankName: '', accountHolder: '', accountIdentifier: '', instructions: '', whatsappNumber: '' };
+  return { methods: { ...methods, transferCurrency: methods.transferCurrency || '', qrImageDataUrl: await readPrivateQrDataUrl(methods) } };
 }
 
 async function saveManualPaymentMethods(db, request) {
   const actor = await platformActor(db, request);
   if (actor.operator.role !== 'platform_owner') throw new HttpsError('permission-denied', 'Solo Platform Owner puede cambiar los métodos oficiales de cobro.');
   const requestId = requestUuid(request.data?.requestId);
-  const methods = sanitizeManualPaymentMethods(request.data?.methods || {});
-  const fingerprint = digest(JSON.stringify(methods));
+  const input = request.data?.methods || {};
+  const upload = parsePrivateQrUpload(request.data?.qrImageUpload);
+  const submittedPath = typeof input.qrImagePath === 'string' ? input.qrImagePath.trim() : '';
+  const operationKey = requestKey(actor, 'payment-methods.save', requestId);
+  const targetPath = upload ? `${PRIVATE_QR_PREFIX}${operationKey}-${upload.hash.slice(0, 16)}.${QR_MIME_EXTENSIONS[upload.mimeType]}` : submittedPath;
+  const methodsForFingerprint = sanitizeManualPaymentMethods({ ...input, qrImagePath: targetPath });
+  const fingerprint = digest(JSON.stringify({ methods: methodsForFingerprint, qrHash: upload?.hash || null, expectedVersion: request.data?.expectedVersion ?? null }));
   const configRef = db.doc('platformBillingConfig/manualMethods');
   const opRef = db.doc(`platformBillingOperations/${requestKey(actor, 'payment-methods.save', requestId)}`);
-  return db.runTransaction(async tx => {
-    const [config, operation] = await Promise.all([tx.get(configRef), tx.get(opRef)]);
-    if (operation.exists) {
-      if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador ya se utilizó con otra configuración.');
-      return { success: true, idempotent: true, version: operation.data().version };
+  const priorOperation = await opRef.get();
+  if (priorOperation.exists) {
+    if (priorOperation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador ya se utilizó con otra configuración.');
+    return { success: true, idempotent: true, version: priorOperation.data().version };
+  }
+  let uploadedPath = '';
+  let oldPath = '';
+  try {
+    if (upload) {
+      uploadedPath = targetPath;
+      await getStorage().bucket().file(uploadedPath).save(upload.bytes, {
+        resumable: false,
+        metadata: { contentType: upload.mimeType, cacheControl: 'private, no-store, max-age=0', contentDisposition: 'inline' },
+      });
     }
-    const version = (Number(config.data()?.version) || 0) + 1;
-    const now = FieldValue.serverTimestamp();
-    tx.set(configRef, { ...methods, version, updatedBy: actor.uid, updatedAt: now });
-    tx.create(opRef, { fingerprint, version, actorUid: actor.uid, createdAt: now });
-    audit(db, tx, actor, 'billing.payment_methods.update', configRef.path, { version, available: methods.available, qrEnabled: methods.qrEnabled, transferEnabled: methods.transferEnabled });
-    return { success: true, version, idempotent: false };
-  });
+    const qrImagePath = targetPath;
+    const methods = sanitizeManualPaymentMethods({ ...input, qrImagePath });
+    if (methods.qrImagePath) await assertPrivateQrObject(methods.qrImagePath);
+    const result = await db.runTransaction(async tx => {
+      const [config, operation] = await Promise.all([tx.get(configRef), tx.get(opRef)]);
+      if (operation.exists) {
+        if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador ya se utilizó con otra configuración.');
+        oldPath = '';
+        return { success: true, idempotent: true, version: operation.data().version };
+      }
+      const currentVersion = Number(config.data()?.version) || 0;
+      if (request.data?.expectedVersion !== undefined
+        && (!Number.isSafeInteger(request.data.expectedVersion) || request.data.expectedVersion !== currentVersion)) {
+        throw new HttpsError('aborted', 'La configuración de cobros cambió. Recarga los datos antes de guardar.');
+      }
+      const version = currentVersion + 1;
+      oldPath = typeof config.data()?.qrImagePath === 'string' ? config.data().qrImagePath : '';
+      const now = FieldValue.serverTimestamp();
+      tx.set(configRef, { ...methods, version, updatedBy: actor.uid, updatedAt: now });
+      tx.create(opRef, { fingerprint, version, actorUid: actor.uid, createdAt: now });
+      audit(db, tx, actor, 'billing.payment_methods.update', configRef.path, { version, available: methods.available, qrEnabled: methods.qrEnabled, transferEnabled: methods.transferEnabled, hasPrivateQr: Boolean(methods.qrImagePath) });
+      return { success: true, version, idempotent: false };
+    });
+    if (oldPath && oldPath !== methods.qrImagePath && isPrivateQrPath(oldPath)) {
+      await getStorage().bucket().file(oldPath).delete({ ignoreNotFound: true }).catch(() => undefined);
+    }
+    if (uploadedPath && result.idempotent) {
+      const current = await configRef.get().catch(() => null);
+      if (current?.data()?.qrImagePath !== uploadedPath) await getStorage().bucket().file(uploadedPath).delete({ ignoreNotFound: true }).catch(() => undefined);
+    }
+    return result;
+  } catch (error) {
+    if (uploadedPath) {
+      const current = await configRef.get().catch(() => null);
+      if (current?.data()?.qrImagePath !== uploadedPath) await getStorage().bucket().file(uploadedPath).delete({ ignoreNotFound: true }).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+function isPrivateQrPath(path) {
+  return typeof path === 'string' && /^platformBilling\/manualMethods\/qr\/[a-f0-9]{64}-[a-f0-9]{16}\.(png|jpg|webp)$/.test(path);
+}
+
+function parsePrivateQrUpload(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || !Object.hasOwn(QR_MIME_EXTENSIONS, value.mimeType)
+    || typeof value.base64 !== 'string' || !value.base64 || value.base64.length > Math.ceil(MAX_QR_BYTES * 4 / 3) + 4
+    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.base64)) {
+    throw new HttpsError('invalid-argument', 'El archivo QR debe ser PNG, JPG o WebP válido y no superar 512 KB.');
+  }
+  const bytes = Buffer.from(value.base64, 'base64');
+  if (!bytes.length || bytes.length > MAX_QR_BYTES || bytes.toString('base64') !== value.base64) {
+    throw new HttpsError('invalid-argument', 'El archivo QR está vacío, excede 512 KB o tiene datos inválidos.');
+  }
+  const png = value.mimeType === 'image/png' && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const jpeg = value.mimeType === 'image/jpeg' && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const webp = value.mimeType === 'image/webp' && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+  if (!png && !jpeg && !webp) throw new HttpsError('invalid-argument', 'El contenido no coincide con el formato de imagen declarado.');
+  return { bytes, mimeType: value.mimeType, hash: digest(`${value.mimeType}:${value.base64}`) };
+}
+
+async function assertPrivateQrObject(path) {
+  if (!isPrivateQrPath(path)) throw new HttpsError('invalid-argument', 'La ruta de la imagen QR no es válida.');
+  const file = getStorage().bucket().file(path);
+  const [exists] = await file.exists();
+  if (!exists) throw new HttpsError('failed-precondition', 'Sube nuevamente el QR antes de habilitarlo.');
+  const [metadata] = await file.getMetadata();
+  if (!Object.hasOwn(QR_MIME_EXTENSIONS, metadata.contentType) || Number(metadata.size) > MAX_QR_BYTES) {
+    throw new HttpsError('failed-precondition', 'El archivo QR guardado no cumple el formato o tamaño autorizado.');
+  }
+}
+
+async function readPrivateQrDataUrl(methods = {}) {
+  if (!isPrivateQrPath(methods.qrImagePath)) return '';
+  await assertPrivateQrObject(methods.qrImagePath);
+  const [bytes] = await getStorage().bucket().file(methods.qrImagePath).download();
+  const [metadata] = await getStorage().bucket().file(methods.qrImagePath).getMetadata();
+  if (bytes.length > MAX_QR_BYTES || !Object.hasOwn(QR_MIME_EXTENSIONS, metadata.contentType)) {
+    throw new HttpsError('failed-precondition', 'No se pudo verificar la imagen QR configurada.');
+  }
+  return `data:${metadata.contentType};base64,${bytes.toString('base64')}`;
 }
 
 async function getTenantBillingOverview(db, request) {
@@ -169,7 +267,7 @@ async function getTenantBillingOverview(db, request) {
   const methodsPromise = db.doc('platformBillingConfig/manualMethods').get();
   if (!actor.contractId) {
     const methods = await methodsPromise;
-    return { enrolled: false, status: 'not_enrolled', subscription: null, charges: [], payments: [], paymentMethods: methods.exists && methods.data()?.available === true ? sanitizeClientPaymentMethods(methods.data()) : null };
+    return { enrolled: false, status: 'not_enrolled', subscription: null, charges: [], payments: [], paymentMethods: methods.exists && methods.data()?.available === true ? await sanitizeClientPaymentMethods(methods.data()) : null };
   }
   const contractRef = db.doc(`platformContracts/${actor.contractId}`);
   const subscriptionRef = db.doc(`platformSubscriptions/${actor.contractId}`);
@@ -184,7 +282,7 @@ async function getTenantBillingOverview(db, request) {
   }
   const contract = contractSnap.data(), subscription = subscriptionSnap.data();
   const status = effectiveBillingStatus(subscription);
-  const paymentMethods = methodsSnap.exists && methodsSnap.data()?.available === true ? sanitizeClientPaymentMethods(methodsSnap.data()) : null;
+  const paymentMethods = methodsSnap.exists && methodsSnap.data()?.available === true ? await sanitizeClientPaymentMethods(methodsSnap.data()) : null;
   const charges = chargesSnap.docs.map(document => {
     const charge = document.data();
     return { id: document.id, kind: charge.kind, currency: charge.currency, amountMinor: charge.amountMinor,
@@ -213,10 +311,11 @@ async function getTenantBillingOverview(db, request) {
   };
 }
 
-function sanitizeClientPaymentMethods(methods) {
+async function sanitizeClientPaymentMethods(methods) {
   return {
     qrEnabled: methods.qrEnabled === true, qrImageUrl: methods.qrEnabled === true ? methods.qrImageUrl : '',
-    transferEnabled: methods.transferEnabled === true, bankName: methods.transferEnabled === true ? methods.bankName : '',
+    qrImageDataUrl: methods.qrEnabled === true ? await readPrivateQrDataUrl(methods) : '',
+    transferEnabled: methods.transferEnabled === true, transferCurrency: methods.transferCurrency || '', bankName: methods.transferEnabled === true ? methods.bankName : '',
     accountHolder: methods.transferEnabled === true ? methods.accountHolder : '',
     accountIdentifier: methods.transferEnabled === true ? methods.accountIdentifier : '',
     instructions: methods.instructions || '', whatsappNumber: methods.whatsappNumber || '',

@@ -12,7 +12,7 @@ type BillingOverview = {
   subscription: null | { companyName: string; planName: string; currency: string; recurringMinor: number; billingCycle: string; currentPeriodStart?: BillingDate; currentPeriodEnd?: BillingDate; nextRenewalAt?: BillingDate; billingAccessUntil?: BillingDate; monthsCovered?: number; gracePeriodDays: number }
   charges: Charge[]
   payments: Payment[]
-  paymentMethods: null | { qrEnabled: boolean; qrImageUrl: string; transferEnabled: boolean; bankName: string; accountHolder: string; accountIdentifier: string; instructions: string; whatsappNumber: string }
+  paymentMethods: null | { qrEnabled: boolean; qrImageUrl: string; qrImageDataUrl?: string; transferEnabled: boolean; transferCurrency?: string; bankName: string; accountHolder: string; accountIdentifier: string; instructions: string; whatsappNumber: string }
   contactUrl: string | null
 }
 
@@ -167,8 +167,8 @@ export function TenantBillingPortal({ tenantId, role, regularizationOnly = false
           </section>
           <section className="rounded-xl border border-slate-200 p-4"><h3 className="font-bold">Métodos de pago disponibles</h3>
             {!methods && <p className="mt-2 text-sm text-slate-600">PACHAX todavía no configuró métodos de pago. No realices transferencias hasta recibir instrucciones oficiales.</p>}
-            {methods?.qrEnabled && methods.qrImageUrl && <div className="mt-3"><p className="text-sm font-semibold">QR bancario oficial</p><img src={methods.qrImageUrl} alt="QR oficial de pago de PACHAX" referrerPolicy="no-referrer" className="mt-2 h-48 w-48 rounded-lg border object-contain" /></div>}
-            {methods?.transferEnabled && <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm"><p><strong>Entidad:</strong> {methods.bankName}</p><p><strong>Titular:</strong> {methods.accountHolder}</p><p><strong>Identificador:</strong> {methods.accountIdentifier}</p></div>}
+            {methods?.qrEnabled && (methods.qrImageDataUrl || methods.qrImageUrl) && <div className="mt-3"><p className="text-sm font-semibold">QR bancario oficial</p><img src={methods.qrImageDataUrl || methods.qrImageUrl} alt="QR oficial de pago de PACHAX" referrerPolicy="no-referrer" className="mt-2 h-48 w-48 rounded-lg border object-contain" /></div>}
+            {methods?.transferEnabled && <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm"><p><strong>Entidad:</strong> {methods.bankName}</p><p><strong>Titular:</strong> {methods.accountHolder}</p><p><strong>Identificador:</strong> {methods.accountIdentifier}</p><p><strong>Moneda:</strong> {methods.transferCurrency || 'Pendiente de confirmar con PACHAX'}</p></div>}
             {methods?.instructions && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{methods.instructions}</p>}
             {overview.contactUrl && <a href={`${overview.contactUrl}?text=${encodeURIComponent(`Hola PACHAX, necesito consultar la suscripción de ${overview.subscription?.companyName || 'mi empresa'}.`)}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900">Contactar a PACHAX por WhatsApp</a>}
           </section>
