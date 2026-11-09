@@ -65,6 +65,9 @@ jobs:
       - name: Focused ESLint
         run: npx eslint src/admin/views/AdminShell.tsx src/admin/views/sections/CommercialSetupSection.tsx src/admin/store/commercialConfigStore.ts scripts/test-admin-control-center-browser.mjs
 
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools@15.5.1
+
       - name: Owner setup center in isolated demo emulators
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
