@@ -44,8 +44,8 @@ interface BillingNote { id: string; note: string; actorRole: string; createdAt?:
 
 interface BillingPlanOption { id: string; name: string; templateId: string; currency: string; monthlyMinor: number; annualMinor: number; annualPriceUnit?: 'annual_total_12_months' | null }
 interface BillingCursor { createdAtMillis: number; id: string }
-type ManualMethods = { available: boolean; qrEnabled: boolean; transferEnabled: boolean; qrImageUrl: string; bankName: string; accountHolder: string; accountIdentifier: string; instructions: string; whatsappNumber: string }
-const EMPTY_METHODS: ManualMethods = { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', bankName: '', accountHolder: '', accountIdentifier: '', instructions: '', whatsappNumber: '' }
+type ManualMethods = { available: boolean; qrEnabled: boolean; transferEnabled: boolean; qrImageUrl: string; qrImagePath: string; qrImageDataUrl: string; version: number; bankName: string; accountHolder: string; accountIdentifier: string; transferCurrency: string; instructions: string; whatsappNumber: string }
+const EMPTY_METHODS: ManualMethods = { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', qrImagePath: '', qrImageDataUrl: '', version: 0, bankName: '', accountHolder: '', accountIdentifier: '', transferCurrency: '', instructions: '', whatsappNumber: '' }
 
 export interface PaidContractActivation {
   id: string
@@ -95,6 +95,7 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
   const [statusFilter, setStatusFilter] = useState('all')
   const [templateFilter, setTemplateFilter] = useState('all')
   const [methods, setMethods] = useState<ManualMethods>(EMPTY_METHODS)
+  const [qrImageUpload, setQrImageUpload] = useState<{ mimeType: string; base64: string } | null>(null)
   const [methodsLoading, setMethodsLoading] = useState(false)
   const [methodsSaving, setMethodsSaving] = useState(false)
   const [internalNotes, setInternalNotes] = useState<Record<string, BillingNote[]>>({})
@@ -113,9 +114,10 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       : []
     const nextMore = Object.fromEntries(kinds.map((kind, index) => [kind, results[index].hasMore === true])) as Record<BillingKind, boolean>
     const nextCursors = Object.fromEntries(kinds.map((kind, index) => [kind, results[index].nextCursor || undefined])) as Partial<Record<BillingKind, BillingCursor>>
-    const nextMethods = ['platform_owner', 'platform_finance'].includes(user?.role || '')
-      ? (await gateway<{ methods: ManualMethods }>('platformGateway', { action: 'getManualPaymentMethods' })).methods || EMPTY_METHODS
+    const loadedMethods = ['platform_owner', 'platform_finance'].includes(user?.role || '')
+      ? (await gateway<{ methods: Partial<ManualMethods> }>('platformGateway', { action: 'getManualPaymentMethods' })).methods || EMPTY_METHODS
       : EMPTY_METHODS
+    const nextMethods = { ...EMPTY_METHODS, ...loadedMethods, qrImageUrl: loadedMethods.qrImageUrl || '', qrImagePath: loadedMethods.qrImagePath || '', qrImageDataUrl: loadedMethods.qrImageDataUrl || '', transferCurrency: loadedMethods.transferCurrency || '', version: Number.isSafeInteger(loadedMethods.version) ? loadedMethods.version as number : 0 }
     return { records: nextRecords, plans: nextPlans, more: nextMore, cursors: nextCursors, methods: nextMethods }
   }, [user])
 
@@ -165,8 +167,9 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
   const saveMethods = async (event: FormEvent) => {
     event.preventDefault(); setMethodsSaving(true); setError(''); setMessage('')
     try {
-      await gateway('platformGateway', { action: 'saveManualPaymentMethods', requestId: crypto.randomUUID(), methods })
+      await gateway('platformGateway', { action: 'saveManualPaymentMethods', requestId: crypto.randomUUID(), expectedVersion: methods.version, methods: { ...methods, qrImageDataUrl: '' }, ...(qrImageUpload ? { qrImageUpload } : {}) })
       setMessage('La configuración oficial de cobros se guardó y auditó. Comprueba los datos antes de compartirlos con clientes.')
+      setQrImageUpload(null)
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar la configuración de cobros.') }
     finally { setMethodsSaving(false) }
@@ -336,11 +339,33 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.available} onChange={event => setMethods(value => ({ ...value, available: event.target.checked }))} /> Mostrar opciones oficiales a propietarios</label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.qrEnabled} onChange={event => setMethods(value => ({ ...value, qrEnabled: event.target.checked }))} /> Habilitar QR</label>
-        <label className="text-sm sm:col-span-2">URL HTTPS del QR oficial<input type="url" value={methods.qrImageUrl} onChange={event => setMethods(value => ({ ...value, qrImageUrl: event.target.value }))} placeholder="URL aprobada del QR; sin valor por defecto" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+        <label className="text-sm sm:col-span-2">Imagen QR oficial (PNG, JPG o WebP; máximo 512 KB)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
+          const file = event.target.files?.[0]
+          if (!file) return
+          if (file.size > 512 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+            setError('El QR debe ser PNG, JPG o WebP y pesar hasta 512 KB.')
+            event.currentTarget.value = ''
+            return
+          }
+          const reader = new FileReader()
+          reader.onload = () => {
+            const value = typeof reader.result === 'string' ? reader.result : ''
+            const base64 = value.split(',')[1] || ''
+            if (!base64) { setError('No se pudo leer la imagen QR.'); return }
+            setQrImageUpload({ mimeType: file.type, base64 })
+            setMethods(current => ({ ...current, qrImageUrl: '', qrImagePath: '', qrImageDataUrl: value }))
+            setError('')
+          }
+          reader.onerror = () => setError('No se pudo leer la imagen QR.')
+          reader.readAsDataURL(file)
+        }} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3 py-2" /></label>
+        {(methods.qrImageDataUrl || methods.qrImageUrl) && <div className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 sm:col-span-2"><img src={methods.qrImageDataUrl || methods.qrImageUrl} alt="Vista previa del QR oficial" referrerPolicy="no-referrer" className="h-36 w-36 rounded border bg-white object-contain" /><div className="text-xs text-slate-600"><p className="font-semibold text-slate-800">{methods.qrImagePath ? 'Vista previa privada' : 'Vista previa de URL aprobada'}</p><p className="mt-1">La imagen privada solo se entrega a propietarios autenticados y roles de facturación autorizados.</p><button type="button" onClick={() => { setQrImageUpload(null); setMethods(current => ({ ...current, qrEnabled: false, available: current.transferEnabled ? current.available : false, qrImageUrl: '', qrImagePath: '', qrImageDataUrl: '' })) }} className="mt-2 rounded border px-2 py-1 font-semibold">Retirar imagen QR</button></div></div>}
+        <label className="text-sm sm:col-span-2">URL HTTPS de QR aprobado (compatibilidad)<input type="url" value={methods.qrImageUrl} onChange={event => setMethods(value => ({ ...value, qrImagePath: '', qrImageDataUrl: '', qrImageUrl: event.target.value }))} placeholder="URL HTTPS aprobada; sin valor por defecto" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /><span className="mt-1 block text-xs text-slate-500">Preferimos cargar el archivo privado. Las URLs anteriores siguen disponibles si ya fueron aprobadas.</span></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.transferEnabled} onChange={event => setMethods(value => ({ ...value, transferEnabled: event.target.checked }))} /> Habilitar transferencias</label>
         <label className="text-sm">Banco / entidad<input value={methods.bankName} onChange={event => setMethods(value => ({ ...value, bankName: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
         <label className="text-sm">Titular<input value={methods.accountHolder} onChange={event => setMethods(value => ({ ...value, accountHolder: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
         <label className="text-sm">Identificador de cuenta<input value={methods.accountIdentifier} onChange={event => setMethods(value => ({ ...value, accountIdentifier: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+        <label className="text-sm">Moneda de la cuenta<select value={methods.transferCurrency} onChange={event => setMethods(value => ({ ...value, transferCurrency: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3"><option value="">Seleccionar moneda aprobada</option><option value="BOB">BOB</option><option value="USD">USD</option></select></label>
         <label className="text-sm">WhatsApp oficial<input type="tel" value={methods.whatsappNumber} onChange={event => setMethods(value => ({ ...value, whatsappNumber: event.target.value }))} placeholder="Formato internacional" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
         <label className="text-sm sm:col-span-2">Instrucciones para clientes<textarea maxLength={1000} value={methods.instructions} onChange={event => setMethods(value => ({ ...value, instructions: event.target.value }))} className="mt-1 min-h-20 w-full rounded-lg border bg-white p-3" /></label>
       </div>
