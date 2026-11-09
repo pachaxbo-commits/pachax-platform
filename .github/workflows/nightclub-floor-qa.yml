@@ -25,6 +25,9 @@ jobs:
   nightclub-floor:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      # Nightclub session dates follow the Bolivian operating timezone in tests.
+      TZ: America/La_Paz
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
