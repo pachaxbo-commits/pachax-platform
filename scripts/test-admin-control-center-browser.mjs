@@ -1,8 +1,8 @@
 // Authenticated Admin UI smoke using only Firebase Emulators and fictitious operator data.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -41,6 +41,7 @@ let socket
 let socketOpen = false
 let sequence = 0
 const pending = new Map()
+const browserErrors = []
 
 async function snapshot(ref) {
   const value = await ref.get()
@@ -76,6 +77,7 @@ async function waitFor(read, predicate, message, timeout = 12000) {
 
 try {
   for (const path of refsToRestore) saved.set(path, await snapshot(db.doc(path)))
+  await db.doc('platformConfig/publicLanding').delete()
   await auth.createUser({ uid: operator.uid, email: operator.email, password: operator.password })
   await auth.setCustomUserClaims(operator.uid, { platform: true, platformRole: 'platform_owner' })
   await db.doc(`platformOperators/${operator.uid}`).set({ uid: operator.uid, role: 'platform_owner', active: true, email: operator.email })
@@ -121,22 +123,61 @@ try {
   await new Promise((resolve, reject) => { socket.onopen = () => { socketOpen = true; resolve() }; socket.onerror = reject })
   socket.onmessage = event => {
     const message = JSON.parse(event.data)
-    if (!pending.has(message.id)) return
+    if (!pending.has(message.id)) {
+      if (message.method === 'Runtime.exceptionThrown') browserErrors.push(message.params.exceptionDetails?.exception?.description || message.params.exceptionDetails?.text || 'Runtime exception')
+      if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') browserErrors.push((message.params.args || []).map(argument => argument.value || argument.description || '').join(' '))
+      if (message.method === 'Network.loadingFailed') browserErrors.push(`Network ${message.params.errorText || ''} ${message.params.requestId || ''}`)
+      return
+    }
     const operation = pending.get(message.id)
     pending.delete(message.id)
     message.error ? operation.reject(new Error(JSON.stringify(message.error))) : operation.resolve(message.result)
   }
   await send('Page.enable')
   await send('Runtime.enable')
+  await send('Network.enable')
+  await send('Page.navigate', { url: `${base}/admin/login` })
 
-  await waitFor(() => evaluate(`!!document.querySelector('[data-admin-login-submit]')`), Boolean, 'Admin login form did not render')
+  await waitFor(() => evaluate(`JSON.stringify({url:location.href,title:document.title,ready:document.readyState,login:Boolean(document.querySelector('[data-admin-login-submit]')),text:(document.body?.innerText||'').slice(0,500),root:document.querySelector('#root')?.innerHTML.slice(0,700)||'',resources:performance.getEntriesByType('resource').map(item=>item.name).filter(name=>name.includes('/src/')||name.includes('.tsx')).slice(-8)})`), value => JSON.parse(value).login, `Admin login form did not render. Browser errors: ${browserErrors.join(' | ')}`, 45000)
   await evaluate(`(() => {
     const set=(selector,value)=>{const element=document.querySelector(selector);if(!element)throw new Error('Missing '+selector);const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(element,value);element.dispatchEvent(new Event('input',{bubbles:true}));element.dispatchEvent(new Event('change',{bubbles:true}));};
     set('input[autocomplete="username"]',${JSON.stringify(operator.email)});
     set('[data-admin-login-password]',${JSON.stringify(operator.password)});
     document.querySelector('[data-admin-login-submit]').click();
   })()`, true)
-  await waitFor(() => evaluate(`!!document.querySelector('[data-admin-tab="templates"]')`), Boolean, 'Platform Owner did not enter Admin')
+  await waitFor(() => evaluate(`!!document.querySelector('[data-admin-tab="templates"]')`), Boolean, 'Platform Owner did not enter Admin', 45000)
+  assert(await evaluate(`!!document.querySelector('[data-admin-tab="commercial-setup"]')`), 'Platform Owner must have access to the sales preparation center.')
+  await evaluate(`document.querySelector('[data-admin-tab="commercial-setup"]').click()`, true)
+  const setupText = await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Configura ventas paso a paso') && text.includes('No publica ni cobra') && !text.includes('Consultando'), 'Commercial preparation center did not finish loading its server statuses', 45000)
+  assert.equal(await evaluate(`document.querySelectorAll('[data-commercial-setup-step]').length`), 8, 'The setup route must contain all eight guided areas.')
+  assert.match(await evaluate(`document.querySelector('[data-commercial-setup-step="contact"]')?.innerText || ''`), /Sin configurar/i, 'An absent server landing document must not inherit a local editorial contact as official.')
+  assert.match(await evaluate(`document.querySelector('[data-commercial-setup-step="plans"]')?.innerText || ''`), /Sin configurar/i, 'Empty server plans must not inherit editorial reference prices as published offers.')
+  assert(setupText.includes('Condiciones de contratación') && /Por aprobar/i.test(setupText), 'Unapproved legal terms must remain explicitly pending.')
+  assert(setupText.includes('Solicitudes de clientes') && setupText.includes('Bloqueado'), 'Public commercial intake must remain closed and visible as blocked.')
+  assert(setupText.includes('Prueba de contratación') && setupText.includes('No existe una acción de simulación'), 'The center must not create a simulated commercial transaction.')
+  assert(setupText.includes('7, 3 y 0 días') && setupText.includes('no se configura desde Admin'), 'The center must distinguish current renewal notices from editable configuration.')
+  assert(setupText.includes('Aún no está listo para abrir captación'), 'The public readiness panel must reflect open blockers.')
+  for (const [width, height, mobile] of [[390, 844, true], [1440, 900, false]]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile })
+    const layout = await evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,overflow:document.documentElement.scrollWidth-innerWidth,section:Boolean(document.querySelector('[data-commercial-setup]'))})`)
+    assert(layout.section && layout.overflow < 12, `Commercial setup layout overflow at ${width}x${height}: ${JSON.stringify(layout)}`)
+    if (width === 1440) {
+      const metrics = await send('Page.getLayoutMetrics')
+      const image = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, fromSurface: true, clip: { x: 0, y: 0, width: Math.ceil(metrics.cssContentSize.width), height: Math.ceil(metrics.cssContentSize.height), scale: 1 } })
+      const screenshotPath = join(root, 'docs', 'commercial-admin-evidence', 'preparar-ventas-desktop.png')
+      mkdirSync(dirname(screenshotPath), { recursive: true })
+      writeFileSync(screenshotPath, Buffer.from(image.data, 'base64'))
+    } else if (width === 390) {
+      const metrics = await send('Page.getLayoutMetrics')
+      const image = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, fromSurface: true, clip: { x: 0, y: 0, width: Math.ceil(metrics.cssContentSize.width), height: Math.ceil(metrics.cssContentSize.height), scale: 1 } })
+      const screenshotPath = join(root, 'docs', 'commercial-admin-evidence', 'preparar-ventas-mobile-390.png')
+      mkdirSync(dirname(screenshotPath), { recursive: true })
+      writeFileSync(screenshotPath, Buffer.from(image.data, 'base64'))
+    }
+    console.log(`PASS Commercial preparation center ${width}x${height}, horizontal overflow ${layout.overflow}px`)
+  }
+  await evaluate(`document.querySelector('[data-admin-tab="plans"]').click()`, true)
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Gestión de Planes Comerciales'), 'Plan navigation from the Admin shell did not open')
   await evaluate(`document.querySelector('[data-admin-tab="templates"]').click()`, true)
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Gestión de Plantillas Comerciales'), 'Template management section did not open')
 
@@ -162,8 +203,9 @@ try {
   assert(tenantList.includes('2024-02-03'), 'Tenant list did not format the Firestore createdAt timestamp.')
   console.log('PASS Chrome authenticated owner lists the fictitious emulator tenant and formats its Firestore createdAt timestamp')
 
+  assert((await db.doc(`platformContracts/${billingContractId}`).get()).exists, 'The fictitious billing contract fixture must exist before the UI query.')
   await evaluate(`document.querySelector('[data-admin-tab="commercial-billing"]').click()`, true)
-  const billingText = await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Facturación de PACHAX') && text.includes('Empresa QA Billing Admin'), 'Billing Core owner records did not render')
+  const billingText = await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Facturación de PACHAX') && text.includes('Empresa QA Billing Admin'), 'Billing Core owner records did not render', 45000)
   assert(billingText.includes('No hay cobros automáticos') && billingText.includes('QR'), 'Billing screen must state manual-only scope and render payment configuration without fabricated bank data.')
   assert(billingText.includes('Empresa QA Billing Admin'), 'Billing screen must find and render the fictitious contract fixture.')
   assert(!billingText.includes('Bs 150') && !billingText.includes('Plan QA'), 'Billing UI must not invent unapproved plans or reference prices.')

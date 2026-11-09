@@ -1,0 +1,72 @@
+name: Commercial Admin setup QA
+
+on:
+  pull_request:
+    paths:
+      - 'src/admin/views/AdminShell.tsx'
+      - 'src/admin/views/sections/CommercialSetupSection.tsx'
+      - 'src/admin/store/commercialConfigStore.ts'
+      - 'scripts/test-admin-control-center-browser.mjs'
+      - 'docs/commercial-enablement/**'
+      - 'docs/commercial-admin-evidence/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'functions/package.json'
+      - 'functions/package-lock.json'
+      - '.github/workflows/commercial-admin-setup-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commercial-admin-setup-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  admin-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      - name: Set up Java for Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install Functions build dependencies
+        run: npm ci --prefix functions
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Focused ESLint
+        run: npx eslint src/admin/views/AdminShell.tsx src/admin/views/sections/CommercialSetupSection.tsx src/admin/store/commercialConfigStore.ts scripts/test-admin-control-center-browser.mjs
+
+      - name: Owner setup center in isolated demo emulators
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          FUNCTIONS_DISCOVERY_TIMEOUT: '60'
+        run: npm run test:admin-control-center-browser

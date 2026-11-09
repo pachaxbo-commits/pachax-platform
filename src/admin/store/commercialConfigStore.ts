@@ -169,6 +169,12 @@ function getDefaultConfig(): StoredCommercialConfig {
 let cachedConfig: StoredCommercialConfig | null = null
 export type AdminTemplatesState = 'loading' | 'uninitialized' | 'ready' | 'error'
 let adminTemplatesState: AdminTemplatesState = 'loading'
+export type AdminCommercialDataState = 'loading' | 'ready' | 'partial' | 'error'
+export type AdminLandingContentState = 'loading' | 'ready' | 'uninitialized' | 'error'
+export type AdminPlansState = 'loading' | 'ready' | 'uninitialized' | 'error'
+let adminCommercialDataState: AdminCommercialDataState = 'loading'
+let adminLandingContentState: AdminLandingContentState = 'loading'
+let adminPlansState: AdminPlansState = 'loading'
 
 export function loadCommercialConfig(): StoredCommercialConfig {
   if (cachedConfig) return cachedConfig
@@ -339,6 +345,9 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
     const ctx = await getFirebaseContext()
     if (!ctx) {
       adminTemplatesState = 'error'
+      adminCommercialDataState = 'error'
+      adminLandingContentState = 'error'
+      adminPlansState = 'error'
       notifyUpdate()
       return
     }
@@ -353,6 +362,10 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
 
     if (!window.location.pathname.startsWith('/admin')) return
 
+    const snapshots = [landingSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap]
+    const succeeded = snapshots.filter(snapshot => snapshot.status === 'fulfilled').length
+    adminCommercialDataState = succeeded === snapshots.length ? 'ready' : succeeded > 0 ? 'partial' : 'error'
+
     const current = loadCommercialConfig()
     let changed = false
 
@@ -360,6 +373,11 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
       const data = landingSnap.value.data() as Partial<LandingContentConfig>
       current.landingContent = { ...current.landingContent, ...data }
       changed = true
+      adminLandingContentState = 'ready'
+    } else if (landingSnap.status === 'fulfilled') {
+      adminLandingContentState = 'uninitialized'
+    } else {
+      adminLandingContentState = 'error'
     }
 
     if (templatesSnap.status === 'fulfilled') {
@@ -380,7 +398,10 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
         (d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan,
       )
       current.plans = plansSnap.value.empty ? getDefaultConfig().plans : remote
+      adminPlansState = plansSnap.value.empty ? 'uninitialized' : 'ready'
       changed = true
+    } else {
+      adminPlansState = 'error'
     }
 
     if (extrasSnap.status === 'fulfilled') {
@@ -404,6 +425,9 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
     }
   } catch (err) {
     adminTemplatesState = 'error'
+    adminCommercialDataState = 'error'
+    adminLandingContentState = 'error'
+    adminPlansState = 'error'
     console.error('Sincronización administrativa de Firestore:', err)
     notifyUpdate()
   } finally {
@@ -782,6 +806,9 @@ export function useCommercialConfig() {
     ? (publicConfig || { ...getDefaultConfig(), templates: [], plans: [], extras: [] })
     : loadCommercialConfig())
   const [templatesState, setTemplatesState] = useState<AdminTemplatesState>(adminTemplatesState)
+  const [adminDataState, setAdminDataState] = useState<AdminCommercialDataState>(adminCommercialDataState)
+  const [landingContentState, setLandingContentState] = useState<AdminLandingContentState>(adminLandingContentState)
+  const [plansState, setPlansState] = useState<AdminPlansState>(adminPlansState)
   const [publicState, setPublicState] = useState(publicCatalogStatus)
 
   useEffect(() => {
@@ -801,6 +828,9 @@ export function useCommercialConfig() {
         : loadCommercialConfig())
       setPublicState(publicCatalogStatus)
       setTemplatesState(adminTemplatesState)
+      setAdminDataState(adminCommercialDataState)
+      setLandingContentState(adminLandingContentState)
+      setPlansState(adminPlansState)
     }
     const handleStorageUpdate = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return
@@ -832,6 +862,9 @@ export function useCommercialConfig() {
   return {
     config,
     templatesState,
+    adminCommercialDataState: adminDataState,
+    adminLandingContentState: landingContentState,
+    adminPlansState: plansState,
     publicCatalogStatus: publicState,
     isPublicEditorialFallback,
     publishedTemplates,
