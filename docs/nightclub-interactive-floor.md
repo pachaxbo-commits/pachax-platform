@@ -27,6 +27,8 @@ Las mesas son grupos SVG enfocables con etiquetas que incluyen nombre, zona, est
 
 La guía enseña selección sin alterar estado, cuenta de práctica, preparación de producto y envío de ronda sin iniciar cobro. Los pasos de escritura solo avanzan por la confirmación observada del adaptador; en tenant se mantienen informativos. Ningún paso realiza una operación automáticamente.
 
+Los pasos de navegación se consideran completos cuando el módulo de destino ya está activo, incluso si una acción anterior llevó allí automáticamente. Así la guía no queda detenida solicitando una navegación redundante. La prueba de navegador selecciona un producto POS habilitado y confirma que el borrador permite enviar la ronda antes de continuar.
+
 ## Verificación
 
 Las pruebas unitarias cubren escenarios de 2, 6, 10 y 30 mesas, altura adaptable, normalización, detección entre sectores, zoom ajustado, migración de clave, conservación con conjunto modificado, aislamiento de almacenamiento y condiciones de permisos del tutorial. `npm run test:nightclub-floor-browser` usa Chrome/CDP con la demo completa, activa clicks de mouse y touch, arrastre, las cuatro flechas, Enter/Espacio, Escape, colisión oculta al filtrar otra zona, fit view, apertura de cuenta y envío de ronda local (sin cobro); comprueba la guía, el almacenamiento al recargar, que la página no desborde y que no se soliciten servicios Firebase/Cloud de Production.

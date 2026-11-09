@@ -200,7 +200,7 @@ export function NightclubTutorial(props: NightclubTutorialProps) {
     activeStep.interaction === 'demo-operation' && ['practice-ron', 'practice-coca', 'practice-product', 'practice-account'].includes(activeStep.advancesOn || '')
       ? stepCondition(activeStep, props, activeSession)
       : activeStep.interaction === 'navigate'
-      ? targetClicked && stepCondition(activeStep, props, activeSession)
+      ? stepCondition(activeStep, props, activeSession)
       : activeStep.interaction === 'observe'
       ? true
       : targetClicked && stepCondition(activeStep, props, activeSession) && (activeStep.advancesOn !== 'click' || !hasVisibleTarget(activeStep.target) || hasVisibleTarget(steps[activeSession.stepIndex + 1]?.target))

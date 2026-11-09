@@ -49,6 +49,7 @@ jobs:
           src/modules/nightclub/domain/__tests__/nightclubFloorLayout.test.ts
           src/modules/nightclub/views/NightclubFloorCanvas.tsx
           src/modules/nightclub/views/NightclubZones.tsx
+          src/modules/nightclub/tutorials/NightclubTutorial.tsx
           src/modules/nightclub/tutorials/nightclubTutorials.ts
           src/modules/nightclub/tutorials/__tests__/nightclubTutorials.test.ts
           scripts/test-nightclub-floor-browser.mjs
