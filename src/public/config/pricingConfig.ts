@@ -75,11 +75,13 @@ export interface CommercialExtraService {
 
 /** Configuración de contacto oficial vía WhatsApp */
 export const OFFICIAL_WHATSAPP = {
-  phoneNumber: '59177987776',
-  displayNumber: '+591 77987776',
+  // Contact is configured by the published landing catalog, never by a code default.
+  phoneNumber: '',
+  displayNumber: '',
   defaultHeroMessage: 'Hola, quiero información sobre un desarrollo a medida en PACHAX Platform.',
   defaultCustomDevMessage: 'Hola, quiero información sobre un desarrollo a medida en PACHAX Platform.',
   buildUrl(message: string): string {
+    if (!this.phoneNumber) return ''
     return `https://wa.me/${this.phoneNumber}?text=${encodeURIComponent(message)}`
   },
 } as const

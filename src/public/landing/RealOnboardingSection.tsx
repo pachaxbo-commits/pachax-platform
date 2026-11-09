@@ -13,7 +13,8 @@ import {
   Utensils,
 } from 'lucide-react'
 import { BRAND_PALETTES } from '../../core/brandPalettes'
-import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { getWhatsAppUrl } from '../config/publicContact'
 
 const steps = [
   {
@@ -54,6 +55,11 @@ type DemoTemplate = (typeof demoTemplates)[number]['id']
 const demoTemplateName = (id: DemoTemplate) => demoTemplates.find((template) => template.id === id)?.name ?? demoTemplates[0].name
 
 export function RealOnboardingSection() {
+  const { landingContent } = useCommercialConfig()
+  const implementationContactUrl = getWhatsAppUrl(
+    'Hola PACHAX, quisiera consultar una implementación guiada para mi empresa. Entiendo que la creación autónoma está pausada y quiero conocer los siguientes pasos.',
+    landingContent.officialWhatsAppNumber,
+  )
   const [activeStep, setActiveStep] = useState<StepNumber>(1)
   const [demoTemplate, setDemoTemplate] = useState<DemoTemplate>('restaurant_pos')
   const [demoPaletteIndex, setDemoPaletteIndex] = useState(0)
@@ -252,15 +258,19 @@ export function RealOnboardingSection() {
           </div>
         </div>
 
-        <a
-          className="pachax-onboarding-cta"
-          href={OFFICIAL_WHATSAPP.buildUrl('Hola PACHAX, quisiera consultar una implementación guiada para mi empresa. Entiendo que la creación autónoma está pausada y quiero conocer los siguientes pasos.')}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Consultar una implementación guiada por WhatsApp, se abre en una pestaña nueva"
-        >
-          <span>Consultar implementación guiada</span><ArrowRight aria-hidden="true" />
-        </a>
+        {implementationContactUrl ? (
+          <a
+            className="pachax-onboarding-cta"
+            href={implementationContactUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Consultar una implementación guiada por WhatsApp, se abre en una pestaña nueva"
+          >
+            <span>Consultar implementación guiada</span><ArrowRight aria-hidden="true" />
+          </a>
+        ) : (
+          <p className="pachax-onboarding-cta" role="status">El contacto para consultar la implementación aún no está configurado.</p>
+        )}
       </div>
     </section>
   )

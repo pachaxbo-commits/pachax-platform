@@ -1,7 +1,8 @@
 import { ArrowUpRight, MessageCircle } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { BrandMark } from '../components/BrandMark'
-import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { getWhatsAppUrl } from '../config/publicContact'
 
 const FOOTER_LINKS = [
   { href: '#plantillas', label: 'Plantillas' },
@@ -12,8 +13,9 @@ const FOOTER_LINKS = [
 
 export function TrustFooter() {
   const { navigate } = usePublicRouter()
+  const { landingContent } = useCommercialConfig()
   const facebookUrl = 'https://www.facebook.com/pachaxbo'
-  const whatsappUrl = `https://wa.me/${OFFICIAL_WHATSAPP.phoneNumber}?text=${encodeURIComponent('Hola PACHAX, me contacto desde la web oficial.')}`
+  const whatsappUrl = getWhatsAppUrl('Hola PACHAX, me contacto desde la web oficial.', landingContent.officialWhatsAppNumber)
 
   return (
     <footer className="pachax-trust-footer">
@@ -29,9 +31,15 @@ export function TrustFooter() {
         </nav>
 
         <div className="pachax-footer-contact">
-          <a href={whatsappUrl} target="_blank" rel="noopener noreferrer">
-            <MessageCircle aria-hidden="true" /> WhatsApp <span>{OFFICIAL_WHATSAPP.displayNumber}</span>
-          </a>
+          {whatsappUrl ? (
+            <a href={whatsappUrl} target="_blank" rel="noopener noreferrer">
+              <MessageCircle aria-hidden="true" /> WhatsApp <span>{landingContent.officialWhatsAppDisplay || landingContent.officialWhatsAppNumber}</span>
+            </a>
+          ) : (
+            <span aria-label="Contacto comercial de WhatsApp no configurado">
+              <MessageCircle aria-hidden="true" /> Contacto comercial no configurado
+            </span>
+          )}
           <a href={facebookUrl} target="_blank" rel="noopener noreferrer">
             Facebook <span>Pachax - Software & Digital Marketing</span>
             <ArrowUpRight className="pachax-footer-external" aria-hidden="true" />

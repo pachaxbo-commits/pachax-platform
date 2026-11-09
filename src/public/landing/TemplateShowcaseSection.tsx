@@ -3,9 +3,11 @@ import { MessageSquare, Copy, Check, ArrowRight } from 'lucide-react'
 import { TEMPLATE_SHOWCASE_DATA, type TemplateShowcaseItem } from './templateShowcaseData'
 import { TemplateShowcaseCard } from './TemplateShowcaseCard'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
-import { getWhatsAppUrl } from '../config/publicContact'
+import { getWhatsAppUrl, hasWhatsAppContact } from '../config/publicContact'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 
 export function TemplateShowcaseSection() {
+  const { landingContent } = useCommercialConfig()
   const [selectedItem, setSelectedItem] = useState<TemplateShowcaseItem | null>(null)
   const [isCustomOpen, setIsCustomOpen] = useState(false)
   const [customForm, setCustomForm] = useState({
@@ -114,13 +116,15 @@ export function TemplateShowcaseSection() {
 
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <a
-                  href={getWhatsAppUrl(preparedText)}
+                  href={getWhatsAppUrl(preparedText, landingContent.officialWhatsAppNumber) || undefined}
+                  aria-disabled={!hasWhatsAppContact(landingContent.officialWhatsAppNumber)}
+                  onClick={(event) => { if (!hasWhatsAppContact(landingContent.officialWhatsAppNumber)) event.preventDefault() }}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-5 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
                 >
                   <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Enviar por WhatsApp</span>
+                  <span>{hasWhatsAppContact(landingContent.officialWhatsAppNumber) ? 'Enviar por WhatsApp' : 'WhatsApp no configurado'}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
                 </a>
 

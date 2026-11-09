@@ -1,25 +1,20 @@
 /**
- * Configuración centralizada de datos de contacto comercial público.
- *
- * NOTA:
- * Actualmente no existe un número de WhatsApp oficial asignado.
- * Si whatsappNumber o email están vacíos, la interfaz ofrece 'Copiar requerimiento'
- * y 'Abrir WhatsApp' de forma honesta, sin simular que el mensaje llegó directamente
- * a un asesor hasta que se defina la vía de contacto comercial.
+ * Construye enlaces comerciales desde la configuración pública aprobada.
+ * El número propuesto se mantiene solo como referencia de revisión administrativa;
+ * nunca se usa automáticamente como destino de un CTA.
  */
-export interface PublicContactConfig {
-  whatsappNumber: string
-  email: string
+export const PROPOSED_WHATSAPP_NUMBER_FOR_OWNER_REVIEW = '59177987776'
+
+export function normalizeWhatsAppNumber(value: string | null | undefined): string {
+  return (value ?? '').replace(/\D/g, '')
 }
 
-export const publicContact: PublicContactConfig = {
-  whatsappNumber: '',
-  email: '',
+export function hasWhatsAppContact(value: string | null | undefined): boolean {
+  return normalizeWhatsAppNumber(value).length >= 8
 }
 
-export function getWhatsAppUrl(text: string): string {
-  if (publicContact.whatsappNumber) {
-    return `https://wa.me/${publicContact.whatsappNumber}?text=${encodeURIComponent(text)}`
-  }
-  return `https://wa.me/?text=${encodeURIComponent(text)}`
+export function getWhatsAppUrl(text: string, configuredNumber: string | null | undefined): string | null {
+  const number = normalizeWhatsAppNumber(configuredNumber)
+  if (!hasWhatsAppContact(number)) return null
+  return `https://wa.me/${number}?text=${encodeURIComponent(text)}`
 }

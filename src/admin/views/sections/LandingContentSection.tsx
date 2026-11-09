@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Type, Save, CheckCircle2, AlertCircle, Loader2, Phone } from 'lucide-react'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
+import { PROPOSED_WHATSAPP_NUMBER_FOR_OWNER_REVIEW } from '../../../public/config/publicContact'
 import { useAdminAuth } from '../../auth/adminAuthStore'
 import type { LandingContentConfig } from '../../types'
 
@@ -164,6 +165,9 @@ export function LandingContentSection() {
               onChange={(e) => setFormData({ ...formData, officialWhatsAppNumber: e.target.value })}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900"
             />
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              No hay un número aprobado por defecto. El número {PROPOSED_WHATSAPP_NUMBER_FOR_OWNER_REVIEW} fue encontrado en código y queda solo como propuesta para confirmar con el propietario; no se publica ni se usa hasta que lo introduzcas y guardes aquí.
+            </p>
           </div>
 
           <div>

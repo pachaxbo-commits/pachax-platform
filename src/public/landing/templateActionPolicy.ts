@@ -1,4 +1,4 @@
-import { OFFICIAL_WHATSAPP } from '../config/pricingConfig.ts'
+import { getWhatsAppUrl } from '../config/publicContact.ts'
 
 export type TemplateSecondaryAction =
   | { kind: 'quote'; label: 'Cotizar a medida' }
@@ -14,9 +14,9 @@ export function getTemplateSecondaryAction(templateId: string): TemplateSecondar
   return { kind: 'contact', label: 'Solicitar implementación' }
 }
 
-export function getTemplateContactUrl(templateName: string, action: TemplateSecondaryAction): string {
-  if (action.kind === 'quote') return OFFICIAL_WHATSAPP.buildUrl(OFFICIAL_WHATSAPP.defaultCustomDevMessage)
+export function getTemplateContactUrl(templateName: string, action: TemplateSecondaryAction, configuredNumber: string): string | null {
+  if (action.kind === 'quote') return getWhatsAppUrl('Hola, quiero información sobre un desarrollo a medida en PACHAX Platform.', configuredNumber)
 
   const message = `Hola, quiero solicitar una implementación de ${templateName} en PACHAX.`
-  return OFFICIAL_WHATSAPP.buildUrl(message)
+  return getWhatsAppUrl(message, configuredNumber)
 }
