@@ -1,0 +1,74 @@
+name: Nightclub Floor QA
+
+on:
+  pull_request:
+    paths:
+      - 'src/modules/nightclub/domain/nightclubFloorLayout.ts'
+      - 'src/modules/nightclub/domain/__tests__/nightclubFloorLayout.test.ts'
+      - 'src/modules/nightclub/views/NightclubFloorCanvas.tsx'
+      - 'src/modules/nightclub/views/NightclubZones.tsx'
+      - 'src/modules/nightclub/tutorials/**'
+      - 'scripts/test-nightclub-floor-browser.mjs'
+      - 'docs/nightclub-interactive-floor.md'
+      - 'docs/nightclub-floor-evidence/**'
+      - '.github/workflows/nightclub-floor-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightclub-floor-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nightclub-floor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      # Nightclub session dates follow the Bolivian operating timezone in tests.
+      TZ: America/La_Paz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - run: npm ci
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Focused ESLint
+        run: >-
+          npx eslint
+          src/modules/nightclub/domain/nightclubFloorLayout.ts
+          src/modules/nightclub/domain/__tests__/nightclubFloorLayout.test.ts
+          src/modules/nightclub/views/NightclubFloorCanvas.tsx
+          src/modules/nightclub/views/NightclubZones.tsx
+          src/modules/nightclub/tutorials/NightclubTutorial.tsx
+          src/modules/nightclub/tutorials/nightclubTutorials.ts
+          src/modules/nightclub/tutorials/__tests__/nightclubTutorials.test.ts
+          scripts/test-nightclub-floor-browser.mjs
+      - name: Nightclub domain, permissions, and tutorial
+        run: npm run test:nightclub
+      - name: Build emulator and isolated demo
+        run: npm run build:emulator
+      - name: Demo isolation and route guards
+        run: |
+          npm run test:preview-firebase-isolation
+          npm run test:free-demo-routes
+          npm run test:demos-only:guard
+      - name: Interactive map, keyboard, touch, and responsive QA
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm run test:nightclub-floor-browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightclub-floor-evidence
+          path: docs/nightclub-floor-evidence/
+          if-no-files-found: warn

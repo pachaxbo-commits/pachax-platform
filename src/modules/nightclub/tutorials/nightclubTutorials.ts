@@ -113,6 +113,33 @@ export function createNightclubTutorialPlans(options: NightclubTutorialPlanOptio
     overview('reports', 'Pulsa Reportes para ver los resultados.', 'Reportes', 'Aquí aparecen ventas cobradas, métodos de pago, productos y existencias. Usa los períodos para comparar sin cambiar operaciones.')
     overview('settings', 'Pulsa Configuración para revisar el negocio.', 'Configuración y permisos', 'Aquí se preparan datos del negocio, cajas, zonas y plantillas de permisos. Revisa cada cambio antes de guardarlo.')
     plans.push(make('admin-preparation', 'Administración y preparación', 'Configuración del negocio, operación y supervisión.', steps))
+
+    if (canView('floor')) {
+      const floorSteps: NightclubTutorialStep[] = [
+        nav('floor', 'Abre Zonas para recorrer la distribución y el estado de cada espacio.'),
+        observe('floor-map-overview', 'Plano por zonas', 'Cada zona muestra las mesas configuradas. Su posición es una guía visual; las cuentas y estados proceden de la operación actual.', 'floor', 'section-floor-map'),
+        observe('floor-map-controls', 'Filtros y estados', 'Usa el selector para cambiar de zona y los indicadores para reconocer espacios libres, ocupados, reservados o por cobrar.', 'floor', 'floor-toolbar'),
+        action('floor-map-select-table', 'Seleccionar una mesa', 'Pulsa una mesa libre. Seleccionarla solo abre su detalle; no crea una cuenta ni cambia su estado.', 'floor', 'floor-available-table', true, 'click'),
+        observe('floor-map-table-detail', 'Leer el detalle', 'El panel muestra el sector, capacidad, reserva o cuenta activa y las acciones permitidas por el turno y tus permisos.', 'floor', 'floor-table-detail'),
+      ]
+      if (can('accounts', 'create')) {
+        floorSteps.push(action('floor-map-practice-account', 'Abrir una cuenta de práctica', 'En Demo, abre una cuenta únicamente si quieres practicar. La operación usa datos aislados; en una empresa real esta guía no ejecuta acciones.', 'floor', 'floor-open-account', true, 'practice-account'))
+        if (can('pos', 'create')) {
+          floorSteps.push(nav('pos', 'La cuenta se abre en el POS. Allí puedes preparar una ronda sin cobrarla.'))
+          floorSteps.push(action('floor-map-practice-product', 'Añadir un producto', 'Elige un producto disponible para crear un borrador de ronda. Todavía no se envía a preparación.', 'pos', 'pos-product', true, 'draft'))
+          floorSteps.push(action('floor-map-practice-round', 'Enviar una ronda de práctica', 'En el entorno Demo puedes enviar la ronda local para observar el flujo. No se ejecuta ningún cobro.', 'pos', 'pos-send', true, 'practice-round'))
+          if (canView('bar')) floorSteps.push(nav('bar', 'Barra muestra las rondas enviadas y su estado de preparación.'))
+          if (canView('accounts')) floorSteps.push(nav('accounts', 'Cuentas conserva el consumo y el saldo para las acciones de caja autorizadas.'))
+          floorSteps.push(nav('floor', 'Vuelve a Zonas para ver la cuenta activa asociada a la mesa.'))
+          floorSteps.push(observe('floor-map-active-account', 'Cuenta asociada', 'La mesa conserva su estado y la cuenta abierta. Finalizar la ocupación requiere saldo en cero y rondas resueltas.', 'floor', 'floor-table-detail'))
+        }
+      }
+      if (safePractice && can('floor', 'edit')) {
+        floorSteps.push(action('floor-map-editor-open', 'Editar distribución de práctica', 'En Demo o Studio, abre el editor para mover mesas con arrastre o controles. Las posiciones se guardan únicamente en este navegador.', 'floor', 'floor-editor-entry', true, 'click'))
+        floorSteps.push(observe('floor-map-editor-controls', 'Controles del editor', 'Puedes mover con el plano, controles táctiles o teclado, y cancelar o guardar la distribución local de práctica.', 'floor', 'floor-editor-controls'))
+      }
+      plans.push(make('nightclub-floor-map', 'Mapa de zonas y mesas', 'Distribución, estados y operación de mesas; con edición local solo en Demo o Studio.', floorSteps))
+    }
   }
 
   if (role === 'waiter' && canView('pos')) {
