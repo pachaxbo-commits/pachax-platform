@@ -107,12 +107,12 @@ test('Socio conserva guía solo de lectura en las secciones permitidas', () => {
 
 test('Administrador puede elegir recorridos de otros roles cuando posee esos permisos', () => {
   const ids = plans('admin').map(plan => plan.id)
-  assert.deepEqual(ids, ['admin-preparation', 'waiter-service', 'cashier-shift', 'bar-preparation', 'service-delivery', 'inventory-overview', 'supervisor-overview', 'promoter-overview', 'partner-supervision'])
+  assert.deepEqual(ids, ['admin-preparation', 'nightclub-floor-map', 'waiter-service', 'cashier-shift', 'bar-preparation', 'service-delivery', 'inventory-overview', 'supervisor-overview', 'promoter-overview', 'partner-supervision'])
 })
 
 test('Studio no ofrece recorridos de otros roles al administrador', () => {
   const studioPlans = createNightclubTutorialPlans({ role: 'admin', modules: all, permissions, safePractice: true, allowRolePreview: false })
-  assert.deepEqual(studioPlans.map(plan => plan.id), ['admin-preparation'])
+  assert.deepEqual(studioPlans.map(plan => plan.id), ['admin-preparation', 'nightclub-floor-map'])
 })
 
 test('en tenant el recorrido de inventario y productos solo explica; no habilita formularios ni guardados', () => {
@@ -121,6 +121,18 @@ test('en tenant el recorrido de inventario y productos solo explica; no habilita
   assert.ok(practiceSteps.length > 0)
   assert.ok(practiceSteps.every(step => step.interaction === 'observe' || step.interaction === 'navigate'))
   assert.equal(practiceSteps.some(step => step.interaction === 'demo-operation'), false)
+})
+
+test('el recorrido del mapa usa acciones reales solo en Demo/Studio y es de solo lectura en tenant', () => {
+  const demo = createNightclubTutorialPlans({ role: 'admin', modules: all, permissions, safePractice: true, allowRolePreview: false }).find(plan => plan.id === 'nightclub-floor-map')!
+  assert.deepEqual(demo.steps.slice(0, 5).map(step => step.id), ['open-floor', 'floor-map-overview', 'floor-map-controls', 'floor-map-select-table', 'floor-map-table-detail'])
+  assert.equal(demo.steps.find(step => step.id === 'floor-map-practice-account')?.advancesOn, 'practice-account')
+  assert.equal(demo.steps.find(step => step.id === 'floor-map-practice-round')?.advancesOn, 'practice-round')
+  assert.ok(demo.steps.some(step => step.id === 'floor-map-editor-open'))
+
+  const tenant = createNightclubTutorialPlans({ role: 'admin', modules: all, permissions, safePractice: false, allowRolePreview: false }).find(plan => plan.id === 'nightclub-floor-map')!
+  assert.ok(tenant.steps.every(step => step.interaction === 'navigate' || step.interaction === 'observe'))
+  assert.equal(tenant.steps.some(step => step.id === 'floor-map-editor-open'), false)
 })
 
 test('una práctica ya enviada conserva la secuencia pero vuelve informativos los pasos de venta', () => {

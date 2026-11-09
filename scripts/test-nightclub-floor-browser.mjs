@@ -1,0 +1,206 @@
+import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer as createViteServer } from 'vite'
+import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createServer } from 'node:net'
+
+const chrome = [process.env.CHROME_BIN, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].filter(Boolean).find(existsSync)
+assert(chrome, 'Chrome no encontrado; define CHROME_BIN.')
+const vite = await createViteServer({ configFile: './vite.config.ts', mode: 'test', server: { host: '127.0.0.1', port: 5197, strictPort: true } })
+await vite.listen()
+const probe = createServer()
+await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
+const debugPort = probe.address().port
+await new Promise(resolve => probe.close(resolve))
+const profile = mkdtempSync(join(tmpdir(), 'pachax-nightclub-floor-'))
+const output = 'docs/nightclub-floor-evidence'
+mkdirSync(output, { recursive: true })
+const browser = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${debugPort}`, '--remote-allow-origins=*', `--user-data-dir=${profile}`, 'http://127.0.0.1:5197/demo/nightclub'], { stdio: 'ignore' })
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+let socket
+try {
+  let page
+  for (let attempt = 0; attempt < 70; attempt++) {
+    await sleep(250)
+    try { page = (await (await fetch(`http://127.0.0.1:${debugPort}/json`)).json()).find(item => item.type === 'page' && item.webSocketDebuggerUrl); if (page) break } catch { /* Chrome starting. */ }
+  }
+  assert(page?.webSocketDebuggerUrl, 'No se encontró Chrome CDP.')
+  socket = new WebSocket(page.webSocketDebuggerUrl)
+  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject })
+  let nextId = 1
+  const pending = new Map()
+  const requests = []
+  const browserErrors = []
+  socket.onmessage = event => {
+    const value = JSON.parse(event.data)
+    if (value.method === 'Network.requestWillBeSent') requests.push(value.params.request.url)
+    if (value.method === 'Runtime.exceptionThrown') browserErrors.push(value.params.exceptionDetails.text)
+    if (!pending.has(value.id)) return
+    const { resolve, reject, method } = pending.get(value.id)
+    pending.delete(value.id)
+    value.error ? reject(new Error(`${method}: ${JSON.stringify(value.error)}`)) : resolve(value.result)
+  }
+  const send = (method, params = {}) => new Promise((resolve, reject) => { const id = nextId++; pending.set(id, { resolve, reject, method }); socket.send(JSON.stringify({ id, method, params })) })
+  const evaluate = async expression => {
+    const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text)
+    return result.result.value
+  }
+  const waitFor = async expression => {
+    for (let attempt = 0; attempt < 100; attempt++) { if (await evaluate(expression)) return; await sleep(150) }
+    throw new Error(`No apareció: ${expression}; panel=${await evaluate("document.querySelector('[data-nightclub-tutorial-panel]')?.innerText.slice(0,220) || 'cerrado'")}`)
+  }
+  const click = async selector => {
+    await waitFor(`!!document.querySelector(${JSON.stringify(selector)})`)
+    await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: 'center', inline: 'center' })`)
+    const point = await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,h=document.elementFromPoint(x,y);return {x,y,hit:!!h&&(h===e||e.contains(h)),w:r.width,hg:r.height}})()`)
+    assert(point.w > 0 && point.hg > 0 && point.hit, `Elemento no recibe clic en su centro: ${selector} (${JSON.stringify(point)})`)
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y })
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  }
+  const clickButtonText = async (root, text) => {
+    const expression = `(()=>{const e=[...document.querySelector(${JSON.stringify(root)}).querySelectorAll('button')].find(item=>item.textContent.trim()===${JSON.stringify(text)}),r=e?.getBoundingClientRect(),x=r? r.left+r.width/2:0,y=r?r.top+r.height/2:0,h=document.elementFromPoint(x,y);return r?{x,y,hit:!!h&&(h===e||e.contains(h)),disabled:e.disabled}:null})()`
+    const point = await evaluate(expression)
+    assert(point, `No se encontró el botón "${text}" en ${root}`)
+    assert.equal(point.disabled, false, `El botón "${text}" debe estar habilitado.`)
+    assert.equal(point.hit, true, `El botón "${text}" recibe el puntero.`)
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y })
+    await sleep(80)
+    const hovered = await evaluate(expression)
+    assert(hovered?.hit, `El botón "${text}" sigue recibiendo el puntero tras hover.`)
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: hovered.x, y: hovered.y, button: 'left', clickCount: 1 })
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: hovered.x, y: hovered.y, button: 'left', clickCount: 1 })
+  }
+  const capture = async name => {
+    const result = await send('Page.captureScreenshot', { format: 'jpeg', quality: 72, captureBeyondViewport: false })
+    writeFileSync(join(output, `${name}.jpg`), Buffer.from(result.data, 'base64'))
+  }
+  await send('Runtime.enable')
+  await send('Network.enable')
+  await send('Page.enable')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
+  await waitFor("!!document.querySelector('[data-tutorial-trigger]') && !!document.querySelector('h1')")
+  await click('[data-tutorial-target="nav-floor"]')
+  await waitFor("!!document.querySelector('[data-floor-table]')")
+  await evaluate("document.querySelector('[data-floor-table]')?.scrollIntoView({block:'center',inline:'nearest'})")
+  await sleep(800)
+  await capture('nightclub-floor-desktop-1440')
+  await click('[aria-label="Modo claro"]')
+  await capture('nightclub-floor-light-1440')
+  await click('[aria-label="Modo oscuro"]')
+  const tableCount = await evaluate("document.querySelectorAll('[data-floor-table]').length")
+  assert(tableCount > 0, 'La demo debe presentar mesas del dataset real de demostración.')
+  assert.equal(await evaluate("document.querySelectorAll('[data-floor-table]').length === document.querySelectorAll('svg [data-floor-table]').length"), true)
+  await click('[aria-label="Acercar plano"]')
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"Controles de zoom\"]')?.innerText.includes('110%')"), true)
+  await click('[aria-label="Restablecer zoom"]')
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"Controles de zoom\"]')?.innerText.includes('100%')"), true)
+  await click('[aria-label="Vista de lista"]')
+  assert.equal(await evaluate("document.querySelectorAll('[data-tour=\"floor-list\"] button').length"), tableCount, 'La lista alternativa muestra las mismas mesas.')
+  await click('[aria-label="Vista de plano"]')
+  await click('[data-floor-table]')
+  await waitFor("!!document.querySelector('[data-tutorial-target=" + '"floor-table-detail"' + "]')")
+  await capture('nightclub-floor-table-detail-1440')
+  await click('[data-tutorial-target="floor-detail-close"]')
+  await click('[data-tour="floor-editor-entry"]')
+  assert.equal(await evaluate("document.body.innerText.includes('Editando plano demostrativo')"), true)
+  await capture('nightclub-floor-editor-1440')
+  await evaluate("document.querySelector('[data-floor-table]').scrollIntoView({block:'center',inline:'nearest'})")
+  const dragPoint = await evaluate("(()=>{const r=document.querySelector('[data-floor-table]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()")
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: dragPoint.x, y: dragPoint.y })
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: dragPoint.x, y: dragPoint.y, button: 'left', buttons: 1, clickCount: 1 })
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: dragPoint.x + 16, y: dragPoint.y + 8, button: 'left', buttons: 1 })
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: dragPoint.x + 16, y: dragPoint.y + 8, button: 'left', clickCount: 1 })
+  await evaluate("document.querySelector('[aria-label=\"Mover mesa a la derecha\"]').focus()")
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await click('[aria-label="Mover mesa a la derecha"]')
+  await click('[data-floor-save]')
+  assert.equal(await evaluate("document.body.innerText.includes('Editando plano demostrativo')"), false, 'Guardar termina la edición local.')
+  const localPositionKeys = await evaluate("Object.keys(localStorage).filter(key=>key.startsWith('pachax:nightclub:floor-layout:v1:demo:')).length")
+  assert(localPositionKeys > 0, 'Guardar en Demo persiste una clave local scoped.')
+  await send('Page.reload')
+  await waitFor("!!document.querySelector('[data-tutorial-target=" + '"nav-floor"' + "]')")
+  await click('[data-tutorial-target="nav-floor"]')
+  await waitFor("!!document.querySelector('[data-floor-table]')")
+  assert.equal(await evaluate("Object.keys(localStorage).some(key=>key.startsWith('pachax:nightclub:floor-layout:v1:demo:'))"), true)
+  await capture('nightclub-floor-demo-restored-1440')
+
+  await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false })
+  await sleep(250)
+  assert.equal(await evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth'), false, 'Escritorio 1920px no debe desbordar la página.')
+  await capture('nightclub-floor-desktop-1920')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false })
+  await sleep(250)
+  await capture('nightclub-floor-tablet-landscape')
+  for (const width of [320, 360, 375, 390, 430, 768]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true })
+    await sleep(300)
+    await evaluate('window.scrollTo({ left: 0, top: 0 })')
+    await sleep(80)
+    const overflow = await evaluate("(()=>{let e=document.querySelector('[data-floor-table]');const chain=[];while(e&&chain.length<9){const r=e.getBoundingClientRect(),s=getComputedStyle(e);chain.push({tag:e.tagName,cls:String(e.className?.baseVal||e.className||'').slice(0,80),left:Math.round(r.left),right:Math.round(r.right),width:Math.round(r.width),scrollWidth:e.scrollWidth,overflowX:s.overflowX});e=e.parentElement}return {page:document.documentElement.scrollWidth,viewport:document.documentElement.clientWidth,scrollX,chain}})()")
+    assert.equal(overflow.page > overflow.viewport, false, `No debe existir scroll horizontal de página a ${width}px: ${JSON.stringify(overflow)}`)
+    const tableRect = await evaluate("(()=>{const e=document.querySelector('[data-floor-table]');if(!e)return null;const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,width:r.width,height:r.height}})()")
+    assert(tableRect && tableRect.width > 0 && tableRect.height > 0, `Mesa visible en viewport ${width}px.`)
+    await evaluate("document.querySelector('[data-floor-table]')?.scrollIntoView({block:'center',inline:'center'})")
+    await sleep(100)
+    if (width === 390) await capture('nightclub-floor-mobile-390')
+    if (width === 320) await capture('nightclub-floor-mobile-320')
+    if (width === 390) {
+      await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+      await evaluate("document.querySelector('[data-floor-table]').scrollIntoView({block:'center',inline:'center'})")
+      await sleep(150)
+      const point = await evaluate("(()=>{const e=document.querySelector('[data-floor-table]'),r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()")
+      await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: point.x, y: point.y, id: 1 }] })
+      await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await waitFor("!!document.querySelector('[data-tutorial-target=" + '"floor-table-detail"' + "]')")
+      assert.equal(await evaluate("document.querySelector('[role=dialog][aria-label^=\"Detalle de\"]') !== null"), true, 'Un toque real selecciona la mesa en móvil.')
+      await click('[data-tutorial-target="floor-detail-close"]')
+      await send('Emulation.setTouchEmulationEnabled', { enabled: false })
+    }
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 768, deviceScaleFactor: 1, mobile: false })
+  await sleep(250)
+  assert.equal(await evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth'), false, 'Tablet horizontal no debe desbordar la página.')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
+  await sleep(250)
+  assert.equal(await evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth'), false, 'Escritorio 1440px no debe desbordar la página.')
+  await click('[data-tutorial-trigger]')
+  await waitFor("!!document.querySelector('[data-tutorial-plan=" + '"nightclub-floor-map"' + "]')")
+  await click('[data-tutorial-plan="nightclub-floor-map"]')
+  await click('[data-tutorial-start]')
+  await click('[data-tutorial-target="nav-floor"]')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Plano por zonas'")
+  await capture('nightclub-floor-tutorial-map')
+  assert.equal(await evaluate("/Paso 2 de/i.test(document.querySelector('[data-nightclub-tutorial-panel]')?.innerText || '')"), true)
+  assert.equal(await evaluate("/cuentas/i.test(document.querySelector('[data-nightclub-tutorial-panel]')?.innerText || '')"), true)
+  await clickButtonText('[data-nightclub-tutorial-panel]', 'Continuar')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Filtros y estados'")
+  await clickButtonText('[data-nightclub-tutorial-panel]', 'Continuar')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Seleccionar una mesa'")
+  await click('[data-tutorial-target="floor-available-table"]')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Leer el detalle'")
+  await clickButtonText('[data-nightclub-tutorial-panel]', 'Continuar')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Abrir una cuenta de práctica'")
+  await click('[data-tutorial-target="floor-open-account"]')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'POS'")
+  await click('[data-tutorial-target="nav-pos"]')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Añadir un producto'")
+  await click('[data-tutorial-target="pos-product"]')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Enviar una ronda de práctica'")
+  await click('[data-tutorial-target="pos-send"]')
+  await waitFor("document.querySelector('[data-nightclub-tutorial-panel] h2')?.textContent === 'Barra'")
+  assert.equal(requests.some(url => /firebaseapp\.com|identitytoolkit\.googleapis\.com|firestore\.googleapis\.com|firebaseio\.com|cloudfunctions\.net|run\.app/.test(url)), false, 'La demo no debe llamar servicios Firebase/Cloud production.')
+  assert.equal(browserErrors.length, 0, `Sin errores del navegador: ${browserErrors.join('\n')}`)
+  console.log(`PASS: mapa Nightclub en navegador (${tableCount} mesas); detalle, edición, movimiento táctil/teclado, persistencia Demo, guía, móvil 320/390 y escritorio 1440/1920. Capturas: ${output}`)
+} finally {
+  socket?.close()
+  browser.kill()
+  await Promise.race([new Promise(resolve => browser.once('exit', resolve)), sleep(3000)])
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 }) } catch { /* Chromium may retain a temporary lock briefly on Windows. */ }
+  await vite.close()
+}
