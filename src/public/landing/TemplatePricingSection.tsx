@@ -9,6 +9,7 @@ import {
 } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { getWhatsAppUrl, hasWhatsAppContact } from '../config/publicContact'
 import { freeDemoPath, canLaunchCommercialDemo } from '../../core/publicTemplates'
 import { getQuickServiceEditorialData, getQuickServicePricingState } from './quickServicePresentation'
 
@@ -31,7 +32,7 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
   const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<QuickServiceId>(initialQuickServiceId)
   const [selectedTierLevel, setSelectedTierLevel] = useState<number>(2)
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
-  const hasOfficialContact = Boolean(landingContent.officialWhatsAppNumber.replace(/\D/g, ''))
+  const hasOfficialContact = hasWhatsAppContact(landingContent.officialWhatsAppNumber)
   const dialogRef = useRef<HTMLDivElement>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
 
@@ -133,9 +134,8 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
   }
 
   const contactWhatsApp = (message: string) => {
-    const number = landingContent.officialWhatsAppNumber.replace(/\D/g, '')
-    if (!number) return
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+    const url = getWhatsAppUrl(message, landingContent.officialWhatsAppNumber)
+    if (url) window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const handleSpecializedInquiry = () => contactWhatsApp(`Hola, quiero solicitar una implementación de ${activeSpecialized.title} en PACHAX.`)

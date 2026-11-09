@@ -89,8 +89,9 @@ export const DEFAULT_LANDING_CONTENT: LandingContentConfig = {
   heroSubtitle: 'Arquitectura multitenant de alto rendimiento para gastronomía, logística mayorista, entretenimiento nocturno y comercio minorista. Cada rubro opera con su propio motor canónico.',
   heroCtaPrimary: 'Explorar vitrina de soluciones',
   heroCtaSecondary: 'Comenzar ahora',
-  officialWhatsAppNumber: OFFICIAL_WHATSAPP.phoneNumber,
-  officialWhatsAppDisplay: OFFICIAL_WHATSAPP.displayNumber,
+  // El contacto queda vacío hasta que el propietario confirme y publique uno.
+  officialWhatsAppNumber: '',
+  officialWhatsAppDisplay: '',
   defaultCustomDevMessage: OFFICIAL_WHATSAPP.defaultCustomDevMessage,
   valueStripMetrics: [
     { label: 'DISPONIBILIDAD', value: 'Operación en la nube', detail: 'Arquitectura distribuida y continua' },

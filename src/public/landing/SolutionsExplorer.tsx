@@ -13,7 +13,8 @@ import {
   Check,
 } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
-import { publicContact, getWhatsAppUrl } from '../config/publicContact'
+import { getWhatsAppUrl, hasWhatsAppContact } from '../config/publicContact'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 
 export type SolutionTabKey =
   | 'restaurant_pos'
@@ -23,6 +24,7 @@ export type SolutionTabKey =
 
 export function SolutionsExplorer() {
   const { navigate } = usePublicRouter()
+  const { landingContent } = useCommercialConfig()
   const [activeTab, setActiveTab] = useState<SolutionTabKey>('restaurant_pos')
 
   // Estado del formulario para la opción a medida
@@ -589,13 +591,15 @@ export function SolutionsExplorer() {
                     </button>
 
                     <a
-                      href={getWhatsAppUrl(preparedText)}
+                      href={getWhatsAppUrl(preparedText, landingContent.officialWhatsAppNumber) || undefined}
+                      aria-disabled={!hasWhatsAppContact(landingContent.officialWhatsAppNumber)}
+                      onClick={(event) => { if (!hasWhatsAppContact(landingContent.officialWhatsAppNumber)) event.preventDefault() }}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition inline-flex items-center justify-center gap-2"
                     >
                       <MessageSquare className="w-4 h-4" />
-                      <span>{publicContact.whatsappNumber ? 'Enviar a WhatsApp Oficial' : 'Abrir WhatsApp'}</span>
+                      <span>{hasWhatsAppContact(landingContent.officialWhatsAppNumber) ? 'Enviar a WhatsApp Oficial' : 'WhatsApp no configurado'}</span>
                     </a>
                   </div>
 

@@ -21,6 +21,8 @@ import type { DistributionIndustryProfile } from '../../modules/distribution/typ
 import { BRAND_PALETTES, type BrandPalette } from '../../core/brandPalettes'
 import { onboardingErrorMessage } from '../../core/onboardingErrorMessage'
 import { readableForeground } from '../../lib/tenantTheme'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { getWhatsAppUrl } from '../config/publicContact'
 
 const REGISTER_PRESENTATION = {
   restaurant: { icon: Utensils, badgeColor: 'text-amber-700 bg-amber-50 border-amber-200' },
@@ -40,6 +42,11 @@ const REGISTER_TEMPLATES = PUBLIC_TEMPLATES.map(template => ({
 
 export function PublicRegisterView() {
   const { navigate, templateParam } = usePublicRouter()
+  const { landingContent } = useCommercialConfig()
+  const assistedContactUrl = getWhatsAppUrl(
+    'Hola, equipo PACHAX. Estoy interesado en implementar PACHAX Platform en mi empresa. Quisiera conocer los planes disponibles, los requisitos y cómo comenzar.',
+    landingContent.officialWhatsAppNumber,
+  )
 
   // Pasos: 1 = Cuenta, 2 = Empresa, 3 = Plantilla, 4 = Personalización, 5 = Confirmación
   const [currentStep, setCurrentStep] = useState<number>(1)
@@ -179,7 +186,15 @@ export function PublicRegisterView() {
             La creación autónoma de empresas está temporalmente pausada. Puedes coordinar una implementación con el equipo de PACHAX.
           </p>
           <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-            <a className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" href="mailto:pachax.bo@gmail.com">Contactar a PACHAX</a>
+            {assistedContactUrl ? (
+              <a className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" href={assistedContactUrl} target="_blank" rel="noopener noreferrer">
+                Contactar por WhatsApp
+              </a>
+            ) : (
+              <p className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600" role="status">
+                El contacto comercial aún no está configurado. Puedes iniciar sesión si ya tienes una cuenta.
+              </p>
+            )}
             <button className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700" onClick={() => navigate('/login')} type="button">Ya tengo cuenta</button>
           </div>
           <button className="mt-5 text-sm text-slate-500 underline" onClick={() => navigate('/')} type="button">Volver al inicio</button>

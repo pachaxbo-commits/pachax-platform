@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowRight, Menu, X } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useAuthStore } from '../../store/authStore'
+import { PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED } from '../../core/publicTemplates'
 
 export function LandingHeader() {
   const auth = useAuthStore()
@@ -51,7 +52,9 @@ export function LandingHeader() {
             </button>
           ) : <>
             <button type="button" className="pachax-login-link" onClick={() => navigate('/login')}>Iniciar sesión</button>
-            <button type="button" className="pachax-register-button" onClick={() => navigate('/register')}>Registrarse <ArrowRight aria-hidden="true" /></button>
+            <button type="button" className="pachax-register-button" onClick={() => navigate('/register')}>
+              {PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED ? 'Registrarse' : 'Solicitar implementación'} <ArrowRight aria-hidden="true" />
+            </button>
           </>}
         </div>
 
@@ -79,7 +82,9 @@ export function LandingHeader() {
               <button type="button" onClick={() => { setIsMenuOpen(false); navigate('/platform') }}>Ir a mi empresa ({companyName})</button>
             ) : <>
               <button type="button" onClick={() => { setIsMenuOpen(false); navigate('/login') }}>Iniciar sesión</button>
-              <button type="button" className="pachax-register-button" onClick={() => { setIsMenuOpen(false); navigate('/register') }}>Registrarse <ArrowRight aria-hidden="true" /></button>
+              <button type="button" className="pachax-register-button" onClick={() => { setIsMenuOpen(false); navigate('/register') }}>
+                {PUBLIC_TENANT_SELF_SERVICE_CREATION_ENABLED ? 'Registrarse' : 'Solicitar implementación'} <ArrowRight aria-hidden="true" />
+              </button>
             </>}
           </div>
         </div>

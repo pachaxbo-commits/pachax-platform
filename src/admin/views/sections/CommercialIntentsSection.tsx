@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { gateway } from '../../../services/gateway'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import { useAdminAuth } from '../../auth/adminAuthStore'
-import { OFFICIAL_WHATSAPP, type TemplateKey } from '../../../public/config/pricingConfig'
+import { type TemplateKey } from '../../../public/config/pricingConfig'
+import { getWhatsAppUrl } from '../../../public/config/publicContact'
 import type { FormEvent } from 'react'
 
 interface CommercialIntent {
@@ -69,7 +70,7 @@ export function CommercialIntentsSection() {
       ? `Hola, compartimos la propuesta PACHAX para ${selected.companyName}. Referencia ${selected.id}. Pago inicial ${((selected.quote.initialDueMinor ?? 0) / 100).toFixed(2)} ${selected.quote.currency || ''}, cubre ${selected.quote.monthsCovered || (selected.quote.billingCycle === 'annual' ? 12 : 1)} meses; renovación ${((selected.quote.recurringMinor ?? 0) / 100).toFixed(2)} ${selected.quote.currency || ''} por ciclo ${selected.quote.billingCycle || 'mensual'}. Por favor revisa las condiciones y responde para coordinar.`
       : `Hola, recibimos la solicitud de ${selected.companyName} para ${selected.templateId}. Referencia ${selected.id}. Queremos conversar sobre la cotización y los siguientes pasos.`
     : ''
-  const whatsAppUrl = selected ? OFFICIAL_WHATSAPP.buildUrl(whatsAppMessage) : ''
+  const whatsAppUrl = selected ? getWhatsAppUrl(whatsAppMessage, config.landingContent.officialWhatsAppNumber) : null
   const refresh = useCallback(async (cursor?: string, append = false) => {
     try {
       const result = await gateway<{ intents: CommercialIntent[]; nextCursor: string | null }>('platformGateway', {
@@ -267,7 +268,11 @@ export function CommercialIntentsSection() {
             <h3 className="font-bold text-slate-900">{selected.companyName}</h3>
             <p className="mt-1 text-xs text-slate-700">Contacto: {selected.contactName || 'No indicado'} · {selected.businessType || 'Tipo de negocio no indicado'}{selected.branchCount ? ` · ${selected.branchCount} sucursales` : ''}</p>
             <p className="mt-1 text-xs text-slate-700">{selected.email} {selected.contactPhone ? `· ${selected.contactPhone}` : ''}</p>
-            <a href={whatsAppUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900">Continuar por WhatsApp con referencia y resumen</a>
+            {whatsAppUrl ? (
+              <a href={whatsAppUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900">Continuar por WhatsApp con referencia y resumen</a>
+            ) : (
+              <p className="mt-3 text-sm text-slate-600" role="status">Configura y publica un número oficial en Contenido de landing para continuar por WhatsApp.</p>
+            )}
             <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{selected.needs || 'No se registraron necesidades adicionales.'}</p>
             {selected.requestedExtraSnapshots?.length ? <p className="mt-2 text-xs text-slate-700">Extras solicitados: {selected.requestedExtraSnapshots.map(extra => extra.title || extra.id).join(', ')}</p> : null}
             {selected.planSnapshot && <p className="mt-3 text-xs text-slate-700">Plan consultado: {selected.planSnapshot.name || selected.planSnapshot.planId} · {selected.planSnapshot.monthlyPrice} {selected.planSnapshot.currency}/mes (referencia guardada)</p>}

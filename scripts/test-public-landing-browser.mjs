@@ -230,6 +230,16 @@ try {
     const catalogState = scenario === 'synthetic'
       ? await waitFor((res) => res.catalogCount === 6, `${width}: synthetic catalog entries`)
       : await waitFor((res) => res.catalogCount === 0 && res.catalogEmpty, `${width}: confirmed empty catalog`)
+    await waitForValue(
+      `document.querySelectorAll('#extras .pachax-extras-contact-actions button').length`,
+      value => value === 2,
+      `${width}: commercial contact actions mounted`,
+    )
+    await waitForValue(
+      `document.querySelectorAll('#extras .pachax-extras-contact-actions button').length === 2 && [...document.querySelectorAll('#extras .pachax-extras-contact-actions button')].every(button => button.disabled)`,
+      value => value === (scenario === 'empty'),
+      `${width}: contact actions match the published fixture state`,
+    )
     const fixtureState = await evaluate('window.__PACHAX_LANDING_TEST_CATALOG__')
     assert.equal(fixtureState?.scenario, scenario)
     // Chromium can restore the same document between viewport navigations, so
@@ -281,6 +291,8 @@ try {
         photoLoaded: Boolean(section?.querySelector('.pachax-extras-contact-photo')?.naturalWidth),
         contactActions: section?.querySelectorAll('.pachax-extras-contact-actions button').length || 0,
         contactActionsDisabled: [...section?.querySelectorAll('.pachax-extras-contact-actions button') || []].every(button => button.disabled),
+        contactDisplay: section?.querySelector('.pachax-contact-action small')?.textContent.trim() || '',
+        catalogState: document.querySelector('#plantillas [data-catalog-state]')?.getAttribute('data-catalog-state') || '',
         footerLinks: [...document.querySelectorAll('.pachax-footer-navigation a')].map(link=>link.getAttribute('href')),
         registerLinks: document.querySelectorAll('.pachax-trust-footer a[href^="/register"], .pachax-trust-footer button[data-register]').length,
       };
@@ -291,7 +303,7 @@ try {
     assert.equal(extrasState.photoLoaded, true, 'El asset editorial del cierre se carga')
     assert.equal(extrasState.contactActions, 2, 'El cierre separa WhatsApp y solicitud de propuesta')
     if (scenario === 'empty') assert.equal(extrasState.contactActionsDisabled, true, 'Sin número publicable, las acciones de contacto permanecen deshabilitadas')
-    else assert.equal(extrasState.contactActionsDisabled, false, 'El fixture habilita las acciones para probarlas sin abrir servicios externos')
+    else assert.equal(extrasState.contactActionsDisabled, false, `El fixture habilita las acciones para probarlas sin abrir servicios externos: ${JSON.stringify(extrasState)}`)
     assert.deepEqual(extrasState.footerLinks, ['#plantillas', '#planes', '#tutoriales', '#extras'])
     assert.equal(extrasState.registerLinks, 0, 'El footer no anuncia alta autónoma pausada')
 
@@ -351,6 +363,8 @@ try {
           activeStep: Number(device?.getAttribute('data-onboarding-step')),
           progress: section?.querySelector('[data-onboarding-progress-label]')?.textContent.trim(),
           cta: cta?.getAttribute('href') || '',
+          ctaText: cta?.textContent.trim() || '',
+          ctaUnavailable: cta?.getAttribute('role') === 'status',
           layoutAreas: layout ? getComputedStyle(layout).gridTemplateAreas : '',
           deviceWidth: Math.round(device?.getBoundingClientRect().width || 0),
           deviceHeight: Math.round(device?.getBoundingClientRect().height || 0),
@@ -360,7 +374,12 @@ try {
       assert.equal(onboardingState.steps, 4, 'La sección conserva los cuatro pasos navegables')
       assert.equal(onboardingState.activeStep, 1, 'La demostración inicia en el primer paso')
       assert.equal(onboardingState.progress, 'Paso 1 de 4', 'El dispositivo muestra el paso activo')
-      assert.match(onboardingState.cta, /^https:\/\/wa\.me\/\d+\?/, 'El CTA conserva un enlace WhatsApp válido; el runner nunca lo abre')
+      if (scenario === 'empty') {
+        assert.equal(onboardingState.cta, '', 'Sin contacto oficial, la sección no presenta un enlace comercial')
+        assert.equal(onboardingState.ctaUnavailable, true, 'El estado vacío explica que falta configurar el contacto')
+      } else {
+        assert.match(onboardingState.cta, /^https:\/\/wa\.me\/\d+\?/, 'El CTA usa el contacto sintético reservado; el runner nunca lo abre')
+      }
       assert(onboardingState.deviceWidth > 200 && onboardingState.deviceHeight > 300, 'El dispositivo conserva proporciones visibles')
       assert.equal(await evaluate(`document.querySelectorAll('#onboarding a[href^="/register"]').length`), 0, 'La demostración no inicia el registro autónomo pausado')
       if (width <= 1100) assert.match(onboardingState.layoutAreas, /"intro" "steps" "device" "action"/, 'En móvil/tablet, el recorrido precede al teléfono y al CTA')
@@ -615,6 +634,24 @@ try {
       assert.equal(mobileMenu, 'true')
       await evaluate(`document.querySelector('.pachax-mobile-menu nav button')?.click()`)
       await waitForValue(`document.querySelector('.pachax-menu-toggle')?.getAttribute('aria-expanded')`, value => value === 'false', 'El menú móvil cierra al navegar')
+      const registrationLabel = await evaluate(`document.querySelector('.pachax-header-actions .pachax-register-button')?.textContent.trim() || ''`)
+      assert.match(registrationLabel, /Solicitar implementación/, 'Con autoservicio cerrado, el header describe la acción disponible')
+      await evaluate(`document.querySelector('.pachax-header-actions .pachax-register-button')?.click()`)
+      await waitForValue(`document.querySelector('h1')?.textContent.trim()`, value => value === 'Implementación asistida', 'La acción pública abre la vista de implementación asistida')
+      const registrationContact = await evaluate(`(() => ({
+        href: document.querySelector('a[href^="https://wa.me/"]')?.getAttribute('href') || '',
+        mailto: document.querySelector('a[href^="mailto:"]')?.getAttribute('href') || '',
+        login: [...document.querySelectorAll('button')].some(button => button.textContent.includes('Ya tengo cuenta')),
+        unavailable: [...document.querySelectorAll('[role="status"]')].some(node => node.textContent.includes('contacto comercial aún no está configurado')),
+      }))()`)
+      assert.equal(registrationContact.mailto, '', 'El CTA no usa un correo no configurado')
+      assert.equal(registrationContact.login, true, 'El acceso de clientes existentes sigue disponible')
+      if (scenario === 'empty') {
+        assert.equal(registrationContact.href, '', 'Sin número aprobado no se abre contacto genérico')
+        assert.equal(registrationContact.unavailable, true)
+      } else {
+        assert(registrationContact.href.includes(`wa.me/${LANDING_TEST_CONTACT.number}`), 'El CTA usa únicamente el número reservado del fixture')
+      }
     }
 
     console.log(`PASS ${width}×${height}: carrusel unificado, CTA, navegación móvil y sin overflow`)

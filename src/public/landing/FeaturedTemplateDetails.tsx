@@ -3,6 +3,7 @@ import { ArrowRight, Check, ExternalLink, X } from 'lucide-react'
 import { CUSTOM_DEVELOPMENT_CONFIG } from '../config/pricingConfig'
 import { canLaunchCommercialDemo } from '../../core/publicTemplates'
 import { getTemplateContactUrl, getTemplateSecondaryAction } from './templateActionPolicy'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { FeaturedCatalogEntry } from './FeaturedTemplateCard'
 
 interface FeaturedTemplateDetailsProps {
@@ -13,6 +14,7 @@ interface FeaturedTemplateDetailsProps {
 }
 
 export function FeaturedTemplateDetails({ entry, onClose, onLaunchDemo, onViewPlans }: FeaturedTemplateDetailsProps) {
+  const { landingContent } = useCommercialConfig()
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
@@ -59,10 +61,11 @@ export function FeaturedTemplateDetails({ entry, onClose, onLaunchDemo, onViewPl
   const implementationMode = template?.commercialMode === 'self_service'
     ? 'Activación rápida'
     : 'Implementación especializada'
+  const contactUrl = getTemplateContactUrl(entry.title, action, landingContent.officialWhatsAppNumber)
 
   const handlePrimaryAction = () => {
     if (action.kind === 'quote' || action.kind === 'contact') {
-      window.open(getTemplateContactUrl(entry.title, action), '_blank', 'noopener,noreferrer')
+      if (contactUrl) window.open(contactUrl, '_blank', 'noopener,noreferrer')
       return
     }
     onClose()
@@ -144,9 +147,13 @@ export function FeaturedTemplateDetails({ entry, onClose, onLaunchDemo, onViewPl
                 <p className="pachax-details-demo-state" role="status">Demo pública no disponible por ahora.</p>
               )
             )}
-            <button className="pachax-details-primary" type="button" onClick={handlePrimaryAction}>
-              {detailLabel} <ArrowRight aria-hidden="true" />
-            </button>
+            {action.kind === 'view-plans' || contactUrl ? (
+              <button className="pachax-details-primary" type="button" onClick={handlePrimaryAction}>
+                {detailLabel} <ArrowRight aria-hidden="true" />
+              </button>
+            ) : (
+              <p className="pachax-details-demo-state" role="status">El contacto comercial aún no está configurado.</p>
+            )}
           </div>
         </div>
       </div>

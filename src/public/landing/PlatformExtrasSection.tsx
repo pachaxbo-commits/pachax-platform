@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import type { CommercialExtraService } from '../../admin/types'
+import { getWhatsAppUrl, hasWhatsAppContact } from '../config/publicContact'
 
 const EXTRA_ICONS = {
   megaphone: Megaphone,
@@ -40,17 +41,15 @@ function getTemplateScope(extra: CommercialExtraService) {
 }
 
 function openWhatsApp(number: string, message: string) {
-  const normalizedNumber = number.replace(/\D/g, '')
-  if (!normalizedNumber) return
-  const url = `https://wa.me/${normalizedNumber}?text=${encodeURIComponent(message)}`
-  window.open(url, '_blank', 'noopener,noreferrer')
+  const url = getWhatsAppUrl(message, number)
+  if (url) window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 export function PlatformExtrasSection() {
   const { landingContent, publishedExtras } = useCommercialConfig()
 
   const contactNumber = landingContent.officialWhatsAppNumber
-  const hasContactNumber = Boolean(contactNumber.replace(/\D/g, ''))
+  const hasContactNumber = hasWhatsAppContact(contactNumber)
   const customDevelopment = publishedExtras.find((extra) => extra.id === 'extra_custom_dev')
   const services = customDevelopment
     ? [customDevelopment, ...publishedExtras.filter((extra) => extra.id !== customDevelopment.id)]

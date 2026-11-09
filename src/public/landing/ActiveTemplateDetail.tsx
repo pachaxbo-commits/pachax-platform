@@ -1,8 +1,9 @@
 import { ArrowRight, Eye } from 'lucide-react'
 import type { CommercialTemplateItem } from '../../admin/types'
 import { canLaunchCommercialDemo, freeDemoPath, isTemplateProvisioningAvailable } from '../../core/publicTemplates'
-import { OFFICIAL_WHATSAPP } from '../config/pricingConfig'
 import { usePublicRouter } from '../routing/usePublicRouter'
+import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { getWhatsAppUrl } from '../config/publicContact'
 
 interface ActiveTemplateDetailProps {
   template: CommercialTemplateItem
@@ -11,10 +12,13 @@ interface ActiveTemplateDetailProps {
 
 export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateDetailProps) {
   const { navigate } = usePublicRouter()
+  const { landingContent } = useCommercialConfig()
+  const customContactUrl = getWhatsAppUrl(landingContent.defaultCustomDevMessage, landingContent.officialWhatsAppNumber)
 
   const handleUseTemplate = () => {
     if (template.id === 'custom') {
-      window.open(OFFICIAL_WHATSAPP.buildUrl(OFFICIAL_WHATSAPP.defaultCustomDevMessage), '_blank', 'noopener,noreferrer')
+      const url = getWhatsAppUrl(landingContent.defaultCustomDevMessage, landingContent.officialWhatsAppNumber)
+      if (url) window.open(url, '_blank', 'noopener,noreferrer')
       return
     }
     const targetId = template.canonicalTemplateId || template.templateId || template.id
@@ -116,14 +120,11 @@ export function ActiveTemplateDetail({ template, onSelectDemo }: ActiveTemplateD
           )}
 
           {template.id === 'custom' ? (
-            <button
-              type="button"
-              onClick={handleUseTemplate}
-              className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
-            >
-              <span>Cotizar a medida</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            customContactUrl ? (
+              <a href={customContactUrl} target="_blank" rel="noopener noreferrer" className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all shadow-xs">
+                <span>Cotizar a medida</span><ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            ) : <p className="text-xs text-slate-500" role="status">Contacto comercial no configurado</p>
           ) : isTemplateProvisioningAvailable(template.canonicalTemplateId || template.templateId || template.id) ? (
             <button
               type="button"

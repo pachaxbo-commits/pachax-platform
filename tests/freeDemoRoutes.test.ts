@@ -77,8 +77,8 @@ test('catalog CTAs contact PACHAX instead of promising blocked self-service', ()
   assert.deepEqual(getTemplateSecondaryAction('custom'), {
     kind: 'quote', label: 'Cotizar a medida',
   })
-  const implementationUrl = new URL(getTemplateContactUrl('Nightclub & Lounge', getTemplateSecondaryAction('nightclub')))
-  assert.equal(implementationUrl.origin + implementationUrl.pathname, 'https://wa.me/59177987776')
+  const implementationUrl = new URL(getTemplateContactUrl('Nightclub & Lounge', getTemplateSecondaryAction('nightclub'), '12025550100')!)
+  assert.equal(implementationUrl.origin + implementationUrl.pathname, 'https://wa.me/12025550100')
   assert.match(implementationUrl.searchParams.get('text') || '', /implementación de Nightclub & Lounge/)
   for (const templateName of ['Restaurante con salón', 'Producción y Distribución', 'Nightclub & Lounge']) {
     const action = getTemplateSecondaryAction(
@@ -87,12 +87,22 @@ test('catalog CTAs contact PACHAX instead of promising blocked self-service', ()
     assert.equal(action.kind, 'contact')
     if (action.kind === 'contact') {
       assert.equal(action.label, 'Solicitar implementación')
-      const url = new URL(getTemplateContactUrl(templateName, action))
+      const url = new URL(getTemplateContactUrl(templateName, action, '12025550100')!)
       assert.match(url.searchParams.get('text') || '', new RegExp(templateName))
       assert.match(url.searchParams.get('text') || '', /solicitar una implementación/)
     }
   }
-  const quoteUrl = new URL(getTemplateContactUrl('Solución a medida', getTemplateSecondaryAction('custom')))
-  assert.equal(quoteUrl.origin + quoteUrl.pathname, 'https://wa.me/59177987776')
+  const quoteUrl = new URL(getTemplateContactUrl('Solución a medida', getTemplateSecondaryAction('custom'), '12025550100')!)
+  assert.equal(quoteUrl.origin + quoteUrl.pathname, 'https://wa.me/12025550100')
   assert.match(quoteUrl.searchParams.get('text') || '', /desarrollo a medida/)
+})
+
+test('public WhatsApp CTAs require an explicitly configured destination', async () => {
+  const { getWhatsAppUrl, normalizeWhatsAppNumber } = await import('../src/public/config/publicContact.ts')
+  assert.equal(getWhatsAppUrl('Hola PACHAX', ''), null)
+  assert.equal(getWhatsAppUrl('Hola PACHAX', undefined), null)
+  assert.equal(normalizeWhatsAppNumber('+1 (202) 555-0100'), '12025550100')
+  const url = new URL(getWhatsAppUrl('Hola, equipo PACHAX. Plan & soporte', '+1 (202) 555-0100')!)
+  assert.equal(url.origin + url.pathname, 'https://wa.me/12025550100')
+  assert.equal(url.searchParams.get('text'), 'Hola, equipo PACHAX. Plan & soporte')
 })

@@ -23,6 +23,8 @@ import type { DistributionIndustryProfile } from '../modules/distribution/types'
 import { BRAND_PALETTES, type BrandPalette } from '../core/brandPalettes'
 import { onboardingErrorMessage } from '../core/onboardingErrorMessage'
 import { readableForeground } from '../lib/tenantTheme'
+import { useCommercialConfig } from '../admin/store/commercialConfigStore'
+import { getWhatsAppUrl } from '../public/config/publicContact'
 
 interface OnboardingWizardProps {
   userEmail: string | null
@@ -93,6 +95,11 @@ export function OnboardingWizard({
   onCancel,
   onSignOut,
 }: OnboardingWizardProps) {
+  const { landingContent } = useCommercialConfig()
+  const assistedContactUrl = getWhatsAppUrl(
+    'Hola, equipo PACHAX. Estoy interesado en implementar PACHAX Platform en mi empresa. Quisiera conocer los planes disponibles, los requisitos y cómo comenzar.',
+    landingContent.officialWhatsAppNumber,
+  )
   // Step 1: Info Empresa, Step 2: Plantilla, Step 3: Configuración, Step 4: Confirmación
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
 
@@ -208,7 +215,15 @@ export function OnboardingWizard({
             Tus empresas existentes y sus operaciones no cambian. Para activar una empresa nueva, coordina una implementación asistida con PACHAX.
           </p>
           <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-            <a className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" href="mailto:pachax.bo@gmail.com">Contactar a PACHAX</a>
+            {assistedContactUrl ? (
+              <a className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" href={assistedContactUrl} target="_blank" rel="noopener noreferrer">
+                Contactar por WhatsApp
+              </a>
+            ) : (
+              <p className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600" role="status">
+                El contacto comercial aún no está configurado.
+              </p>
+            )}
             <button className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700" onClick={onSignOut} type="button">Cerrar sesión</button>
             {onCancel && <button className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700" onClick={onCancel} type="button">Volver</button>}
           </div>
