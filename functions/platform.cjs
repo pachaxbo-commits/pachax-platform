@@ -1236,6 +1236,9 @@ async function platformGateway(db, request, auth = null) {
     case 'reactivateSuspendedSubscription': return commercialBilling.reactivateSuspendedSubscription(db, request);
     case 'getManualPaymentMethods': return commercialBilling.getManualPaymentMethods(db, request);
     case 'saveManualPaymentMethods': return commercialBilling.saveManualPaymentMethods(db, request);
+    case 'getCommercialInitialPaymentInstructions': return commercialBilling.getCommercialInitialPaymentInstructions(db, request);
+    case 'getBillingRenewalNoticePolicy': return commercialBilling.getBillingRenewalNoticePolicy(db, request);
+    case 'saveBillingRenewalNoticePolicy': return commercialBilling.saveBillingRenewalNoticePolicy(db, request);
     case 'addBillingInternalNote': return commercialBilling.addBillingInternalNote(db, request);
     case 'listBillingInternalNotes': return commercialBilling.listBillingInternalNotes(db, request);
     case 'correctBillingCharge': return commercialBilling.correctBillingCharge(db, request);

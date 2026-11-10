@@ -68,6 +68,9 @@ let portalReferenceHash
 let originalMethodsLoaded = false
 let originalMethodsExisted = false
 let originalMethods = null
+let originalRenewalNoticeLoaded = false
+let originalRenewalNoticeExisted = false
+let originalRenewalNotice = null
 
 async function cdp(method, params = {}) {
   assert(socketOpen, 'Chrome DevTools connection is not open.')
@@ -175,6 +178,11 @@ async function cleanup() {
     if (originalMethodsExisted) await methodsRef.set(originalMethods).catch(() => undefined)
     else await methodsRef.delete().catch(() => undefined)
   }
+  if (originalRenewalNoticeLoaded) {
+    const noticeRef = db.doc('platformBillingConfig/renewalNotice')
+    if (originalRenewalNoticeExisted) await noticeRef.set(originalRenewalNotice).catch(() => undefined)
+    else await noticeRef.delete().catch(() => undefined)
+  }
   if (intentId) await db.recursiveDelete(db.doc(`platformCommercialIntents/${intentId}`)).catch(() => undefined)
   const companyHash = createHash('sha256').update(`hamburger_shop:${companyNameKey}`).digest('hex')
   await db.doc(`platformAssistedTenantNames/${companyHash}`).delete().catch(() => undefined)
@@ -280,8 +288,37 @@ try {
   assert.equal((await db.doc(`platformSubscriptions/${contractId}`).get()).data().status, 'pending')
   console.log('PASS UI acceptance creates one immutable pending contract and initial charge; subscription stays pending')
 
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent.includes('Vista previa de instrucciones del primer pago'))`), Boolean,
+    'Pending contract did not expose the authenticated initial-payment preview action')
+  await clickText('Vista previa de instrucciones del primer pago')
+  await waitFor(() => evaluate(`!!document.querySelector('[role="dialog"]')?.querySelector('#commercial-initial-payment-document')`), Boolean,
+    'Initial payment instruction preview did not open')
+  const instructionPreview = await evaluate(`document.querySelector('#commercial-initial-payment-document')?.innerText || ''`)
+  assert(instructionPreview.includes(companyName))
+  assert(instructionPreview.includes(chargeId))
+  assert(instructionPreview.includes('BOB 25.00'))
+  assert(instructionPreview.includes('No hay un método de cobro aprobado'))
+  assert(!await evaluate(`!!document.querySelector('#commercial-initial-payment-document a[href^="http"]')`), 'Initial payment preview must not create a public payment link.')
+  await clickText('Cerrar')
+  console.log('PASS initial-payment document uses current contract/charge data, warns when no approved method exists and creates no public link')
+
   await clickTab('commercial-billing')
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Facturación de PACHAX'), 'Commercial billing UI did not open')
+  const noticeRef = db.doc('platformBillingConfig/renewalNotice')
+  const noticeBefore = await noticeRef.get()
+  originalRenewalNoticeLoaded = true
+  originalRenewalNoticeExisted = noticeBefore.exists
+  originalRenewalNotice = noticeBefore.exists ? noticeBefore.data() : null
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent.includes('Guardar aviso')&&!button.disabled)`), Boolean,
+    'Renewal notice settings did not finish loading in Admin')
+  await setField('Mostrar el aviso', '15', 'select')
+  await clickText('Guardar aviso')
+  const savedNoticeState = await waitFor(async () => ({ policy: (await noticeRef.get()).data(), alert: await evaluate(`document.querySelector('[role="alert"]')?.innerText || ''`) }),
+    value => value?.policy?.noticeDays === 15 || Boolean(value?.alert), 'Admin renewal notice policy did not persist or show an error')
+  if (savedNoticeState.alert) throw new Error(`Admin renewal notice setting was rejected: ${savedNoticeState.alert}`)
+  const savedNotice = savedNoticeState.policy
+  assert.equal(savedNotice.version, 1)
+  console.log('PASS Platform Owner configures a 15-day renewal reminder without creating a charge or changing grace policy')
   await waitFor(() => evaluate(`([...document.querySelectorAll('select')].some(select=>[...select.options].some(option=>option.value===${JSON.stringify(chargeId)})))`), Boolean, 'Initial charge did not appear in the Admin payment form')
   await setField('Cargo pendiente', chargeId, 'select')
   await setField('Importe recibido', '25.00')
