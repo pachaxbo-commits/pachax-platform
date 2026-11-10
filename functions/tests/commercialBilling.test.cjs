@@ -457,7 +457,45 @@ async function run() {
       const templateActor = await tenantActor(db, { auth: { uid: templateLogin.localId, token: {} },
         data: { tenantId: templateActivation.tenantId } }, 'settings.manage');
       assert.equal(templateActor.uid, templateActivation.ownerUid);
-      pass(`${item.label}: sin plan publicado, cotización mensual, referencia pendiente, conciliación y alta asistida con acceso Owner pasan en emulador`);
+
+      // Certification matrix: exercise the common renewal contract separately
+      // for every template rather than inferring readiness from the Distribution
+      // and Retail examples elsewhere in this suite.
+      const subscriptionRef = db.doc(`platformSubscriptions/${templateContract.contractId}`);
+      const beforeRenewal = (await subscriptionRef.get()).data();
+      assert.equal(beforeRenewal.status, 'active', `${item.label}: the initial payment must activate its subscription.`);
+      assert(beforeRenewal.currentPeriodEnd?.toMillis?.() > Date.now(), `${item.label}: activation must provide an active billing period.`);
+      const templateRenewal = await platformCall(ownerUid, {
+        action: 'createRenewalCharge', contractId: templateContract.contractId, requestId: opId(), dueAt: dateAfter(7),
+      });
+      createdPaths.push(`platformBillingCharges/${templateRenewal.chargeId}`);
+      const templateRenewalCharge = (await db.doc(`platformBillingCharges/${templateRenewal.chargeId}`).get()).data();
+      assert.equal(templateRenewalCharge.kind, 'renewal', `${item.label}: renewal must be represented as a renewal charge.`);
+      assert.equal(templateRenewalCharge.amountMinor, 2500, `${item.label}: renewal amount must come from the accepted monthly quote.`);
+      assert.equal(templateRenewalCharge.currency, 'BOB');
+      assert.equal(templateRenewalCharge.tenantId, templateActivation.tenantId);
+      assert.equal((await subscriptionRef.get()).data().status, 'active', `${item.label}: creating a renewal charge must not suspend active access.`);
+
+      const templateRenewalReference = await platformCall(financeUid, {
+        action: 'recordManualPaymentReference', requestId: opId(), chargeId: templateRenewal.chargeId,
+        amount: '25.00', method: 'bank_transfer', bankReference: `QA-RENEWAL-${item.templateId}-${suffix}`,
+      });
+      createdPaths.push(`platformBillingPayments/${templateRenewalReference.paymentId}`);
+      assert.equal((await db.doc(`platformBillingPayments/${templateRenewalReference.paymentId}`).get()).data().status, 'pending_review');
+      assert.equal((await subscriptionRef.get()).data().status, 'active', `${item.label}: an unverified reference cannot extend access.`);
+      const confirmedRenewal = await platformCall(financeUid, {
+        action: 'confirmManualPayment', paymentId: templateRenewalReference.paymentId, requestId: opId(),
+      });
+      assert.equal(confirmedRenewal.status, 'confirmed');
+      const afterRenewal = (await subscriptionRef.get()).data();
+      assert.equal(afterRenewal.status, 'active', `${item.label}: confirmed renewal keeps the subscription active.`);
+      assert(afterRenewal.currentPeriodEnd.toMillis() > beforeRenewal.currentPeriodEnd.toMillis(),
+        `${item.label}: confirmed renewal extends the active period.`);
+      assert.deepEqual(afterRenewal.capabilitiesV1, templateCapabilities,
+        `${item.label}: renewal preserves the contracted capability snapshot.`);
+      assert.deepEqual((await db.doc(`tenants/${templateActivation.tenantId}`).get()).data().commercialCapabilities, templateCapabilities,
+        `${item.label}: renewal must not drift tenant capabilities.`);
+      pass(`${item.label}: cotización, aceptación, cargo inicial, conciliación, alta Owner, capacidades y renovación con activación verificadas en emulador`);
     }
 
     const quotaMemberUids = [];
