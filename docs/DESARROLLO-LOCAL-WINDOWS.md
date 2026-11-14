@@ -22,8 +22,8 @@ Guía breve verificada tras la reinstalación de Windows 10 sobre SSD para compi
 
 | Herramienta | Estado en esta máquina | Uso principal |
 | :--- | :--- | :--- |
-| **Node.js** | `v26.13.0` (`functions/package.json` declara `engines.node: "22"`) | Runtime web/tests locales; Cloud Functions apunta a Node 22 |
-| **npm** | `11.20.0` | Gestión de dependencias (`npm ci`) |
+| **Node.js (PACHAX / LTS)** | `v22.23.5` vía `fnm` (`v1.39.0`) + `npm 10.9.9` (`functions/package.json` declara `engines.node: "22"`) | Runtime web, CLI, tests locales y emuladores alineados con CI y Cloud Functions |
+| **Node.js global del sistema** | `v26.13.0` intacto en `C:\Program Files\nodejs` | Preservado para otros proyectos; no se sobrescribe ni elimina |
 | **Java (Temurin)** | `21.0.13 LTS` (`OpenJDK 21.0.13+9`) | Firebase Emulator Suite (Firestore, Auth, Storage) |
 | **Firebase CLI** | `15.35.0` | Emuladores locales (`demo-pachax-platform`) |
 | **Vercel CLI** | `65.14.0` | Previews / inspección (no desplegar sin autorización) |
@@ -31,6 +31,18 @@ Guía breve verificada tras la reinstalación de Windows 10 sobre SSD para compi
 | **VS Code** | `1.145.3` | Editor principal |
 | **Playwright** | `1.65.1` | Pruebas E2E de navegador cuando apliquen |
 | **Python / WSL 2 / Docker** | `Python 3.14.10`, `WSL 2` (`docker-desktop`), `Docker 29.9.3` | Disponibles en Windows (no requeridos para build web ni emuladores base) |
+
+### Activar Node 22 LTS en PowerShell sin afectar Node 26 global
+
+```powershell
+# Activa Node v22.23.5 únicamente en la sesión actual de terminal
+fnm env --use-on-cd | Out-String | Invoke-Expression
+fnm use 22
+node -v   # v22.23.5
+npm -v    # 10.9.9
+```
+
+> El alias por defecto en `fnm` apunta a `22` (`fnm default 22`), manteniendo `C:\Program Files\nodejs\node.exe` (`v26.13.0`) intacto cuando no se inicializa `fnm` en la sesión.
 
 ### Variables locales (`.env.local`)
 
