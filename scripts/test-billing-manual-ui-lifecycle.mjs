@@ -2,7 +2,7 @@
 // All writes are confined to the explicitly named Firebase demo emulators.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
@@ -15,6 +15,7 @@ assert(process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_AUTH_EMULATOR
   'Auth and Firestore must use Firebase Emulators; this script is invoked only by the isolated emulators:exec npm task.')
 
 const root = process.cwd()
+const evidenceDir = process.env.COMMERCIAL_GUIDE_EVIDENCE_DIR || join(root, 'docs/commercial-enablement/evidence')
 const require = createRequire(new URL('../functions/package.json', import.meta.url))
 const { initializeApp, deleteApp } = require('firebase-admin/app')
 const { getAuth } = require('firebase-admin/auth')
@@ -68,6 +69,9 @@ let portalReferenceHash
 let originalMethodsLoaded = false
 let originalMethodsExisted = false
 let originalMethods = null
+let originalRenewalNoticeLoaded = false
+let originalRenewalNoticeExisted = false
+let originalRenewalNotice = null
 
 async function cdp(method, params = {}) {
   assert(socketOpen, 'Chrome DevTools connection is not open.')
@@ -81,6 +85,25 @@ async function evaluate(source, userGesture = false) {
   const result = await cdp('Runtime.evaluate', { expression: source, awaitPromise: true, returnByValue: true, userGesture })
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text)
   return result.result.value
+}
+
+async function captureGuideScreenshot(fileName) {
+  mkdirSync(evidenceDir, { recursive: true })
+  await evaluate(`(() => {
+    const badge = document.createElement('div')
+    badge.id = 'commercial-guide-emulator-watermark'
+    badge.textContent = 'ENTORNO EMULADO · DATOS FICTICIOS'
+    Object.assign(badge.style, { position: 'fixed', right: '12px', bottom: '12px', zIndex: '2147483647',
+      padding: '6px 10px', borderRadius: '6px', background: '#7f1d1d', color: '#fff', font: '700 12px sans-serif',
+      letterSpacing: '.04em', boxShadow: '0 2px 8px #0008' })
+    document.body.append(badge)
+  })()`)
+  try {
+    const { data } = await cdp('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false })
+    writeFileSync(join(evidenceDir, fileName), Buffer.from(data, 'base64'))
+  } finally {
+    await evaluate(`document.querySelector('#commercial-guide-emulator-watermark')?.remove()`)
+  }
 }
 
 async function setField(label, value, tag = 'input') {
@@ -175,6 +198,11 @@ async function cleanup() {
     if (originalMethodsExisted) await methodsRef.set(originalMethods).catch(() => undefined)
     else await methodsRef.delete().catch(() => undefined)
   }
+  if (originalRenewalNoticeLoaded) {
+    const noticeRef = db.doc('platformBillingConfig/renewalNotice')
+    if (originalRenewalNoticeExisted) await noticeRef.set(originalRenewalNotice).catch(() => undefined)
+    else await noticeRef.delete().catch(() => undefined)
+  }
   if (intentId) await db.recursiveDelete(db.doc(`platformCommercialIntents/${intentId}`)).catch(() => undefined)
   const companyHash = createHash('sha256').update(`hamburger_shop:${companyNameKey}`).digest('hex')
   await db.doc(`platformAssistedTenantNames/${companyHash}`).delete().catch(() => undefined)
@@ -220,9 +248,18 @@ try {
     message.error ? request.reject(new Error(JSON.stringify(message.error))) : request.resolve(message.result)
   }
   await cdp('Page.enable'); await cdp('Runtime.enable')
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
   await waitFor(() => evaluate(`!!document.querySelector('[data-admin-login-submit]')`), Boolean, 'Admin sign-in form did not render')
   await evaluate(`(() => { const set=(selector,value,proto)=>{const e=document.querySelector(selector);if(!e)throw new Error('Missing '+selector);Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))};set('input[autocomplete="username"]',${JSON.stringify(operator.email)},HTMLInputElement.prototype);set('[data-admin-login-password]',${JSON.stringify(operator.password)},HTMLInputElement.prototype);document.querySelector('[data-admin-login-submit]').click()})()`, true)
   await waitFor(() => evaluate(`({ready:!!document.querySelector('[data-admin-tab="commercial-intents"]'), body:document.body.innerText.slice(0,500)})`), value => value?.ready === true, 'Platform Owner did not enter Admin')
+  await captureGuideScreenshot('01-resumen-admin.png')
+  await clickTab('landing')
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Contenido web'), 'Landing content settings did not open')
+  await captureGuideScreenshot('02-contacto-publico.png')
+  await clickTab('plans')
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Gestión de Planes Comerciales'), 'Plan settings did not open')
+  await clickText('Restaurante Rápido')
+  await captureGuideScreenshot('03-configuracion-planes.png')
 
   await clickTab('commercial-intents')
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Solicitudes comerciales'), 'Commercial intents UI did not open')
@@ -257,6 +294,7 @@ try {
   assert.equal(quoted.quote.annualMinor, 0)
   assert.equal(quoted.quote.initialDueMinor, 2500)
   assert.equal(quoted.tenantId, null)
+  await captureGuideScreenshot('04-solicitudes-cotizacion.png')
   console.log('PASS Admin UI saves a monthly-only quote (empty annual price) with approved fictitious capabilities and no plan')
 
   await clickText('Ofrecer cotización al cliente')
@@ -280,8 +318,39 @@ try {
   assert.equal((await db.doc(`platformSubscriptions/${contractId}`).get()).data().status, 'pending')
   console.log('PASS UI acceptance creates one immutable pending contract and initial charge; subscription stays pending')
 
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent.includes('Vista previa de instrucciones del primer pago'))`), Boolean,
+    'Pending contract did not expose the authenticated initial-payment preview action')
+  await clickText('Vista previa de instrucciones del primer pago')
+  await waitFor(() => evaluate(`!!document.querySelector('[role="dialog"]')?.querySelector('#commercial-initial-payment-document')`), Boolean,
+    'Initial payment instruction preview did not open')
+  const instructionPreview = await evaluate(`document.querySelector('#commercial-initial-payment-document')?.innerText || ''`)
+  assert(instructionPreview.includes(companyName))
+  assert(instructionPreview.includes(chargeId))
+  assert(instructionPreview.includes('BOB 25.00'))
+  assert(instructionPreview.includes('No hay un método de cobro aprobado'))
+  assert(!await evaluate(`!!document.querySelector('#commercial-initial-payment-document a[href^="http"]')`), 'Initial payment preview must not create a public payment link.')
+  await captureGuideScreenshot('06-instrucciones-pago-inicial.png')
+  await clickText('Cerrar')
+  console.log('PASS initial-payment document uses current contract/charge data, warns when no approved method exists and creates no public link')
+
   await clickTab('commercial-billing')
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Facturación de PACHAX'), 'Commercial billing UI did not open')
+  await captureGuideScreenshot('05-metodos-qr-renovaciones.png')
+  const noticeRef = db.doc('platformBillingConfig/renewalNotice')
+  const noticeBefore = await noticeRef.get()
+  originalRenewalNoticeLoaded = true
+  originalRenewalNoticeExisted = noticeBefore.exists
+  originalRenewalNotice = noticeBefore.exists ? noticeBefore.data() : null
+  await waitFor(() => evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent.includes('Guardar aviso')&&!button.disabled)`), Boolean,
+    'Renewal notice settings did not finish loading in Admin')
+  await setField('Mostrar el aviso', '15', 'select')
+  await clickText('Guardar aviso')
+  const savedNoticeState = await waitFor(async () => ({ policy: (await noticeRef.get()).data(), alert: await evaluate(`document.querySelector('[role="alert"]')?.innerText || ''`) }),
+    value => value?.policy?.noticeDays === 15 || Boolean(value?.alert), 'Admin renewal notice policy did not persist or show an error')
+  if (savedNoticeState.alert) throw new Error(`Admin renewal notice setting was rejected: ${savedNoticeState.alert}`)
+  const savedNotice = savedNoticeState.policy
+  assert.equal(savedNotice.version, 1)
+  console.log('PASS Platform Owner configures a 15-day renewal reminder without creating a charge or changing grace policy')
   await waitFor(() => evaluate(`([...document.querySelectorAll('select')].some(select=>[...select.options].some(option=>option.value===${JSON.stringify(chargeId)})))`), Boolean, 'Initial charge did not appear in the Admin payment form')
   await setField('Cargo pendiente', chargeId, 'select')
   await setField('Importe recibido', '25.00')
@@ -300,6 +369,7 @@ try {
   assert.equal((await db.doc(`platformContracts/${contractId}`).get()).data().status, 'pending_payment')
   assert.equal((await db.doc(`platformSubscriptions/${contractId}`).get()).data().status, 'pending')
   referenceHash = payment.referenceHash
+  await captureGuideScreenshot('07-revision-de-pago.png')
   console.log('PASS a fictitious bank reference remains pending_review; no revenue, contract activation or access is granted')
 
   await waitFor(() => evaluate(`([...document.querySelectorAll('button')].some(button=>button.textContent.includes('Confirmar ingreso verificado')))`), Boolean, 'Pending fictitious reference did not appear in the Admin review list')
@@ -350,6 +420,7 @@ try {
   assert.equal(activeSubscription.status, 'active')
   assert.equal(activeSubscription.tenantId, tenantId)
   assert.equal(activeSubscription.recurringMinor, 2500)
+  await captureGuideScreenshot('08-alta-asistida.png')
   assert.equal((await db.collection('tenants').where('nameKey', '==', companyNameKey).get()).size, 1, 'The idempotent UI activation must create exactly one tenant.')
   const visible = await evaluate('document.body.innerText')
   assert(visible.includes('Empresa creada y acceso preparado'), 'Admin should confirm the tenant and owner access preparation.')
@@ -392,6 +463,7 @@ try {
   await waitFor(() => evaluate('document.body.innerText'), text => text.toLowerCase().includes('acceso operativo restringido')
     && text.includes('Suscripción y pagos'), 'Tenant Owner did not enter the restricted regularization portal')
   assert(await evaluate(`!!document.querySelector('[role="dialog"]')`), 'Regularization portal should remain open for the owner.')
+  await captureGuideScreenshot('09-portal-renovacion-propietario.png')
   console.log('PASS expired Tenant Owner remains in restricted, server-backed regularization view')
 
   await waitFor(() => evaluate(`!![...document.querySelectorAll('select')].find(select=>[...select.options].some(option=>option.value===${JSON.stringify(renewalChargeId)}))`), Boolean,
