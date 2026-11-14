@@ -16,7 +16,9 @@ const commercialBilling = require('../commercialBilling.cjs');
 const assisted = require('../assistedTenantProvisioning.cjs');
 const tenants = require('../tenants.cjs');
 const { hasPermission, hasTenantBillingAccess, tenantActor } = require('../authorization.cjs');
+const { addBillingPeriods, billingAnchorDay } = require('../billingPolicy.cjs');
 const { processCommand } = require('../operations.cjs');
+require('./billingPolicy.test.cjs');
 
 const distributionCapabilities = Object.freeze({ version: 1, businessType: 'route_distribution',
   limits: { activeUsers: 3, activeProducts: 2, activeBranches: 1 },
@@ -810,7 +812,9 @@ async function run() {
 
     const monthlySubscriptionRef = db.doc(`platformSubscriptions/${monthlyOnlyContract.contractId}`);
     const dueEnd = Timestamp.fromMillis(Date.now() + 10 * 86_400_000);
-    await monthlySubscriptionRef.update({ currentPeriodEnd: dueEnd, nextRenewalAt: dueEnd, billingAccessUntil: Timestamp.fromMillis(dueEnd.toMillis() + 7 * 86_400_000), billingAnchorDay: 14 });
+    const dueEndAnchorDay = billingAnchorDay(dueEnd.toDate());
+    const expectedPrepaidEnd = Timestamp.fromDate(addBillingPeriods(dueEnd.toDate(), 'monthly', 2, dueEndAnchorDay));
+    await monthlySubscriptionRef.update({ currentPeriodEnd: dueEnd, nextRenewalAt: dueEnd, billingAccessUntil: Timestamp.fromMillis(dueEnd.toMillis() + 7 * 86_400_000), billingAnchorDay: dueEndAnchorDay });
     await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(dueEnd.toMillis() + 7 * 86_400_000) });
     const prepaidRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
       requestId: opId(), dueAt: dateAfter(7), periodCount: 2 });
@@ -819,6 +823,8 @@ async function run() {
     assert.equal(prepaidCharge.amountMinor, 6000);
     assert.equal(prepaidCharge.periodCount, 2);
     assert.equal(prepaidCharge.monthsCovered, 2);
+    assert.equal(prepaidCharge.periodStart.toMillis(), dueEnd.toMillis());
+    assert.equal(prepaidCharge.periodEnd.toMillis(), expectedPrepaidEnd.toMillis());
     assert(prepaidCharge.periodEnd.toMillis() > prepaidCharge.periodStart.toMillis() + 55 * 86_400_000);
     const renewalOverview = await commercialBilling.getTenantBillingOverview(db, { auth: { uid: monthlyProvision.ownerUid, token: {} },
       data: { tenantId: monthlyProvision.tenantId } });
@@ -840,12 +846,25 @@ async function run() {
     assert.equal(confirmedPrepaid.status, 'confirmed');
     const extendedSubscription = (await monthlySubscriptionRef.get()).data();
     assert.equal(extendedSubscription.monthsCovered, 2);
+    assert.equal(extendedSubscription.currentPeriodEnd.toMillis(), expectedPrepaidEnd.toMillis());
     assert(extendedSubscription.currentPeriodEnd.toMillis() > dueEnd.toMillis() + 55 * 86_400_000, 'Early payment extends from the already paid end date.');
+    // Deterministic calendar assertions across short months, year rollover, and anchor days.
+    assert.equal(
+      addBillingPeriods(new Date('2026-12-31T16:00:00.000Z'), 'monthly', 2, 31).toISOString(),
+      '2027-02-28T16:00:00.000Z',
+    );
+    assert.equal(
+      addBillingPeriods(new Date('2026-12-31T16:00:00.000Z'), 'monthly', 3, 31).toISOString(),
+      '2027-03-31T16:00:00.000Z',
+    );
     pass('renovación prepagada de 2 meses, referencia duplicada rechazada, pago parcial y pago final extienden desde el vencimiento vigente');
 
     for (const daysUntilExpiry of [15, 45, 90, 180]) {
       const paidThrough = Timestamp.fromMillis(Date.now() + daysUntilExpiry * 86_400_000);
+      const paidThroughAnchorDay = billingAnchorDay(paidThrough.toDate());
+      const expectedAdvanceEnd = Timestamp.fromDate(addBillingPeriods(paidThrough.toDate(), 'monthly', 6, paidThroughAnchorDay));
       await monthlySubscriptionRef.update({ currentPeriodEnd: paidThrough, nextRenewalAt: paidThrough,
+        billingAnchorDay: paidThroughAnchorDay,
         billingAccessUntil: Timestamp.fromMillis(paidThrough.toMillis() + 7 * 86_400_000) });
       await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(paidThrough.toMillis() + 7 * 86_400_000) });
       if (daysUntilExpiry > 30) {
@@ -858,6 +877,7 @@ async function run() {
       const advanceCharge = (await db.doc(`platformBillingCharges/${advance.chargeId}`).get()).data();
       assert.equal(advanceCharge.periodStart.toMillis(), paidThrough.toMillis(), 'Advance period starts exactly at the already-paid boundary.');
       assert.equal(advanceCharge.amountMinor, monthlyContract.terms.recurringMinor * 6, 'Advance prepayment uses the agreed contract price.');
+      assert.equal(advanceCharge.periodEnd.toMillis(), expectedAdvanceEnd.toMillis());
       assert(advanceCharge.periodEnd.toMillis() > paidThrough.toMillis() + 170 * 86_400_000);
       const reusedAdvance = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
         requestId: opId(), dueAt: dateAfter(7), periodCount: 6 });
@@ -1024,9 +1044,10 @@ async function run() {
     await assert.rejects(platformCall(ownerUid, { ...correctionRequest, requestId: opId(), correctedAmount: '44.00' }), error => error.code === 'failed-precondition');
     pass('corrección de cargo inicial pendiente se limita a Owner, conserva importe original y motivo inmutable, y es idempotente');
 
-    await monthlySubscriptionRef.update({ currentPeriodEnd: Timestamp.fromMillis(Date.now() + 10 * 86_400_000), billingAnchorDay: 14,
-      billingAccessUntil: Timestamp.fromMillis(Date.now() + 17 * 86_400_000) });
-    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(Date.now() + 17 * 86_400_000) });
+    const rejectionDueEnd = Timestamp.fromMillis(Date.now() + 10 * 86_400_000);
+    await monthlySubscriptionRef.update({ currentPeriodEnd: rejectionDueEnd, billingAnchorDay: billingAnchorDay(rejectionDueEnd.toDate()),
+      billingAccessUntil: Timestamp.fromMillis(rejectionDueEnd.toMillis() + 7 * 86_400_000) });
+    await db.doc(`tenants/${monthlyProvision.tenantId}`).update({ billingAccessUntil: Timestamp.fromMillis(rejectionDueEnd.toMillis() + 7 * 86_400_000) });
     const rejectedRenewal = await platformCall(ownerUid, { action: 'createRenewalCharge', contractId: monthlyOnlyContract.contractId,
       requestId: opId(), dueAt: dateAfter(7), periodCount: 1 });
     createdPaths.push(`platformBillingCharges/${rejectedRenewal.chargeId}`);

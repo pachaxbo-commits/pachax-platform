@@ -1,7 +1,39 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { gateway } from '../../../services/gateway'
 import { useAdminAuth } from '../../auth/adminAuthStore'
 import type { FormEvent } from 'react'
+
+const MAX_QR_FILE_BYTES = 512 * 1024
+const ALLOWED_QR_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+async function validateQrImageFile(file: File): Promise<{ valid: true } | { valid: false; reason: string }> {
+  if (!ALLOWED_QR_MIME_TYPES.has(file.type)) {
+    return { valid: false, reason: 'Formato no permitido. Solo puedes subir imágenes PNG, JPG o WebP.' }
+  }
+  if (file.size <= 0 || file.size > MAX_QR_FILE_BYTES) {
+    return { valid: false, reason: 'El tamaño del QR debe ser mayor a 0 bytes y máximo de 512 KB.' }
+  }
+  try {
+    const header = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+    const isPng = file.type === 'image/png'
+      && header.length >= 8
+      && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47
+      && header[4] === 0x0d && header[5] === 0x0a && header[6] === 0x1a && header[7] === 0x0a
+    const isJpeg = file.type === 'image/jpeg'
+      && header.length >= 3
+      && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff
+    const isWebp = file.type === 'image/webp'
+      && header.length >= 12
+      && String.fromCharCode(header[0], header[1], header[2], header[3]) === 'RIFF'
+      && String.fromCharCode(header[8], header[9], header[10], header[11]) === 'WEBP'
+    if (!isPng && !isJpeg && !isWebp) {
+      return { valid: false, reason: 'El contenido real del archivo no coincide con PNG, JPG o WebP válido.' }
+    }
+    return { valid: true }
+  } catch {
+    return { valid: false, reason: 'No se pudo validar la firma binaria del archivo seleccionado.' }
+  }
+}
 
 type BillingKind = 'contracts' | 'charges' | 'payments' | 'subscriptions'
 interface BillingRecord {
@@ -97,7 +129,11 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
   const [statusFilter, setStatusFilter] = useState('all')
   const [templateFilter, setTemplateFilter] = useState('all')
   const [methods, setMethods] = useState<ManualMethods>(EMPTY_METHODS)
+  const [savedQrSnapshot, setSavedQrSnapshot] = useState<{ qrImageUrl: string; qrImagePath: string; qrImageDataUrl: string }>({ qrImageUrl: '', qrImagePath: '', qrImageDataUrl: '' })
   const [qrImageUpload, setQrImageUpload] = useState<{ mimeType: string; base64: string } | null>(null)
+  const [pendingQrMeta, setPendingQrMeta] = useState<{ name: string; sizeKb: string; mimeType: string } | null>(null)
+  const [qrPendingRemoval, setQrPendingRemoval] = useState(false)
+  const qrFileInputRef = useRef<HTMLInputElement | null>(null)
   const [methodsLoading, setMethodsLoading] = useState(false)
   const [methodsSaving, setMethodsSaving] = useState(false)
   const [renewalNoticePolicy, setRenewalNoticePolicy] = useState(DEFAULT_RENEWAL_NOTICE_POLICY)
@@ -137,6 +173,8 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       setRecordCursors(result.cursors)
       setMethods(result.methods)
       setRenewalNoticePolicy(result.renewalNoticePolicy)
+      setSavedQrSnapshot({ qrImageUrl: result.methods.qrImageUrl, qrImagePath: result.methods.qrImagePath, qrImageDataUrl: result.methods.qrImageDataUrl })
+      setQrPendingRemoval(false)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo consultar la facturación.') }
     finally { setLoading(false); setMethodsLoading(false) }
   }, [loadBillingData])
@@ -151,6 +189,7 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       setRecordCursors(result.cursors)
       setMethods(result.methods)
       setRenewalNoticePolicy(result.renewalNoticePolicy)
+      setSavedQrSnapshot({ qrImageUrl: result.methods.qrImageUrl, qrImagePath: result.methods.qrImagePath, qrImageDataUrl: result.methods.qrImageDataUrl })
     }).catch(cause => {
       if (active) setError(cause instanceof Error ? cause.message : 'No se pudo consultar la facturación.')
     }).finally(() => { if (active) { setLoading(false); setMethodsLoading(false) } })
@@ -176,8 +215,11 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
     event.preventDefault(); setMethodsSaving(true); setError(''); setMessage('')
     try {
       await gateway('platformGateway', { action: 'saveManualPaymentMethods', requestId: crypto.randomUUID(), expectedVersion: methods.version, methods: { ...methods, qrImageDataUrl: '' }, ...(qrImageUpload ? { qrImageUpload } : {}) })
-      setMessage('La configuración oficial de cobros se guardó y auditó. Comprueba los datos antes de compartirlos con clientes.')
+      setMessage('La configuración oficial de cobros se guardó y auditó. Subir el QR no activa la cobranza por sí solo; revisa los indicadores de estado antes de compartirlo.')
       setQrImageUpload(null)
+      setPendingQrMeta(null)
+      setQrPendingRemoval(false)
+      if (qrFileInputRef.current) qrFileInputRef.current.value = ''
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar la configuración de cobros.') }
     finally { setMethodsSaving(false) }
@@ -355,44 +397,243 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
     </header>
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</div>}
     {message && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{message}</div>}
-    {user?.role === 'platform_owner' && <form onSubmit={saveMethods} className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
-      <div><h3 className="font-bold">Métodos oficiales de cobro manual</h3><p className="mt-1 text-xs text-slate-600">Solo Platform Owner puede cambiar estos datos. No se inventan datos bancarios ni se confirma un pago por recibir una referencia.</p></div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.available} onChange={event => setMethods(value => ({ ...value, available: event.target.checked }))} /> Mostrar opciones oficiales a propietarios</label>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.qrEnabled} onChange={event => setMethods(value => ({ ...value, qrEnabled: event.target.checked }))} /> Habilitar QR</label>
-        <label className="text-sm sm:col-span-2">Imagen QR oficial (PNG, JPG o WebP; máximo 512 KB)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
-          const file = event.target.files?.[0]
-          if (!file) return
-          if (file.size > 512 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-            setError('El QR debe ser PNG, JPG o WebP y pesar hasta 512 KB.')
-            event.currentTarget.value = ''
+    {user?.role === 'platform_owner' && (() => {
+      const hasSavedQr = Boolean(savedQrSnapshot.qrImagePath || savedQrSnapshot.qrImageUrl)
+      const hasCurrentPreview = Boolean(methods.qrImageDataUrl || methods.qrImageUrl)
+      const imageStatusLabel = qrImageUpload
+        ? 'Vista previa local (pendiente de guardar)'
+        : qrPendingRemoval
+          ? 'Retiro pendiente de guardar'
+          : methods.qrImagePath
+            ? 'Configurada en almacenamiento privado'
+            : methods.qrImageUrl
+              ? 'URL HTTPS heredada configurada'
+              : 'Sin imagen guardada'
+
+      const handleQrFileSelected = async (file: File | undefined, inputEl: HTMLInputElement) => {
+        if (!file) return
+        const validation = await validateQrImageFile(file)
+        if (!validation.valid) {
+          setError(validation.reason)
+          inputEl.value = ''
+          return
+        }
+        const reader = new FileReader()
+        reader.onload = () => {
+          const value = typeof reader.result === 'string' ? reader.result : ''
+          const base64 = value.split(',')[1] || ''
+          if (!base64) {
+            setError('No se pudo leer la imagen QR seleccionada.')
             return
           }
-          const reader = new FileReader()
-          reader.onload = () => {
-            const value = typeof reader.result === 'string' ? reader.result : ''
-            const base64 = value.split(',')[1] || ''
-            if (!base64) { setError('No se pudo leer la imagen QR.'); return }
-            setQrImageUpload({ mimeType: file.type, base64 })
-            setMethods(current => ({ ...current, qrImageUrl: '', qrImagePath: '', qrImageDataUrl: value }))
-            setError('')
-          }
-          reader.onerror = () => setError('No se pudo leer la imagen QR.')
-          reader.readAsDataURL(file)
-        }} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3 py-2" /></label>
-        {(methods.qrImageDataUrl || methods.qrImageUrl) && <div className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 sm:col-span-2"><img src={methods.qrImageDataUrl || methods.qrImageUrl} alt="Vista previa del QR oficial" referrerPolicy="no-referrer" className="h-36 w-36 rounded border bg-white object-contain" /><div className="text-xs text-slate-600"><p className="font-semibold text-slate-800">{methods.qrImagePath ? 'Vista previa privada' : 'Vista previa de URL aprobada'}</p><p className="mt-1">La imagen privada solo se entrega a propietarios autenticados y roles de facturación autorizados.</p><button type="button" onClick={() => { setQrImageUpload(null); setMethods(current => ({ ...current, qrEnabled: false, available: current.transferEnabled ? current.available : false, qrImageUrl: '', qrImagePath: '', qrImageDataUrl: '' })) }} className="mt-2 rounded border px-2 py-1 font-semibold">Retirar imagen QR</button></div></div>}
-        <label className="text-sm sm:col-span-2">URL HTTPS de QR aprobado (compatibilidad)<input type="url" value={methods.qrImageUrl} onChange={event => setMethods(value => ({ ...value, qrImagePath: '', qrImageDataUrl: '', qrImageUrl: event.target.value }))} placeholder="URL HTTPS aprobada; sin valor por defecto" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /><span className="mt-1 block text-xs text-slate-500">Preferimos cargar el archivo privado. Las URLs anteriores siguen disponibles si ya fueron aprobadas.</span></label>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.transferEnabled} onChange={event => setMethods(value => ({ ...value, transferEnabled: event.target.checked }))} /> Habilitar transferencias</label>
-        <label className="text-sm">Banco / entidad<input value={methods.bankName} onChange={event => setMethods(value => ({ ...value, bankName: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
-        <label className="text-sm">Titular<input value={methods.accountHolder} onChange={event => setMethods(value => ({ ...value, accountHolder: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
-        <label className="text-sm">Identificador de cuenta<input value={methods.accountIdentifier} onChange={event => setMethods(value => ({ ...value, accountIdentifier: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
-        <label className="text-sm">Moneda de la cuenta<select value={methods.transferCurrency} onChange={event => setMethods(value => ({ ...value, transferCurrency: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3"><option value="">Seleccionar moneda aprobada</option><option value="BOB">BOB</option><option value="USD">USD</option></select></label>
-        <label className="text-sm">WhatsApp oficial<input type="tel" value={methods.whatsappNumber} onChange={event => setMethods(value => ({ ...value, whatsappNumber: event.target.value }))} placeholder="Formato internacional" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
-        <label className="text-sm sm:col-span-2">Instrucciones para clientes<textarea maxLength={1000} value={methods.instructions} onChange={event => setMethods(value => ({ ...value, instructions: event.target.value }))} className="mt-1 min-h-20 w-full rounded-lg border bg-white p-3" /></label>
-      </div>
-      <button type="submit" disabled={methodsSaving || methodsLoading} className="min-h-10 rounded-lg bg-blue-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{methodsSaving ? 'Guardando…' : 'Guardar configuración auditada'}</button>
-      {methodsLoading && <span className="ml-3 text-xs text-slate-600">Consultando configuración…</span>}
-    </form>}
+          setQrImageUpload({ mimeType: file.type, base64 })
+          setPendingQrMeta({ name: file.name, sizeKb: `${(file.size / 1024).toFixed(1)} KB`, mimeType: file.type })
+          setQrPendingRemoval(false)
+          setMethods(current => ({ ...current, qrImageUrl: '', qrImagePath: '', qrImageDataUrl: value }))
+          setError('')
+        }
+        reader.onerror = () => setError('No se pudo leer la imagen QR seleccionada.')
+        reader.readAsDataURL(file)
+      }
+
+      const handleCancelStagedUpload = () => {
+        setQrImageUpload(null)
+        setPendingQrMeta(null)
+        setQrPendingRemoval(false)
+        if (qrFileInputRef.current) qrFileInputRef.current.value = ''
+        setMethods(current => ({
+          ...current,
+          qrImageUrl: savedQrSnapshot.qrImageUrl,
+          qrImagePath: savedQrSnapshot.qrImagePath,
+          qrImageDataUrl: savedQrSnapshot.qrImageDataUrl,
+        }))
+      }
+
+      const handleRemoveQrWithConfirm = () => {
+        if (!window.confirm('¿Estás seguro de quitar la imagen oficial del QR bancario? Al guardar, se deshabilitará el cobro QR para clientes.')) {
+          return
+        }
+        setQrImageUpload(null)
+        setPendingQrMeta(null)
+        setQrPendingRemoval(true)
+        if (qrFileInputRef.current) qrFileInputRef.current.value = ''
+        setMethods(current => ({
+          ...current,
+          qrEnabled: false,
+          available: current.transferEnabled ? current.available : false,
+          qrImageUrl: '',
+          qrImagePath: '',
+          qrImageDataUrl: '',
+        }))
+      }
+
+      return <form onSubmit={saveMethods} className="space-y-4 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+        <div>
+          <h3 className="font-bold text-slate-900">Métodos oficiales de cobro manual</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            Solo Platform Owner puede configurar este QR oficial de PACHAX (distinto al QR de ventas POS de cada empresa). Subir una imagen NO habilita automáticamente la cobranza ni confirma pagos reportados.
+          </p>
+        </div>
+
+        {/* Estado comercial separado */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs">
+            <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Imagen configurada</span>
+            <span className={`mt-1 inline-block rounded-full px-2 py-0.5 font-bold ${
+              qrImageUpload ? 'bg-amber-100 text-amber-900' : qrPendingRemoval ? 'bg-red-100 text-red-900' : hasSavedQr ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-700'
+            }`}>{imageStatusLabel}</span>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs">
+            <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">QR habilitado</span>
+            <span className={`mt-1 inline-block rounded-full px-2 py-0.5 font-bold ${methods.qrEnabled ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-700'}`}>
+              {methods.qrEnabled ? 'Cobro QR habilitado' : 'Cobro QR deshabilitado'}
+            </span>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs">
+            <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Visibilidad para propietarios</span>
+            <span className={`mt-1 inline-block rounded-full px-2 py-0.5 font-bold ${methods.available ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-700'}`}>
+              {methods.available ? 'Visible en portal de suscripción' : 'Oculto para clientes'}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm cursor-pointer">
+            <input type="checkbox" checked={methods.available} onChange={event => setMethods(value => ({ ...value, available: event.target.checked }))} />
+            <span>Mostrar métodos habilitados a propietarios</span>
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm cursor-pointer">
+            <input type="checkbox" checked={methods.qrEnabled} onChange={event => setMethods(value => ({ ...value, qrEnabled: event.target.checked }))} />
+            <span>Habilitar cobro por QR</span>
+          </label>
+
+          {/* Selector y acciones de QR */}
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-900">Imagen oficial del QR bancario</p>
+                <p className="text-xs text-slate-600">Formatos permitidos: PNG, JPG o WebP · Tamaño máximo 512 KB · Guardado privado en PACHAX.</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  ref={qrFileInputRef}
+                  data-testid="qr-file-input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={event => { void handleQrFileSelected(event.target.files?.[0], event.currentTarget) }}
+                  className="sr-only"
+                />
+                <button
+                  type="button"
+                  data-testid="upload-qr-image-button"
+                  disabled={methodsSaving || methodsLoading}
+                  onClick={() => qrFileInputRef.current?.click()}
+                  className="min-h-10 w-full rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50 sm:w-auto cursor-pointer"
+                >
+                  {hasCurrentPreview ? 'Reemplazar imagen del QR' : 'Subir imagen del QR'}
+                </button>
+              </div>
+            </div>
+
+            {qrPendingRemoval && (
+              <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+                <span>Se programó el retiro de la imagen QR. Pulsa «Guardar configuración auditada» para confirmar la eliminación.</span>
+                <button
+                  type="button"
+                  onClick={handleCancelStagedUpload}
+                  className="rounded border border-amber-400 bg-white px-2.5 py-1 font-semibold text-amber-950 cursor-pointer"
+                >
+                  Deshacer retiro
+                </button>
+              </div>
+            )}
+
+            {hasCurrentPreview && (
+              <div className="flex flex-col items-start gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center">
+                <img
+                  src={methods.qrImageDataUrl || methods.qrImageUrl}
+                  alt="Vista previa del QR oficial"
+                  referrerPolicy="no-referrer"
+                  className="h-40 w-40 shrink-0 rounded-lg border bg-white object-contain p-1"
+                />
+                <div className="min-w-0 flex-1 text-xs text-slate-600 space-y-1.5">
+                  <p className="font-bold text-slate-900">
+                    {qrImageUpload
+                      ? 'Vista previa antes de guardar (archivo nuevo seleccionado)'
+                      : methods.qrImagePath
+                        ? 'Imagen actual guardada en PACHAX (almacenamiento privado)'
+                        : 'Imagen actual por URL HTTPS heredada'}
+                  </p>
+                  {pendingQrMeta && (
+                    <p className="text-slate-700">
+                      Archivo: <strong>{pendingQrMeta.name}</strong> · {pendingQrMeta.sizeKb} ({pendingQrMeta.mimeType})
+                    </p>
+                  )}
+                  <p>
+                    El QR privado nunca queda público en Storage; solo se entrega por función autenticada a Platform Owner/Finance y a propietarios activos cuando esté habilitado y visible.
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {qrImageUpload && (
+                      <button
+                        type="button"
+                        onClick={handleCancelStagedUpload}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-100 cursor-pointer"
+                      >
+                        Cancelar cambio seleccionado
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="remove-qr-image-button"
+                      disabled={methodsSaving || methodsLoading}
+                      onClick={handleRemoveQrWithConfirm}
+                      className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 font-semibold text-red-900 hover:bg-red-100 cursor-pointer"
+                    >
+                      Quitar imagen del QR
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <details className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-600">
+              <summary className="cursor-pointer font-semibold text-slate-700">Compatibilidad heredada: URL HTTPS de QR aprobado (opcional)</summary>
+              <label className="mt-2 block text-xs">
+                URL HTTPS de QR aprobado
+                <input
+                  type="url"
+                  value={methods.qrImageUrl}
+                  onChange={event => {
+                    setQrImageUpload(null)
+                    setPendingQrMeta(null)
+                    setQrPendingRemoval(false)
+                    setMethods(value => ({ ...value, qrImagePath: '', qrImageDataUrl: '', qrImageUrl: event.target.value }))
+                  }}
+                  placeholder="URL HTTPS aprobada; sin valor por defecto"
+                  className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                />
+              </label>
+            </details>
+          </div>
+
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm sm:col-span-2 cursor-pointer">
+            <input type="checkbox" checked={methods.transferEnabled} onChange={event => setMethods(value => ({ ...value, transferEnabled: event.target.checked }))} />
+            <span>Habilitar transferencias bancarias</span>
+          </label>
+          <label className="text-sm">Banco / entidad<input value={methods.bankName} onChange={event => setMethods(value => ({ ...value, bankName: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+          <label className="text-sm">Titular<input value={methods.accountHolder} onChange={event => setMethods(value => ({ ...value, accountHolder: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+          <label className="text-sm">Identificador de cuenta<input value={methods.accountIdentifier} onChange={event => setMethods(value => ({ ...value, accountIdentifier: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+          <label className="text-sm">Moneda de la cuenta<select value={methods.transferCurrency} onChange={event => setMethods(value => ({ ...value, transferCurrency: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3"><option value="">Seleccionar moneda aprobada</option><option value="BOB">BOB</option><option value="USD">USD</option></select></label>
+          <label className="text-sm sm:col-span-2">WhatsApp oficial<input type="tel" value={methods.whatsappNumber} onChange={event => setMethods(value => ({ ...value, whatsappNumber: event.target.value }))} placeholder="Formato internacional (ej. +59177987776)" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-3" /></label>
+          <label className="text-sm sm:col-span-2">Instrucciones para clientes<textarea maxLength={1000} value={methods.instructions} onChange={event => setMethods(value => ({ ...value, instructions: event.target.value }))} className="mt-1 min-h-20 w-full rounded-lg border bg-white p-3" /></label>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button type="submit" disabled={methodsSaving || methodsLoading} className="min-h-10 w-full rounded-lg bg-blue-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50 sm:w-auto cursor-pointer">{methodsSaving ? 'Guardando…' : 'Guardar configuración auditada'}</button>
+          {methodsLoading && <span className="text-xs text-slate-600">Consultando configuración…</span>}
+        </div>
+      </form>
+    })()}
     {user?.role === 'platform_owner' && <form onSubmit={saveRenewalNoticePolicy} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <div><h3 className="font-bold">Aviso previo al vencimiento</h3><p className="mt-1 text-sm text-slate-600">Define cuándo aparece el recordatorio en el portal del propietario. Este ajuste no crea cargos, no muestra un QR sin saldo pendiente y no cambia los días de gracia.</p></div>
       <div className="flex flex-wrap items-end gap-3"><label className="text-sm font-semibold">Mostrar el aviso<select aria-label="Días de aviso de renovación" value={renewalNoticePolicy.noticeDays} onChange={event => setRenewalNoticePolicy(current => ({ ...current, noticeDays: Number(event.target.value) }))} className="mt-1 min-h-11 w-full rounded-lg border bg-white px-3 sm:w-56">{renewalNoticePolicy.allowedDays.map(days => <option key={days} value={days}>{days} días antes</option>)}</select></label><button type="submit" disabled={saving || loading} className="min-h-11 rounded-lg border border-slate-400 px-4 py-2 text-sm font-bold text-slate-900 disabled:opacity-50">{saving ? 'Guardando…' : 'Guardar aviso'}</button><span className="text-xs text-slate-500">Valor vigente: {renewalNoticePolicy.noticeDays} días · versión {renewalNoticePolicy.version}</span></div>
