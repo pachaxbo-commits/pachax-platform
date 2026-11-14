@@ -7,12 +7,12 @@ export function PachaxBrandBackground() {
         <defs>
           <linearGradient id="pachax-curve-a" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0" stopColor="#0066FF" stopOpacity="0" />
-            <stop offset=".45" stopColor="#0066FF" stopOpacity=".26" />
-            <stop offset="1" stopColor="#00C2FF" stopOpacity="0" />
+            <stop offset=".45" stopColor="#0066FF" stopOpacity=".14" />
+            <stop offset="1" stopColor="#38BDF8" stopOpacity="0" />
           </linearGradient>
           <linearGradient id="pachax-curve-b" x1="0" y1="1" x2="1" y2="0">
-            <stop offset="0" stopColor="#00C2FF" stopOpacity="0" />
-            <stop offset=".5" stopColor="#00C2FF" stopOpacity=".18" />
+            <stop offset="0" stopColor="#38BDF8" stopOpacity="0" />
+            <stop offset=".5" stopColor="#0066FF" stopOpacity=".1" />
             <stop offset="1" stopColor="#0066FF" stopOpacity="0" />
           </linearGradient>
         </defs>

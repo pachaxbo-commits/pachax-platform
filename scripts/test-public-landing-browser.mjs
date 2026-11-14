@@ -523,34 +523,74 @@ try {
     }
 
     if (scenario === 'synthetic') {
-    // Commercial actions stay informational and select the requested public plan.
+    // Commercial actions stay informational and route contact/quote through the business-type WhatsApp dialog.
     const detailActions = {}
+    const expectedDialogType = {
+      restaurant: 'restaurant',
+      distribution: 'distribution',
+      nightclub: 'nightclub',
+      custom: 'other',
+    }
     for (const id of ['restaurant', 'distribution', 'nightclub', 'hamburger', 'retail', 'custom']) {
       await evaluate(`document.querySelector('#plantillas [data-template-id="${id}"] .pachax-card-detail-button')?.click()`)
       const title = await waitForValue(`document.querySelector('[role="dialog"] h2')?.textContent.trim()`, value => Boolean(value), `${id} abre detalles`)
-      detailActions[id] = await evaluate(`(() => {
+      const baseSnapshot = await evaluate(`(() => {
         const dialog=document.querySelector('[role="dialog"]');
         const result={title:dialog?.querySelector('h2')?.textContent.trim(),text:dialog?.innerText||'',primary:dialog?.querySelector('.pachax-details-primary')?.textContent.trim()};
         window.__commercialOpenedUrl=null;
         window.open=url=>{window.__commercialOpenedUrl=String(url)};
         dialog?.querySelector('.pachax-details-primary')?.click();
-        result.url=window.__commercialOpenedUrl;
+        result.immediateUrl=window.__commercialOpenedUrl;
         return result;
       })()`)
-      assert.equal(detailActions[id].title, title)
-      if (id !== 'retail') await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+      assert.equal(baseSnapshot.title, title)
+      if (expectedDialogType[id]) {
+        assert.equal(baseSnapshot.immediateUrl, null, `${id} no debe abrir WhatsApp inmediatamente antes de elegir o confirmar negocio`)
+        const waOpen = await waitForValue(`Boolean(document.querySelector('.pachax-wa-dialog'))`, value => value === true, `${id} abre diálogo de selección de negocio`)
+        assert.equal(waOpen, true)
+        const expectedOption = expectedDialogType[id]
+        const preselected = await evaluate(`document.querySelector('[data-wa-option="${expectedOption}"]')?.getAttribute('aria-checked')`)
+        assert.equal(preselected, 'true', `${id} preselecciona ${expectedOption} en el diálogo`)
+        if (id === 'custom') {
+          const hasOtherInput = await evaluate(`Boolean(document.querySelector('#pachax-wa-other-input'))`)
+          assert.equal(hasOtherInput, true, 'Solución a medida muestra el campo de descripción para Otro tipo de negocio')
+          await evaluate(`(() => {
+            const ta = document.querySelector('#pachax-wa-other-input');
+            const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(ta, 'Cadena de ferreterías con 4 sucursales');
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+          })()`)
+        }
+        await evaluate(`document.querySelector('.pachax-wa-submit-btn')?.click()`)
+        const dialogClosed = await waitForValue(`Boolean(document.querySelector('.pachax-wa-dialog'))`, value => value === false, `${id} cierra el diálogo al continuar en WhatsApp`)
+        assert.equal(dialogClosed, false)
+        const openedUrl = await evaluate(`window.__commercialOpenedUrl`)
+        const currentPathname = await evaluate(`window.location.pathname`)
+        assert.equal(currentPathname, '/', `${id} no provoca navegación inesperada fuera de la landing`)
+        baseSnapshot.url = openedUrl
+      } else {
+        baseSnapshot.url = baseSnapshot.immediateUrl
+        if (id !== 'retail') await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+      }
+      detailActions[id] = baseSnapshot
+    }
+    const expectedMessageSnippet = {
+      restaurant: 'restaurante con salón',
+      distribution: 'producción, inventario, distribución',
+      nightclub: 'nightclub o lounge',
     }
     for (const [id, expectedName] of [['restaurant', 'Restaurante con salón'], ['distribution', 'Producción y Distribución'], ['nightclub', 'Nightclub & Lounge']]) {
       assert.equal(detailActions[id].title, expectedName, `${id} abre detalles completos`)
-      assert.match(detailActions[id].url || '', /^https:\/\/wa\.me\/\d+\?text=/, `${id} conserva una URL WhatsApp bien formada; window.open está interceptado`)
-      assert(decodeURIComponent(detailActions[id].url).includes(expectedName), `${id} conserva el contacto personalizado`)
+      assert.match(detailActions[id].url || '', new RegExp(`^https:\\/\\/wa\\.me\\/${LANDING_TEST_CONTACT.number}\\?text=`), `${id} conserva una URL WhatsApp bien formada; window.open está interceptado`)
+      assert(decodeURIComponent(detailActions[id].url).toLowerCase().includes(expectedMessageSnippet[id]), `${id} conserva el mensaje personalizado`)
     }
     assert.equal(detailActions.hamburger.title, 'Restaurante Rápido')
     assert.match(detailActions.hamburger.primary, /Ver planes/)
     assert.equal(detailActions.retail.title, 'Comercio / Venta rápida')
     assert.match(detailActions.retail.primary, /Ver planes/)
     assert.match(detailActions.custom.primary, /Cotizar a medida/)
-    assert.match(detailActions.custom.url || '', /^https:\/\/wa\.me\/\d+\?text=/, 'La ficha personalizada conserva una URL WhatsApp bien formada; window.open está interceptado')
+    assert.match(detailActions.custom.url || '', new RegExp(`^https:\\/\\/wa\\.me\\/${LANDING_TEST_CONTACT.number}\\?text=`), 'La ficha personalizada conserva una URL WhatsApp bien formada; window.open está interceptado')
+    assert(decodeURIComponent(detailActions.custom.url).includes('Cadena de ferreterías con 4 sucursales'), 'Solución a medida incluye la descripción del visitante')
     assert.equal(await evaluate(`document.querySelectorAll('a[href^="/register"]').length`), 0, 'Ver planes nunca debe abrir /register')
     const catalogRetailSelection = await waitForValue(`document.querySelector('#planes')?.dataset.selectedQuickService`, value => value === 'retail', 'Comercio conserva la selección al navegar desde el catálogo')
     assert.equal(catalogRetailSelection, 'retail')
@@ -559,8 +599,10 @@ try {
     }
     assert.equal(await evaluate(`document.querySelector('[data-plan-template="retail"]')?.getAttribute('aria-pressed')`), 'true', 'El modal de planes abre Comercio como plantilla seleccionada')
     await evaluate(`document.querySelector('.pachax-pricing-dialog-close')?.click()`)
+    await waitForValue(`Boolean(document.querySelector('[role="dialog"]'))`, value => value === false, 'Cierra el modal de planes antes de abrir detalles')
     await evaluate(`(() => { const trigger=document.querySelector('#plantillas [data-template-id="restaurant"] .pachax-card-detail-button'); trigger?.focus(); trigger?.click(); })()`)
     await waitForValue(`document.querySelector('[role="dialog"] h2')?.textContent.trim()`, value => value === 'Restaurante con salón', 'detalle accesible Restaurante')
+    await waitForValue(`document.activeElement?.classList.contains('pachax-details-close')`, value => value === true, 'El diálogo de detalles enfoca su botón de cierre al abrir')
     await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', modifiers: 8 })
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', modifiers: 8 })
     assert.equal(await evaluate(`document.activeElement?.classList.contains('pachax-details-primary')`), true, 'El foco queda dentro del diálogo al recorrer controles con Shift+Tab')
