@@ -8,6 +8,8 @@ import { GuidedTutorialsSection } from './GuidedTutorialsSection'
 import { PlatformExtrasSection } from './PlatformExtrasSection'
 import { TrustFooter } from './TrustFooter'
 import { PachaxBrandBackground } from './PachaxBrandBackground'
+import { WhatsAppBusinessDialog } from './WhatsAppBusinessDialog'
+import type { WhatsAppBusinessType } from './whatsappBusinessContact'
 import '../publicExperience.css'
 import './pachaxLanding.css'
 
@@ -16,6 +18,16 @@ export function PublicLanding() {
     templateId: 'hamburger' | 'retail'
     request: number
   } | null>(null)
+  const [contactDialog, setContactDialog] = useState<{
+    isOpen: boolean
+    initialBusinessType: WhatsAppBusinessType | null
+  }>({ isOpen: false, initialBusinessType: null })
+  const handleOpenContact = (initialBusinessType: WhatsAppBusinessType | null = null) => {
+    setContactDialog({ isOpen: true, initialBusinessType })
+  }
+  const handleCloseContact = () => {
+    setContactDialog((previous) => ({ ...previous, isOpen: false }))
+  }
   const handleViewPlans = (templateId: 'hamburger' | 'retail') => {
     setRequestedPricingTemplate((previous) => ({
       templateId,
@@ -48,10 +60,10 @@ export function PublicLanding() {
       {/* Contenido Principal en Orden Canónico Riguroso */}
       <main className="flex-1 w-full flex flex-col overflow-x-hidden relative z-10">
         {/* SECCIÓN 1: presentación, catálogo horizontal y acceso al catálogo completo */}
-        <HeroSection onViewPlans={handleViewPlans} />
+        <HeroSection onViewPlans={handleViewPlans} onOpenContact={handleOpenContact} />
 
         {/* SECCIÓN 2: Catálogo de soluciones publicadas y servicios comerciales */}
-        <FeaturedTemplatesCatalog onViewPlans={handleViewPlans} />
+        <FeaturedTemplatesCatalog onViewPlans={handleViewPlans} onRequestContact={handleOpenContact} />
 
         {/* SECCIÓN 3: Planes por Plantilla (3 niveles por rubro + Desarrollo a Medida) */}
         <TemplatePricingSection
@@ -72,6 +84,16 @@ export function PublicLanding() {
 
       {/* Footer Institucional y Canales Verificados */}
       <TrustFooter />
+
+      {/* Diálogo reutilizable de selección de negocio antes de abrir WhatsApp */}
+      {contactDialog.isOpen && (
+        <WhatsAppBusinessDialog
+          key={contactDialog.initialBusinessType ?? 'none'}
+          isOpen={contactDialog.isOpen}
+          initialBusinessType={contactDialog.initialBusinessType}
+          onClose={handleCloseContact}
+        />
+      )}
     </div>
   )
 }
