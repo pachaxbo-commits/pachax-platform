@@ -135,6 +135,18 @@ async function run() {
     pathsToDelete.delete(replacementPath);
     pass('retirar el QR desconecta y elimina el objeto anterior sin activar el método');
 
+    const stagedOnly = await call(ownerUid, { action: 'saveManualPaymentMethods', requestId: operationId(), expectedVersion: 3,
+      methods: { ...methods, available: false, qrEnabled: false, qrImageUrl: '' }, qrImageUpload: upload });
+    assert.equal(stagedOnly.version, 4);
+    const stagedConfig = (await platformConfig.get()).data();
+    assert.equal(stagedConfig.qrEnabled, false);
+    assert.equal(stagedConfig.available, false);
+    assert.match(stagedConfig.qrImagePath, /^platformBilling\/manualMethods\/qr\//);
+    pathsToDelete.add(stagedConfig.qrImagePath);
+    const tenantOverviewWhileHidden = await commercialBilling.getTenantBillingOverview(db, { auth: { uid: tenantOwnerUid, token: {} }, data: { tenantId } });
+    assert.equal(tenantOverviewWhileHidden.paymentMethods, null);
+    pass('subir el QR no habilita automáticamente la cobranza ni lo expone en el portal de clientes');
+
     console.log(`RESULT ${assertions} commercial QR storage assertions passed`);
   } finally {
     await cleanup();
