@@ -5,6 +5,8 @@ import type { TemplateTierPlan } from '../../types'
 import type { TemplateKey } from '../../../public/config/pricingConfig'
 import { useAdminAuth } from '../../auth/adminAuthStore'
 import { defaultCapabilities } from '../../domain/planCapabilityDefaults'
+import { ExchangeRateConfigCard } from '../../components/ExchangeRateConfigCard'
+import { formatPrimaryCommercialAmount, formatUsdReferenceText } from '../../../core/currencyExchange'
 
 function withCapabilityDefaults(plan: TemplateTierPlan): TemplateTierPlan {
   return { ...plan, capabilitiesV1: plan.capabilitiesV1 || defaultCapabilities(plan.templateId, plan.planKind) }
@@ -13,7 +15,7 @@ function withCapabilityDefaults(plan: TemplateTierPlan): TemplateTierPlan {
 export function PlansSection() {
   const { user } = useAdminAuth()
   const canApprovePrice = user?.role === 'platform_owner'
-  const { config, updatePlan, createPlan, deletePlan, togglePublishPlan } = useCommercialConfig()
+  const { config, exchangeRate, updatePlan, createPlan, deletePlan, togglePublishPlan } = useCommercialConfig()
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('restaurant')
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
@@ -153,7 +155,8 @@ export function PlansSection() {
       tierLevel: 1,
       monthlyPriceUSD: 0,
       annualPriceUSD: 0,
-      currency: 'USD',
+      annualPriceUnit: 'annual_total_12_months',
+      currency: 'BOB',
       billingPeriod: 'monthly',
       clientProfile: 'Perfil de empresa adecuado para este plan.',
       limitsLabel: '1 estación · 1 caja',
@@ -247,6 +250,8 @@ export function PlansSection() {
       </div>
 
       {/* Selector de Rubro / Plantilla */}
+      <ExchangeRateConfigCard compact />
+
       <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
         {templateTabs.map((tab) => {
           const isActive = selectedTemplate === tab.id
@@ -366,8 +371,13 @@ export function PlansSection() {
                     </>
                   ) : (
                     <>
-                      <span className="text-xl font-black">{p.currency} {p.monthlyPriceUSD}</span>
-                      <span className="text-xs text-slate-500">{p.currency}/mes · {p.annualPriceUnit === 'annual_total_12_months' ? `total anual: ${p.currency} ${p.annualPriceUSD}` : 'importe anual sin confirmar'}</span>
+                      <span className="text-xl font-black">{formatPrimaryCommercialAmount(p.monthlyPriceUSD, p.currency)}</span>
+                      <span className="text-xs text-slate-500">
+                        {p.currency}/mes · {p.annualPriceUnit === 'annual_total_12_months' ? `total anual: ${formatPrimaryCommercialAmount(p.annualPriceUSD, p.currency)}` : 'importe anual sin confirmar'}
+                        {p.currency === 'BOB' && formatUsdReferenceText(p.monthlyPriceUSD, exchangeRate)
+                          ? ` (${formatUsdReferenceText(p.monthlyPriceUSD, exchangeRate)})`
+                          : ''}
+                      </span>
                     </>
                   )}
                 </div>
@@ -587,7 +597,21 @@ export function PlansSection() {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Moneda del contrato
+                  </label>
+                  <select
+                    value={formData.currency}
+                    onChange={(e) => updateCommercialField('currency', e.target.value as 'BOB' | 'USD')}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900"
+                  >
+                    <option value="BOB">Bs (BOB - Principal)</option>
+                    <option value="USD">USD (Legado)</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Precio mensual ({formData.currency})
@@ -603,6 +627,11 @@ export function PlansSection() {
                         : 'bg-slate-50 text-slate-900 border-slate-200'
                     }`}
                   />
+                  {formData.currency === 'BOB' && formData.planKind !== 'free' && (
+                    <span className="mt-1 block text-[11px] text-slate-500">
+                      {formatUsdReferenceText(formData.monthlyPriceUSD, exchangeRate) || 'Solo Bs (referencia USD no configurada)'}
+                    </span>
+                  )}
                 </div>
 
                 <div>
@@ -620,9 +649,27 @@ export function PlansSection() {
                         : 'bg-slate-50 text-slate-900 border-slate-200'
                     }`}
                   />
+                  {formData.currency === 'BOB' && formData.planKind !== 'free' && formData.annualPriceUnit === 'annual_total_12_months' && (
+                    <span className="mt-1 block text-[11px] text-slate-500">
+                      {formatUsdReferenceText(formData.annualPriceUSD, exchangeRate) || 'Solo Bs (referencia USD no configurada)'}
+                    </span>
+                  )}
                 </div>
 
-                <label className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Límites operacionales
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.limitsLabel || ''}
+                    onChange={(e) => updateCommercialField('limitsLabel', e.target.value)}
+                    placeholder="Ej. 1 estación · 1 caja"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
+                  />
+                </div>
+
+                <label className="sm:col-span-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
                   <input
                     type="checkbox"
                     checked={formData.annualPriceUnit === 'annual_total_12_months'}
@@ -637,21 +684,8 @@ export function PlansSection() {
                   <span><strong>Confirmación de unidad:</strong> confirmo que el valor guardado es el importe total que se cobra por 12 meses, en la moneda indicada. Los registros antiguos sin esta confirmación no se convierten automáticamente. Solo Platform Owner puede confirmarlo.</span>
                 </label>
                 {formData.annualPriceUnit === 'annual_total_12_months' && Number(formData.annualPriceUSD) > 0 && (
-                  <p className="sm:col-span-2 text-xs text-slate-600">Equivalente informativo: {(Number(formData.annualPriceUSD) / 12).toFixed(2)} {formData.currency}/mes. Billing conserva el total anual de {Number(formData.annualPriceUSD).toFixed(2)} {formData.currency}; no se convierte de moneda.</p>
+                  <p className="sm:col-span-4 text-xs text-slate-600">Equivalente informativo: {formatPrimaryCommercialAmount(Number((Number(formData.annualPriceUSD) / 12).toFixed(2)), formData.currency)}/mes. Billing conserva el total anual de {formatPrimaryCommercialAmount(Number(formData.annualPriceUSD), formData.currency)}; no se convierte de moneda.</p>
                 )}
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Límites operacionales
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.limitsLabel || ''}
-                    onChange={(e) => updateCommercialField('limitsLabel', e.target.value)}
-                    placeholder="Ej. 1 estación · 1 caja"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
-                  />
-                </div>
               </div>
 
               {/* Nivel de Tier, Orden, Badge y CTA */}

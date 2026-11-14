@@ -1,4 +1,5 @@
 import type { TemplateKey } from '../public/config/pricingConfig'
+export type { PlatformExchangeRateConfig, ExchangeRateStatus, CommercialCurrency } from '../core/currencyExchange'
 
 export interface CommercialTemplateItem {
   revision?: number
@@ -27,6 +28,7 @@ export interface CommercialTemplateItem {
   commercialAvailability?: 'available' | 'coming_soon'
   commercialMode?: 'specialized' | 'self_service'
   implementationBasePriceUSD?: number | null
+  implementationBaseCurrency?: 'BOB' | 'USD'
   diagnosticTitle?: string
   diagnosticDescription?: string
   implementationTitle?: string
@@ -90,6 +92,7 @@ export interface CommercialExtraService {
   category: 'custom' | 'marketing' | 'branding' | 'support' | 'automation' | 'consulting'
   shortDescription: string
   referencePriceLabel: string
+  referenceAmountBOB?: number | null
   pricingType: 'recurring' | 'one_time' | 'custom_quote'
   iconKey: 'megaphone' | 'palette' | 'headset' | 'zap' | 'code'
   applicableTemplates: TemplateKey[] | 'all'
