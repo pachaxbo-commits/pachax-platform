@@ -1,5 +1,11 @@
 # Continuidad del proyecto PACHAX
 
+## Preparación comercial — estado vigente (09/11/2026)
+
+- Entrega B: PR #37 borrador, rama `codex/commercial-admin-center-20261109`, commit funcional `99d6f3bee7a63e2e08d21887b9ce5a11cec488e2`; centro solo lectura del Platform Owner con ocho áreas, estados leídos del servidor y enlaces a pantallas existentes. TypeScript, ESLint, build emulador/aislamiento, tests de contrato/presentación y navegador autenticado en Emulator (390/1440 px) pasan; capturas en `docs/commercial-admin-evidence/`. CI fija Node 22 y Firebase CLI. No publica, cobra, abre captación ni crea empresas.
+- Entrega A: PR #36 borrador, rama `codex/commercial-launch-contact-20261109`, HEAD `54b2c8e5431a93965f7351c846d9e77af2d6d4e7`; sus workflows Billing Core y Public landing/demo QA están verdes. CTA WhatsApp sin contacto oficial aprobado queda deshabilitado y no navega.
+- Los bloqueos siguen: contacto oficial por confirmar, métodos de cobro sin publicar, precios/condiciones por aprobar, captación y autoservicio cerrados. Ambos PR siguen en borrador; no hubo merge, despliegue ni escritura en Production.
+
 ## Fase C.2
 
 - La suite Platform pasó sus 77 comprobaciones en Node 22 con el fixture anual corregido y un secreto ficticio temporal del emulador. El PR backend #32 permanece separado de #31. La promoción automática de Vercel desde `main` impide conservar el deployment productivo actual si se integra el backend con la configuración vigente.
