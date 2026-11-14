@@ -78,6 +78,8 @@ interface BillingPlanOption { id: string; name: string; templateId: string; curr
 interface BillingCursor { createdAtMillis: number; id: string }
 type ManualMethods = { available: boolean; qrEnabled: boolean; transferEnabled: boolean; qrImageUrl: string; qrImagePath: string; qrImageDataUrl: string; version: number; bankName: string; accountHolder: string; accountIdentifier: string; transferCurrency: string; instructions: string; whatsappNumber: string }
 const EMPTY_METHODS: ManualMethods = { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', qrImagePath: '', qrImageDataUrl: '', version: 0, bankName: '', accountHolder: '', accountIdentifier: '', transferCurrency: '', instructions: '', whatsappNumber: '' }
+type RenewalNoticePolicy = { noticeDays: number; version: number; allowedDays: number[] }
+const DEFAULT_RENEWAL_NOTICE_POLICY: RenewalNoticePolicy = { noticeDays: 7, version: 0, allowedDays: [3, 7, 15, 30] }
 
 export interface PaidContractActivation {
   id: string
@@ -134,6 +136,7 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
   const qrFileInputRef = useRef<HTMLInputElement | null>(null)
   const [methodsLoading, setMethodsLoading] = useState(false)
   const [methodsSaving, setMethodsSaving] = useState(false)
+  const [renewalNoticePolicy, setRenewalNoticePolicy] = useState(DEFAULT_RENEWAL_NOTICE_POLICY)
   const [internalNotes, setInternalNotes] = useState<Record<string, BillingNote[]>>({})
   const [notesOpen, setNotesOpen] = useState<Record<string, boolean>>({})
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
@@ -154,7 +157,10 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       ? (await gateway<{ methods: Partial<ManualMethods> }>('platformGateway', { action: 'getManualPaymentMethods' })).methods || EMPTY_METHODS
       : EMPTY_METHODS
     const nextMethods = { ...EMPTY_METHODS, ...loadedMethods, qrImageUrl: loadedMethods.qrImageUrl || '', qrImagePath: loadedMethods.qrImagePath || '', qrImageDataUrl: loadedMethods.qrImageDataUrl || '', transferCurrency: loadedMethods.transferCurrency || '', version: Number.isSafeInteger(loadedMethods.version) ? loadedMethods.version as number : 0 }
-    return { records: nextRecords, plans: nextPlans, more: nextMore, cursors: nextCursors, methods: nextMethods }
+    const nextNotice = user?.role === 'platform_owner'
+      ? (await gateway<RenewalNoticePolicy>('platformGateway', { action: 'getBillingRenewalNoticePolicy' }))
+      : DEFAULT_RENEWAL_NOTICE_POLICY
+    return { records: nextRecords, plans: nextPlans, more: nextMore, cursors: nextCursors, methods: nextMethods, renewalNoticePolicy: nextNotice }
   }, [user])
 
   const refresh = useCallback(async () => {
@@ -166,6 +172,7 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       setRecordsHasMore(result.more)
       setRecordCursors(result.cursors)
       setMethods(result.methods)
+      setRenewalNoticePolicy(result.renewalNoticePolicy)
       setSavedQrSnapshot({ qrImageUrl: result.methods.qrImageUrl, qrImagePath: result.methods.qrImagePath, qrImageDataUrl: result.methods.qrImageDataUrl })
       setQrPendingRemoval(false)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo consultar la facturación.') }
@@ -181,6 +188,7 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       setRecordsHasMore(result.more)
       setRecordCursors(result.cursors)
       setMethods(result.methods)
+      setRenewalNoticePolicy(result.renewalNoticePolicy)
       setSavedQrSnapshot({ qrImageUrl: result.methods.qrImageUrl, qrImagePath: result.methods.qrImagePath, qrImageDataUrl: result.methods.qrImageDataUrl })
     }).catch(cause => {
       if (active) setError(cause instanceof Error ? cause.message : 'No se pudo consultar la facturación.')
@@ -215,6 +223,19 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar la configuración de cobros.') }
     finally { setMethodsSaving(false) }
+  }
+
+  const saveRenewalNoticePolicy = async (event: FormEvent) => {
+    event.preventDefault(); setSaving(true); setError(''); setMessage('')
+    try {
+      const result = await gateway<Pick<RenewalNoticePolicy, 'noticeDays' | 'version'>>('platformGateway', {
+        action: 'saveBillingRenewalNoticePolicy', requestId: crypto.randomUUID(), noticeDays: renewalNoticePolicy.noticeDays,
+        expectedVersion: renewalNoticePolicy.version,
+      })
+      setRenewalNoticePolicy(current => ({ ...current, noticeDays: result.noticeDays, version: result.version }))
+      setMessage('Aviso de renovación guardado. Esto cambia cuándo se muestra el aviso; no genera cargos ni adelanta vencimientos.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar el aviso de renovación.') }
+    finally { setSaving(false) }
   }
 
   const recordPayment = async (event: FormEvent) => {
@@ -360,7 +381,7 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
     .reduce((sum, item) => { const currency = item.currency || 'BOB'; sum[currency] = (sum[currency] || 0) + (Number(item.amountMinor) || 0); return sum }, {} as Record<string, number>)
   const summary = {
     active: records.subscriptions.filter(item => (item.effectiveStatus || item.status) === 'active').length,
-    expiring: records.subscriptions.filter(item => (item.effectiveStatus || item.status) === 'active' && typeof item.daysRemaining === 'number' && item.daysRemaining <= 7).length,
+    expiring: records.subscriptions.filter(item => (item.effectiveStatus || item.status) === 'active' && typeof item.daysRemaining === 'number' && item.daysRemaining <= renewalNoticePolicy.noticeDays).length,
     grace: records.subscriptions.filter(item => (item.effectiveStatus || item.status) === 'grace').length,
     suspended: records.subscriptions.filter(item => ['suspended', 'cancelled', 'expired'].includes(item.effectiveStatus || item.status)).length,
     pending: records.charges.filter(item => ['due', 'partial', 'under_review'].includes(item.status)).length,
@@ -613,10 +634,14 @@ export function CommercialBillingSection({ onActivateContract }: { onActivateCon
         </div>
       </form>
     })()}
+    {user?.role === 'platform_owner' && <form onSubmit={saveRenewalNoticePolicy} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div><h3 className="font-bold">Aviso previo al vencimiento</h3><p className="mt-1 text-sm text-slate-600">Define cuándo aparece el recordatorio en el portal del propietario. Este ajuste no crea cargos, no muestra un QR sin saldo pendiente y no cambia los días de gracia.</p></div>
+      <div className="flex flex-wrap items-end gap-3"><label className="text-sm font-semibold">Mostrar el aviso<select aria-label="Días de aviso de renovación" value={renewalNoticePolicy.noticeDays} onChange={event => setRenewalNoticePolicy(current => ({ ...current, noticeDays: Number(event.target.value) }))} className="mt-1 min-h-11 w-full rounded-lg border bg-white px-3 sm:w-56">{renewalNoticePolicy.allowedDays.map(days => <option key={days} value={days}>{days} días antes</option>)}</select></label><button type="submit" disabled={saving || loading} className="min-h-11 rounded-lg border border-slate-400 px-4 py-2 text-sm font-bold text-slate-900 disabled:opacity-50">{saving ? 'Guardando…' : 'Guardar aviso'}</button><span className="text-xs text-slate-500">Valor vigente: {renewalNoticePolicy.noticeDays} días · versión {renewalNoticePolicy.version}</span></div>
+    </form>}
     <section className="space-y-3 rounded-xl border bg-white p-4">
       <h3 className="font-bold">Resumen de cobranza · registros cargados</h3>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">{[
-        ['Activas', summary.active], ['Vencen en 7 días', summary.expiring], ['En gracia', summary.grace],
+        ['Vencen en ' + renewalNoticePolicy.noticeDays + ' días', summary.expiring], ['Activas', summary.active], ['En gracia', summary.grace],
         ['Restringidas', summary.suspended], ['Cargos pendientes', summary.pending], ['Pagos por revisar', summary.review],
       ].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-600">{label}</p><p className="mt-1 text-lg font-bold">{value}</p></div>)}</div>
       <p className="text-xs text-slate-600">Ingresos confirmados en los pagos cargados: {Object.entries(confirmedRevenue).map(([currency, minor]) => currencyLabel(minor, currency)).join(' · ') || 'ninguno'}. No se convierten importes de otras monedas.</p>

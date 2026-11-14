@@ -75,4 +75,4 @@ jobs:
         run: npm run test:billing-ui-lifecycle
 
       - name: Lint changed Billing files
-        run: npx eslint functions/commercialBilling.cjs functions/tests/commercialBilling.test.cjs src/App.tsx src/admin/views/sections/CommercialBillingSection.tsx src/components/billing/TenantBillingPortal.tsx scripts/test-billing-manual-ui-lifecycle.mjs
+        run: npx eslint functions/commercialBilling.cjs functions/platform.cjs functions/tests/commercialBilling.test.cjs src/App.tsx src/admin/views/sections/CommercialBillingSection.tsx src/admin/views/sections/CommercialIntentsSection.tsx src/components/billing/TenantBillingPortal.tsx scripts/test-billing-manual-ui-lifecycle.mjs

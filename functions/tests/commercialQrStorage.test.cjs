@@ -25,6 +25,8 @@ const adminUid = `qr-admin-${suffix}`;
 const tenantOwnerUid = `qr-tenant-owner-${suffix}`;
 const tenantEmployeeUid = `qr-tenant-employee-${suffix}`;
 const tenantId = `qr-tenant-${suffix}`;
+const contractId = `qr-contract-${suffix}`;
+const chargeId = `qr-charge-${suffix}`;
 const platformConfig = db.doc('platformBillingConfig/manualMethods');
 let rulesEnv;
 const pathsToDelete = new Set();
@@ -41,6 +43,8 @@ const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/
 async function cleanup() {
   for (const path of pathsToDelete) await bucket.file(path).delete({ ignoreNotFound: true }).catch(() => undefined);
   await db.recursiveDelete(db.doc(`tenants/${tenantId}`)).catch(() => undefined);
+  await Promise.all([`platformContracts/${contractId}`, `platformSubscriptions/${contractId}`, `platformBillingCharges/${chargeId}`]
+    .map(path => db.doc(path).delete().catch(() => undefined)));
   for (const uid of [ownerUid, financeUid, adminUid]) await db.doc(`platformOperators/${uid}`).delete().catch(() => undefined);
   for (const uid of [ownerUid, financeUid, adminUid]) {
     const operations = await db.collection('platformBillingOperations').where('actorUid', '==', uid).get().catch(() => ({ docs: [] }));
@@ -101,6 +105,16 @@ async function run() {
     const expectedDataUrl = `data:image/png;base64,${pngBase64}`;
     assert.equal(adminRead.methods.qrImageDataUrl, expectedDataUrl);
     assert.equal(financeRead.methods.qrImageDataUrl, expectedDataUrl);
+    const noChargeOverview = await commercialBilling.getTenantBillingOverview(db, { auth: { uid: tenantOwnerUid, token: {} }, data: { tenantId } });
+    assert.equal(noChargeOverview.paymentMethods, null, 'An unenrolled tenant must not receive QR methods without an eligible charge.');
+    await db.doc(`tenants/${tenantId}`).update({ billingEnforcement: true, billingContractId: contractId, billingAccessUntil: new Date(Date.now() + 86_400_000) });
+    await db.doc(`platformContracts/${contractId}`).set({ contractId, status: 'active', tenantId, templateId: 'restaurant',
+      terms: { companyName: 'Empresa QR ficticia', templateId: 'restaurant', billingCycle: 'monthly', currency: 'BOB', plan: { name: 'Plan QA' } } });
+    await db.doc(`platformSubscriptions/${contractId}`).set({ subscriptionId: contractId, contractId, tenantId, status: 'active',
+      currency: 'BOB', recurringMinor: 2500, billingCycle: 'monthly', currentPeriodStart: new Date(Date.now() - 10_000),
+      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000), billingAccessUntil: new Date(Date.now() + 37 * 86_400_000) });
+    await db.doc(`platformBillingCharges/${chargeId}`).set({ chargeId, contractId, tenantId, kind: 'renewal', status: 'due',
+      currency: 'BOB', amountMinor: 2500, paidMinor: 0, pendingMinor: 0, dueAt: new Date(Date.now() + 30 * 86_400_000), createdAt: new Date() });
     const ownerOverview = await commercialBilling.getTenantBillingOverview(db, { auth: { uid: tenantOwnerUid, token: {} }, data: { tenantId } });
     assert.equal(ownerOverview.paymentMethods.qrImageDataUrl, expectedDataUrl);
     await assert.rejects(commercialBilling.getTenantBillingOverview(db, { auth: { uid: tenantEmployeeUid, token: {} }, data: { tenantId } }), error => error.code === 'permission-denied');

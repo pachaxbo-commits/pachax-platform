@@ -9,6 +9,7 @@ type BillingOverview = {
   enrolled: boolean
   status: string
   daysRemaining: number | null
+  renewalNoticeDays?: number
   subscription: null | { companyName: string; planName: string; currency: string; recurringMinor: number; billingCycle: string; currentPeriodStart?: BillingDate; currentPeriodEnd?: BillingDate; nextRenewalAt?: BillingDate; billingAccessUntil?: BillingDate; monthsCovered?: number; gracePeriodDays: number }
   charges: Charge[]
   payments: Payment[]
@@ -103,7 +104,8 @@ export function TenantBillingPortal({ tenantId, role, regularizationOnly = false
   const currentCharge = unpaidCharges.find(charge => charge.id === selectedCharge) || unpaidCharges[0]
   const methods = overview?.paymentMethods
   const status = overview?.status || 'not_enrolled'
-  const shouldWarn = overview?.enrolled && ((overview.daysRemaining != null && overview.daysRemaining <= 7)
+  const renewalNoticeDays = [3, 7, 15, 30].includes(overview?.renewalNoticeDays || 7) ? overview?.renewalNoticeDays || 7 : 7
+  const shouldWarn = overview?.enrolled && ((overview.daysRemaining != null && overview.daysRemaining <= renewalNoticeDays)
     || ['grace', 'expired', 'suspended', 'cancelled'].includes(status))
   const totalOutstandingMinor = (overview?.charges || []).reduce((sum, charge) =>
     sum + Math.max(0, charge.amountMinor - charge.paidMinor - charge.pendingMinor), 0)
@@ -114,7 +116,7 @@ export function TenantBillingPortal({ tenantId, role, regularizationOnly = false
         : status === 'cancelled' ? 'El contrato está cancelado. Contacta a PACHAX para revisar los siguientes pasos.'
           : overview?.daysRemaining === 0 ? 'El período pagado vence hoy.'
             : overview?.daysRemaining != null && overview.daysRemaining <= 3 ? `Quedan ${overview.daysRemaining} día${overview.daysRemaining === 1 ? '' : 's'} para el vencimiento.`
-              : overview?.daysRemaining != null ? `Vence en ${overview.daysRemaining} días.` : 'Revisa el estado de tu suscripción.'
+              : overview?.daysRemaining != null ? `Tu plan vence el ${dateLabel(overview.subscription?.nextRenewalAt)}. ${currentCharge?.kind === 'renewal' ? 'Hay un cargo de renovación pendiente en esta cuenta.' : 'PACHAX aún no ha registrado un cargo de renovación; no realices pagos sin un cargo pendiente.'}` : 'Revisa el estado de tu suscripción.'
   const noticeKey = `pachax-billing-notice:${tenantId}:${status}:${dateLabel(overview?.subscription?.currentPeriodEnd)}`
   const [dismissedNoticeKey, setDismissedNoticeKey] = useState<string | null>(null)
   const noticeDismissed = dismissedNoticeKey === noticeKey
@@ -165,12 +167,13 @@ export function TenantBillingPortal({ tenantId, role, regularizationOnly = false
             {status === 'suspended' && <p className="mt-2 text-xs text-amber-800">La recepción de un pago no reactiva automáticamente una suspensión administrativa. PACHAX debe autorizar la reactivación.</p>}
             {status === 'cancelled' && <p className="mt-2 text-xs text-amber-800">El contrato está cancelado. Contacta a PACHAX; un pago no reactiva automáticamente el acceso.</p>}
           </section>
-          <section className="rounded-xl border border-slate-200 p-4"><h3 className="font-bold">Métodos de pago disponibles</h3>
-            {!methods && <p className="mt-2 text-sm text-slate-600">PACHAX todavía no configuró métodos de pago. No realices transferencias hasta recibir instrucciones oficiales.</p>}
-            {methods?.qrEnabled && (methods.qrImageDataUrl || methods.qrImageUrl) && <div className="mt-3"><p className="text-sm font-semibold">QR bancario oficial</p><img src={methods.qrImageDataUrl || methods.qrImageUrl} alt="QR oficial de pago de PACHAX" referrerPolicy="no-referrer" className="mt-2 h-48 w-48 rounded-lg border object-contain" /></div>}
-            {methods?.transferEnabled && <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm"><p><strong>Entidad:</strong> {methods.bankName}</p><p><strong>Titular:</strong> {methods.accountHolder}</p><p><strong>Identificador:</strong> {methods.accountIdentifier}</p><p><strong>Moneda:</strong> {methods.transferCurrency || 'Pendiente de confirmar con PACHAX'}</p></div>}
-            {methods?.instructions && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{methods.instructions}</p>}
-            {overview.contactUrl && <a href={`${overview.contactUrl}?text=${encodeURIComponent(`Hola PACHAX, necesito consultar la suscripción de ${overview.subscription?.companyName || 'mi empresa'}.`)}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900">Contactar a PACHAX por WhatsApp</a>}
+          <section className="rounded-xl border border-slate-200 p-4"><h3 className="font-bold">Instrucciones del cargo</h3>
+            {!currentCharge && <p className="mt-2 text-sm text-slate-600">No hay un cargo pendiente que admita pago. Los métodos y el QR se mostrarán cuando PACHAX registre un cargo válido.</p>}
+            {currentCharge && !methods && <p className="mt-2 text-sm text-slate-600">PACHAX todavía no configuró métodos de pago para este cargo. No realices transferencias hasta recibir instrucciones oficiales.</p>}
+            {currentCharge && methods?.qrEnabled && (methods.qrImageDataUrl || methods.qrImageUrl) && <div className="mt-3"><p className="text-sm font-semibold">QR bancario oficial · cargo {currentCharge.id}</p><img src={methods.qrImageDataUrl || methods.qrImageUrl} alt="QR oficial de pago de PACHAX" referrerPolicy="no-referrer" className="mt-2 h-48 w-48 rounded-lg border object-contain" /></div>}
+            {currentCharge && methods?.transferEnabled && <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm"><p><strong>Entidad:</strong> {methods.bankName}</p><p><strong>Titular:</strong> {methods.accountHolder}</p><p><strong>Identificador:</strong> {methods.accountIdentifier}</p><p><strong>Moneda:</strong> {methods.transferCurrency || 'Pendiente de confirmar con PACHAX'}</p></div>}
+            {currentCharge && methods?.instructions && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{methods.instructions}</p>}
+            {currentCharge && overview.contactUrl && <a href={`${overview.contactUrl}?text=${encodeURIComponent(`Hola PACHAX, necesito consultar el cargo ${currentCharge.id} de ${overview.subscription?.companyName || 'mi empresa'}.`)}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900">Contactar a PACHAX por este cargo</a>}
           </section>
           {unpaidCharges.length > 0 && methods && <form onSubmit={submitReference} className="space-y-3 rounded-xl border border-slate-200 p-4"><h3 className="font-bold">Informar una transferencia o pago QR</h3><p className="text-xs text-slate-600">La referencia no confirma el pago. No adjuntes datos de tarjeta ni credenciales bancarias.</p>
             <label className="block text-sm">Cargo<select value={currentCharge?.id || ''} onChange={event => setSelectedCharge(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border bg-white px-3">{unpaidCharges.map(charge => <option key={charge.id} value={charge.id}>{charge.kind === 'initial' ? 'Inicial' : 'Renovación'} · saldo {currencyLabel(charge.amountMinor - charge.paidMinor - charge.pendingMinor, charge.currency)}</option>)}</select></label>

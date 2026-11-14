@@ -45,6 +45,9 @@ let passed = 0;
 let originalMethodsLoaded = false;
 let originalMethodsExisted = false;
 let originalMethods = null;
+let originalRenewalPolicyLoaded = false;
+let originalRenewalPolicyExisted = false;
+let originalRenewalPolicy = null;
 const pass = label => { passed += 1; console.log(`PASS ${label}`); };
 const request = (uid, data) => ({ auth: { uid, token: { platform: true } }, data });
 const platformCall = (uid, data) => platform.platformGateway(db, request(uid, data));
@@ -135,6 +138,11 @@ async function cleanup() {
     if (originalMethodsExisted) await methodsRef.set(originalMethods).catch(() => undefined);
     else await methodsRef.delete().catch(() => undefined);
   }
+  if (originalRenewalPolicyLoaded) {
+    const policyRef = db.doc('platformBillingConfig/renewalNotice');
+    if (originalRenewalPolicyExisted) await policyRef.set(originalRenewalPolicy).catch(() => undefined);
+    else await policyRef.delete().catch(() => undefined);
+  }
   const auditRows = await db.collection('platformAuditLogs').where('operatorUid', '==', ownerUid).get().catch(() => ({ docs: [] }));
   await Promise.all(auditRows.docs.map(item => item.ref.delete().catch(() => undefined)));
   await deleteApp(app).catch(() => undefined);
@@ -152,6 +160,21 @@ async function run() {
     originalMethodsLoaded = true;
     originalMethodsExisted = previousMethods.exists;
     originalMethods = previousMethods.exists ? previousMethods.data() : null;
+    const renewalPolicyRef = db.doc('platformBillingConfig/renewalNotice');
+    const previousRenewalPolicy = await renewalPolicyRef.get();
+    originalRenewalPolicyLoaded = true;
+    originalRenewalPolicyExisted = previousRenewalPolicy.exists;
+    originalRenewalPolicy = previousRenewalPolicy.exists ? previousRenewalPolicy.data() : null;
+    const defaultNotice = await platformCall(ownerUid, { action: 'getBillingRenewalNoticePolicy' });
+    assert.equal(defaultNotice.noticeDays, 7);
+    assert.deepEqual(defaultNotice.allowedDays, [3, 7, 15, 30]);
+    const savedNotice = await platformCall(ownerUid, { action: 'saveBillingRenewalNoticePolicy', requestId: opId(), noticeDays: 15, expectedVersion: 0 });
+    assert.equal(savedNotice.version, 1);
+    await assert.rejects(platformCall(adminUid, { action: 'saveBillingRenewalNoticePolicy', requestId: opId(), noticeDays: 7, expectedVersion: 1 }), error => error.code === 'permission-denied');
+    await assert.rejects(platformCall(ownerUid, { action: 'saveBillingRenewalNoticePolicy', requestId: opId(), noticeDays: 5, expectedVersion: 1 }), error => error.code === 'invalid-argument');
+    await assert.rejects(platformCall(ownerUid, { action: 'saveBillingRenewalNoticePolicy', requestId: opId(), noticeDays: 3, expectedVersion: 0 }), error => error.code === 'aborted');
+    assert.equal((await platformCall(ownerUid, { action: 'getBillingRenewalNoticePolicy' })).noticeDays, 15);
+    pass('aviso de renovación usa el valor histórico de 7 días, permite 3/7/15/30 solo a Owner y protege versiones');
     await seedPlan(planId, 'Plan Distribución QA', 20, 200);
     await seedPlan(nextPlanId, 'Plan Distribución QA Renovación', 30, 300);
     const bobPlanId = `billing-bob-plan-${suffix}`;
@@ -265,6 +288,26 @@ async function run() {
     assert.equal(contract.terms.technicalEntitlements.length, 0);
     pass('aceptación genera un único contrato, cargo y suscripción pendientes con términos inmutables');
 
+    await assert.rejects(platformCall(supportUid, { action: 'getCommercialInitialPaymentInstructions', contractId: contractResult.contractId }), error => error.code === 'permission-denied');
+    const paymentMethodsFixture = { available: false, qrEnabled: false, transferEnabled: false, qrImageUrl: '', qrImagePath: '',
+      bankName: '', accountHolder: '', accountIdentifier: '', transferCurrency: '', instructions: '', whatsappNumber: '' };
+    await methodsRef.set(paymentMethodsFixture);
+    const noMethodsInstructions = await platformCall(ownerUid, { action: 'getCommercialInitialPaymentInstructions', contractId: contractResult.contractId });
+    assert.equal(noMethodsInstructions.chargeId, contractResult.chargeId);
+    assert.equal(noMethodsInstructions.outstandingMinor, 7500);
+    assert.equal(noMethodsInstructions.paymentMethods, null);
+    await methodsRef.set({ ...paymentMethodsFixture, available: true, qrEnabled: true, qrImageUrl: 'https://payments.example.test/qr-qa.png',
+      transferEnabled: true, bankName: 'Banco Emulador', accountHolder: 'PACHAX QA', accountIdentifier: 'CUENTA-QA-SIN-VALOR',
+      transferCurrency: 'BOB', instructions: 'Fixture. No realizar pagos.' });
+    const approvedInstructions = await platformCall(adminUid, { action: 'getCommercialInitialPaymentInstructions', contractId: contractResult.contractId });
+    assert.equal(approvedInstructions.customer.companyName, intake.companyName);
+    assert.equal(approvedInstructions.amountMinor, 7500);
+    assert.equal(approvedInstructions.outstandingMinor, 7500);
+    assert.equal(approvedInstructions.paymentMethods.transferCurrency, 'BOB');
+    assert.equal(approvedInstructions.paymentMethods.qrImageUrl, 'https://payments.example.test/qr-qa.png');
+    assert.match(approvedInstructions.paymentNotice, /no confirma el pago/i);
+    pass('instrucciones de primer pago solo se consultan tras aceptación/contrato/cargo y usan datos de servidor; QR ausente no se inventa');
+
     const firstPayment = await platformCall(financeUid, { action: 'recordManualPaymentReference', requestId: opId(), chargeId: contractResult.chargeId,
       amount: '25.00', method: 'bank_transfer', bankReference: `QA-BANK-${suffix}-1` });
     createdPaths.push(`platformBillingPayments/${firstPayment.paymentId}`);
@@ -275,6 +318,9 @@ async function run() {
     assert.equal(partial.status, 'partial');
     contract = (await db.doc(`platformContracts/${contractResult.contractId}`).get()).data();
     assert.equal(contract.status, 'pending_payment');
+    const partialInstructions = await platformCall(ownerUid, { action: 'getCommercialInitialPaymentInstructions', contractId: contractResult.contractId });
+    assert.equal(partialInstructions.paidMinor, 2500);
+    assert.equal(partialInstructions.outstandingMinor, 5000);
     const assistedInput = await prepareAssistedInput(contractResult.contractId, intake.companyName, leadEmail, opId());
     await assert.rejects(assisted.createAssistedTenant(db, auth, request(ownerUid, assistedInput)), error => error.code === 'failed-precondition');
     await assert.rejects(auth.getUserByEmail(leadEmail), error => error.code === 'auth/user-not-found');
@@ -287,6 +333,7 @@ async function run() {
     assert.equal(completePayment.status, 'confirmed');
     contract = (await db.doc(`platformContracts/${contractResult.contractId}`).get()).data();
     assert.equal(contract.status, 'ready_for_activation');
+    await assert.rejects(platformCall(ownerUid, { action: 'getCommercialInitialPaymentInstructions', contractId: contractResult.contractId }), error => error.code === 'failed-precondition');
     const charge = (await db.doc(`platformBillingCharges/${contractResult.chargeId}`).get()).data();
     assert.equal(charge.status, 'paid');
     assert.equal(charge.paidMinor, 7500);
@@ -338,6 +385,8 @@ async function run() {
     assert.equal(login.localId, provisionA.ownerUid);
     const signedInActor = await tenantActor(db, { auth: { uid: login.localId, token: {} }, data: { tenantId: provisionA.tenantId } }, 'settings.manage');
     assert.equal(signedInActor.uid, login.localId);
+    const overview = await commercialBilling.getTenantBillingOverview(db, { auth: { uid: login.localId, token: {} }, data: { tenantId: provisionA.tenantId } });
+    assert.equal(overview.renewalNoticeDays, 15);
     pass('solo el pago inicial íntegro habilita tenant y suscripción; el propietario configura su acceso e inicia sesión en la empresa');
 
     const additionalTemplateCases = [
@@ -707,7 +756,7 @@ async function run() {
     assert.equal(tenantOverview.enrolled, true);
     assert.equal(tenantOverview.subscription.companyName, monthlyOnlyIntake.companyName);
     assert.equal(tenantOverview.subscription.monthsCovered, 3);
-    assert.equal(tenantOverview.paymentMethods.accountIdentifier, fakeMethods.accountIdentifier);
+    assert.equal(tenantOverview.paymentMethods, null, 'A tenant with no outstanding eligible charge must not receive QR or transfer details.');
     await assert.rejects(() => commercialBilling.getTenantBillingOverview(db, { auth: { uid: monthlyProvision.ownerUid, token: {} },
       data: { tenantId: provisionA.tenantId } }), error => error.code === 'permission-denied');
     const billingEmployeeUid = `billing-employee-${suffix}`;
@@ -739,6 +788,10 @@ async function run() {
     assert.equal(prepaidCharge.periodStart.toMillis(), dueEnd.toMillis());
     assert.equal(prepaidCharge.periodEnd.toMillis(), expectedPrepaidEnd.toMillis());
     assert(prepaidCharge.periodEnd.toMillis() > prepaidCharge.periodStart.toMillis() + 55 * 86_400_000);
+    const renewalOverview = await commercialBilling.getTenantBillingOverview(db, { auth: { uid: monthlyProvision.ownerUid, token: {} },
+      data: { tenantId: monthlyProvision.tenantId } });
+    assert.equal(renewalOverview.paymentMethods.accountIdentifier, fakeMethods.accountIdentifier,
+      'Payment instructions should be available alongside an eligible outstanding renewal charge.');
     const tenantReference = await commercialBilling.recordManualPaymentReference(db, { auth: { uid: monthlyProvision.ownerUid, token: {} }, data: {
       tenantId: monthlyProvision.tenantId, requestId: opId(), chargeId: prepaidRenewal.chargeId, amount: '30.00', method: 'bank_transfer', bankReference: `QA-OWNER-${suffix}-1` } });
     createdPaths.push(`platformBillingPayments/${tenantReference.paymentId}`);

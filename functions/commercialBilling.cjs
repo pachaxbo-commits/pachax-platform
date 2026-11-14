@@ -13,6 +13,8 @@ const {
 const { normalizeCapabilitiesV1, normalizeCapabilityAdjustments, applyCapabilityAdjustments } = require('./commercialCapabilities.cjs');
 
 const BILLING_STATUSES = Object.freeze(['pending', 'active', 'overdue', 'suspended', 'cancelled']);
+const BILLING_RENEWAL_NOTICE_DAYS = Object.freeze([3, 7, 15, 30]);
+const DEFAULT_BILLING_RENEWAL_NOTICE_DAYS = 7;
 const PRIVATE_QR_PREFIX = 'platformBilling/manualMethods/qr/';
 const MAX_QR_BYTES = 512 * 1024;
 const QR_MIME_EXTENSIONS = Object.freeze({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' });
@@ -150,6 +152,93 @@ async function getManualPaymentMethods(db, request) {
   return { methods: { ...methods, transferCurrency: methods.transferCurrency || '', qrImageDataUrl: await readPrivateQrDataUrl(methods) } };
 }
 
+async function getCommercialInitialPaymentInstructions(db, request) {
+  await platformActor(db, request, 'plans.manage');
+  const contractId = cleanText(request.data?.contractId, 'Contrato', 1, 120);
+  const contractRef = db.doc(`platformContracts/${contractId}`);
+  const contractSnap = await contractRef.get();
+  if (!contractSnap.exists) throw new HttpsError('not-found', 'Contrato no encontrado.');
+  const contract = contractSnap.data();
+  const chargeId = contract.initialChargeId;
+  if (contract.status !== 'pending_payment' || contract.tenantId || typeof chargeId !== 'string') {
+    throw new HttpsError('failed-precondition', 'Las instrucciones iniciales solo están disponibles antes de activar la empresa y para un cargo inicial asociado.');
+  }
+  const [chargeSnap, methodsSnap] = await Promise.all([
+    db.doc(`platformBillingCharges/${chargeId}`).get(),
+    db.doc('platformBillingConfig/manualMethods').get(),
+  ]);
+  if (!chargeSnap.exists) throw new HttpsError('failed-precondition', 'El contrato no tiene un cargo inicial consultable.');
+  const charge = chargeSnap.data();
+  if (charge.contractId !== contractId || charge.chargeId !== chargeId || charge.kind !== 'initial' || charge.tenantId
+    || !['due', 'partial', 'under_review'].includes(charge.status)) {
+    throw new HttpsError('failed-precondition', 'El cargo inicial ya no admite instrucciones de pago.');
+  }
+  const balance = validatedChargeBalances(charge);
+  const outstandingMinor = balance.amountMinor - balance.paidMinor - balance.pendingMinor;
+  if (outstandingMinor <= 0) throw new HttpsError('failed-precondition', 'El cargo inicial no tiene un saldo disponible para pagar.');
+  const configuredMethods = methodsSnap.exists ? methodsSnap.data() : null;
+  const sanitizedMethods = configuredMethods?.available === true ? await sanitizeClientPaymentMethods(configuredMethods) : null;
+  const paymentMethods = sanitizedMethods && (sanitizedMethods.qrEnabled || sanitizedMethods.transferEnabled) ? sanitizedMethods : null;
+  const terms = contract.terms || {};
+  return {
+    contractId, chargeId, status: charge.status,
+    customer: {
+      companyName: cleanText(contract.customer?.companyName || terms.companyName || 'Empresa interesada', 'Empresa', 2, 120),
+      contactName: cleanText(contract.customer?.contactName || terms.ownerName || 'Contacto registrado', 'Contacto', 2, 100),
+      email: safeEmail(contract.customer?.email || terms.ownerEmail || ''),
+    },
+    templateId: contract.templateId || terms.templateId,
+    planName: terms.plan?.name || 'Acuerdo personalizado',
+    currency: charge.currency,
+    amountMinor: balance.amountMinor, paidMinor: balance.paidMinor, pendingMinor: balance.pendingMinor, outstandingMinor,
+    dueAt: charge.dueAt || null,
+    billingCycle: terms.billingCycle || charge.cycle,
+    monthsCovered: terms.monthsCovered || charge.monthsCovered || 1,
+    lineItems: Array.isArray(charge.lineItems) ? charge.lineItems.slice(0, 25).map(item => ({
+      kind: item.kind, title: typeof item.title === 'string' ? cleanText(item.title, 'Concepto', 1, 120) : '',
+      amountMinor: Number.isSafeInteger(item.amountMinor) ? item.amountMinor : 0,
+    })) : [],
+    paymentMethods,
+    paymentNotice: 'Informar una referencia o mostrar una captura no confirma el pago. PACHAX debe verificar el abono antes de activar la empresa.',
+  };
+}
+
+async function getBillingRenewalNoticePolicy(db, request) {
+  await platformActor(db, request, 'plans.manage');
+  const snapshot = await db.doc('platformBillingConfig/renewalNotice').get();
+  const data = snapshot.exists ? snapshot.data() : {};
+  const noticeDays = BILLING_RENEWAL_NOTICE_DAYS.includes(data.noticeDays) ? data.noticeDays : DEFAULT_BILLING_RENEWAL_NOTICE_DAYS;
+  return { noticeDays, version: Number.isSafeInteger(data.version) ? data.version : 0, allowedDays: BILLING_RENEWAL_NOTICE_DAYS };
+}
+
+async function saveBillingRenewalNoticePolicy(db, request) {
+  const actor = await platformActor(db, request, 'plans.manage');
+  if (actor.operator.role !== 'platform_owner') throw new HttpsError('permission-denied', 'Solo Platform Owner puede cambiar los avisos de renovación.');
+  const noticeDays = request.data?.noticeDays;
+  const expectedVersion = request.data?.expectedVersion;
+  if (!BILLING_RENEWAL_NOTICE_DAYS.includes(noticeDays)) throw new HttpsError('invalid-argument', 'Elige 3, 7, 15 o 30 días.');
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0) throw new HttpsError('invalid-argument', 'Recarga la política de avisos antes de guardar.');
+  const requestId = requestUuid(request.data?.requestId);
+  const configRef = db.doc('platformBillingConfig/renewalNotice');
+  const operationRef = db.doc(`platformBillingOperations/${requestKey(actor, 'renewal-notice.save', requestId)}`);
+  const fingerprint = digest(JSON.stringify({ noticeDays, expectedVersion }));
+  return db.runTransaction(async tx => {
+    const [config, operation] = await Promise.all([tx.get(configRef), tx.get(operationRef)]);
+    if (operation.exists) {
+      if (operation.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'El identificador ya se usó con otros ajustes.');
+      return { success: true, noticeDays, version: operation.data().version, idempotent: true };
+    }
+    const currentVersion = Number(config.data()?.version) || 0;
+    if (expectedVersion !== currentVersion) throw new HttpsError('aborted', 'La política de avisos cambió. Recarga antes de guardar.');
+    const version = currentVersion + 1;
+    const now = FieldValue.serverTimestamp();
+    tx.set(configRef, { noticeDays, version, updatedBy: actor.uid, updatedAt: now });
+    tx.create(operationRef, { fingerprint, version, actorUid: actor.uid, createdAt: now });
+    audit(db, tx, actor, 'billing.renewal_notice.update', configRef.path, { noticeDays, version });
+    return { success: true, noticeDays, version, idempotent: false };
+  });
+}
+
 async function saveManualPaymentMethods(db, request) {
   const actor = await platformActor(db, request);
   if (actor.operator.role !== 'platform_owner') throw new HttpsError('permission-denied', 'Solo Platform Owner puede cambiar los métodos oficiales de cobro.');
@@ -264,31 +353,39 @@ async function readPrivateQrDataUrl(methods = {}) {
 
 async function getTenantBillingOverview(db, request) {
   const actor = await tenantBillingActor(db, request);
-  const methodsPromise = db.doc('platformBillingConfig/manualMethods').get();
   if (!actor.contractId) {
-    const methods = await methodsPromise;
-    return { enrolled: false, status: 'not_enrolled', subscription: null, charges: [], payments: [], paymentMethods: methods.exists && methods.data()?.available === true ? await sanitizeClientPaymentMethods(methods.data()) : null };
+    return { enrolled: false, status: 'not_enrolled', subscription: null, charges: [], payments: [], paymentMethods: null };
   }
   const contractRef = db.doc(`platformContracts/${actor.contractId}`);
   const subscriptionRef = db.doc(`platformSubscriptions/${actor.contractId}`);
-  const [contractSnap, subscriptionSnap, chargesSnap, paymentsSnap, methodsSnap] = await Promise.all([
+  const [contractSnap, subscriptionSnap, chargesSnap, paymentsSnap, noticeSnap] = await Promise.all([
     contractRef.get(), subscriptionRef.get(),
     db.collection('platformBillingCharges').where('contractId', '==', actor.contractId).orderBy('createdAt', 'desc').limit(50).get(),
     db.collection('platformBillingPayments').where('contractId', '==', actor.contractId).orderBy('recordedAt', 'desc').limit(100).get(),
-    methodsPromise,
+    db.doc('platformBillingConfig/renewalNotice').get(),
   ]);
   if (!contractSnap.exists || !subscriptionSnap.exists || subscriptionSnap.data()?.tenantId !== actor.tenantId) {
     throw new HttpsError('failed-precondition', 'La suscripción de esta empresa requiere revisión por PACHAX.');
   }
   const contract = contractSnap.data(), subscription = subscriptionSnap.data();
   const status = effectiveBillingStatus(subscription);
-  const paymentMethods = methodsSnap.exists && methodsSnap.data()?.available === true ? await sanitizeClientPaymentMethods(methodsSnap.data()) : null;
+  const configuredNoticeDays = noticeSnap.exists ? noticeSnap.data()?.noticeDays : null;
+  const renewalNoticeDays = BILLING_RENEWAL_NOTICE_DAYS.includes(configuredNoticeDays)
+    ? configuredNoticeDays : DEFAULT_BILLING_RENEWAL_NOTICE_DAYS;
   const charges = chargesSnap.docs.map(document => {
     const charge = document.data();
     return { id: document.id, kind: charge.kind, currency: charge.currency, amountMinor: charge.amountMinor,
       paidMinor: charge.paidMinor, pendingMinor: charge.pendingMinor, status: charge.status, dueAt: charge.dueAt,
       cycle: charge.cycle, periodCount: charge.periodCount || 1, monthsCovered: charge.monthsCovered || (charge.cycle === 'annual' ? 12 : 1), createdAt: charge.createdAt };
   });
+  const hasEligibleOutstandingCharge = charges.some(charge =>
+    ['initial', 'renewal'].includes(charge.kind) && ['due', 'partial', 'under_review'].includes(charge.status)
+    && Number.isSafeInteger(charge.amountMinor) && Number.isSafeInteger(charge.paidMinor) && Number.isSafeInteger(charge.pendingMinor)
+    && charge.amountMinor - charge.paidMinor - charge.pendingMinor > 0);
+  const methodsSnap = hasEligibleOutstandingCharge ? await db.doc('platformBillingConfig/manualMethods').get() : null;
+  const sanitizedMethods = methodsSnap?.exists && methodsSnap.data()?.available === true
+    ? await sanitizeClientPaymentMethods(methodsSnap.data()) : null;
+  const paymentMethods = sanitizedMethods && (sanitizedMethods.qrEnabled || sanitizedMethods.transferEnabled) ? sanitizedMethods : null;
   const payments = paymentsSnap.docs.map(document => {
     const payment = document.data();
     return { id: document.id, chargeId: payment.chargeId, amountMinor: payment.amountMinor, currency: payment.currency,
@@ -297,7 +394,7 @@ async function getTenantBillingOverview(db, request) {
   });
   const currentPeriodEnd = subscription.currentPeriodEnd?.toDate?.() || null;
   return {
-    enrolled: true, status, daysRemaining: daysUntilBillingDate(currentPeriodEnd),
+    enrolled: true, status, daysRemaining: daysUntilBillingDate(currentPeriodEnd), renewalNoticeDays,
     subscription: { contractId: actor.contractId, tenantId: actor.tenantId, templateId: contract.templateId,
       companyName: actor.tenant.name, planName: subscription.planSnapshot?.name || contract.terms?.plan?.name || 'Acuerdo personalizado',
       currency: subscription.currency || contract.terms?.currency, recurringMinor: subscription.recurringMinor || contract.terms?.recurringMinor,
@@ -1329,5 +1426,6 @@ module.exports = {
   createCommercialContract, recordManualPaymentReference, confirmManualPayment, rejectManualPayment,
   createRenewalCharge, requestSubscriptionPlanChange, listPublishedBillingPlans, changeSubscriptionStatus,
   reactivateSuspendedSubscription, listBillingRecords, getManualPaymentMethods, saveManualPaymentMethods,
+  getCommercialInitialPaymentInstructions, getBillingRenewalNoticePolicy, saveBillingRenewalNoticePolicy,
   getTenantBillingOverview, addBillingInternalNote, listBillingInternalNotes, correctBillingCharge,
 };
