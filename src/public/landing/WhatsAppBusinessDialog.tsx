@@ -19,7 +19,7 @@ export function WhatsAppBusinessDialog({
   initialBusinessType = null,
   onClose,
 }: WhatsAppBusinessDialogProps) {
-  const { landingContent } = useCommercialConfig()
+  const { landingContent, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
   const [selectedType, setSelectedType] = useState<WhatsAppBusinessType | null>(initialBusinessType)
   const [otherDescription, setOtherDescription] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -29,7 +29,10 @@ export function WhatsAppBusinessDialog({
   const otherInputRef = useRef<HTMLTextAreaElement>(null)
 
   const officialPhone = landingContent.officialWhatsAppNumber || ''
-  const hasValidWhatsApp = isValidWhatsAppPhone(officialPhone)
+  const hasValidWhatsApp =
+    publicCatalogStatus === 'ready' &&
+    !isPublicEditorialFallback &&
+    isValidWhatsAppPhone(officialPhone)
 
   useEffect(() => {
     if (!isOpen) return

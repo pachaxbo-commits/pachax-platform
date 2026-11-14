@@ -69,8 +69,8 @@ export function FeaturedTemplateDetails({
     : 'Implementación especializada'
 
   const handlePrimaryAction = () => {
-    if (action.kind === 'contact' && onRequestContact) {
-      onRequestContact(mapTemplateIdToBusinessType(template?.id))
+    if ((action.kind === 'contact' || action.kind === 'quote') && onRequestContact) {
+      onRequestContact(mapTemplateIdToBusinessType(isService ? 'custom' : template?.id))
       return
     }
     if (action.kind === 'quote' || action.kind === 'contact') {
