@@ -22,13 +22,15 @@ Guía breve verificada tras la reinstalación de Windows 10 sobre SSD para compi
 
 | Herramienta | Estado en esta máquina | Uso principal |
 | :--- | :--- | :--- |
-| **Node.js** | `v22.22.2` | Runtime web y Cloud Functions (Node 22) |
-| **npm** | `10.9.7` | Gestión de dependencias (`npm ci`) |
-| **Java** | `21.0.10 LTS` | Firebase Emulator Suite (Firestore, Auth, Storage) |
-| **Firebase CLI** | `15.12.0` | Emuladores locales (`demo-pachax-platform`) |
-| **Vercel CLI** | `50.45.0` | Previews / inspección (no desplegar en Fase 0–4) |
-| **Git & GitHub CLI (`gh`)** | Instalado y autenticado | Flujo de ramas y Draft PRs |
-| **Playwright + Chromium** | `1.59.1` | Pruebas E2E cuando apliquen |
+| **Node.js** | `v26.13.0` (`functions/package.json` declara `engines.node: "22"`) | Runtime web/tests locales; Cloud Functions apunta a Node 22 |
+| **npm** | `11.20.0` | Gestión de dependencias (`npm ci`) |
+| **Java (Temurin)** | `21.0.13 LTS` (`OpenJDK 21.0.13+9`) | Firebase Emulator Suite (Firestore, Auth, Storage) |
+| **Firebase CLI** | `15.35.0` | Emuladores locales (`demo-pachax-platform`) |
+| **Vercel CLI** | `65.14.0` | Previews / inspección (no desplegar sin autorización) |
+| **Git & GitHub CLI (`gh`)** | `Git 2.56.1` + `gh` autenticado (`pachaxbo-commits`) | Flujo de ramas y Draft PRs |
+| **VS Code** | `1.145.3` | Editor principal |
+| **Playwright** | `1.65.1` | Pruebas E2E de navegador cuando apliquen |
+| **Python / WSL 2 / Docker** | `Python 3.14.10`, `WSL 2` (`docker-desktop`), `Docker 29.9.3` | Disponibles en Windows (no requeridos para build web ni emuladores base) |
 
 ### Variables locales (`.env.local`)
 
