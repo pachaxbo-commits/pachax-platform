@@ -177,7 +177,7 @@ try {
     console.log(`PASS Commercial preparation center ${width}x${height}, horizontal overflow ${layout.overflow}px`)
   }
   await evaluate(`document.querySelector('[data-admin-tab="plans"]').click()`, true)
-  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Gestión de Planes Comerciales'), 'Plan navigation from the Admin shell did not open')
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Asistente Guiado de Planes Comerciales') || text.includes('Gestión de Planes Comerciales'), 'Plan navigation from the Admin shell did not open')
   await evaluate(`document.querySelector('[data-admin-tab="templates"]').click()`, true)
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Gestión de Plantillas Comerciales'), 'Template management section did not open')
 

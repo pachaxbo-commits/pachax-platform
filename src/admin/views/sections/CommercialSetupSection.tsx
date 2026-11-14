@@ -27,6 +27,8 @@ interface ManualPaymentMethods {
   qrEnabled?: boolean
   transferEnabled?: boolean
   qrImageUrl?: string
+  qrImagePath?: string
+  qrImageDataUrl?: string
   bankName?: string
   accountHolder?: string
   accountIdentifier?: string
@@ -96,7 +98,7 @@ export function CommercialSetupSection({ onNavigateTab }: { onNavigateTab: (tab:
     && config.landingContent.officialWhatsAppNumber.replace(/\D/g, '').length >= 8
   const validPublishedPlans = useMemo(() => adminPlansState === 'ready' ? filterPublicCommercialPlans(config.plans).filter(plan => plan.planKind === 'paid') : [], [adminPlansState, config.plans])
   const publishedTemplates = templatesState === 'ready' ? config.templates.filter(template => template.status === 'published' && template.commercialAvailability === 'available') : []
-  const hasQr = Boolean(methods?.qrEnabled && methods.qrImageUrl?.trim())
+  const hasQr = Boolean(methods?.qrEnabled && (methods.qrImagePath?.trim() || methods.qrImageUrl?.trim() || methods.qrImageDataUrl?.trim()))
   const hasTransfer = Boolean(methods?.transferEnabled && methods.bankName?.trim() && methods.accountHolder?.trim() && methods.accountIdentifier?.trim())
   const methodReady = hasQr || hasTransfer
   const paymentStatus: SetupStatus = !canReadPaymentMethods
