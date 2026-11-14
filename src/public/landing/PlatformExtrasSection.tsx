@@ -11,6 +11,7 @@ import {
   CalendarDays,
 } from 'lucide-react'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
+import { formatPrimaryCommercialAmount, formatUsdReferenceText } from '../../core/currencyExchange'
 import type { CommercialExtraService } from '../../admin/types'
 
 const EXTRA_ICONS = {
@@ -47,7 +48,7 @@ function openWhatsApp(number: string, message: string) {
 }
 
 export function PlatformExtrasSection() {
-  const { landingContent, publishedExtras } = useCommercialConfig()
+  const { landingContent, publishedExtras, exchangeRate } = useCommercialConfig()
 
   const contactNumber = landingContent.officialWhatsAppNumber
   const hasContactNumber = Boolean(contactNumber.replace(/\D/g, ''))
@@ -91,6 +92,8 @@ export function PlatformExtrasSection() {
           <div className={`pachax-extras-grid${services.length === 1 ? ' is-solo' : ''}`} aria-label="Servicios publicados">
             {services.map((extra) => {
               const Icon = getExtraIcon(extra.iconKey)
+              const hasBobAmount = typeof extra.referenceAmountBOB === 'number' && extra.referenceAmountBOB >= 0
+              const extraUsdRef = hasBobAmount ? formatUsdReferenceText(extra.referenceAmountBOB, exchangeRate) : null
               return (
                 <article className="pachax-extra-card" key={extra.id}>
                   <span className="pachax-extra-icon" aria-hidden="true"><Icon /></span>
@@ -98,7 +101,14 @@ export function PlatformExtrasSection() {
                   <p className="pachax-extra-description">{extra.shortDescription}</p>
                   <p className="pachax-extra-scope">Aplica a: {getTemplateScope(extra)}</p>
                   <div className="pachax-extra-meta">
-                    <span>{extra.referencePriceLabel}</span>
+                    <div>
+                      <span>
+                        {hasBobAmount
+                          ? `${formatPrimaryCommercialAmount(extra.referenceAmountBOB!, 'BOB')}${extra.referencePriceLabel ? ` · ${extra.referencePriceLabel}` : ''}`
+                          : extra.referencePriceLabel}
+                      </span>
+                      {extraUsdRef && <small style={{ display: 'block', fontSize: '0.72rem', opacity: 0.8 }}>{extraUsdRef}</small>}
+                    </div>
                     <button type="button" disabled={!hasContactNumber} onClick={() => handleServiceInquiry(extra)}>
                       Consultar <ArrowRight aria-hidden="true" />
                     </button>

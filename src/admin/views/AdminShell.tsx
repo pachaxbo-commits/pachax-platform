@@ -13,6 +13,7 @@ import {
   Shield,
   ShieldAlert,
   MessageSquareText,
+  ClipboardCheck,
   Menu,
   X,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ import { StudioAdminSection } from './sections/StudioAdminSection'
 import { AdministratorsSection } from './sections/AdministratorsSection'
 import { CommercialIntentsSection } from './sections/CommercialIntentsSection'
 import { CommercialBillingSection, type PaidContractActivation } from './sections/CommercialBillingSection'
+import { CommercialSetupSection } from './sections/CommercialSetupSection'
 import { AssistedTenantSection } from './sections/AssistedTenantSection'
 import { AdminLoginView } from './AdminLoginView'
 
@@ -47,6 +49,7 @@ type AdminTab =
   | 'assisted-tenants'
   | 'commercial-intents'
   | 'commercial-billing'
+  | 'commercial-setup'
 
 export function AdminShell() {
   const { user, isAuthenticated, logout, status } = useAdminAuth()
@@ -110,6 +113,9 @@ export function AdminShell() {
     { id: 'media', label: 'Biblioteca de media', icon: Image },
     { id: 'clients', label: 'Clientes / Tenants', icon: Users },
     { id: 'studio', label: 'PACHAX Studio', icon: MonitorPlay },
+    ...(user.role === 'platform_owner'
+      ? [{ id: 'commercial-setup' as AdminTab, label: 'Preparar ventas', icon: ClipboardCheck }]
+      : []),
     ...(['platform_owner', 'platform_admin'].includes(user.role)
       ? [{ id: 'commercial-intents' as AdminTab, label: 'Solicitudes comerciales', icon: MessageSquareText }]
       : []),
@@ -260,6 +266,7 @@ export function AdminShell() {
           {activeTab === 'assisted-tenants' && user.role === 'platform_owner' && <AssistedTenantSection key={paidContract?.id || 'new-tenant'} activationContract={paidContract} />}
           {activeTab === 'commercial-intents' && <CommercialIntentsSection />}
           {activeTab === 'commercial-billing' && <CommercialBillingSection onActivateContract={contract => { setPaidContract(contract); setActiveTab('assisted-tenants') }} />}
+          {activeTab === 'commercial-setup' && user.role === 'platform_owner' && <CommercialSetupSection onNavigateTab={(tab) => setActiveTab(tab as AdminTab)} />}
         </div>
       </main>
     </div>

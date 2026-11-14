@@ -812,6 +812,9 @@ async function saveTemplate(db, request) {
       throw new HttpsError('invalid-argument', 'El costo base de implementación debe ser cero o un importe positivo.');
     }
   }
+  if (template.implementationBaseCurrency !== undefined && !['BOB', 'USD'].includes(template.implementationBaseCurrency)) {
+    throw new HttpsError('invalid-argument', 'La moneda base de implementación debe ser BOB o USD.');
+  }
 
   // Invariante de ruta técnica de demo: demoRoute y demoPath no son editables libremente por Admin
   if (publicDef) {
@@ -832,7 +835,7 @@ async function saveTemplate(db, request) {
     && !actor.permissions.includes('plans.manage')) {
     throw new HttpsError('permission-denied', 'El operador puede editar contenido, pero no publicar plantillas ni habilitar demos.');
   }
-  const commercialFields = ['commercialMode', 'commercialAvailability', 'implementationBasePriceUSD'];
+  const commercialFields = ['commercialMode', 'commercialAvailability', 'implementationBasePriceUSD', 'implementationBaseCurrency'];
   if (commercialFields.some(field => template[field] !== undefined && template[field] !== previousTemplate[field])
     && !actor.permissions.includes('plans.manage')) {
     throw new HttpsError('permission-denied', 'El operador puede editar contenido, pero no precios ni disponibilidad comercial.');
@@ -842,7 +845,7 @@ async function saveTemplate(db, request) {
   const editableFields = [
     'commercialName', 'cardSubtitle', 'thumbnailUrl', 'thumbnailAlt', 'thumbnailFocalPoint',
     'description', 'detailDescription', 'targetAudience', 'problemSolved', 'bullets', 'features',
-    'badge', 'status', 'order', 'commercialMode', 'commercialAvailability', 'implementationBasePriceUSD',
+    'badge', 'status', 'order', 'commercialMode', 'commercialAvailability', 'implementationBasePriceUSD', 'implementationBaseCurrency',
     'diagnosticTitle', 'diagnosticDescription', 'implementationTitle', 'implementationDescription',
     'demoEnabled', 'demoEnabledConfigured',
   ];
@@ -867,6 +870,9 @@ async function saveTemplate(db, request) {
     implementationBasePriceUSD: template.implementationBasePriceUSD !== undefined
       ? template.implementationBasePriceUSD
       : (templateSnap.data()?.implementationBasePriceUSD ?? null),
+    implementationBaseCurrency: template.implementationBaseCurrency
+      || previousTemplate.implementationBaseCurrency
+      || (previousTemplate.implementationBasePriceUSD !== undefined && previousTemplate.implementationBasePriceUSD !== null ? 'USD' : 'BOB'),
     updatedBy: actor.uid,
     createdAt: previousTemplate.createdAt || FieldValue.serverTimestamp(),
   };
@@ -909,12 +915,18 @@ async function saveExtra(db, request) {
     throw new HttpsError('invalid-argument', 'Datos de servicio extra inválidos.');
   }
   const extraId = cleanText(extra.id, 'ID de extra', 1, 100);
-  const allowedFields = new Set(['id', 'title', 'category', 'shortDescription', 'referencePriceLabel', 'pricingType', 'iconKey', 'applicableTemplates', 'capabilityAdjustments', 'status', 'order', 'revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy']);
+  const allowedFields = new Set(['id', 'title', 'category', 'shortDescription', 'referencePriceLabel', 'referenceAmountBOB', 'pricingType', 'iconKey', 'applicableTemplates', 'capabilityAdjustments', 'status', 'order', 'revision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy']);
   if (Object.keys(extra).some(key => !allowedFields.has(key))) throw new HttpsError('invalid-argument', 'El extra contiene campos fuera del contrato editable.');
   if (extra.category !== undefined && !['custom', 'marketing', 'branding', 'support', 'automation', 'consulting'].includes(extra.category)) throw new HttpsError('invalid-argument', 'La categoría del extra no es válida.');
   if (extra.iconKey !== undefined && !['megaphone', 'palette', 'headset', 'zap', 'code'].includes(extra.iconKey)) throw new HttpsError('invalid-argument', 'El icono del extra no es válido.');
   if (extra.capabilityAdjustments !== undefined) normalizeCapabilityAdjustments(extra.capabilityAdjustments);
   if (extra.order !== undefined && (!Number.isSafeInteger(Number(extra.order)) || Number(extra.order) < 1)) throw new HttpsError('invalid-argument', 'El orden del extra debe ser un entero positivo.');
+  if (extra.referenceAmountBOB !== undefined && extra.referenceAmountBOB !== null) {
+    const amountBob = Number(extra.referenceAmountBOB);
+    if (!Number.isFinite(amountBob) || amountBob < 0 || amountBob > 1000000) {
+      throw new HttpsError('invalid-argument', 'El importe referencial en Bs debe ser cero o un importe positivo válido.');
+    }
+  }
   for (const [field, max] of Object.entries({ title: 120, shortDescription: 360, referencePriceLabel: 120 })) {
     if (extra[field] !== undefined && (typeof extra[field] !== 'string' || extra[field].length > max)) throw new HttpsError('invalid-argument', `El campo ${field} supera el formato permitido.`);
   }
@@ -943,7 +955,7 @@ async function saveExtra(db, request) {
   if (extra.status !== undefined && extra.status !== previousExtra.status && !actor.permissions.includes('plans.manage')) {
     throw new HttpsError('permission-denied', 'El operador no puede publicar ni despublicar servicios comerciales.');
   }
-  const commercialFields = ['referencePriceLabel', 'pricingType', 'applicableTemplates', 'status'];
+  const commercialFields = ['referencePriceLabel', 'referenceAmountBOB', 'pricingType', 'applicableTemplates', 'status'];
   if (commercialFields.some(field => extra[field] !== undefined
     && JSON.stringify(extra[field]) !== JSON.stringify(previousExtra[field]))
     && !actor.permissions.includes('plans.manage')) {
@@ -1092,6 +1104,84 @@ async function deleteMediaAsset(db, request) {
   return { success: true, assetId };
 }
 
+async function saveExchangeRateConfig(db, request) {
+  const actor = await platformActor(db, request);
+  if (actor.operator.role !== 'platform_owner') {
+    throw new HttpsError('permission-denied', 'Solo Platform Owner puede configurar el tipo de cambio referencial.');
+  }
+  const expected = expectedRevision(request);
+  const input = request.data?.exchangeRate;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new HttpsError('invalid-argument', 'Datos de tipo de cambio inválidos.');
+  }
+  const status = input.status;
+  if (!['valid', 'outdated', 'pending'].includes(status)) {
+    throw new HttpsError('invalid-argument', 'El estado del tipo de cambio debe ser valid, outdated o pending.');
+  }
+  const parsedRate = input.rateBsPerUsd === null || input.rateBsPerUsd === undefined || input.rateBsPerUsd === ''
+    ? null
+    : Number(input.rateBsPerUsd);
+  if (parsedRate !== null && (!Number.isFinite(parsedRate) || parsedRate <= 0 || parsedRate > 1000)) {
+    throw new HttpsError('invalid-argument', 'El tipo de cambio referencial debe ser un número positivo menor o igual a 1.000 Bs/USD.');
+  }
+  const source = typeof input.source === 'string' ? input.source.trim().slice(0, 140) : '';
+  const effectiveAtRaw = typeof input.effectiveAt === 'string' ? input.effectiveAt.trim() : '';
+  let effectiveAt = null;
+  if (effectiveAtRaw) {
+    const parsedTime = Date.parse(effectiveAtRaw);
+    if (!Number.isFinite(parsedTime)) {
+      throw new HttpsError('invalid-argument', 'La fecha y hora de vigencia del tipo de cambio no es válida.');
+    }
+    effectiveAt = new Date(parsedTime).toISOString();
+  }
+  if (status === 'valid') {
+    if (parsedRate === null) {
+      throw new HttpsError('invalid-argument', 'Ingresa un tipo de cambio Bs por USD válido antes de marcarlo como vigente.');
+    }
+    if (!source) {
+      throw new HttpsError('invalid-argument', 'Indica la fuente del tipo de cambio antes de marcarlo como vigente.');
+    }
+    if (!effectiveAt) {
+      throw new HttpsError('invalid-argument', 'Indica la fecha y hora de vigencia del tipo de cambio.');
+    }
+  }
+  const rateBsPerUsd = parsedRate !== null ? Math.round(parsedRate * 10000) / 10000 : null;
+  const updatedByEmail = typeof request.auth?.token?.email === 'string' ? request.auth.token.email : null;
+  const ref = db.doc('platformConfig/exchangeRate');
+  const payload = {
+    rateBsPerUsd,
+    source,
+    effectiveAt,
+    status,
+    updatedBy: actor.uid,
+    updatedByEmail,
+  };
+  const revision = await commitVersionedCommercialRecord(db, {
+    ref,
+    expected,
+    payload,
+    actor,
+    action: 'platform.commercial.exchange_rate.updated',
+    reason: 'Configuración administrativa de tipo de cambio referencial Bs/USD',
+    metadata: {
+      status,
+      rateBsPerUsd,
+      source,
+      effectiveAt,
+    },
+    refreshPublicSnapshot: true,
+  });
+  return {
+    success: true,
+    revision,
+    exchangeRate: {
+      ...payload,
+      updatedAt: new Date().toISOString(),
+      revision,
+    },
+  };
+}
+
 async function seedPlatformConfig(db, request) {
   const actor = await platformActor(db, request);
   if (!['platform_owner', 'platform_admin'].includes(actor.operator.role)) {
@@ -1236,6 +1326,9 @@ async function platformGateway(db, request, auth = null) {
     case 'reactivateSuspendedSubscription': return commercialBilling.reactivateSuspendedSubscription(db, request);
     case 'getManualPaymentMethods': return commercialBilling.getManualPaymentMethods(db, request);
     case 'saveManualPaymentMethods': return commercialBilling.saveManualPaymentMethods(db, request);
+    case 'getCommercialInitialPaymentInstructions': return commercialBilling.getCommercialInitialPaymentInstructions(db, request);
+    case 'getBillingRenewalNoticePolicy': return commercialBilling.getBillingRenewalNoticePolicy(db, request);
+    case 'saveBillingRenewalNoticePolicy': return commercialBilling.saveBillingRenewalNoticePolicy(db, request);
     case 'addBillingInternalNote': return commercialBilling.addBillingInternalNote(db, request);
     case 'listBillingInternalNotes': return commercialBilling.listBillingInternalNotes(db, request);
     case 'correctBillingCharge': return commercialBilling.correctBillingCharge(db, request);
@@ -1252,6 +1345,7 @@ async function platformGateway(db, request, auth = null) {
     case 'saveExtra': return saveExtra(db, request);
     case 'deleteExtra': return deleteExtra(db, request);
     case 'saveLandingContent': return saveLandingContent(db, request);
+    case 'saveExchangeRateConfig': return saveExchangeRateConfig(db, request);
     case 'saveMediaAsset': return saveMediaAsset(db, request);
     case 'deleteMediaAsset': return deleteMediaAsset(db, request);
     case 'seedPlatformConfig': return seedPlatformConfig(db, request);
@@ -1287,6 +1381,7 @@ module.exports = {
   saveExtra,
   deleteExtra,
   saveLandingContent,
+  saveExchangeRateConfig,
   saveMediaAsset,
   deleteMediaAsset,
   seedPlatformConfig,
