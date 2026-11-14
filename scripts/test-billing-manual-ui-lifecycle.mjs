@@ -257,7 +257,7 @@ try {
   await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Contenido web'), 'Landing content settings did not open')
   await captureGuideScreenshot('02-contacto-publico.png')
   await clickTab('plans')
-  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Gestión de Planes Comerciales'), 'Plan settings did not open')
+  await waitFor(() => evaluate('document.body.innerText'), text => text.includes('Asistente Guiado de Planes Comerciales') || text.includes('Gestión de Planes Comerciales'), 'Plan settings did not open')
   await clickText('Restaurante Rápido')
   await captureGuideScreenshot('03-configuracion-planes.png')
 
