@@ -4,15 +4,23 @@ import { CUSTOM_DEVELOPMENT_CONFIG } from '../config/pricingConfig'
 import { canLaunchCommercialDemo } from '../../core/publicTemplates'
 import { getTemplateContactUrl, getTemplateSecondaryAction } from './templateActionPolicy'
 import type { FeaturedCatalogEntry } from './FeaturedTemplateCard'
+import { mapTemplateIdToBusinessType, type WhatsAppBusinessType } from './whatsappBusinessContact'
 
 interface FeaturedTemplateDetailsProps {
   entry: FeaturedCatalogEntry | null
   onClose: () => void
   onLaunchDemo: (entry: FeaturedCatalogEntry) => void
   onViewPlans: (templateId: 'hamburger' | 'retail') => void
+  onRequestContact?: (businessType: WhatsAppBusinessType | null) => void
 }
 
-export function FeaturedTemplateDetails({ entry, onClose, onLaunchDemo, onViewPlans }: FeaturedTemplateDetailsProps) {
+export function FeaturedTemplateDetails({
+  entry,
+  onClose,
+  onLaunchDemo,
+  onViewPlans,
+  onRequestContact,
+}: FeaturedTemplateDetailsProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
@@ -61,6 +69,10 @@ export function FeaturedTemplateDetails({ entry, onClose, onLaunchDemo, onViewPl
     : 'Implementación especializada'
 
   const handlePrimaryAction = () => {
+    if (action.kind === 'contact' && onRequestContact) {
+      onRequestContact(mapTemplateIdToBusinessType(template?.id))
+      return
+    }
     if (action.kind === 'quote' || action.kind === 'contact') {
       window.open(getTemplateContactUrl(entry.title, action), '_blank', 'noopener,noreferrer')
       return

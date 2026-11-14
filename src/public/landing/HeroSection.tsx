@@ -1,21 +1,23 @@
 import { useMemo, useRef, useState } from 'react'
-import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react'
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 import { PachaxProductMockup } from './PachaxProductMockup'
 import { PachaxTemplateCard } from './PachaxTemplateCard'
 import type { CommercialTemplateItem } from '../config/commercialShowcase'
+import type { WhatsAppBusinessType } from './whatsappBusinessContact'
 import { canLaunchCommercialDemo, freeDemoPath } from '../../core/publicTemplates'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import { buildPublishedShowcaseGroup } from './commercialPresentation'
 
 interface HeroSectionProps {
   onViewPlans?: (templateId: 'hamburger' | 'retail') => void
+  onOpenContact?: (initialBusinessType?: WhatsAppBusinessType | null) => void
 }
 
 type PresentedTemplate = CommercialTemplateItem & { displayMode: 'specialized' | 'self_service' }
 
-export function HeroSection({ onViewPlans }: HeroSectionProps) {
+export function HeroSection({ onViewPlans, onOpenContact }: HeroSectionProps) {
   const { navigate } = usePublicRouter()
   const { publishedTemplates, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
   const trackRef = useRef<HTMLDivElement>(null)
@@ -95,6 +97,19 @@ export function HeroSection({ onViewPlans }: HeroSectionProps) {
             Gestiona tu negocio<br className="pachax-desktop-break" /> de forma <span>inteligente</span>
           </h1>
           <p>Plantillas especializadas, listas para operar y adaptadas a la realidad de tu negocio.</p>
+          <div className="pachax-hero-actions">
+            <button type="button" className="pachax-hero-primary-btn" onClick={scrollToTemplates}>
+              <span>Probar plantillas</span>
+              <ArrowRight aria-hidden="true" />
+            </button>
+            <button type="button" className="pachax-hero-contact-btn" onClick={() => onOpenContact?.(null)}>
+              <MessageCircle aria-hidden="true" />
+              <span>
+                <strong>Contactar a PACHAX</strong>
+                <small>Consultar planes e implementación</small>
+              </span>
+            </button>
+          </div>
         </div>
         <PachaxProductMockup />
       </div>

@@ -7,9 +7,11 @@ import { usePublicRouter } from '../routing/usePublicRouter'
 import { TemplateModeSelectorModal } from './TemplateModeSelectorModal'
 import { FeaturedTemplateCard, type FeaturedCatalogEntry } from './FeaturedTemplateCard'
 import { FeaturedTemplateDetails } from './FeaturedTemplateDetails'
+import type { WhatsAppBusinessType } from './whatsappBusinessContact'
 
 interface FeaturedTemplatesCatalogProps {
   onViewPlans?: (templateId: 'hamburger' | 'retail') => void
+  onRequestContact?: (businessType: WhatsAppBusinessType | null) => void
 }
 
 function templateEntry(template: CommercialTemplateItem): FeaturedCatalogEntry {
@@ -47,7 +49,7 @@ function entryOrder(entry: FeaturedCatalogEntry): number {
   return entry.template?.order ?? entry.service?.order ?? Number.MAX_SAFE_INTEGER
 }
 
-export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatalogProps) {
+export function FeaturedTemplatesCatalog({ onViewPlans, onRequestContact }: FeaturedTemplatesCatalogProps) {
   const { navigate } = usePublicRouter()
   const { publishedTemplates, publishedExtras, publicCatalogStatus, isPublicEditorialFallback } = useCommercialConfig()
   const [selectedEntry, setSelectedEntry] = useState<FeaturedCatalogEntry | null>(null)
@@ -145,6 +147,10 @@ export function FeaturedTemplatesCatalog({ onViewPlans }: FeaturedTemplatesCatal
         onClose={() => setSelectedEntry(null)}
         onLaunchDemo={(entry) => { setSelectedEntry(null); handleLaunchDemo(entry) }}
         onViewPlans={handleViewPlans}
+        onRequestContact={(businessType) => {
+          setSelectedEntry(null)
+          onRequestContact?.(businessType)
+        }}
       />
       <TemplateModeSelectorModal
         key={selectedForDemo?.id || 'closed'}
