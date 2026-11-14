@@ -56,7 +56,7 @@
   display: grid; grid-template-columns: minmax(200px, 1fr) auto minmax(240px, 1fr); align-items: center; gap: 32px;
 }
 .pachax-brand-lockup { display: inline-flex; align-items: center; gap: 9px; width: fit-content; color: #0b1b32; text-decoration: none; }
-.pachax-brand-lockup img { width: clamp(132px, 13vw, 190px); height: 34px; object-fit: contain; object-position: left center; mix-blend-mode: multiply; }
+.pachax-brand-lockup img { width: clamp(132px, 13vw, 190px); height: 34px; object-fit: contain; object-position: left center; }
 .pachax-brand-lockup span { padding-left: 10px; border-left: 1px solid rgba(15, 35, 66, .16); font-size: 15px; font-weight: 600; letter-spacing: -.03em; white-space: nowrap; }
 .pachax-desktop-nav { display: flex; align-items: center; justify-content: center; gap: clamp(26px, 5vw, 72px); }
 .pachax-desktop-nav button, .pachax-login-link, .pachax-account-link {

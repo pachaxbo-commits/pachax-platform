@@ -34,8 +34,7 @@ export function LandingHeader() {
     <header className={`pachax-header${isScrolled ? ' is-scrolled' : ''}`}>
       <div className="pachax-header-inner">
         <a href="/" className="pachax-brand-lockup" aria-label="PACHAX Platform, inicio" onClick={(event) => { event.preventDefault(); navigate('/') }}>
-          <img src="/brand/pachax-logo.png" alt="PACHAX" />
-          <span>Platform</span>
+          <img src="/brand/pachax-platform-logo.png" alt="PACHAX Platform" />
         </a>
 
         <nav className="pachax-desktop-nav" aria-label="Navegación principal">
