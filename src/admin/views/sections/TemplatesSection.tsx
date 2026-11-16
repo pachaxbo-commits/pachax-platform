@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { syncAdminAllFromFirestore, useCommercialConfig } from '../../store/commercialConfigStore'
 import { useAdminAuth } from '../../auth/adminAuthStore'
@@ -13,6 +13,7 @@ export function TemplatesSection() {
   const canManageCommercial = user?.role === 'platform_owner' || user?.role === 'platform_admin'
   const { config, templatesState, updateTemplate, mediaAssets, exchangeRate } = useCommercialConfig()
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(config.templates[0]?.id || 'restaurant')
+  const lastSyncedTemplateIdRef = useRef<string>('')
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -22,12 +23,16 @@ export function TemplatesSection() {
   const [formData, setFormData] = useState<CommercialTemplateItem>(selectedTemplate)
 
   useEffect(() => {
-    queueMicrotask(() => setFormData(JSON.parse(JSON.stringify(selectedTemplate))))
+    if (selectedTemplate && lastSyncedTemplateIdRef.current !== selectedTemplate.id) {
+      lastSyncedTemplateIdRef.current = selectedTemplate.id
+      queueMicrotask(() => setFormData(JSON.parse(JSON.stringify(selectedTemplate))))
+    }
   }, [selectedTemplate])
 
   // Sincronizar formulario al cambiar de plantilla seleccionada
   const handleSelectTemplate = (id: string) => {
     setSelectedTemplateId(id)
+    lastSyncedTemplateIdRef.current = id
     const tpl = config.templates.find((t) => t.id === id)
     if (tpl) {
       setFormData(JSON.parse(JSON.stringify(tpl)))
@@ -88,7 +93,7 @@ export function TemplatesSection() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => { void syncAdminAllFromFirestore() }}
+            onClick={() => { lastSyncedTemplateIdRef.current = ''; void syncAdminAllFromFirestore() }}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5 text-slate-400" />

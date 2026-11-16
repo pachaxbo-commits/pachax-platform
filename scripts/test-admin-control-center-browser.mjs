@@ -190,6 +190,8 @@ try {
 
   const fieldSet = await evaluate(`(() => {const label=[...document.querySelectorAll('label')].find(item=>item.textContent.includes('Nombre comercial'));const input=label?.parentElement?.querySelector('input');if(!input)throw new Error('Commercial name input missing');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'Restaurante QA Admin UI');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
   assert(fieldSet)
+  await waitFor(() => evaluate(`document.querySelector('label input[value="Restaurante QA Admin UI"]') || ([...document.querySelectorAll('label')].find(item=>item.textContent.includes('Nombre comercial'))?.parentElement?.querySelector('input')?.value === 'Restaurante QA Admin UI')`), Boolean, 'Input did not take new value')
+  await sleep(150)
   await evaluate(`([...document.querySelectorAll('button')].find(item=>item.textContent.includes('Guardar cambios en plantilla'))).click()`, true)
   const savedTemplate = await waitFor(async () => snapshot(db.doc('platformTemplates/restaurant')), value => value?.commercialName === 'Restaurante QA Admin UI', 'Admin form save did not persist to the Firestore Emulator')
   assert.equal(savedTemplate.demoRoute, '/demo/restaurant')
