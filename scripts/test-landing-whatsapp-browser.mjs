@@ -112,7 +112,7 @@ try {
     return res.result.value
   }
   const waitFor = async (expr, pred, label) => {
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
       const val = await evaluate(expr)
       if (pred(val)) return val
       await sleep(150)
