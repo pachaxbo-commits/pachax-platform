@@ -1,4 +1,5 @@
 import { gateway } from './gateway'
+import type { PlatformExchangeRateConfig } from '../core/currencyExchange'
 
 export interface CommercialInterestRequest {
   requestId: string
@@ -38,6 +39,7 @@ export interface PublicCommercialCatalog {
   extras: Array<Record<string, unknown> & { id: string; status: 'published' }>
   mediaAssets: Array<Record<string, unknown> & { id: string }>
   landingContent: Record<string, unknown>
+  exchangeRate?: PlatformExchangeRateConfig
   fetchedAt: string
 }
 

@@ -5,7 +5,12 @@ import type {
   CommercialExtraService,
   LandingContentConfig,
   MediaAssetItem,
+  PlatformExchangeRateConfig,
 } from '../types'
+import {
+  DEFAULT_EXCHANGE_RATE_CONFIG,
+  normalizeExchangeRateConfig,
+} from '../../core/currencyExchange'
 import { mergeOfficialTemplates } from './templateDefaults.ts'
 import { resolvePublicTemplateCatalog, resolvePublicTemplatePresentation } from './publicTemplateCatalog.ts'
 import { COMMERCIAL_PLAN_TEMPLATE_IDS, filterPublicCommercialPlans, filterPublishedCommercialRecords } from './commercialCatalogContract.ts'
@@ -138,6 +143,7 @@ export interface StoredCommercialConfig {
   extras: CommercialExtraService[]
   landingContent: LandingContentConfig
   mediaAssets: MediaAssetItem[]
+  exchangeRate?: PlatformExchangeRateConfig
   lastModified: string
 }
 
@@ -152,6 +158,7 @@ function getDefaultConfig(): StoredCommercialConfig {
       // Defaults never enable a public offer without an explicit Admin decision.
       commercialAvailability: 'coming_soon',
       implementationBasePriceUSD: null,
+      implementationBaseCurrency: 'BOB' as const,
     }
   })
   return {
@@ -161,6 +168,7 @@ function getDefaultConfig(): StoredCommercialConfig {
     extras: JSON.parse(JSON.stringify(COMMERCIAL_EXTRAS.map((extra) => ({ ...extra, status: 'draft' })))),
     landingContent: JSON.parse(JSON.stringify(DEFAULT_LANDING_CONTENT)),
     mediaAssets: JSON.parse(JSON.stringify(DEFAULT_MEDIA_ASSETS)),
+    exchangeRate: { ...DEFAULT_EXCHANGE_RATE_CONFIG },
     lastModified: new Date().toISOString(),
   }
 }
@@ -169,6 +177,12 @@ function getDefaultConfig(): StoredCommercialConfig {
 let cachedConfig: StoredCommercialConfig | null = null
 export type AdminTemplatesState = 'loading' | 'uninitialized' | 'ready' | 'error'
 let adminTemplatesState: AdminTemplatesState = 'loading'
+export type AdminCommercialDataState = 'loading' | 'ready' | 'partial' | 'error'
+export type AdminLandingContentState = 'loading' | 'ready' | 'uninitialized' | 'error'
+export type AdminPlansState = 'loading' | 'ready' | 'uninitialized' | 'error'
+let adminCommercialDataState: AdminCommercialDataState = 'loading'
+let adminLandingContentState: AdminLandingContentState = 'loading'
+let adminPlansState: AdminPlansState = 'loading'
 
 export function loadCommercialConfig(): StoredCommercialConfig {
   if (cachedConfig) return cachedConfig
@@ -188,6 +202,7 @@ export function loadCommercialConfig(): StoredCommercialConfig {
       extras: parsed.extras || getDefaultConfig().extras,
       landingContent: parsed.landingContent || getDefaultConfig().landingContent,
       mediaAssets: parsed.mediaAssets || getDefaultConfig().mediaAssets,
+      exchangeRate: normalizeExchangeRateConfig(parsed.exchangeRate),
       lastModified: parsed.lastModified || new Date().toISOString(),
     }
     return cachedConfig
@@ -214,6 +229,7 @@ export function saveCommercialConfig(config: StoredCommercialConfig): void {
     extras: [...config.extras],
     landingContent: { ...config.landingContent },
     mediaAssets: [...config.mediaAssets],
+    exchangeRate: normalizeExchangeRateConfig(config.exchangeRate),
     lastModified: new Date().toISOString(),
   }
   if (typeof window === 'undefined') return
@@ -292,6 +308,7 @@ const performPublicCatalogSync = createSingleFlight(async (): Promise<void> => {
       mediaAssets: catalog.mediaAssets.length === 0
         ? getDefaultConfig().mediaAssets
         : catalog.mediaAssets as unknown as MediaAssetItem[],
+      exchangeRate: normalizeExchangeRateConfig(catalog.exchangeRate),
       lastModified: catalog.fetchedAt,
     }
     publicCatalogStatus = 'ready'
@@ -339,12 +356,16 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
     const ctx = await getFirebaseContext()
     if (!ctx) {
       adminTemplatesState = 'error'
+      adminCommercialDataState = 'error'
+      adminLandingContentState = 'error'
+      adminPlansState = 'error'
       notifyUpdate()
       return
     }
 
-    const [landingSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap] = await Promise.allSettled([
+    const [landingSnap, exchangeRateSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap] = await Promise.allSettled([
       getDoc(doc(ctx.db, 'platformConfig', 'publicLanding')),
+      getDoc(doc(ctx.db, 'platformConfig', 'exchangeRate')),
       getDocs(collection(ctx.db, 'platformTemplates')),
       getDocs(collection(ctx.db, 'platformPlans')),
       getDocs(collection(ctx.db, 'platformExtras')),
@@ -353,12 +374,38 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
 
     if (!window.location.pathname.startsWith('/admin')) return
 
+    const snapshots = [landingSnap, templatesSnap, plansSnap, extrasSnap, mediaSnap]
+    const succeeded = snapshots.filter(snapshot => snapshot.status === 'fulfilled').length
+    adminCommercialDataState = succeeded === snapshots.length ? 'ready' : succeeded > 0 ? 'partial' : 'error'
+
     const current = loadCommercialConfig()
     let changed = false
 
     if (landingSnap.status === 'fulfilled' && landingSnap.value.exists()) {
       const data = landingSnap.value.data() as Partial<LandingContentConfig>
       current.landingContent = { ...current.landingContent, ...data }
+      changed = true
+      adminLandingContentState = 'ready'
+    } else if (landingSnap.status === 'fulfilled') {
+      adminLandingContentState = 'uninitialized'
+    } else {
+      adminLandingContentState = 'error'
+    }
+
+    if (exchangeRateSnap.status === 'fulfilled') {
+      if (exchangeRateSnap.value.exists()) {
+        const raw = exchangeRateSnap.value.data() as Record<string, unknown>
+        const updatedAtValue = raw.updatedAt as { toDate?: () => Date } | string | null | undefined
+        const updatedAtIso = typeof updatedAtValue === 'object' && updatedAtValue?.toDate
+          ? updatedAtValue.toDate().toISOString()
+          : (typeof updatedAtValue === 'string' ? updatedAtValue : null)
+        current.exchangeRate = normalizeExchangeRateConfig({
+          ...(raw as Partial<PlatformExchangeRateConfig>),
+          updatedAt: updatedAtIso,
+        })
+      } else {
+        current.exchangeRate = { ...DEFAULT_EXCHANGE_RATE_CONFIG }
+      }
       changed = true
     }
 
@@ -380,7 +427,10 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
         (d) => ({ id: d.id, ...d.data() }) as TemplateTierPlan,
       )
       current.plans = plansSnap.value.empty ? getDefaultConfig().plans : remote
+      adminPlansState = plansSnap.value.empty ? 'uninitialized' : 'ready'
       changed = true
+    } else {
+      adminPlansState = 'error'
     }
 
     if (extrasSnap.status === 'fulfilled') {
@@ -404,6 +454,9 @@ export async function syncAdminAllFromFirestore(): Promise<void> {
     }
   } catch (err) {
     adminTemplatesState = 'error'
+    adminCommercialDataState = 'error'
+    adminLandingContentState = 'error'
+    adminPlansState = 'error'
     console.error('Sincronización administrativa de Firestore:', err)
     notifyUpdate()
   } finally {
@@ -720,6 +773,31 @@ export async function updateLandingContentInStore(
   }
 }
 
+export async function updateExchangeRateInStore(
+  updates: Partial<PlatformExchangeRateConfig>,
+): Promise<{ success: boolean; error?: string; exchangeRate?: PlatformExchangeRateConfig }> {
+  try {
+    const current = loadCommercialConfig()
+    const existing = normalizeExchangeRateConfig(current.exchangeRate)
+    const expected = Number.isSafeInteger(existing.revision) ? existing.revision! : 0
+    const nextConfig = normalizeExchangeRateConfig({ ...existing, ...updates })
+    const saved = await gateway<{ revision?: number; exchangeRate?: PlatformExchangeRateConfig }>(
+      'platformGateway',
+      { action: 'saveExchangeRateConfig', exchangeRate: nextConfig, expectedRevision: expected },
+    )
+    const persisted = normalizeExchangeRateConfig({
+      ...(saved?.exchangeRate || nextConfig),
+      revision: saved?.revision ?? expected + 1,
+    })
+    current.exchangeRate = persisted
+    saveCommercialConfig(current)
+    return { success: true, exchangeRate: persisted }
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : 'Error al guardar tipo de cambio referencial en el servidor.'
+    return { success: false, error }
+  }
+}
+
 export async function updateMediaAssetInStore(
   id: string,
   updates: Partial<MediaAssetItem>,
@@ -782,6 +860,9 @@ export function useCommercialConfig() {
     ? (publicConfig || { ...getDefaultConfig(), templates: [], plans: [], extras: [] })
     : loadCommercialConfig())
   const [templatesState, setTemplatesState] = useState<AdminTemplatesState>(adminTemplatesState)
+  const [adminDataState, setAdminDataState] = useState<AdminCommercialDataState>(adminCommercialDataState)
+  const [landingContentState, setLandingContentState] = useState<AdminLandingContentState>(adminLandingContentState)
+  const [plansState, setPlansState] = useState<AdminPlansState>(adminPlansState)
   const [publicState, setPublicState] = useState(publicCatalogStatus)
 
   useEffect(() => {
@@ -801,6 +882,9 @@ export function useCommercialConfig() {
         : loadCommercialConfig())
       setPublicState(publicCatalogStatus)
       setTemplatesState(adminTemplatesState)
+      setAdminDataState(adminCommercialDataState)
+      setLandingContentState(adminLandingContentState)
+      setPlansState(adminPlansState)
     }
     const handleStorageUpdate = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return
@@ -832,6 +916,9 @@ export function useCommercialConfig() {
   return {
     config,
     templatesState,
+    adminCommercialDataState: adminDataState,
+    adminLandingContentState: landingContentState,
+    adminPlansState: plansState,
     publicCatalogStatus: publicState,
     isPublicEditorialFallback,
     publishedTemplates,
@@ -839,6 +926,7 @@ export function useCommercialConfig() {
     publishedExtras,
     landingContent: config.landingContent,
     mediaAssets: config.mediaAssets,
+    exchangeRate: normalizeExchangeRateConfig(config.exchangeRate),
     updateTemplate: updateTemplateInStore,
     updatePlan: updatePlanInStore,
     togglePublishPlan: togglePublishPlanInStore,
@@ -848,6 +936,7 @@ export function useCommercialConfig() {
     createExtra: createExtraInStore,
     deleteExtra: deleteExtraInStore,
     updateLandingContent: updateLandingContentInStore,
+    updateExchangeRate: updateExchangeRateInStore,
     updateMediaAsset: updateMediaAssetInStore,
     createMediaAsset: createMediaAssetInStore,
     deleteMediaAsset: deleteMediaAssetInStore,

@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { syncAdminAllFromFirestore, useCommercialConfig } from '../../store/commercialConfigStore'
 import { useAdminAuth } from '../../auth/adminAuthStore'
 import type { CommercialTemplateItem } from '../../types'
 import { COMMERCIAL_TEMPLATES } from '../../../public/config/commercialShowcase'
 import { isTechnicalDemoAvailable } from '../../../core/publicTemplates'
+import { ExchangeRateConfigCard } from '../../components/ExchangeRateConfigCard'
+import { formatUsdReferenceText } from '../../../core/currencyExchange'
 
 export function TemplatesSection() {
   const { user } = useAdminAuth()
   const canManageCommercial = user?.role === 'platform_owner' || user?.role === 'platform_admin'
-  const { config, templatesState, updateTemplate, mediaAssets } = useCommercialConfig()
+  const { config, templatesState, updateTemplate, mediaAssets, exchangeRate } = useCommercialConfig()
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(config.templates[0]?.id || 'restaurant')
+  const lastSyncedTemplateIdRef = useRef<string>('')
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -20,12 +23,16 @@ export function TemplatesSection() {
   const [formData, setFormData] = useState<CommercialTemplateItem>(selectedTemplate)
 
   useEffect(() => {
-    queueMicrotask(() => setFormData(JSON.parse(JSON.stringify(selectedTemplate))))
+    if (selectedTemplate && lastSyncedTemplateIdRef.current !== selectedTemplate.id) {
+      lastSyncedTemplateIdRef.current = selectedTemplate.id
+      queueMicrotask(() => setFormData(JSON.parse(JSON.stringify(selectedTemplate))))
+    }
   }, [selectedTemplate])
 
   // Sincronizar formulario al cambiar de plantilla seleccionada
   const handleSelectTemplate = (id: string) => {
     setSelectedTemplateId(id)
+    lastSyncedTemplateIdRef.current = id
     const tpl = config.templates.find((t) => t.id === id)
     if (tpl) {
       setFormData(JSON.parse(JSON.stringify(tpl)))
@@ -86,7 +93,7 @@ export function TemplatesSection() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => { void syncAdminAllFromFirestore() }}
+            onClick={() => { lastSyncedTemplateIdRef.current = ''; void syncAdminAllFromFirestore() }}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-50 shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
@@ -105,6 +112,8 @@ export function TemplatesSection() {
           No se pudo consultar Firestore. Se muestran las plantillas oficiales locales; los cambios necesitan conexión y permisos para guardarse.
         </div>
       )}
+
+      <ExchangeRateConfigCard compact />
 
       {/* Selector de Plantilla a Editar */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
@@ -207,15 +216,40 @@ export function TemplatesSection() {
                   <option value="available">Disponible</option>
                 </select>
               </label>
-              {formData.commercialMode === 'specialized' && (
-                <label className="text-[11px] font-semibold text-slate-700">Implementación base (pago único USD)
-                  <input type="number" min="0" step="0.01" placeholder="Vacío = a cotizar"
-                    value={formData.implementationBasePriceUSD ?? ''}
-                    onChange={(e) => setFormData({ ...formData, implementationBasePriceUSD: e.target.value === '' ? null : Number(e.target.value) })}
-                    disabled={!canManageCommercial}
-                    className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
-                </label>
-              )}
+              {formData.commercialMode === 'specialized' && (() => {
+                const implCurrency = formData.implementationBaseCurrency || (formData.implementationBasePriceUSD != null ? 'USD' : 'BOB')
+                const implUsdRef = implCurrency === 'BOB'
+                  ? formatUsdReferenceText(formData.implementationBasePriceUSD, exchangeRate)
+                  : null
+                return (
+                  <>
+                    <label className="text-[11px] font-semibold text-slate-700">Moneda implementación base
+                      <select
+                        value={implCurrency}
+                        disabled={!canManageCommercial}
+                        onChange={(e) => setFormData({ ...formData, implementationBaseCurrency: e.target.value as 'BOB' | 'USD' })}
+                        className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900"
+                      >
+                        <option value="BOB">Bs (BOB - Moneda principal Bolivia)</option>
+                        <option value="USD">USD (Referencia histórica)</option>
+                      </select>
+                    </label>
+                    <label className="text-[11px] font-semibold text-slate-700">
+                      Implementación base (pago único {implCurrency === 'BOB' ? 'Bs' : 'USD'})
+                      <input type="number" min="0" step="0.01" placeholder="Vacío = a cotizar"
+                        value={formData.implementationBasePriceUSD ?? ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          implementationBaseCurrency: implCurrency,
+                          implementationBasePriceUSD: e.target.value === '' ? null : Number(e.target.value),
+                        })}
+                        disabled={!canManageCommercial}
+                        className="mt-1 w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900" />
+                      {implUsdRef && <span className="mt-1 block text-[10px] font-normal text-slate-500">{implUsdRef}</span>}
+                    </label>
+                  </>
+                )
+              })()}
             </div>
             {formData.commercialMode === 'specialized' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="text-[11px] font-semibold text-slate-700">Título del diagnóstico

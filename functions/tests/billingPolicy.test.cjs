@@ -57,4 +57,43 @@ assert.equal(expiredStart.anchorDay, 20, 'After grace, a fresh full term anchors
 const finalGraceInstant = renewalPeriodStart({ currentPeriodEnd: new Date(paidThrough), billingAccessUntil: new Date(endOfGraceEnd), billingAnchorDay: 4 }, endOfGraceEnd);
 assert.equal(finalGraceInstant.start.getTime(), endOfGraceEnd, 'At the exact end of grace, the new term begins at regularization rather than discarding time beyond the paid-through date.');
 
+// Deterministic calendar checks for mid-month anchors, short months (Feb 28/29), and year rollover.
+const nov24Anchor = dateAtLaPaz(2026, 11, 24, 15, 0);
+assert.equal(billingAnchorDay(nov24Anchor), 24);
+const nov24Plus2Months = addBillingPeriods(nov24Anchor, 'monthly', 2, 24);
+assert.deepEqual(parts(nov24Plus2Months), parts(dateAtLaPaz(2027, 1, 24, 15, 0)),
+  'Mid-month two-month prepayment crosses year boundary to the matching anchor day.');
+assert(nov24Plus2Months.getTime() - nov24Anchor.getTime() > 55 * 86_400_000,
+  'Two consecutive anchored monthly periods from Nov 24 to Jan 24 span 61 calendar days.');
+
+const feb2026FromJan31 = addBillingPeriods(dateAtLaPaz(2026, 1, 31, 10, 0), 'monthly', 1, 31);
+assert.deepEqual(parts(feb2026FromJan31), parts(dateAtLaPaz(2026, 2, 28, 10, 0)),
+  'Short non-leap February clamps anchor day 31 to Feb 28.');
+assert.deepEqual(parts(addBillingPeriods(feb2026FromJan31, 'monthly', 1, 31)), parts(dateAtLaPaz(2026, 3, 31, 10, 0)),
+  'Retained anchor day 31 restores Mar 31 after stepping through February.');
+
+const dec31Anchor = dateAtLaPaz(2026, 12, 31, 18, 0);
+assert.deepEqual(parts(addBillingPeriods(dec31Anchor, 'monthly', 1, 31)), parts(dateAtLaPaz(2027, 1, 31, 18, 0)));
+assert.deepEqual(parts(addBillingPeriods(dec31Anchor, 'monthly', 2, 31)), parts(dateAtLaPaz(2027, 2, 28, 18, 0)));
+assert.deepEqual(parts(addBillingPeriods(dec31Anchor, 'monthly', 3, 31)), parts(dateAtLaPaz(2027, 3, 31, 18, 0)));
+assert.deepEqual(parts(addBillingPeriods(dateAtLaPaz(2027, 12, 31, 18, 0), 'monthly', 2, 31)), parts(dateAtLaPaz(2028, 2, 29, 18, 0)));
+
+const nov30Anchor = dateAtLaPaz(2026, 11, 30, 8, 30);
+assert.deepEqual(parts(addBillingPeriods(nov30Anchor, 'monthly', 2, 30)), parts(dateAtLaPaz(2027, 1, 30, 8, 30)));
+assert.deepEqual(parts(addBillingPeriods(nov30Anchor, 'monthly', 3, 30)), parts(dateAtLaPaz(2027, 2, 28, 8, 30)));
+assert.deepEqual(parts(addBillingPeriods(nov30Anchor, 'monthly', 6, 30)), parts(dateAtLaPaz(2027, 5, 30, 8, 30)));
+assert.deepEqual(parts(addBillingPeriods(nov30Anchor, 'monthly', 12, 30)), parts(dateAtLaPaz(2027, 11, 30, 8, 30)));
+
+for (const year of [2026, 2027, 2028]) {
+  for (let month = 1; month <= 12; month += 1) {
+    const maxDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    for (const day of [1, 14, 15, 24, Math.min(28, maxDay), maxDay]) {
+      const start = dateAtLaPaz(year, month, day, 12, 0);
+      const endTwoMonths = addBillingPeriods(start, 'monthly', 2, billingAnchorDay(start));
+      assert(endTwoMonths.getTime() - start.getTime() >= 59 * 86_400_000,
+        `Two anchored monthly periods starting ${year}-${month}-${day} must span at least 59 days.`);
+    }
+  }
+}
+
 console.log('PASS billing policy: La Paz date arithmetic, prepayment bounds, early/grace/expired renewals and fail-closed missing dates');

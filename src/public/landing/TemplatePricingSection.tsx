@@ -10,6 +10,7 @@ import {
 import { usePublicRouter } from '../routing/usePublicRouter'
 import { useCommercialConfig } from '../../admin/store/commercialConfigStore'
 import { freeDemoPath, canLaunchCommercialDemo } from '../../core/publicTemplates'
+import { formatPrimaryCommercialAmount, formatUsdReferenceText } from '../../core/currencyExchange'
 import { getQuickServiceEditorialData, getQuickServicePricingState } from './quickServicePresentation'
 
 interface TemplatePricingSectionProps {
@@ -25,7 +26,7 @@ const currencySymbol = (currency: string) => currency === 'BOB' ? 'Bs ' : '$'
 
 export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', openInitialDetails = false }: TemplatePricingSectionProps) {
   const { navigate } = usePublicRouter()
-  const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus, isPublicEditorialFallback, landingContent } = useCommercialConfig()
+  const { publishedPlansByTemplate, publishedTemplates, publicCatalogStatus, isPublicEditorialFallback, landingContent, exchangeRate } = useCommercialConfig()
   const [openMode, setOpenMode] = useState<PricingMode | null>(openInitialDetails ? 'direct' : null)
   const [selectedSpecializedId, setSelectedSpecializedId] = useState<SpecializedId>('distribution')
   const [selectedQuickServiceId, setSelectedQuickServiceId] = useState<QuickServiceId>(initialQuickServiceId)
@@ -236,12 +237,37 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
                   <div><span>02</span><section><h4>{activeSpecialized.implementation.title}</h4><p>{activeSpecialized.implementation.detail}</p></section></div>
                   <div><span>03</span><section><h4>Mantenimiento y soporte</h4><p>{activeSpecializedPlan?.clientProfile || 'El alcance y la mensualidad se confirman según la oferta publicada para esta solución.'}</p></section></div>
                 </div>
-                {activeSpecializedTemplate.implementationBasePriceUSD != null && publicCatalogStatus === 'ready' && <p className="pachax-pricing-confirmed-cost">Costo de implementación publicado: $ {activeSpecializedTemplate.implementationBasePriceUSD} USD, pago único.</p>}
+                {activeSpecializedTemplate.implementationBasePriceUSD != null && publicCatalogStatus === 'ready' && (() => {
+                  const implCurrency = activeSpecializedTemplate.implementationBaseCurrency || 'USD'
+                  const implUsdRef = implCurrency === 'BOB'
+                    ? formatUsdReferenceText(activeSpecializedTemplate.implementationBasePriceUSD, exchangeRate)
+                    : null
+                  return (
+                    <div className="pachax-pricing-confirmed-cost">
+                      <p>
+                        Costo de implementación publicado:{' '}
+                        <strong>{formatPrimaryCommercialAmount(activeSpecializedTemplate.implementationBasePriceUSD, implCurrency)}</strong>, pago único.
+                      </p>
+                      {implUsdRef && <p className="pachax-pricing-price-note">{implUsdRef}</p>}
+                    </div>
+                  )
+                })()}
                 <div className="pachax-pricing-capabilities">
                   <h4>Capacidades incluidas en la oferta</h4>
                   {activeSpecializedPlan ? <ul>{activeSpecializedPlans.flatMap((plan) => plan.includedFeatures).filter((feature, index, all) => all.indexOf(feature) === index).map((feature) => <li key={feature}><Check aria-hidden="true" />{feature}</li>)}</ul> : <p>{publicCatalogStatus === 'ready' ? 'No hay una oferta aprobada para mostrar. Las condiciones se revisan durante la consulta.' : 'Las capacidades comerciales se mostrarán cuando se verifique la publicación.'}</p>}
                 </div>
-                {activeSpecializedPlans.length > 0 && <div className="pachax-pricing-offers"><h4>Ofertas publicadas</h4>{activeSpecializedPlans.map((plan) => <div key={plan.id} className="pachax-pricing-offer-row"><span><strong>{plan.name}</strong><small>{plan.clientProfile}</small></span><span>{currencySymbol(plan.currency)}{plan.monthlyPriceUSD} <small>{plan.currency} / mes</small></span></div>)}</div>}
+                {activeSpecializedPlans.length > 0 && <div className="pachax-pricing-offers"><h4>Ofertas publicadas</h4>{activeSpecializedPlans.map((plan) => {
+                  const specUsdRef = plan.currency === 'BOB' ? formatUsdReferenceText(plan.monthlyPriceUSD, exchangeRate) : null
+                  return (
+                    <div key={plan.id} className="pachax-pricing-offer-row">
+                      <span><strong>{plan.name}</strong><small>{plan.clientProfile}</small></span>
+                      <span>
+                        {plan.currency === 'BOB' ? formatPrimaryCommercialAmount(plan.monthlyPriceUSD, 'BOB') : `${currencySymbol(plan.currency)}${plan.monthlyPriceUSD}`} <small>{plan.currency} / mes</small>
+                        {specUsdRef && <small style={{ display: 'block', opacity: 0.8 }}>{specUsdRef}</small>}
+                      </span>
+                    </div>
+                  )
+                })}</div>}
                 {renderStatus() && <p className="pachax-pricing-detail-status" role="status">{renderStatus()}</p>}
                 <div className="pachax-pricing-detail-actions">
                   <button type="button" className="pachax-pricing-action" disabled={!hasOfficialContact} title={!hasOfficialContact ? 'El contacto comercial no está configurado.' : undefined} onClick={handleSpecializedInquiry}>Consultar implementación <MessageSquare aria-hidden="true" /></button>
@@ -281,17 +307,23 @@ export function TemplatePricingSection({ initialQuickServiceId = 'hamburger', op
                       <span>Nivel {plan.tierLevel}</span><strong>{plan.name}</strong>
                     </button>)}
                   </div>
-                  {activePlan && <div className="pachax-pricing-published-plan">
+                  {activePlan && (() => {
+                    const usdRefLine = activePlan.currency === 'BOB'
+                      ? formatUsdReferenceText(calculatedPrice, exchangeRate)
+                      : null
+                    return <div className="pachax-pricing-published-plan">
                     <div className="pachax-pricing-plan-heading"><span><strong>{activePlan.name}</strong><small>{activePlan.clientProfile}</small></span>{activePlan.limitsLabel && <span className="pachax-pricing-limits">{activePlan.limitsLabel}</span>}</div>
                     <p className="pachax-pricing-price">{activePlan.planKind === 'free'
                       ? <strong>Gratis</strong>
-                      : <><strong>{currencySymbol(activePlan.currency)}{calculatedPrice}</strong><span>{activePlan.currency} / {billingCycle === 'annual' && activePlanHasAnnualPrice ? 'año' : 'mes'}</span></>}
+                      : <><strong>{activePlan.currency === 'BOB' ? formatPrimaryCommercialAmount(calculatedPrice ?? 0, 'BOB') : `${currencySymbol(activePlan.currency)}${calculatedPrice}`}</strong><span>{activePlan.currency} / {billingCycle === 'annual' && activePlanHasAnnualPrice ? 'año' : 'mes'}</span></>}
                     </p>
+                    {usdRefLine && <p className="pachax-pricing-price-note" data-testid="public-plan-usd-ref">{usdRefLine}</p>}
                     {activePlan.adsRequired && <p className="pachax-pricing-price-note">Este plan incluye publicidad.</p>}
-                    {billingCycle === 'annual' && activePlanHasAnnualPrice && <p className="pachax-pricing-price-note">Total por 12 meses. Equivalente informativo: {currencySymbol(activePlan.currency)}{(activePlan.annualPriceUSD / 12).toFixed(2)} {activePlan.currency}/mes.</p>}
+                    {billingCycle === 'annual' && activePlanHasAnnualPrice && <p className="pachax-pricing-price-note">Total por 12 meses. Equivalente informativo: {formatPrimaryCommercialAmount(Number((activePlan.annualPriceUSD / 12).toFixed(2)), activePlan.currency)}/mes.</p>}
                     <ul>{activePlan.includedFeatures.map((feature) => <li key={feature}><Check aria-hidden="true" />{feature}</li>)}</ul>
                     <p className="pachax-pricing-price-note">Precio publicado. La consulta no activa contratación ni cobro.</p>
-                  </div>}
+                  </div>
+                  })()}
                 </> : activeQuickTemplate && activeQuickEditorial ? <div className="pachax-pricing-editorial" data-quick-editorial-card={activeQuickServiceId}>
                   <h4>{quickPricingState === 'editorial' ? 'Planes en preparación' : quickPricingState === 'loading' ? 'Verificando ofertas' : quickPricingState === 'unverified' ? 'Ofertas por verificar' : 'No hay ofertas aprobadas'}</h4>
                   <p>{quickPricingState === 'editorial' ? 'Aún no hay planes publicados para esta solución. Consulta disponibilidad con el equipo PACHAX.' : quickPricingState === 'loading' ? 'Esperamos la respuesta del catálogo antes de mostrar precios.' : 'No mostramos precios porque no existe una oferta confirmada en el catálogo.'}</p>

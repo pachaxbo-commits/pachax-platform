@@ -64,6 +64,7 @@ function safePublicTemplate(idValue, value) {
     commercialAvailability: customEditorial ? 'coming_soon' : availability,
     commercialMode: customEditorial ? 'specialized' : value.commercialMode === 'specialized' ? 'specialized' : 'self_service',
     implementationBasePriceUSD: customEditorial ? null : Number.isFinite(implementationPrice) && implementationPrice >= 0 ? implementationPrice : null,
+    implementationBaseCurrency: value.implementationBaseCurrency === 'BOB' ? 'BOB' : 'USD',
     diagnosticTitle: publicString(value.diagnosticTitle, 120),
     diagnosticDescription: publicString(value.diagnosticDescription, 500),
     implementationTitle: publicString(value.implementationTitle, 120),
@@ -130,17 +131,45 @@ function safePublicExtra(idValue, value) {
       : [];
   if (!title || !shortDescription || !['recurring', 'one_time', 'custom_quote'].includes(value.pricingType)
     || (applicableTemplates !== 'all' && applicableTemplates.length === 0)) return null;
+  const referenceAmountBOB = typeof value.referenceAmountBOB === 'number' && Number.isFinite(value.referenceAmountBOB) && value.referenceAmountBOB >= 0
+    ? Math.round(value.referenceAmountBOB * 100) / 100
+    : null;
   return {
     id: idValue,
     title,
     category: publicString(value.category, 40),
     shortDescription,
     referencePriceLabel: publicString(value.referencePriceLabel, 120),
+    referenceAmountBOB,
     pricingType: value.pricingType,
     iconKey: publicString(value.iconKey, 40),
     applicableTemplates,
     status: 'published',
     order: Number.isFinite(Number(value.order)) ? Number(value.order) : 0,
+  };
+}
+
+function safePublicExchangeRate(value = {}) {
+  const status = ['valid', 'outdated', 'pending'].includes(value.status) ? value.status : 'pending';
+  const rateNum = Number(value.rateBsPerUsd);
+  const rateBsPerUsd = Number.isFinite(rateNum) && rateNum > 0 ? Math.round(rateNum * 10000) / 10000 : null;
+  const source = publicString(value.source, 140);
+  const effectiveAt = publicString(value.effectiveAt, 40) || null;
+  const updatedAt = value.updatedAt?.toDate
+    ? value.updatedAt.toDate().toISOString()
+    : (publicString(value.updatedAt, 40) || null);
+  const normalizedStatus = status === 'valid' && (rateBsPerUsd === null || !source || !effectiveAt)
+    ? 'pending'
+    : status;
+  return {
+    rateBsPerUsd,
+    source,
+    effectiveAt,
+    status: normalizedStatus,
+    updatedAt,
+    updatedBy: publicString(value.updatedBy, 120) || null,
+    updatedByEmail: publicString(value.updatedByEmail, 160) || null,
+    revision: Number.isSafeInteger(Number(value.revision)) ? Number(value.revision) : 0,
   };
 }
 
@@ -180,12 +209,13 @@ const PUBLIC_CATALOG_META_PATH = 'platformConfig/publicCommercialCatalogMeta';
 const PUBLIC_CATALOG_SNAPSHOT_PATH = 'platformConfig/publicCommercialCatalog';
 
 async function buildPublicCommercialCatalog(db, tx) {
-  const [templates, plans, extras, media, landing, demoConfigSnapshots] = await Promise.all([
+  const [templates, plans, extras, media, landing, exchangeRateSnap, demoConfigSnapshots] = await Promise.all([
     tx.get(db.collection('platformTemplates').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_TEMPLATES + 1)),
     tx.get(db.collection('platformPlans').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_PLANS + 1)),
     tx.get(db.collection('platformExtras').where('status', '==', 'published').limit(MAX_PUBLIC_CATALOG_EXTRAS + 1)),
     tx.get(db.collection('platformMedia').where('status', '==', 'published').limit(51)),
     tx.get(db.doc('platformConfig/publicLanding')),
+    tx.get(db.doc('platformConfig/exchangeRate')),
     tx.getAll(...PUBLIC_TEMPLATES.map(template => db.doc(`platformTemplates/${template.id}`))),
   ]);
   if (templates.size > MAX_PUBLIC_CATALOG_TEMPLATES || plans.size > MAX_PUBLIC_CATALOG_PLANS || extras.size > MAX_PUBLIC_CATALOG_EXTRAS || media.size > 50) {
@@ -220,6 +250,7 @@ async function buildPublicCommercialCatalog(db, tx) {
     extras: publicExtras.sort((a, b) => a.order - b.order),
     mediaAssets: publicMedia,
     landingContent: safePublicLandingContent(landing.exists && landing.data().status === 'published' ? landing.data() : {}),
+    exchangeRate: safePublicExchangeRate(exchangeRateSnap.exists ? exchangeRateSnap.data() : {}),
   };
   if (Buffer.byteLength(JSON.stringify(catalog), 'utf8') > 900_000) {
     throw new HttpsError('resource-exhausted', 'El catálogo comercial publicado supera el tamaño seguro.');

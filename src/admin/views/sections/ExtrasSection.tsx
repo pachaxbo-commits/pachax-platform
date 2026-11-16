@@ -4,6 +4,7 @@ import { useAdminAuth } from '../../auth/adminAuthStore'
 import { useCommercialConfig } from '../../store/commercialConfigStore'
 import type { CommercialExtraService } from '../../types'
 import type { TemplateKey } from '../../../public/config/pricingConfig'
+import { formatUsdReferenceText } from '../../../core/currencyExchange'
 
 const TEMPLATE_LABELS: Record<TemplateKey, string> = {
   restaurant: 'Restaurante con salón',
@@ -15,7 +16,7 @@ const TEMPLATE_LABELS: Record<TemplateKey, string> = {
 
 export function ExtrasSection() {
   const { user } = useAdminAuth()
-  const { config, updateExtra, createExtra, deleteExtra } = useCommercialConfig()
+  const { config, exchangeRate, updateExtra, createExtra, deleteExtra } = useCommercialConfig()
   const [drafts, setDrafts] = useState<Record<string, CommercialExtraService>>({})
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -163,7 +164,24 @@ export function ExtrasSection() {
                   <textarea rows={2} value={draft.shortDescription} onChange={(e) => setField(extra.id, 'shortDescription', e.target.value)} className="mt-1 w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800" />
                 </label>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Importe referencial Bs (opcional)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Vacío = sin monto fijo"
+                      value={draft.referenceAmountBOB ?? ''}
+                      onChange={(e) => setField(extra.id, 'referenceAmountBOB', e.target.value === '' ? null : Number(e.target.value))}
+                      disabled={!canManageCommercial}
+                      className="mt-1 w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 disabled:opacity-50"
+                    />
+                    {typeof draft.referenceAmountBOB === 'number' && draft.referenceAmountBOB >= 0 && (
+                      <span className="mt-1 block text-[10px] font-normal normal-case text-slate-500">
+                        {formatUsdReferenceText(draft.referenceAmountBOB, exchangeRate) || 'Solo Bs (tipo de cambio USD no vigente)'}
+                      </span>
+                    )}
+                  </label>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Etiqueta de precio de referencia
                   <input type="text" value={draft.referencePriceLabel} onChange={(e) => setField(extra.id, 'referencePriceLabel', e.target.value)} disabled={!canManageCommercial} className="mt-1 w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 disabled:opacity-50" />
                   </label>

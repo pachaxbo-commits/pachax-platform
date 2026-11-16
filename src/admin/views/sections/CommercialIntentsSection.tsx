@@ -24,6 +24,26 @@ interface CommercialIntent {
   requestedExtraSnapshots?: Array<{ id: string; title?: string; pricingType?: string }>
 }
 
+interface InitialPaymentInstructions {
+  contractId: string
+  chargeId: string
+  status: string
+  customer: { companyName: string; contactName: string; email: string }
+  templateId: string
+  planName: string
+  currency: string
+  amountMinor: number
+  paidMinor: number
+  pendingMinor: number
+  outstandingMinor: number
+  dueAt?: { seconds?: number; _seconds?: number; toDate?: () => Date } | string | null
+  billingCycle: string
+  monthsCovered: number
+  lineItems: Array<{ kind: string; title: string; amountMinor: number }>
+  paymentMethods: null | { qrEnabled: boolean; qrImageUrl: string; qrImageDataUrl?: string; transferEnabled: boolean; transferCurrency?: string; bankName: string; accountHolder: string; accountIdentifier: string; instructions: string; whatsappNumber: string }
+  paymentNotice: string
+}
+
 const INTAKE_TEMPLATES = [
   ['restaurant', 'Restaurante con salón'], ['distribution', 'Distribución'], ['nightclub', 'Nightclub / Lounge'],
   ['hamburger', 'Restaurante Rápido'], ['retail', 'Comercio / Venta rápida'],
@@ -58,6 +78,8 @@ export function CommercialIntentsSection() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [paymentInstructions, setPaymentInstructions] = useState<InitialPaymentInstructions | null>(null)
+  const [instructionsLoading, setInstructionsLoading] = useState(false)
 
   const selected = intents.find((intent) => intent.id === selectedId) || null
   const selectablePlans = config.plans.filter(plan => plan.templateId === intake.templateId && plan.status === 'published'
@@ -175,6 +197,18 @@ export function CommercialIntentsSection() {
     finally { setSaving(false) }
   }
 
+  const loadPaymentInstructions = async () => {
+    if (!selected?.contractId) return
+    setInstructionsLoading(true); setError(''); setPaymentInstructions(null)
+    try {
+      const result = await gateway<InitialPaymentInstructions>('platformGateway', {
+        action: 'getCommercialInitialPaymentInstructions', contractId: selected.contractId,
+      })
+      setPaymentInstructions(result)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudieron preparar las instrucciones de pago.') }
+    finally { setInstructionsLoading(false) }
+  }
+
   const updateStatus = async () => {
     if (!selected) return
     setSaving(true)
@@ -233,6 +267,7 @@ export function CommercialIntentsSection() {
                 {intents.map((intent) => (
                   <li key={intent.id}>
                     <button type="button" onClick={() => {
+                      setPaymentInstructions(null)
                       setSelectedId(intent.id)
                       setNextStatus(['new', 'contacted', 'qualified', 'closed'].includes(intent.status) ? intent.status as 'new' | 'contacted' | 'qualified' | 'closed' : 'new')
                       setImplementation(String(intent.proposal?.implementationOneTime ?? ''))
@@ -271,7 +306,7 @@ export function CommercialIntentsSection() {
             <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-800">{selected.needs || 'No se registraron necesidades adicionales.'}</p>
             {selected.requestedExtraSnapshots?.length ? <p className="mt-2 text-xs text-slate-700">Extras solicitados: {selected.requestedExtraSnapshots.map(extra => extra.title || extra.id).join(', ')}</p> : null}
             {selected.planSnapshot && <p className="mt-3 text-xs text-slate-700">Plan consultado: {selected.planSnapshot.name || selected.planSnapshot.planId} · {selected.planSnapshot.monthlyPrice} {selected.planSnapshot.currency}/mes (referencia guardada)</p>}
-            {selected.contractId && <p className="mt-2 rounded bg-emerald-50 p-2 text-xs text-emerald-900">Contrato: {selected.contractId}. Consulta cargos y pagos en Facturación.</p>}
+            {selected.contractId && <div className="mt-2 rounded bg-emerald-50 p-2 text-xs text-emerald-900"><p>Contrato: {selected.contractId}. Consulta cargos y pagos en Facturación.</p><button type="button" disabled={instructionsLoading} onClick={() => void loadPaymentInstructions()} className="mt-2 rounded border border-emerald-800 px-3 py-2 text-xs font-bold disabled:opacity-50">{instructionsLoading ? 'Consultando cargo…' : 'Vista previa de instrucciones del primer pago'}</button><p className="mt-1">Solo aparece un cargo pendiente vigente. La vista requiere esta sesión de Administración; no crea enlaces públicos.</p></div>}
             <div className="mt-4 flex flex-col gap-2 sm:flex-row">
               <label className="flex-1 text-xs font-semibold text-slate-800">Estado de seguimiento<select value={nextStatus} onChange={(event) => setNextStatus(event.target.value as typeof nextStatus)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="new">Nueva</option><option value="contacted">Contactada</option><option value="qualified">Calificada</option><option value="closed">Cerrada</option></select></label>
               <button type="button" disabled={saving || nextStatus === selected.status} onClick={() => void updateStatus()} className="self-end rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 disabled:opacity-50">Actualizar estado</button>
@@ -315,6 +350,34 @@ export function CommercialIntentsSection() {
           </>}
         </div>
       </div>
+      {paymentInstructions && <div role="dialog" aria-modal="true" aria-labelledby="initial-payment-title" className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) setPaymentInstructions(null) }}>
+        <style>{`@media print { body * { visibility: hidden !important; } #commercial-initial-payment-document, #commercial-initial-payment-document * { visibility: visible !important; } #commercial-initial-payment-document { position: fixed !important; inset: 0 !important; z-index: 999999 !important; width: 100% !important; max-height: none !important; overflow: visible !important; margin: 0 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; } .commercial-payment-document-actions { display: none !important; } }`}</style>
+        <article id="commercial-initial-payment-document" className="max-h-[94dvh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-5 text-slate-950 shadow-2xl sm:rounded-2xl sm:p-8">
+          <div className="commercial-payment-document-actions mb-5 flex justify-end gap-2"><button type="button" onClick={() => window.print()} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white">Imprimir / guardar como PDF</button><button type="button" onClick={() => setPaymentInstructions(null)} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cerrar</button></div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Instrucciones privadas · cargo inicial</p>
+          <h2 id="initial-payment-title" className="mt-1 text-2xl font-bold">Información para el primer pago</h2>
+          <p className="mt-2 text-sm text-slate-600">Documento comercial de cobro, no es factura fiscal ni confirma que el pago fue recibido.</p>
+          <dl className="mt-5 grid grid-cols-1 gap-3 rounded-xl border p-4 text-sm sm:grid-cols-2"><div><dt className="text-xs text-slate-500">Empresa interesada</dt><dd className="font-semibold">{paymentInstructions.customer.companyName}</dd></div><div><dt className="text-xs text-slate-500">Contacto</dt><dd className="font-semibold">{paymentInstructions.customer.contactName} · {paymentInstructions.customer.email}</dd></div><div><dt className="text-xs text-slate-500">Plantilla</dt><dd className="font-semibold">{paymentInstructions.templateId}</dd></div><div><dt className="text-xs text-slate-500">Plan o acuerdo</dt><dd className="font-semibold">{paymentInstructions.planName}</dd></div><div><dt className="text-xs text-slate-500">Referencia del cargo</dt><dd className="font-mono text-xs">{paymentInstructions.chargeId}</dd></div><div><dt className="text-xs text-slate-500">Fecha límite</dt><dd className="font-semibold">{formatInstructionDate(paymentInstructions.dueAt)}</dd></div><div><dt className="text-xs text-slate-500">Total inicial</dt><dd className="font-semibold">{currencyLabel(paymentInstructions.amountMinor, paymentInstructions.currency)}</dd></div><div><dt className="text-xs text-slate-500">Saldo pendiente</dt><dd className="font-bold">{currencyLabel(paymentInstructions.outstandingMinor, paymentInstructions.currency)}</dd></div><div><dt className="text-xs text-slate-500">Período contratado</dt><dd className="font-semibold">{paymentInstructions.monthsCovered} meses · {paymentInstructions.billingCycle}</dd></div></dl>
+          <h3 className="mt-5 font-bold">Conceptos del cargo</h3><ul className="mt-2 divide-y rounded-xl border px-4">{paymentInstructions.lineItems.map((item, index) => <li key={`${item.kind}-${index}`} className="flex justify-between gap-3 py-2 text-sm"><span>{item.title || item.kind}</span><span>{currencyLabel(item.amountMinor, paymentInstructions.currency)}</span></li>)}</ul>
+          {!paymentInstructions.paymentMethods && <p className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">No hay un método de cobro aprobado y disponible. No envíes este documento al cliente todavía.</p>}
+          {paymentInstructions.paymentMethods?.qrEnabled && (paymentInstructions.paymentMethods.qrImageDataUrl || paymentInstructions.paymentMethods.qrImageUrl) && <div className="mt-5 rounded-xl border p-4"><h3 className="font-bold">QR aprobado</h3><img src={paymentInstructions.paymentMethods.qrImageDataUrl || paymentInstructions.paymentMethods.qrImageUrl} alt="QR de cobro aprobado" referrerPolicy="no-referrer" className="mt-2 h-48 w-48 rounded border object-contain" /></div>}
+          {paymentInstructions.paymentMethods?.transferEnabled && <div className="mt-5 rounded-xl border p-4 text-sm"><h3 className="font-bold">Transferencia · {paymentInstructions.paymentMethods.transferCurrency}</h3><p className="mt-2">Entidad: {paymentInstructions.paymentMethods.bankName}</p><p>Titular: {paymentInstructions.paymentMethods.accountHolder}</p><p>Identificador: {paymentInstructions.paymentMethods.accountIdentifier}</p></div>}
+          {paymentInstructions.paymentMethods?.instructions && <p className="mt-4 whitespace-pre-wrap text-sm">{paymentInstructions.paymentMethods.instructions}</p>}
+          <p className="mt-5 rounded-lg bg-slate-50 p-3 text-sm font-medium">{paymentInstructions.paymentNotice}</p>
+        </article>
+      </div>}
     </section>
   )
+}
+
+function formatInstructionDate(value: InitialPaymentInstructions['dueAt']) {
+  const date = typeof value === 'object' && value && 'toDate' in value && typeof value.toDate === 'function'
+    ? value.toDate()
+    : typeof value === 'object' && value ? new Date(((value.seconds ?? value._seconds) || 0) * 1000)
+      : value ? new Date(value) : null
+  return date && Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('es-BO', { timeZone: 'America/La_Paz', dateStyle: 'medium' }).format(date) : '—'
+}
+
+function currencyLabel(minor: number, currency: string) {
+  return `${currency} ${(minor / 100).toFixed(2)}`
 }
