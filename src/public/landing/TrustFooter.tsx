@@ -19,7 +19,7 @@ export function TrustFooter() {
     <footer className="pachax-trust-footer">
       <div className="pachax-footer-main">
         <div className="pachax-footer-brand">
-          <BrandMark size="sm" variant="light" href="/" />
+          <BrandMark size="sm" variant="dark" href="/" />
           <p>Plataforma para gestionar operaciones reales.</p>
         </div>
 
